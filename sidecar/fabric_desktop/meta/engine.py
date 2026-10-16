@@ -602,7 +602,9 @@ class Engine:
 
     def _write_once(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> None:
         t0 = time.perf_counter()
-        existing = self.read_entity(e.name)
+        # The version read is the one the commit is made against: if another writer (the app, an
+        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
+        existing, read_version = self.store.read_at(self.lakehouse(e), e.schema, e.table)
         if existing is not None and df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay"):
             self._step(res, "write", t0, existing.height, "nothing new to write")
             return
@@ -631,7 +633,7 @@ class Engine:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
         version = self.store.write(self.lakehouse(e), e.schema, e.table, out, mode="overwrite", metadata={
             "fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
-            "fabric_desktop_logic": self.project.fingerprint(e)})
+            "fabric_desktop_logic": self.project.fingerprint(e)}, read_version=read_version)
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:

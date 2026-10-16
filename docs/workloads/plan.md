@@ -334,13 +334,13 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: Monitor merges four sources but normalizes only the pill. Enhancement: per-workload runs normalized with native status, native link and source kept; uses `ran_on`/`job_id` from PR #58 when present. Validation: U. PR: —
 
 **43. Reliability objectives** · Enhance · Stage 2.2
-- Today: freshness promises. Enhancement: success rate and completion-time objectives with documented evaluation. Validation: U. PR: stage 2 incidents PR (success rate; completion time is freshness `by`)
+- Today: freshness promises. Enhancement: success rate and completion-time objectives with documented evaluation. Validation: U. PR: #74 (success rate; completion time is freshness `by`)
 
 **44. Always-on health evaluation** · Missing · Stage 2.1
-- Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: stage 2 incidents PR (agent timer, opt-in; app on request)
+- Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: #74 (agent timer, opt-in; app on request)
 
 **45. Incident lifecycle** · Missing · Stage 2.1, 2.3
-- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: stage 2 incidents PR (engine and RPCs; screens in 2.3)
+- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs; screens in 2.3)
 
 **46. Alert correlation** · Missing · Stage 2.3, Stage 6
 - Enhancement: group symptoms by shared upstream, environment or location, saying "likely" and listing evidence. Validation: U. PR: —

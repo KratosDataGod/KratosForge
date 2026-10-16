@@ -17,7 +17,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | `claude/workload-management-plan-4su03b` | #60 | This plan and note | Merged |
 | `claude/workload-inventory-4su03b` | #63 | Stage 1 PR 1A: engine, RPCs, tests | Merged |
 | `claude/workload-ui-4su03b` | #72 | Stage 1 PR 1B: Monitor > Workloads, workload page, Home card, guide | Draft |
-| `claude/workload-incidents-4su03b` | see plan.md | Stage 2.1/2.2: incident log, evaluation on the agent and in the app, Teams outbox, objectives | Open |
+| `claude/workload-incidents-4su03b` | #74 | Stage 2.1/2.2: incident log, evaluation on the agent and in the app, Teams outbox, objectives | Open |
 
 The incidents PR and #72 touch different files except this note and plan.md; whichever merges second takes both sets of rows.
 

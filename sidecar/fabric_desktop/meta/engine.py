@@ -22,7 +22,7 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
-from .store import LANDING_LAKEHOUSE, Store, read_table_uri
+from .store import LANDING_LAKEHOUSE, Store, read_table_uri, scan_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -159,8 +159,13 @@ class Engine:
     def __init__(self, project: Project, store: Store, load_date: dt.date | None = None,
                  keys_store: Store | None = None, source_options: Callable[[], dict[str, str] | None] | None = None,
                  table_lock: Callable[[Entity], AbstractContextManager[Any]] | None = None,
-                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None):
+                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None,
+                 merge_writes: bool = True):
         self.project, self.store = project, store
+        # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
+        # rewrites only the files they touch. False always reads the whole table and overwrites it,
+        # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).
+        self.merge_writes = merge_writes
         # Where a link ([source] link = "alias") points in this environment: another team's table.
         self.link_table = link_table or self._no_links
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
@@ -192,7 +197,10 @@ class Engine:
 
     def read_source_table(self, uri: str) -> pl.DataFrame | None:
         """An existing Delta table the entity loads from: an adopted lakehouse table, read as it is."""
-        return read_table_uri(uri, self.source_options() if uri.startswith(("abfss://", "https://")) else None)
+        return read_table_uri(uri, self._uri_options(uri))
+
+    def _uri_options(self, uri: str) -> dict[str, str] | None:
+        return self.source_options() if uri.startswith(("abfss://", "https://")) else None
 
     # ---- batches
 
@@ -319,22 +327,30 @@ class Engine:
         else:
             if "table" in src or "link" in src:
                 uri = src["table"] if "table" in src else self.link_table(src["link"])
-                df = self.read_source_table(uri)
-                if df is None:
+                lf = scan_table_uri(uri, self._uri_options(uri))
+                if lf is None:
                     what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
                     raise CheckStop(f"the source table {what} doesn't exist")
             else:
-                df = self.read_entity(src["entity"])
-                if df is None:
+                up = self.project.entities[src["entity"]]
+                lf = self.store.scan(self.lakehouse(up), up.schema, up.table)
+                if lf is None:
                     raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
-            df = df.drop([c for c in SYSTEM_COLUMNS if c in df.columns])
+            # The filter and the column list go into the scan, so only the files and columns this run
+            # needs are read: an incremental run of a large table reads its new rows, not all of it.
+            names = lf.collect_schema().names()
             detail = "full"
             wm_col = e.spec.get("load", {}).get("watermark")
             if e.mode == "incremental" and wm_col and not full:
                 wm = self._watermark(e)
-                if wm is not None and wm_col in df.columns:
-                    df = df.filter(pl.col(wm_col) > _wm_literal(wm, df.schema[wm_col]))
+                if wm is not None and wm_col in names:
+                    lf = lf.filter(pl.col(wm_col) > _wm_literal(wm, lf.collect_schema()[wm_col]))
                     detail = f"incremental, {wm_col} after {wm}"
+            keep = self._source_columns(e, names)
+            total = len([c for c in names if c not in SYSTEM_COLUMNS])
+            if len(keep) < total:
+                detail += f"; read {plural(len(keep), 'column')} of {total}"
+            df = lf.select(keep).collect()
         renames = {k: v for k, v in src.get("rename", {}).items() if k in df.columns}
         if renames:  # columns the source renamed, mapped back to the names the contract uses
             df = df.rename(renames)
@@ -343,11 +359,9 @@ class Engine:
         self._step(res, "read", t0, df.height, detail)
         return df
 
-    def _contract_in(self, e: Entity, df: pl.DataFrame, res: RunResult) -> pl.DataFrame:
-        t0 = time.perf_counter()
-        policy = e.spec.get("contract", {}).get("drift") or self.project.layer(e.layer).drift
+    def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
+        """The source columns the contract expects, and those this entity uses."""
         own = set(e.columns) | set(e.derived) | set(e.hook_adds)
-        self._evolved = []
         src = e.spec.get("source", {})
         if "entity" in src:
             up = self.project.entities[src["entity"]]
@@ -358,9 +372,27 @@ class Engine:
         exprs = set()
         for d in e.spec.get("derive", []):
             exprs |= set(pl.sql_expr(d["expr"]).meta.root_names())
-        new = [c for c in df.columns if c not in expected]
         bks = {c for k in keys_mod.entity_keys(e) for c in k["business_key"]}
-        needed = own | lookups | exprs | bks | (set(df.columns) if e.spec.get("step") else set())
+        needed = own | lookups | exprs | bks | (set(columns) if e.spec.get("step") else set())
+        return expected, needed
+
+    def _source_columns(self, e: Entity, columns: list[str]) -> list[str]:
+        """The columns of a source table worth reading: never system columns, and from another entity
+        only what this one uses, plus any column its contract doesn't know (drift is still seen)."""
+        columns = [c for c in columns if c not in SYSTEM_COLUMNS]
+        src = e.spec.get("source", {})
+        if "entity" not in src or src.get("rename"):
+            return columns
+        expected, needed = self._expected_needed(e, columns)
+        return [c for c in columns if c in needed or c not in expected]
+
+    def _contract_in(self, e: Entity, df: pl.DataFrame, res: RunResult) -> pl.DataFrame:
+        t0 = time.perf_counter()
+        policy = e.spec.get("contract", {}).get("drift") or self.project.layer(e.layer).drift
+        self._evolved = []
+        src = e.spec.get("source", {})
+        expected, needed = self._expected_needed(e, df.columns)
+        new = [c for c in df.columns if c not in expected]
         if "entity" in src:
             df = df.select([c for c in df.columns if c in needed or c in new])
         missing = [c for c in e.columns if c not in df.columns and c not in e.derived and c not in e.hook_adds
@@ -600,15 +632,64 @@ class Engine:
                     raise
                 time.sleep(0.5 * attempt)
 
+    def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
+        """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or
+        "" with the reason the table has to be read and rewritten instead."""
+        if not self.merge_writes:
+            return "", ""
+        if e.mode in ("scd1", "scd2"):
+            return "", ""  # dimensions need their current rows to version and key the new ones
+        if not (backfill == "replay" or (e.mode == "incremental" and backfill != "full")):
+            return "", ""  # a full load or a rebuild replaces the table anyway
+        target = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        if target is None:
+            return "", ""
+        have = target.collect_schema()
+        changed = [f"{c} {have[c]} to {t}" for c, t in df.schema.items() if c in have and have[c] != t]
+        if changed:
+            return "", f"rewrote the table because column types changed ({', '.join(changed)})"
+        if not e.keys:
+            return "append", ""
+        if df.select(e.keys).is_duplicated().any():
+            return "", f"rewrote the table because new rows repeat a key ({', '.join(e.keys)})"
+        return "upsert", ""
+
+    def _write_merged(self, e: Entity, df: pl.DataFrame, how: str, backfill: str | None,
+                      metadata: dict[str, str]) -> tuple[int, str]:
+        lh = self.lakehouse(e)
+        have = self.store.scan(lh, e.schema, e.table).collect_schema()
+        # A column the table has and the rows don't is null in them, as when the table was rewritten.
+        df = df.with_columns([pl.lit(None, dtype=t).alias(c) for c, t in have.items() if c not in df.columns])
+        what = "replayed" if backfill == "replay" else ("merged" if how == "upsert" else "appended")
+        if how == "append":
+            version = self.store.write(lh, e.schema, e.table, df, mode="append", metadata=metadata)
+            return version, f"{what} {plural(df.height, 'row')} (Delta append, no files rewritten)"
+        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata)
+        removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
+        return version, (f"{what} {plural(df.height, 'row')} on {', '.join(e.keys)}: "
+                         f"{m.get('num_target_rows_updated', 0)} updated, {m.get('num_target_rows_inserted', 0)} new "
+                         f"(Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
+
     def _write_once(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> None:
         t0 = time.perf_counter()
-        # The version read is the one the commit is made against: if another writer (the app, an
-        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
-        existing, read_version = self.store.read_at(self.lakehouse(e), e.schema, e.table)
-        if existing is not None and df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay"):
-            self._step(res, "write", t0, existing.height, "nothing new to write")
+        lh = self.lakehouse(e)
+        if df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
+                and self.store.exists(lh, e.schema, e.table):
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), "nothing new to write")
             return
         df = df.with_columns(pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at"))
+        metadata = {"fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
+                    "fabric_desktop_logic": self.project.fingerprint(e)}
+        how, why = self._merge_plan(e, df, backfill)
+        if how:
+            version, info = self._write_merged(e, df, how, backfill, metadata)
+            self._advance_watermark(e, df, backfill)
+            res.rows_written, res.delta_version = df.height, version
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
+            return
+        # The version read is the one the commit is made against: if another writer (the app, an
+        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
+        existing, read_version = self.store.read_at(lh, e.schema, e.table)
         if e.mode == "scd1":
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
@@ -631,16 +712,20 @@ class Engine:
             info = f"rebuilt: {df.height} rows from the full source"
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
-        version = self.store.write(self.lakehouse(e), e.schema, e.table, out, mode="overwrite", metadata={
-            "fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
-            "fabric_desktop_logic": self.project.fingerprint(e)}, read_version=read_version)
+        if why:
+            info = f"{info}; {why}"
+        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
+                                   read_version=read_version)
+        self._advance_watermark(e, df, backfill)
+        res.rows_written, res.delta_version = df.height, version
+        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
+
+    def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> None:
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:
             self.store.meta_append("watermarks", [{"entity": e.name, "value": _wm_text(df[wm_col].max()),
                                                    "run_id": self.run_id}])
-        res.rows_written, res.delta_version = df.height, version
-        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
 
     def _migrate(self, e: Entity, res: RunResult) -> None:
         t0 = time.perf_counter()

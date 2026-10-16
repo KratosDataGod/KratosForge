@@ -29,6 +29,7 @@ nav = [
     { "User guide" = "user-guide.md" },
     { "Notebooks and SQL" = "notebooks.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
+    { "How a proof works" = "prove/how-proofs-work.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },

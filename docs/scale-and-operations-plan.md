@@ -1,6 +1,6 @@
 # Scale and operations plan
 
-How Fabric Desktop grows from "runs on my PC" to "runs large tables, takes work from Fabric pipelines and is watched around the clock". It covers ten capabilities Chris asked for on 2026-10-16. Six are planned here; four belong to the notebook program and are only cross-referenced.
+How Fabric Desktop grows from "runs on my PC" to "runs large tables, ingests sources, releases from Git and takes work from Fabric pipelines". It covers ten capabilities Chris asked for on 2026-10-16. Five are planned here; the other five belong to two sister programs and are only cross-referenced.
 
 Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests passing on Linux). Nothing here has run against a live Fabric tenant unless it says so.
 
@@ -16,10 +16,12 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial (agent built, no mailbox) | This plan | Stage 7.1 |
 | 8 | Cross-project lineage and product compatibility | Partial (products, links, consumers) | This plan | Stage 8.1 |
-| 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | This plan | Stage 9.1 |
+| 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3): [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
-Capabilities 2, 3, 6 and 10, and the run receipt that records what ran, are owned by the **Prove this notebook** program, which keeps its own plan in `docs/prove/plan.md` ([PR #55](https://github.com/KratosDataGod/fabric-desktop/pull/55)). Its findings for them are summarised under [Owned elsewhere](#owned-elsewhere) so this page stays complete; its plan is the source of truth.
+Capabilities 2, 3, 6 and 10, and the run receipt that records what ran, are owned by the **Prove this notebook** program, which keeps its own plan in `docs/prove/plan.md` ([PR #55](https://github.com/KratosDataGod/fabric-desktop/pull/55)).
+
+Capability 9 (monitoring and incidents) and the desktop views for agent availability, execution locations, queues, release inventory, readiness and impact belong to the **Workload management** program. This plan delivers the records those views read: the pipeline job contract and agent status files (7.1), release records (5.1) and lineage and contract data (8.x), each in a documented shape. Its findings for them are summarised under [Owned elsewhere](#owned-elsewhere) so this page stays complete; its plan is the source of truth.
 
 ## Assessment
 
@@ -66,7 +68,7 @@ What exists: data products with ports, status draft, published or deprecated and
 
 Gaps: no column-level lineage; promote never checks a producer's change against its consumers' declared columns; product `version` is a free integer with no schema history, compatibility ranges or breaking-change classification; deprecation sends nothing and enforces nothing.
 
-### 9. Always-on monitoring and incident handling: partial
+### 9. Always-on monitoring and incident handling: partial (owned by the Workload management program)
 
 What exists: freshness promises and status (`meta/freshness.py`), Teams alerts with send-once dedup kept in a per-PC `freshness_alerts.json` (`dataops_service.py` `meta_freshness`), the agent's own job-failure alert (`agent.py`), the late-landing-file flag, and run correlation fields `worker`, `host`, `attempt`, `job_id` in `run_log`.
 
@@ -86,7 +88,7 @@ Gaps: freshness is only evaluated while the desktop app is open (`app/ui/dataops
 | Foundation | Used by | Owner and state |
 | --- | --- | --- |
 | **Version-checked commits on every write path** (the desktop app and Fabric runs included) and the Windows lease-read fix in `leases.py` | 1, 4, 7, 9 | The "Honest review" thread, [PR #54](https://github.com/KratosDataGod/fabric-desktop/pull/54). Stage 1.1 and #54 both change `Engine._write_once`; whichever merges second takes the other in, and the rewrite fallback in 1.1 then commits against the version it read. No stage here changes `leases.py`. |
-| **Control files in LH_Meta** (`Files/_fabric_desktop/`): one place for agent heartbeats, pipeline requests, results, cancel markers and incident state, written with the conditional requests `leases.py` already uses | 7, 9 | This plan, stage 7.1. Needs live check FD-2 (conditional requests on OneLake). |
+| **Control files in LH_Meta** (`Files/_fabric_desktop/`): one place for agent heartbeats, pipeline requests, results and cancel markers, written with the conditional requests `leases.py` already uses; the Workload management program reads them | 7, 9 | This plan, stage 7.1. Needs live check FD-2 (conditional requests on OneLake). |
 | **Run receipt**: what ran (code, config, dependencies, engine, inputs) | 3, 5 | Notebook program owns the schema; stage 5.1 records promotions with it rather than inventing a second format. |
 | **Scan-based reads** (`Store.scan`, `scan_table_uri`) and **MERGE writes** (`Store.upsert`) | 1, 4, 8 | Stage 1.1. |
 | **Code signing, a tenant smoke test** | every live claim | Chris (signing account) and the review thread. Until then everything new is Preview. |
@@ -115,19 +117,21 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
 
-### Capability 9: always-on monitoring
+### Capability 9: always-on monitoring (moved to the Workload management program)
+
+Kept for the record; that program's plan is the source of truth and supersedes 9.1 and 9.2 below. 9.3 was built here before the move ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)).
 
 **9.1 Freshness and incidents on the agent.** Effort M, risk low. The agent evaluates freshness promises on a timer (same `meta/freshness.py` rules), and incidents become rows in `meta.incidents` (key, entity, environment, kind, opened, last seen, count, acknowledged by, resolved) instead of a per-PC JSON file. One Teams message when an incident opens, one when it recovers, a digest instead of a flood when more than a set number open at once. The desktop app reads the same table, so both never alert twice. Acceptance: tests for dedup across two evaluators, recovery, storm digest, and network loss (alerts queue in the agent's SQLite and go out marked delayed). Migration: open entries in `freshness_alerts.json` are imported once.
 
 **9.2 Heartbeats, acknowledgement and escalation.** Effort M, risk medium. The agent writes a heartbeat file to the control area; a missing heartbeat opens an incident (raised by any other agent or the desktop app). Acknowledge from the Monitor page; an unacknowledged incident escalates to a second webhook after a set time. Depends on 9.1 and the control-file foundation.
 
-**9.3 Correlate local and Fabric runs.** Effort S, risk low. The Fabric runner passes its request id and job instance into `run_log` through `run_context`, and Monitor shows where each run ran (PC, agent and host, or Fabric job). Independent; can go any time.
+**9.3 Correlate local and Fabric runs: built, [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58).** Effort S, risk low. The Fabric runner passes its request id and job instance into `run_log` through `run_context`, and Monitor shows where each run ran (PC, agent and host, or Fabric job). Independent; can go any time.
 
 ### Capability 7: pipeline handoff
 
 **7.1 Request mailbox and status contract (FD-13).** Effort L, risk medium (needs FD-2 live). A Fabric pipeline writes `requests/<id>.json` to `LH_Meta/Files/_fabric_desktop/` (a notebook or Copy activity); the agent claims it with a conditional create, enqueues it with the request id as the dedupe key, writes `status/<id>.json` (accepted, running, succeeded, failed, cancelled, rejected with reason), honours `cancel/<id>` markers, and expires requests past their deadline. Authorization: who can write the folder is governed by OneLake permissions on LH_Meta; the agent also checks an allowlist of environments and entities in `agent.toml` and records the submitter (from the file's owner property, if OneLake returns it: to verify). No inbound port. A sample pipeline (Until loop over a Lookup of the status file) ships in `examples/`. Acceptance: tests for duplicate, malformed, expired, cancelled and crashed-mid-run requests; documented contract version.
 
-**7.2 Agent availability and queue in the app.** Effort M, risk low. The Monitor page shows each agent (last heartbeat, version, jobs running and queued) from the control files, read-only. Mockup first. Depends on 7.1 and 9.2's heartbeat.
+**7.2 Agent status records.** Effort S, risk low. Each agent writes `agents/<name>.json` in the control area on every loop (version, host, last heartbeat, jobs running, queued, dead), in a documented, versioned shape. The desktop panels that show it belong to the Workload management program. Depends on 7.1.
 
 **7.3 Multiple workers (FD-12).** Deferred until 7.1 has run on a tenant.
 
@@ -157,15 +161,14 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 ## Delivery sequence
 
-1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review).
-2. **9.3** run correlation (small, independent) and **9.1** freshness and incidents on the agent.
-3. **1.2** dimensions and **1.3** preflight.
-4. **7.1** pipeline mailbox, once FD-2 (conditional requests on OneLake) is checked; then **9.2** and **7.2**.
-5. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
-6. **1.4** landing manifest, then **4.1** once D2 is answered.
-7. **1.5**, **5.3**, **8.2**, **8.3**, **4.2**, **4.3**, **7.3**.
+1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review) and **9.3** run correlation ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58), in review).
+2. **1.2** dimensions (stacked on 1.1), then **1.3** preflight.
+3. **7.1** pipeline job contract and **7.2** agent status records, built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
+4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
+5. **1.4** landing manifest, then **4.1** once D2 is answered.
+6. **1.5**, **5.3**, **8.2**, **8.3**, **4.2**, **4.3**, **7.3**.
 
-Monitoring comes before the pipeline mailbox because an agent that takes pipeline work needs to be watched first, and both reuse the same control files. Git comes after the receipt schema so promotions and proofs share one record.
+Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
 
 ## Decisions needed
 
@@ -191,4 +194,5 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56)). |

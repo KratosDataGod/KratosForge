@@ -48,7 +48,8 @@ When something goes wrong, Fabric Desktop says what happened in a sentence and k
 | "This notebook can't run in Fabric yet" | No lakehouse is attached, or a cell reads a path on your PC like `C:\data`. | Attach a lakehouse, or read the file from the lakehouse's `Files`. |
 | A `%pip install` line is skipped | The engine's packages are fixed. | Use the packages the engine has (Polars, DuckDB, pandas, pyarrow, deltalake and more), or run the notebook in Fabric. |
 | Writing a table says it is managed by the framework | The table belongs to a metadata entity. | Change the entity instead, or write to a `scratch_` table. |
-| **Cancel** doesn't stop a cell | The code is stuck inside a library call that can't be interrupted. | **Restart kernel**. Variables are cleared. |
+| **Cancel** doesn't stop a cell | The code is stuck inside a library call that can't be interrupted. | **Restart kernel**. Variables are cleared. With **Run notebooks in their own process** on (Settings), this ends only the notebook's process; otherwise it restarts the app's engine. |
+| A cell ends with "The notebook's Python process stopped (exit code ...)" | With notebooks in their own process, the cell's code (or a library it called) ended the process. | Run the cell again: it starts a fresh process, so run earlier cells first. |
 | A SQL query fails on a Spark-only feature | Not every Spark SQL function has a DuckDB match. | The error names the part it couldn't run. Rewrite that part, or run the query in Fabric. |
 
 ## Metadata

@@ -12,6 +12,7 @@ Last updated: 2026-10-16.
 | 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
 | 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
+| 4 Kernel process | `claude/prove-stage4-kernels` | STAGE4 | Open for review; stacked on #65 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -41,6 +42,7 @@ None yet.
 - main at af11938: engine tests 322 passed, 2 skipped (Linux, Python 3.13).
 - #59: 337 passed, 2 skipped; UI tests pass.
 - Stage 2: 353 passed, 2 skipped; UI tests pass; docs build strict.
+- Stage 4: 372 passed, 2 skipped. With the setting on (LOCALAPPDATA app-settings), agent, schedule and side-by-side tests pass except two side-by-side tests that monkeypatch the lakehouse module in the engine process, which the kernel's process doesn't see (a test limitation).
 - Stage 3: 366 passed, 2 skipped; 6 UI tests pass; docs build strict; panel, dialogs and wizard rendered in headless Chromium against a real proof record (engine calls stubbed in the browser). The Fabric side was exercised by running the exact published notebook in a subprocess with a fake `notebookutils`, not on a tenant.
 
 ## Blockers
@@ -50,4 +52,4 @@ None yet.
 
 ## Next action
 
-When Chris reacts to the mockup, apply his changes to stage 3 and mark it ready. Then stage 4 (process-isolated kernels and an RPC timeout), on `claude/prove-stage4-kernels`, stacked on stage 3. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Stage 4 remaining: RPC timeouts in the Tauri shell (a timed-out call has to end the engine, because its answer would still arrive on the pipe), and per-profile virtual environments for environment profiles (needs Chris's decision on where packages come from). Then stage 5 (debugging and notebook state) on `claude/prove-stage5-state`. When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

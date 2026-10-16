@@ -69,6 +69,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Side by side (this PC vs Fabric) and the TPC-H benchmark | Notebook ribbon |
 | Prove this notebook (isolated PC vs Fabric runs, verification, receipts) | Notebook ribbon |
 | New notebook from a template | Create |
+| Run notebooks in their own process | Settings > Preview features |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |

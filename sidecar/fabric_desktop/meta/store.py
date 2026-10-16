@@ -67,20 +67,29 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
 
 
-def _scan(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.LazyFrame | None:
-    """The table (at ``version``, default the latest) as a LazyFrame, so a filter or column list is
-    applied while reading: files whose statistics rule them out are skipped and unused columns are
-    never loaded."""
+def open_table(uri: str, options: dict[str, str] | None, version: int | None = None) -> DeltaTable | None:
+    """The Delta table (its log, not its data), or None when there is none."""
     try:
-        table = DeltaTable(uri, storage_options=options, version=version)
+        return DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
+
+
+def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
+    """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
+    statistics rule them out are skipped and unused columns are never loaded."""
     if options is None and "://" not in uri:
         # On this PC Polars reads the files itself and skips them by their Delta statistics.
         return pl.scan_delta(table)
     # In OneLake, read through delta-rs's own file system (the one every other read uses), which
     # still pushes the filter and the column list down to the Parquet files.
     return pl.scan_pyarrow_dataset(table.to_pyarrow_dataset())
+
+
+def _scan(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.LazyFrame | None:
+    """The table (at ``version``, default the latest) as a LazyFrame (see lazy); None when there's none."""
+    table = open_table(uri, options, version)
+    return None if table is None else lazy(table, uri, options)
 
 
 scan_table_uri = _scan
@@ -125,6 +134,11 @@ class Store:
     def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
         """The table to filter and select from before reading it (see _scan); None when there's none."""
         return _scan(self.uri(lakehouse, schema, table), self.options(), version)
+
+    def table(self, lakehouse: str, schema: str, table: str) -> tuple[DeltaTable | None, str, dict[str, str] | None]:
+        """The Delta table with its address and storage options, for :func:`lazy` and the preflight."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        return open_table(uri, options), uri, options
 
     def exists(self, lakehouse: str, schema: str, table: str) -> bool:
         return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())

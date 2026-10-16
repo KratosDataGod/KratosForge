@@ -22,7 +22,8 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
-from .store import LANDING_LAKEHOUSE, Store, read_table_uri, scan_table_uri
+from . import preflight
+from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -193,6 +194,9 @@ class Engine:
         # rewrites only the files they touch. False always reads the whole table and overwrites it,
         # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).
         self.merge_writes = merge_writes
+        # Before reading a Delta source, estimate the read from its log and stop a read that can't
+        # fit in this machine's free memory (preflight.py). None for the free memory skips the check.
+        self.available_memory: Callable[[], int | None] = preflight.available_memory
         # Where a link ([source] link = "alias") points in this environment: another team's table.
         self.link_table = link_table or self._no_links
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
@@ -352,31 +356,11 @@ class Engine:
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
-            if "table" in src or "link" in src:
-                uri = src["table"] if "table" in src else self.link_table(src["link"])
-                lf = scan_table_uri(uri, self._uri_options(uri))
-                if lf is None:
-                    what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
-                    raise CheckStop(f"the source table {what} doesn't exist")
-            else:
-                up = self.project.entities[src["entity"]]
-                lf = self.store.scan(self.lakehouse(up), up.schema, up.table)
-                if lf is None:
-                    raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
-            # The filter and the column list go into the scan, so only the files and columns this run
-            # needs are read: an incremental run of a large table reads its new rows, not all of it.
-            names = lf.collect_schema().names()
-            detail = "full"
-            wm_col = e.spec.get("load", {}).get("watermark")
-            if e.mode == "incremental" and wm_col and not full:
-                wm = self._watermark(e)
-                if wm is not None and wm_col in names:
-                    lf = lf.filter(pl.col(wm_col) > _wm_literal(wm, lf.collect_schema()[wm_col]))
-                    detail = f"incremental, {wm_col} after {wm}"
-            keep = self._source_columns(e, names)
-            total = len([c for c in names if c not in SYSTEM_COLUMNS])
-            if len(keep) < total:
-                detail += f"; read {plural(len(keep), 'column')} of {total}"
+            lf, keep, est, detail = self._plan_read(e, full)
+            if e.spec.get("load", {}).get("memory_guard", True) is not False:
+                why = preflight.too_big(est, self.available_memory())
+                if why:
+                    raise CheckStop(why)
             df = lf.select(keep).collect()
         renames = {k: v for k, v in src.get("rename", {}).items() if k in df.columns}
         if renames:  # columns the source renamed, mapped back to the names the contract uses
@@ -385,6 +369,56 @@ class Engine:
         res.rows_read = df.height
         self._step(res, "read", t0, df.height, detail)
         return df
+
+    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
+        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
+        to read, the estimate from its log, and the read step's text so far."""
+        src = e.spec["source"]
+        if "table" in src or "link" in src:
+            uri = src["table"] if "table" in src else self.link_table(src["link"])
+            options = self._uri_options(uri)
+            table = open_table(uri, options)
+            if table is None:
+                what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
+                raise CheckStop(f"the source table {what} doesn't exist")
+        else:
+            up = self.project.entities[src["entity"]]
+            table, uri, options = self.store.table(self.lakehouse(up), up.schema, up.table)
+            if table is None:
+                raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
+        lf = lazy(table, uri, options)
+        # The filter and the column list go into the scan, so only the files and columns this run
+        # needs are read: an incremental run of a large table reads its new rows, not all of it.
+        schema = dict(lf.collect_schema())
+        names = list(schema)
+        detail = "full"
+        after = None
+        wm_col = e.spec.get("load", {}).get("watermark")
+        if e.mode == "incremental" and wm_col and not full:
+            wm = self._watermark(e)
+            if wm is not None and wm_col in names:
+                after = (wm_col, _wm_literal(wm, schema[wm_col]))
+                lf = lf.filter(pl.col(wm_col) > after[1])
+                detail = f"incremental, {wm_col} after {wm}"
+        keep = self._source_columns(e, names)
+        total = len([c for c in names if c not in SYSTEM_COLUMNS])
+        if len(keep) < total:
+            detail += f"; read {plural(len(keep), 'column')} of {total}"
+        est = preflight.estimate(table, keep, schema, after)
+        detail += f"; {est.text()}"
+        return lf, keep, est, detail
+
+    def preflight(self, name: str, backfill: str | None = None) -> dict[str, Any]:
+        """What running ``name`` would read, without reading it: for the run dialog."""
+        e = self.project.entities[name]
+        src = e.spec.get("source", {})
+        if not any(k in src for k in ("table", "link", "entity")):
+            return {"entity": name, "estimate": None, "note": "only Delta sources (tables, links, entities) are estimated"}
+        _, _, est, detail = self._plan_read(e, backfill == "full")
+        free = self.available_memory()
+        guard = e.spec.get("load", {}).get("memory_guard", True) is not False
+        return {"entity": name, "estimate": est.to_dict(), "detail": detail, "free_memory_bytes": free,
+                "stop": preflight.too_big(est, free) if guard else "", "guard": guard}
 
     def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
         """The source columns the contract expects, and those this entity uses."""

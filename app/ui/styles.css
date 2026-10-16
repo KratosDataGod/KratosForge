@@ -940,3 +940,31 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .mesh-legend { margin-top: 8px; gap: 8px; }
 .fabric-domain-hint .note { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; margin: 8px 0; border-radius: 6px; background: var(--accent-soft); font-size: 13px; }
 .field input:disabled, .field select:disabled { background: var(--canvas); color: var(--muted); cursor: not-allowed; }
+
+/* Workloads: Monitor > Workloads, the workload page, Home's Your workloads */
+.wl-panel { flex: 1; min-height: 0; overflow: auto; }
+.wl-panel .monitor-scroll { overflow: visible; }
+.wl-sources { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 6px 16px 10px; font-size: 12.5px; }
+.wl-source { display: inline-flex; align-items: center; gap: 2px; }
+.wl-list tr.wl-group td { background: var(--hover); padding-top: 6px; padding-bottom: 6px; }
+.wl-deps { display: flex; flex-wrap: wrap; gap: 4px; }
+.wl-dep { padding: 1px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px; white-space: nowrap; }
+.wl-caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.wl-cap { padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-dark); font-size: 11.5px; font-weight: 600; }
+.wl-pager { padding: 8px 16px; gap: 8px; }
+.wl-page { display: flex; flex-direction: column; gap: 16px; }
+.wl-head { align-items: flex-start; gap: 12px; }
+.wl-head h1 .pill-s { vertical-align: middle; font-size: 12px; }
+.wl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.wl-findings { display: flex; flex-direction: column; gap: 10px; }
+.wl-finding { display: flex; gap: 10px; align-items: flex-start; }
+.wl-finding .pill-s { min-width: 96px; text-align: center; }
+.wl-ready { margin-top: 10px; }
+.wl-timeline { display: flex; flex-direction: column; gap: 8px; }
+.wl-event { display: grid; grid-template-columns: 140px 1fr; gap: 10px; }
+.wl-affected { display: flex; flex-direction: column; gap: 6px; }
+.wl-form { display: flex; flex-direction: column; gap: 10px; min-width: 420px; }
+.wl-confirm { display: flex; flex-direction: column; gap: 10px; max-width: 620px; }
+.wl-warning { margin: 0; background: #fff4d6; color: #8a5300; }
+.wl-home .wl-counts { gap: 6px; margin: 8px 0; }
+.wl-home { display: flex; flex-direction: column; gap: 8px; }

@@ -43,3 +43,22 @@ test("a run says where it ran: Fabric, an agent or this PC", () => {
   assert.strictEqual(ctx.ranOn({ compute: "fabric" }), "Fabric");  // an engine from before ran_on
   assert.strictEqual(ctx.ranOn({}), "This PC");
 });
+
+test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function rowRun\([\s\S]*?\n}\n/)[0]}; this.rowRun = rowRun;`, ctx);
+  const failed = { state: "failed", started_at: "2026-10-16T09:00:00Z" };
+  const ok = { state: "ok", started_at: "2026-10-16T10:00:00Z" };
+  const row = (health) => ({ health, last_run: ok, deployments: [{ latest_run: ok }, { latest_run: failed }] });
+  assert.strictEqual(ctx.rowRun(row("failing")), failed);
+  assert.strictEqual(ctx.rowRun(row("healthy")), ok);
+});
+
+test("Workloads is a Preview feature", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const workloads = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  assert.match(features, /workloads: "Workloads"/);
+  assert.match(workloads, /id: "workloads", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="workloads.js"><\/script>/);
+});

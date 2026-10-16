@@ -49,6 +49,7 @@ const PREVIEW_FEATURES = {
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",
+  workloads: "Workloads",
 };
 
 function previewShown() {

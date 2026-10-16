@@ -12,6 +12,7 @@ concurrency = 1                          # jobs at once
 # workspaces = ["<test workspace id>", "<prod workspace id>"]  # optional: refuse to write anywhere else
 # home = "/var/lib/fabric-desktop"       # queue, logs and caches (default per OS, or FABRIC_DESKTOP_HOME)
 # poll_seconds = 5
+# status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
 # job_lease_seconds = 300                # a job whose worker stops renewing for this long runs again
 # table_lease_seconds = 120              # how long a table write lease lasts between renewals, and how long to wait for one
 # log_level = "INFO"

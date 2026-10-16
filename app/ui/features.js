@@ -38,6 +38,8 @@ const PREVIEW_FEATURES = {
   fabricRun: "Run in Fabric",
   schedules: "Schedules",
   sideBySide: "Side by side",
+  prove: "Prove this notebook",
+  wizard: "New notebook wizard",
   cost: "Cost",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",

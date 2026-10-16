@@ -1,6 +1,6 @@
 # How a proof works
 
-A proof runs one notebook on your PC and in Fabric as a controlled experiment, checks whether both produced the same results under rules you can see, and keeps a receipt anyone can check. This page describes the engine as built in stage 2 of the [program plan](plan.md). The notebook screen's **Prove** button comes in stage 3; until then the engine's `prove_*` requests are what runs it.
+A proof runs one notebook on your PC and in Fabric as a controlled experiment, checks whether both produced the same results under rules you can see, and keeps a receipt anyone can check. Open it with **Prove** in the notebook ribbon ([Notebooks and SQL](../notebooks.md#prove-this-notebook-preview) describes the panel). This page describes what happens underneath; the [program plan](plan.md) lists what comes next.
 
 !!! note "Preview"
     The Fabric half has been tested by running the exact notebook Fabric would get, in a separate Python process, against Delta tables on disk. It hasn't run on a live Fabric tenant yet. [Live check](#live-check) lists what to try first.

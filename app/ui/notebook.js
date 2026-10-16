@@ -78,7 +78,7 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), btn("Save", "save", saveNotebook),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
@@ -96,7 +96,7 @@ function renderNotebook() {
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), h("div", { class: "sep" }),
+      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
@@ -125,7 +125,7 @@ function renderNotebook() {
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null),
+      state.showVariables ? renderVariables() : null, provePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       h("span", { class: "mode-hint" }, modeHint()),
@@ -1157,6 +1157,7 @@ function setKernel(status) {
 // stopped that way; then restarting the kernel is the way out, and it clears variables.
 async function cancelRun() {
   if (sbsRunning(state.notebook)) return cancelSideBySide(state.notebook);
+  if (proveRunning(state.notebook)) return cancelProof(state.notebook);
   cancelRequested = true;
   state.notebook?.cells.forEach((c) => { if (c.status === "queued") { c.status = null; updateResults(c); } });
   const res = await attempt(() => rpc("interrupt_cell"), "Could not cancel");
@@ -1178,6 +1179,10 @@ async function stopKernel() {
 }
 
 async function restartKernel() {
+  if (proveRunning(state.notebook)) {
+    toast("A proof is using the kernel. Cancel the proof first.", true);
+    return;
+  }
   if (state.kernel === "busy") {
     await stopKernel();
   } else if (await attempt(() => rpc("restart_kernel"), "Could not restart")) {

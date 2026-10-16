@@ -21,7 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import envprofile, lakehouse, proof, receipts, scorecard, verify
+from . import envprofile, lakehouse, proof, receipts, scorecard, verify, wizard
 from .fabric_run import TERMINAL, fabric_ipynb
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -107,6 +107,52 @@ class ProveMixin:
 
     def receipt_redactions(self) -> dict[str, str]:
         return dict(receipts.REDACTIONS)
+
+    def receipt_save(self, id: str, format: str = "html", hide: list[str] | None = None) -> dict[str, Any]:  # noqa: A002
+        """Export a receipt to the Downloads folder. A receipt file (json) is saved whole, so it
+        can be checked against its id; the parts in ``hide`` are left out of reports only."""
+        if format == "json" and hide:
+            raise ValueError("A receipt file is saved whole so it can be checked against its id. "
+                             "To leave parts out, export a report (HTML or Markdown).")
+        out = self.receipt_export(id, format, hide)
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
+        path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
+        path.write_text(out["text"], encoding="utf-8")
+        return {"path": str(path), "format": out["format"], "hidden": hide or []}
+
+    # ---- the new notebook wizard and the proof contract
+
+    def wizard_templates(self) -> dict[str, Any]:
+        return wizard.templates()
+
+    def wizard_preview(self, template: str, values: dict[str, Any]) -> dict[str, Any]:
+        """The cells a template would write, without saving anything."""
+        return wizard.build(template, values)
+
+    def wizard_create(self, template: str, values: dict[str, Any], lakehouse_ref: dict[str, str] | None = None,
+                      name: str | None = None) -> dict[str, Any]:
+        """Create a notebook from a template, with its proof contract, and return it opened."""
+        built = wizard.build(template, values)
+        store = self.notebooks  # type: ignore[attr-defined]
+        if name:
+            if store.path(name).exists():
+                raise ValueError(f"A notebook named {name!r} already exists.")
+        else:
+            name = store.new()["name"]
+        store.save(name, built["cells"], lakehouse_ref)
+        store.set_extra(name, "proof", built["proof"])
+        return self.open_notebook(name)  # type: ignore[attr-defined]
+
+    def prove_rules_get(self, name: str) -> dict[str, Any]:
+        """The notebook's proof contract: {"default": rules, "tables": {table: rules}}."""
+        return self.notebooks.extra(name, "proof") or {}  # type: ignore[attr-defined]
+
+    def prove_rules_set(self, name: str, rules: dict[str, Any]) -> dict[str, Any]:
+        rules = _normalized_rules(rules)
+        self.notebooks.set_extra(name, "proof", rules or None)  # type: ignore[attr-defined]
+        return rules
 
     # ---- stage 2: proofs
 
@@ -198,10 +244,7 @@ class ProveMixin:
             b = check["blockers"][0]
             where = f"Cell {b['cell']} " if b.get("cell") else ""
             raise ValueError(f"This notebook can't be proven yet: {where}{b['text']}")
-        rules = rules or {}
-        verify.rules(rules.get("default"))  # refuse bad rules now, not after two runs
-        for r in (rules.get("tables") or {}).values():
-            verify.rules((rules.get("default") or {}) | r)
+        rules = _normalized_rules(rules or {})  # refuse bad rules now, not after two runs
         assert lakehouse_ref is not None
         saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
         cells = [dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])]
@@ -539,6 +582,31 @@ def _verdict(record: dict[str, Any], rows: list[dict[str, Any]], problems: list[
                         f"{'every row compared' if level == 'complete' else 'some by checksum only'})."}
     return {"verdict": "differs", "level": level, "problems": [],
             "text": f"Results differ in {len(bad)} of {n} table{'s' if n != 1 else ''}."}
+
+
+def _table_key(name: str) -> str:
+    """A table as a proof names it: schema.table in lower case, dbo when no schema is given."""
+    name = str(name).strip()
+    return (name if "." in name else f"dbo.{name}").lower()
+
+
+def _normalized_rules(rules: dict[str, Any]) -> dict[str, Any]:
+    """Proof rules with each table named as a proof names it, checked before anything runs."""
+    unknown = set(rules) - {"default", "tables"}
+    if unknown:
+        raise ValueError(f"Proof rules have a default and tables, not {', '.join(sorted(unknown))}.")
+    default = rules.get("default") or {}
+    verify.rules(default)
+    tables = {}
+    for t, r in (rules.get("tables") or {}).items():
+        verify.rules(default | (r or {}))
+        tables[_table_key(t)] = r or {}
+    out: dict[str, Any] = {}
+    if default:
+        out["default"] = default
+    if tables:
+        out["tables"] = tables
+    return out
 
 
 def _copy(record: dict[str, Any]) -> dict[str, Any]:

@@ -438,12 +438,88 @@ def test_a_lost_commit_race_merges_again_and_succeeds(setup, monkeypatch):
     store = LocalStore(setup.project / ".local" / "dev", "dev")
     real, calls = store.write, []
 
-    def flaky(lakehouse, schema, table, df, mode="overwrite", metadata=None):
+    def flaky(lakehouse, schema, table, df, mode="overwrite", metadata=None, **kw):
         calls.append(table)
         if table == "orders" and lakehouse == "LH_Bronze" and calls.count("orders") == 1:
             raise CommitFailedError("another writer committed version 1 first")
-        return real(lakehouse, schema, table, df, mode, metadata)
+        return real(lakehouse, schema, table, df, mode, metadata, **kw)
     monkeypatch.setattr(store, "write", flaky)
     monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
     res = Engine(project, store).run("bronze.orders")
     assert res.status == "ok" and calls.count("orders") == 2
+
+
+def test_a_writer_that_commits_in_between_is_never_overwritten(setup, monkeypatch):
+    """The app and an agent (or a run in Fabric) run the same table: the second commit happens
+    after the first one read the table. Its rows must survive, and the first run merges again."""
+    import polars as pl
+
+    from fabric_desktop.meta import Engine, Project
+    project = Project(setup.project)
+    store = LocalStore(setup.project / ".local" / "dev", "dev")
+    assert Engine(project, store).run("bronze.orders").status == "ok"
+    e = project.entities["bronze.orders"]
+    lh = project.layer(e.layer).lakehouse
+    real_read, raced = store.read_at, []
+    first = real_read(lh, e.schema, e.table)[1]
+
+    def read_then_other_writer_commits(lakehouse, schema, table):
+        out = real_read(lakehouse, schema, table)
+        if table == e.table and not raced:
+            raced.append(True)
+            other = out[0].head(1).with_columns(pl.lit("other-writer").alias("_run_id"))
+            store.write(lakehouse, schema, table, pl.concat([out[0], other], how="diagonal_relaxed"))
+        return out
+    real_write, outcomes = store.write, []
+
+    def write(lakehouse, schema, table, df, mode="overwrite", metadata=None, **kw):
+        try:
+            v = real_write(lakehouse, schema, table, df, mode, metadata, **kw)
+        except Exception as exc:
+            outcomes.append(type(exc).__name__)
+            raise
+        if table == e.table and "read_version" in kw:
+            outcomes.append(("ok", kw["read_version"], v))
+        return v
+    monkeypatch.setattr(store, "read_at", read_then_other_writer_commits)
+    monkeypatch.setattr(store, "write", write)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda s: None)
+    res = Engine(project, store).run("bronze.orders")
+    assert res.status == "ok", res.message
+    # The stale commit was refused; the merge made again read the other writer's version.
+    assert outcomes == ["CommitFailedError", ("ok", first + 1, first + 2)]
+
+
+def test_an_overwrite_from_a_stale_read_is_refused(tmp_path):
+    import polars as pl
+    from deltalake.exceptions import CommitFailedError
+    store = LocalStore(tmp_path, "dev")
+    store.write("LH", "dbo", "t", pl.DataFrame({"a": [1]}))
+    _, version = store.read_at("LH", "dbo", "t")
+    store.write("LH", "dbo", "t", pl.DataFrame({"a": [2]}), mode="append")
+    with pytest.raises(CommitFailedError):
+        store.write("LH", "dbo", "t", pl.DataFrame({"a": [1, 9]}), read_version=version)
+    assert sorted(store.read("LH", "dbo", "t")["a"].to_list()) == [1, 2]
+    with pytest.raises(CommitFailedError):  # there was no table when read, but there is now
+        store.write("LH", "dbo", "t", pl.DataFrame({"a": [5]}), read_version=None)
+    store.write("LH", "dbo", "new", pl.DataFrame({"a": [5]}), read_version=None)
+    _, version = store.read_at("LH", "dbo", "t")
+    store.write("LH", "dbo", "t", pl.DataFrame({"a": [7], "b": ["x"]}), read_version=version)
+    assert store.read("LH", "dbo", "t").to_dicts() == [{"a": 7, "b": "x"}]
+
+
+def test_a_lease_file_being_deleted_reads_as_busy_not_an_error(tmp_path, monkeypatch):
+    """Windows briefly refuses to open a file another process is deleting."""
+    from pathlib import Path
+
+    from fabric_desktop.leases import LocalBackend
+    backend = LocalBackend(tmp_path)
+    backend.create("LH/dbo.t", b"{}")
+    real, failures = Path.read_bytes, [PermissionError("being deleted"), PermissionError("being deleted")]
+
+    def read_bytes(self):
+        if failures:
+            raise failures.pop()
+        return real(self)
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    assert backend.read("LH/dbo.t").data == b"{}"

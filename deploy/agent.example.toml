@@ -12,6 +12,7 @@ concurrency = 1                          # jobs at once
 # workspaces = ["<test workspace id>", "<prod workspace id>"]  # optional: refuse to write anywhere else
 # home = "/var/lib/fabric-desktop"       # queue, logs and caches (default per OS, or FABRIC_DESKTOP_HOME)
 # poll_seconds = 5
+# status_seconds = 60                   # how often to publish agents/<name>.json to each LH_Meta
 # job_lease_seconds = 300                # a job whose worker stops renewing for this long runs again
 # table_lease_seconds = 120              # how long a table write lease lasts between renewals, and how long to wait for one
 # log_level = "INFO"
@@ -31,6 +32,14 @@ max_backoff_seconds = 1800
 
 [alerts]
 # teams_webhook_env = "FABRIC_DESKTOP_TEAMS_WEBHOOK"  # post failed and given-up jobs to Teams
+
+# [pipeline]                             # take run requests from Fabric pipelines (docs/agent.md)
+# enabled = true
+# environments = ["prod"]                # whose LH_Meta mailbox to read; default: agent.environments
+# entities = ["silver.*", "gold.*"]      # optional allowlist; requests for anything else are rejected
+# allow_backfill = false                 # let pipelines ask for full rebuilds and cascades
+# poll_seconds = 30                      # how often to look for new requests
+# retention_days = 14                    # finished requests are removed after this
 
 [[schedule]]
 id = "prod-nightly"

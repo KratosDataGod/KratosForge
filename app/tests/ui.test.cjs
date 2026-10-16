@@ -35,6 +35,15 @@ test("Markdown still formats", () => {
     '<strong>b</strong> <em>i</em> <code>c</code> <u title="https://x.y">ok</u> &lt;b&gt;');
 });
 
+test("a run says where it ran: Fabric, an agent or this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function ranOn\([\s\S]*?\n}\n/)[0]}; this.ranOn = ranOn;`, ctx);
+  assert.strictEqual(ctx.ranOn({ ran_on: "Agent etl-01 on srv1" }), "Agent etl-01 on srv1");
+  assert.strictEqual(ctx.ranOn({ compute: "fabric" }), "Fabric");  // an engine from before ran_on
+  assert.strictEqual(ctx.ranOn({}), "This PC");
+});
+
 // The pure helpers at the top of prove.js, without the rest of the page.
 function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");

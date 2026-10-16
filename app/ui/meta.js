@@ -511,7 +511,7 @@ async function showRun(runId, env = state.meta.env) {
   const r = await metaCall("meta_run_detail", { run_id: runId, env });
   if (!r) return;
   showDialog(`${r.entity} · ${new Date(r.started_at).toLocaleString()}`, h("div", { class: "scroll" },
-    h("div", { class: "row wrap" }, statusPill(r.status), h("span", { class: "muted-text" }, `Run ${r.run_id} · metadata ${r.metadata} · ${r.seconds}s`)),
+    h("div", { class: "row wrap" }, statusPill(r.status), h("span", { class: "muted-text" }, `Run ${r.run_id} · ${ranOn(r)}${r.job_id ? ` · job ${r.job_id}` : ""}${r.attempt > 1 ? ` · try ${r.attempt}` : ""} · metadata ${r.metadata} · ${r.seconds}s`)),
     r.message ? h("p", { class: "text" }, r.message) : null,
     h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Step", "Rows", "Time", "Result"].map((c) => h("th", {}, c)))),
       h("tbody", {}, r.steps.map((s) => h("tr", {}, h("td", {}, s.name), h("td", { class: "n" }, s.rows), h("td", { class: "n" }, `${s.seconds}s`), h("td", {}, s.detail))))),
@@ -529,7 +529,7 @@ async function renderRunsTab(body) {
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", { class: "mono" }, r.entity), r.backfill ? h("div", { class: "muted-text small" }, `backfill: ${r.backfill}`) : null,
         runReason(r) ? h("div", { class: "reason" }, runReason(r)) : null),
-      h("td", {}, String(r.batch_id || "").startsWith("fabric-") ? "Fabric" : "This PC"), h("td", {}, when(r.started_at)),
+      h("td", {}, ranOn(r)), h("td", {}, when(r.started_at)),
       h("td", { class: "n" }, r.rows_read), h("td", { class: "n" }, r.rows_written), h("td", { class: "n" }, r.quarantined),
       h("td", { class: "n" }, took(r.seconds)), h("td", { class: "mono" }, r.metadata))))) :
     h("p", { class: "muted-text" }, `No runs in ${ENV_LABEL[state.meta.env]} yet.`));

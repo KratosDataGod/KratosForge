@@ -88,11 +88,17 @@ class LocalBackend:
 
     def read(self, key: str) -> Stored | None:
         path = self._path(key)
-        try:
-            data = path.read_bytes()
-            return Stored(data, self._etag(data), path.stat().st_mtime)
-        except FileNotFoundError:
-            return None
+        for attempt in range(10):
+            try:
+                data = path.read_bytes()
+                return Stored(data, self._etag(data), path.stat().st_mtime)
+            except FileNotFoundError:
+                return None
+            except PermissionError:  # Windows: another writer is deleting or replacing it right now
+                if attempt == 9:
+                    raise
+                time.sleep(0.02)
+        return None
 
     def replace(self, key: str, data: bytes, etag: str) -> str | None:
         with self._lock:

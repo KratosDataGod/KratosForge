@@ -22,7 +22,8 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
-from .store import LANDING_LAKEHOUSE, Store, read_table_uri
+from . import preflight
+from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -40,6 +41,33 @@ _SIMPLE_TYPES: dict[str, pl.DataType] = {
 }
 
 
+def _scd2_effective(versions: pl.LazyFrame, incoming: pl.DataFrame, e: Entity) -> pl.DataFrame:
+    """The incoming rows a Type 2 merge would act on: new keys, keys whose tracked columns changed,
+    and keys with a non-null Type 1 value that differs from any of their versions (scd2_merge copies
+    it onto every version). Reads only the key, tracked and Type 1 columns."""
+    scd = e.spec["scd"]
+    bk, tracked = e.keys, list(scd["tracked"])
+    type1 = [c for c in scd.get("type1", []) if c in incoming.columns]
+    keys = incoming.select(bk).unique().drop_nulls()
+    have = versions.select(bk + ["is_current"] + tracked + type1).join(keys.lazy(), on=bk, how="semi").collect()
+    current = have.filter(pl.col("is_current")).select(bk + tracked).with_columns(pl.lit(True).alias("__known"))
+    j = incoming.with_row_index("__r").join(current, on=bk, how="left", suffix="__c")
+    same = pl.all_horizontal([pl.col(c).eq_missing(pl.col(f"{c}__c")) for c in tracked])
+    keep = set(j.filter(pl.col("__known").is_null() | ~same)["__r"].to_list())
+    if type1:
+        t1 = incoming.with_row_index("__r").select(["__r"] + bk + type1).join(
+            have.select(bk + type1), on=bk, how="inner", suffix="__v")
+        differs = pl.any_horizontal([pl.col(c).is_not_null() & ~pl.col(c).eq_missing(pl.col(f"{c}__v")) for c in type1])
+        keep |= set(t1.filter(differs)["__r"].to_list())
+    return incoming.with_row_index("__r").filter(pl.col("__r").is_in(list(keep))).drop("__r")
+
+
+def _type_changes(df: pl.DataFrame, have: pl.Schema) -> str:
+    """Why a MERGE can't be used: a column whose type differs from the table's ('' if none)."""
+    changed = [f"{c} {have[c]} to {t}" for c, t in df.schema.items() if c in have and have[c] != t]
+    return f"rewrote the table because column types changed ({', '.join(changed)})" if changed else ""
+
+
 def _fill(value: bool, n: int) -> pl.Series:
     return pl.Series([value] * n, dtype=pl.Boolean)
 
@@ -50,6 +78,10 @@ def plural(n: int, word: str) -> str:
 
 class CheckStop(Exception):
     pass
+
+
+class NothingNew(Exception):
+    """The source has nothing this run hasn't loaded already (every file is loaded)."""
 
 
 class DecisionNeeded(Exception):
@@ -159,8 +191,16 @@ class Engine:
     def __init__(self, project: Project, store: Store, load_date: dt.date | None = None,
                  keys_store: Store | None = None, source_options: Callable[[], dict[str, str] | None] | None = None,
                  table_lock: Callable[[Entity], AbstractContextManager[Any]] | None = None,
-                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None):
+                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None,
+                 merge_writes: bool = True):
         self.project, self.store = project, store
+        # Incremental and replayed rows go into the table with a Delta MERGE (or an append), which
+        # rewrites only the files they touch. False always reads the whole table and overwrites it,
+        # as before 0.20; kept for comparison (examples/benchmark/large_tables.py).
+        self.merge_writes = merge_writes
+        # Before reading a Delta source, estimate the read from its log and stop a read that can't
+        # fit in this machine's free memory (preflight.py). None for the free memory skips the check.
+        self.available_memory: Callable[[], int | None] = preflight.available_memory
         # Where a link ([source] link = "alias") points in this environment: another team's table.
         self.link_table = link_table or self._no_links
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
@@ -192,7 +232,10 @@ class Engine:
 
     def read_source_table(self, uri: str) -> pl.DataFrame | None:
         """An existing Delta table the entity loads from: an adopted lakehouse table, read as it is."""
-        return read_table_uri(uri, self.source_options() if uri.startswith(("abfss://", "https://")) else None)
+        return read_table_uri(uri, self._uri_options(uri))
+
+    def _uri_options(self, uri: str) -> dict[str, str] | None:
+        return self.source_options() if uri.startswith(("abfss://", "https://")) else None
 
     # ---- batches
 
@@ -256,6 +299,7 @@ class Engine:
         started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         self._dq: list[dict[str, Any]] = []
         self._schema_changes: list[dict[str, Any]] = []
+        self._files_read: tuple[str, list[dict[str, Any]]] | None = None
         try:
             with self.table_lock(e):
                 if backfill == "migrate":
@@ -263,6 +307,9 @@ class Engine:
                 df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
                 df, bad = self._checks(e, df, res)
                 self._write(e, df, res, backfill)
+                self._record_files(e, res)
+        except NothingNew as ex:  # nothing to do is a successful run
+            res.steps.append(Step("read", 0, 0.0, str(ex)))
         except DecisionNeeded as ex:
             res.status, res.message, res.options = "needs_decision", str(ex), ex.options
             return res
@@ -305,36 +352,35 @@ class Engine:
             where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
             pattern = src.get("landing") or src["files"]
             try:
-                df, names = self.store.read_files(where, pattern)
+                listed = self.store.list_files(where, pattern)
             except LookupError as exc:
                 if where != LANDING_LAKEHOUSE:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
                                 f"Settings > Platform ({exc})") from exc
+            if not listed:
+                raise CheckStop(f"no files match {pattern} in {where}/Files")
+            todo, detail = listed, f"{plural(len(listed), 'file')}"
+            if self._tracks_files(e):
+                if not full:
+                    done = self._loaded_files(e, where)
+                    todo = [f for f in listed if (f["path"], f["size"], f["modified"]) not in done]
+                    detail = f"{plural(len(todo), 'new file')} of {len(listed)}"
+                    if not todo:
+                        raise NothingNew(f"no new files: all {plural(len(listed), 'file')} matching {pattern} are loaded")
+                self._files_read = (where, todo)  # a full rebuild has loaded every file too
+            df, names = self.store.read_files(where, pattern, todo)
             if df is None:
                 raise CheckStop(f"no files match {pattern} in {where}/Files")
-            detail = f"{len(names)} file{'s' if len(names) != 1 else ''}"
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
-            if "table" in src or "link" in src:
-                uri = src["table"] if "table" in src else self.link_table(src["link"])
-                df = self.read_source_table(uri)
-                if df is None:
-                    what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
-                    raise CheckStop(f"the source table {what} doesn't exist")
-            else:
-                df = self.read_entity(src["entity"])
-                if df is None:
-                    raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
-            df = df.drop([c for c in SYSTEM_COLUMNS if c in df.columns])
-            detail = "full"
-            wm_col = e.spec.get("load", {}).get("watermark")
-            if e.mode == "incremental" and wm_col and not full:
-                wm = self._watermark(e)
-                if wm is not None and wm_col in df.columns:
-                    df = df.filter(pl.col(wm_col) > _wm_literal(wm, df.schema[wm_col]))
-                    detail = f"incremental, {wm_col} after {wm}"
+            lf, keep, est, detail = self._plan_read(e, full)
+            if e.spec.get("load", {}).get("memory_guard", True) is not False:
+                why = preflight.too_big(est, self.available_memory())
+                if why:
+                    raise CheckStop(why)
+            df = lf.select(keep).collect()
         renames = {k: v for k, v in src.get("rename", {}).items() if k in df.columns}
         if renames:  # columns the source renamed, mapped back to the names the contract uses
             df = df.rename(renames)
@@ -343,11 +389,82 @@ class Engine:
         self._step(res, "read", t0, df.height, detail)
         return df
 
-    def _contract_in(self, e: Entity, df: pl.DataFrame, res: RunResult) -> pl.DataFrame:
-        t0 = time.perf_counter()
-        policy = e.spec.get("contract", {}).get("drift") or self.project.layer(e.layer).drift
+    def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
+        """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
+        to read, the estimate from its log, and the read step's text so far."""
+        src = e.spec["source"]
+        if "table" in src or "link" in src:
+            uri = src["table"] if "table" in src else self.link_table(src["link"])
+            options = self._uri_options(uri)
+            table = open_table(uri, options)
+            if table is None:
+                what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
+                raise CheckStop(f"the source table {what} doesn't exist")
+        else:
+            up = self.project.entities[src["entity"]]
+            table, uri, options = self.store.table(self.lakehouse(up), up.schema, up.table)
+            if table is None:
+                raise CheckStop(f"{src['entity']} has not been loaded in {self.store.env} yet")
+        lf = lazy(table, uri, options)
+        # The filter and the column list go into the scan, so only the files and columns this run
+        # needs are read: an incremental run of a large table reads its new rows, not all of it.
+        schema = dict(lf.collect_schema())
+        names = list(schema)
+        detail = "full"
+        after = None
+        wm_col = e.spec.get("load", {}).get("watermark")
+        if e.mode == "incremental" and wm_col and not full:
+            wm = self._watermark(e)
+            if wm is not None and wm_col in names:
+                after = (wm_col, _wm_literal(wm, schema[wm_col]))
+                lf = lf.filter(pl.col(wm_col) > after[1])
+                detail = f"incremental, {wm_col} after {wm}"
+        keep = self._source_columns(e, names)
+        total = len([c for c in names if c not in SYSTEM_COLUMNS])
+        if len(keep) < total:
+            detail += f"; read {plural(len(keep), 'column')} of {total}"
+        est = preflight.estimate(table, keep, schema, after)
+        detail += f"; {est.text()}"
+        return lf, keep, est, detail
+
+    def preflight(self, name: str, backfill: str | None = None) -> dict[str, Any]:
+        """What running ``name`` would read, without reading it: for the run dialog."""
+        e = self.project.entities[name]
+        src = e.spec.get("source", {})
+        if not any(k in src for k in ("table", "link", "entity")):
+            return {"entity": name, "estimate": None, "note": "only Delta sources (tables, links, entities) are estimated"}
+        _, _, est, detail = self._plan_read(e, backfill == "full")
+        free = self.available_memory()
+        guard = e.spec.get("load", {}).get("memory_guard", True) is not False
+        return {"entity": name, "estimate": est.to_dict(), "detail": detail, "free_memory_bytes": free,
+                "stop": preflight.too_big(est, free) if guard else "", "guard": guard}
+
+    def _tracks_files(self, e: Entity) -> bool:
+        """Incremental and dimension loads from files read only files they haven't loaded (a full
+        backfill reads them all). Full loads, and ``[source] new_files_only = false``, read them all."""
+        return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
+
+    def _loaded_files(self, e: Entity, lakehouse: str) -> set[tuple[str, int, str]]:
+        m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
+        return {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+
+    def _record_files(self, e: Entity, res: RunResult) -> None:
+        """After the table commit: the files this run read are loaded. If this fails, the next run
+        reads them again, which a keyed load absorbs."""
+        if not self._files_read:
+            return
+        where, files = self._files_read
+        try:
+            self.store.meta_append("loaded_files", [{"entity": e.name, "lakehouse": where, "run_id": self.run_id,
+                                                     "path": f["path"], "size": f["size"], "modified": f["modified"]}
+                                                    for f in files])
+        except Exception as exc:  # the table is written; only the next run's file list is affected
+            res.steps.append(Step("files", len(files), 0.0, f"couldn't record the files read ({type(exc).__name__}: "
+                                                             f"{exc}); the next run reads them again"))
+
+    def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
+        """The source columns the contract expects, and those this entity uses."""
         own = set(e.columns) | set(e.derived) | set(e.hook_adds)
-        self._evolved = []
         src = e.spec.get("source", {})
         if "entity" in src:
             up = self.project.entities[src["entity"]]
@@ -358,9 +475,27 @@ class Engine:
         exprs = set()
         for d in e.spec.get("derive", []):
             exprs |= set(pl.sql_expr(d["expr"]).meta.root_names())
-        new = [c for c in df.columns if c not in expected]
         bks = {c for k in keys_mod.entity_keys(e) for c in k["business_key"]}
-        needed = own | lookups | exprs | bks | (set(df.columns) if e.spec.get("step") else set())
+        needed = own | lookups | exprs | bks | (set(columns) if e.spec.get("step") else set())
+        return expected, needed
+
+    def _source_columns(self, e: Entity, columns: list[str]) -> list[str]:
+        """The columns of a source table worth reading: never system columns, and from another entity
+        only what this one uses, plus any column its contract doesn't know (drift is still seen)."""
+        columns = [c for c in columns if c not in SYSTEM_COLUMNS]
+        src = e.spec.get("source", {})
+        if "entity" not in src or src.get("rename"):
+            return columns
+        expected, needed = self._expected_needed(e, columns)
+        return [c for c in columns if c in needed or c not in expected]
+
+    def _contract_in(self, e: Entity, df: pl.DataFrame, res: RunResult) -> pl.DataFrame:
+        t0 = time.perf_counter()
+        policy = e.spec.get("contract", {}).get("drift") or self.project.layer(e.layer).drift
+        self._evolved = []
+        src = e.spec.get("source", {})
+        expected, needed = self._expected_needed(e, df.columns)
+        new = [c for c in df.columns if c not in expected]
         if "entity" in src:
             df = df.select([c for c in df.columns if c in needed or c in new])
         missing = [c for c in e.columns if c not in df.columns and c not in e.derived and c not in e.hook_adds
@@ -424,13 +559,16 @@ class Engine:
     def _lookup(self, df: pl.DataFrame, lk: dict[str, Any], res: RunResult) -> pl.DataFrame:
         t0 = time.perf_counter()
         dim_e = self.project.entities[lk["dim"]]
-        dim = self.read_entity(dim_e.name)
-        if dim is None:
+        scan = self.store.scan(self.lakehouse(dim_e), dim_e.schema, dim_e.table)
+        if scan is None:
             raise CheckStop(f"{dim_e.name} has not been loaded in {self.store.env} yet")
         sk, on, at = lk["as"], lk["on"], lk.get("at")
         dim_sk = dim_e.surrogate_key
-        if "valid_from" not in dim.columns:
+        history = "valid_from" in scan.collect_schema().names()
+        if not history:
             at = None  # a Type 1 dimension has one row per key, so the fact date doesn't matter
+        # Only the key columns of the dimension are read, however wide it is.
+        dim = scan.select([on, dim_sk] + (["valid_from", "valid_to"] if history else [])).collect()
         d = dim.filter(pl.col(dim_sk) != -1).select([on, pl.col(dim_sk).alias("__sk")]
                                                    + (["valid_from", "valid_to"] if at else []))
         df = df.with_row_index("__r")
@@ -447,8 +585,8 @@ class Engine:
 
     def _transform(self, e: Entity, res: RunResult, backfill: str | None) -> pl.DataFrame:
         if e.mode == "scd2" and backfill != "migrate":
-            existing = self.read_entity(e.name)
-            if existing is not None and "valid_from" not in existing.columns:
+            existing = self.store.scan(self.lakehouse(e), e.schema, e.table)
+            if existing is not None and "valid_from" not in existing.collect_schema().names():
                 raise DecisionNeeded(f"{e.name} is a Type 1 table today. Migrating it to Type 2 keeps every "
                                      "surrogate key and starts each row's history at 1900-01-01.", ["migrate"])
         last = self._last_ok(e)
@@ -540,7 +678,9 @@ class Engine:
                     bad = bad | (df[col].is_duplicated() & df[col].is_not_null())
             elif "exists_in" in c:
                 tgt, ref_col = c["exists_in"].rsplit(".", 1)
-                ref = self.read_entity(tgt)
+                ref_e = self.project.entities[tgt]
+                ref = self.store.scan(self.lakehouse(ref_e), ref_e.schema, ref_e.table)
+                ref = ref.select(ref_col).collect() if ref is not None else None
                 bad = (~df[col].is_in(ref[ref_col].implode()) & df[col].is_not_null()) if ref is not None \
                     else _fill(True, df.height)
             elif "accepted_values" in c:
@@ -600,13 +740,137 @@ class Engine:
                     raise
                 time.sleep(0.5 * attempt)
 
+    def _merge_plan(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> tuple[str, str]:
+        """How the rows go in without rewriting the table: "upsert" (MERGE on the keys), "append", or
+        "" with the reason the table has to be read and rewritten instead."""
+        if not self.merge_writes:
+            return "", ""
+        if e.mode in ("scd1", "scd2"):
+            return "", ""  # dimensions: see _write_dimension
+        if not (backfill == "replay" or (e.mode == "incremental" and backfill != "full")):
+            return "", ""  # a full load or a rebuild replaces the table anyway
+        target = self.store.scan(self.lakehouse(e), e.schema, e.table)
+        if target is None:
+            return "", ""
+        changed = _type_changes(df, target.collect_schema())
+        if changed:
+            return "", changed
+        if not e.keys:
+            return "append", ""
+        if df.select(e.keys).is_duplicated().any():
+            return "", f"rewrote the table because new rows repeat a key ({', '.join(e.keys)})"
+        return "upsert", ""
+
+    def _write_merged(self, e: Entity, df: pl.DataFrame, how: str, backfill: str | None,
+                      metadata: dict[str, str]) -> tuple[int, str]:
+        lh = self.lakehouse(e)
+        have = self.store.scan(lh, e.schema, e.table).collect_schema()
+        # A column the table has and the rows don't is null in them, as when the table was rewritten.
+        df = df.with_columns([pl.lit(None, dtype=t).alias(c) for c, t in have.items() if c not in df.columns])
+        what = "replayed" if backfill == "replay" else ("merged" if how == "upsert" else "appended")
+        if how == "append":
+            version = self.store.write(lh, e.schema, e.table, df, mode="append", metadata=metadata)
+            return version, f"{what} {plural(df.height, 'row')} (Delta append, no files rewritten)"
+        version, m = self.store.upsert(lh, e.schema, e.table, df, e.keys, metadata)
+        removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
+        return version, (f"{what} {plural(df.height, 'row')} on {', '.join(e.keys)}: "
+                         f"{m.get('num_target_rows_updated', 0)} updated, {m.get('num_target_rows_inserted', 0)} new "
+                         f"(Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
+
+    def _write_dimension(self, e: Entity, df: pl.DataFrame,
+                         metadata: dict[str, str]) -> tuple[int, str, int] | str:
+        """A Type 1 or Type 2 dimension without reading all of it.
+
+        Only the versions of the business keys that arrived (and the Unknown member) are read,
+        merged by the same scd1_merge/scd2_merge a full rewrite uses, checked, and written back with
+        one MERGE on the surrogate key. A Type 2 key whose row would change nothing (same tracked
+        values, no new Type 1 value) is left out first, so a full snapshot of a large dimension
+        touches only what changed. Returns (version, detail, rows in the table), or the reason the
+        whole table is read and rewritten instead ("" for no reason worth showing)."""
+        lh, sk, bk = self.lakehouse(e), e.surrogate_key, e.keys
+        # Everything below is worked out from one version, and the MERGE commits against it: a
+        # writer that adds keys in between makes the commit fail, and _write runs it again.
+        read_version = self.store.version(lh, e.schema, e.table)
+        lf = self.store.scan(lh, e.schema, e.table, read_version)
+        if lf is None or not sk or not bk:
+            return ""
+        have = lf.collect_schema()
+        if sk not in have or any(c not in have for c in bk) or (e.mode == "scd2" and "is_current" not in have):
+            return ""
+        changed = _type_changes(df, have)
+        if changed:
+            return changed
+        if df.select(bk).is_duplicated().any():
+            return f"rewrote the table because new rows repeat a key ({', '.join(bk)})"
+        arrived = df.height
+        near = lf  # range filters skip files by their statistics; semi joins keep exactly the keys asked for
+        keys = df.select(bk).unique().drop_nulls()
+        for c in bk:
+            if keys.height and (keys[c].dtype.is_integer() or keys[c].dtype == pl.String):
+                near = near.filter(pl.col(c).is_between(keys[c].min(), keys[c].max()))
+        unchanged = 0
+        total = self.store.count(lh, e.schema, e.table)
+        if e.mode == "scd2":
+            df = _scd2_effective(near, df, e)
+            unchanged = arrived - df.height
+            if not df.height:  # nothing would change: no commit at all
+                return (self.store.version(lh, e.schema, e.table),
+                        f"{plural(unchanged, 'row')} unchanged; nothing to write", total)
+            keys = df.select(bk).unique().drop_nulls()
+        subset = pl.concat([near.join(keys.lazy(), on=bk, how="semi").collect(),
+                            lf.filter(pl.col(sk) == -1).collect()], how="diagonal_relaxed")
+        if total and subset.height * 2 > total:
+            return (f"rewrote the table because most of it changed ({plural(subset.height, 'row')} of {total} "
+                    "belong to the keys that arrived)")
+        top = lf.select(pl.col(sk).max()).collect().item()
+        next_key = max(int(top or 0), 0) + 1
+        if e.mode == "scd1":
+            out, info = scd1_merge(subset, df, e, next_key)
+        else:
+            out, info = scd2_merge(subset, df, e, self.load_date, next_key)
+            problems = scd2_invariants(out, sk, bk)
+            if problems:
+                raise CheckStop("Type 2 checks failed: " + "; ".join(problems))
+            if unchanged:
+                info += f", {plural(unchanged, 'row')} unchanged"
+        # The Unknown member never changes here, so it stays out of the MERGE.
+        out = out.filter(pl.col(sk) != -1)
+        version, m = self.store.upsert(lh, e.schema, e.table, out, [sk], metadata, prune=bk,
+                                       read_version=read_version, new_from=(sk, next_key))
+        removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
+        detail = (f"{info}; read {plural(subset.height, 'row')} of the table for "
+                  f"{plural(keys.height, 'business key')} (Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
+        return version, detail, self.store.count(lh, e.schema, e.table)
+
     def _write_once(self, e: Entity, df: pl.DataFrame, res: RunResult, backfill: str | None) -> None:
         t0 = time.perf_counter()
-        existing = self.read_entity(e.name)
-        if existing is not None and df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay"):
-            self._step(res, "write", t0, existing.height, "nothing new to write")
+        lh = self.lakehouse(e)
+        if df.height == 0 and (e.mode in ("incremental", "scd1", "scd2") or backfill == "replay") \
+                and self.store.exists(lh, e.schema, e.table):
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), "nothing new to write")
             return
         df = df.with_columns(pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at"))
+        metadata = {"fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
+                    "fabric_desktop_logic": self.project.fingerprint(e)}
+        how, why = self._merge_plan(e, df, backfill)
+        if how:
+            version, info = self._write_merged(e, df, how, backfill, metadata)
+            self._advance_watermark(e, df, backfill)
+            res.rows_written, res.delta_version = df.height, version
+            self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
+            return
+        if e.mode in ("scd1", "scd2") and self.merge_writes:
+            done = self._write_dimension(e, df, metadata)
+            if isinstance(done, tuple):
+                version, info, rows = done
+                self._advance_watermark(e, df, backfill)
+                res.rows_written, res.delta_version = df.height, version
+                self._step(res, "write", t0, rows, f"{info}; Delta version {version}")
+                return
+            why = done
+        # The version read is the one the commit is made against: if another writer (the app, an
+        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
+        existing, read_version = self.store.read_at(lh, e.schema, e.table)
         if e.mode == "scd1":
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
@@ -629,16 +893,20 @@ class Engine:
             info = f"rebuilt: {df.height} rows from the full source"
         else:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
-        version = self.store.write(self.lakehouse(e), e.schema, e.table, out, mode="overwrite", metadata={
-            "fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
-            "fabric_desktop_logic": self.project.fingerprint(e)})
+        if why:
+            info = f"{info}; {why}"
+        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
+                                   read_version=read_version)
+        self._advance_watermark(e, df, backfill)
+        res.rows_written, res.delta_version = df.height, version
+        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
+
+    def _advance_watermark(self, e: Entity, df: pl.DataFrame, backfill: str | None) -> None:
         wm_col = e.spec.get("load", {}).get("watermark")
         # Replayed rows are old rows: they never move the watermark.
         if wm_col and backfill != "replay" and wm_col in df.columns and df.height and df[wm_col].max() is not None:
             self.store.meta_append("watermarks", [{"entity": e.name, "value": _wm_text(df[wm_col].max()),
                                                    "run_id": self.run_id}])
-        res.rows_written, res.delta_version = df.height, version
-        self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")
 
     def _migrate(self, e: Entity, res: RunResult) -> None:
         t0 = time.perf_counter()
@@ -719,7 +987,10 @@ def _ordered(df: pl.DataFrame, e: Entity) -> pl.DataFrame:
     return df.select([sk] + [c for c in df.columns if c != sk])
 
 
-def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity) -> tuple[pl.DataFrame, str]:
+def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
+               next_key: int | None = None) -> tuple[pl.DataFrame, str]:
+    """``existing`` may be only the rows of the incoming business keys (and the Unknown member), with
+    ``next_key`` the table's highest surrogate key plus one: the result is then those rows merged."""
     sk, bk = e.surrogate_key, e.keys
     if existing is not None and "valid_from" in existing.columns:
         raise CheckStop(f"{e.name} is a Type 2 table; turning it back into Type 1 would lose history")
@@ -739,7 +1010,7 @@ def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity)
     keys = existing.select(bk + [sk])
     matched = incoming.join(keys, on=bk, how="inner")
     new = incoming.join(keys, on=bk, how="anti")
-    start = _next_key(existing, sk)
+    start = next_key or _next_key(existing, sk)
     new = new.with_columns(pl.int_range(start, start + new.height, dtype=pl.Int64).alias(sk))
     untouched = existing.join(incoming.select(bk), on=bk, how="anti")
     out = pl.concat([untouched, _ordered(matched, e), _ordered(new, e)], how="diagonal_relaxed")
@@ -747,7 +1018,8 @@ def scd1_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity)
 
 
 def scd2_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
-               load_date: dt.date) -> tuple[pl.DataFrame, str]:
+               load_date: dt.date, next_key: int | None = None) -> tuple[pl.DataFrame, str]:
+    """As scd1_merge: ``existing`` may be only the incoming keys' versions, with ``next_key``."""
     scd = e.spec["scd"]
     sk, bk, tracked = e.surrogate_key, e.keys, list(scd["tracked"])
     # Each version gets its own key, so a key that came with the rows (from LH_Keys) is replaced.
@@ -789,7 +1061,7 @@ def scd2_merge(existing: pl.DataFrame | None, incoming: pl.DataFrame, e: Entity,
         real = real.update(incoming.select(bk + type1), on=bk, how="left")
         t1 = int((~pl.concat([before, real.select(type1).rename({c: f"{c}__n" for c in type1})], how="horizontal")
                   .select(pl.all_horizontal([pl.col(c).eq_missing(pl.col(f"{c}__n")) for c in type1])).to_series()).sum())
-    start = _next_key(existing, sk)
+    start = next_key or _next_key(existing, sk)
     inserts = pl.concat([versioned(changed, start, load_date), versioned(new, start + changed.height, first_from)],
                         how="diagonal_relaxed")
     out = pl.concat([unknown, real, inserts], how="diagonal_relaxed")

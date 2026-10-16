@@ -125,6 +125,7 @@ The agent runs with nobody signed in, so it can't use a person's sign-in. A **ma
 | Entra admin center | A managed identity on the server, or an app registration with a certificate (service principal) | The agent's identity. Steps in [agent.md](agent.md#set-up-the-identity) |
 | Entra admin center | A security group containing that identity | The Fabric tenant setting below is granted to a group |
 | Fabric admin portal | **Tenant settings > Developer settings > Service principals can use Fabric APIs**, enabled for that group | Without it, every Fabric and OneLake call from the agent is refused |
+| Fabric workspace (each environment that takes [pipeline run requests](agent.md#run-from-a-fabric-pipeline)) | Whoever runs the pipeline (its owner, or the identity its Notebook activity uses) needs write access to `LH_Meta`, which **Contributor** gives | Writing the request file. Anyone who can write `LH_Meta` can ask the agent to run that environment, so keep Contributor for people and identities you trust with its runs |
 | Fabric workspace (each environment the agent runs) | **Manage access > Add people or groups**: the identity as **Contributor** or higher | Reading and writing the layer lakehouses and `LH_Meta` |
 | Fabric workspace (Keys, if the project uses surrogate keys) | The identity as **Contributor** or higher | Reading and writing `LH_Keys` |
 | Key Vault (only if the agent reads secrets, roadmap M2) | **Key Vault Secrets User** role for the identity | Reading source secrets |

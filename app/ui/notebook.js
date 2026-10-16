@@ -497,7 +497,7 @@ function deleteCell(cell) {
   const cells = state.notebook.cells;
   const i = cells.indexOf(cell);
   cells.splice(i, 1);
-  deletedCells.push({ cell: { type: cell.type, source: cell.source, meta: structuredClone(cell.meta || {}) }, index: i });
+  deletedCells.push({ cell: { type: cell.type, source: cell.source, meta: structuredClone(cell.meta || {}), cell_id: cell.cell_id }, index: i });
   dropEditor(cell);
   if (!cells.length) cells.push(cellFrom({ type: "code" }));
   state.selected = (cells[i] || cells[i - 1]).id;

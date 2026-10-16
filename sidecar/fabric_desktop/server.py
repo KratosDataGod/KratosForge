@@ -28,7 +28,7 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
-           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_runs", "meta_runs_all", "meta_run_detail",
+           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
            "meta_preview", "meta_promote_check", "meta_promote", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",
@@ -51,7 +51,12 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
            "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
-           "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks"}
+           "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
+           "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
+           "workload_preflight", "workload_act", "workload_actions",
+           "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
+           "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
+           "prove_delete_outputs"}
 
 
 def handle(service: Service, line: str) -> dict:

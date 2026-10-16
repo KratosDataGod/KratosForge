@@ -35,18 +35,22 @@ import polars as _pl
 from deltalake import DeltaTable as _DeltaTable, write_deltalake as _write_deltalake
 import notebookutils as _nbu
 
-def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas):
-    root = f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
-    mount = "/lakehouse/default"
+def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
+    root = root or f"abfss://{workspace_id}@onelake.dfs.fabric.microsoft.com/{lakehouse_id}"
 
     def opts():
         return {"bearer_token": _nbu.credentials.getToken("storage"), "use_fabric_endpoint": "true"}
 
     def path(p):
         p = str(p).replace("\\\\", "/")
-        return f"{mount}/{p}" if p == "Files" or p.startswith("Files/") else p
+        if p == "Files" or p.startswith("Files/"):
+            local = f"{mount}/{p}"
+            if lh._proof is not None:
+                lh._proof.file_read(p, local)
+            return local
+        return p
 
-    def uri(table):
+    def parts(table):
         # The same names as on the PC (lakehouse.table_ref there).
         parts = table.split(".")
         if parts[0].lower() == name.lower() and (len(parts) == 3 or len(parts) == 2 and not schemas):
@@ -54,31 +58,49 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas):
         if len(parts) > 2:
             raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({name}).")
         schema, tbl = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
-        if schemas:
-            return f"{root}/Tables/{schema or 'dbo'}/{tbl}"
-        if schema.lower() not in ("", "dbo"):
+        if not schemas and schema.lower() not in ("", "dbo"):
             raise ValueError(f"{name} was created without schemas, so a table can't go in {schema!r}. "
                              f"Use {tbl!r}, or put the schema in the name: '{schema}_{tbl}'. "
                              f"lakehouse.has_schemas() tells a notebook which kind it has.")
-        return f"{root}/Tables/{tbl}"
+        return schema or "dbo", tbl
+
+    def uri(table):
+        schema, tbl = parts(table)
+        return f"{root}/Tables/{schema}/{tbl}" if schemas else f"{root}/Tables/{tbl}"
 
     lh = _types.ModuleType("fabric_desktop.lakehouse")
+    lh._proof = None
+
+    def bind_proof(proof):
+        # A proof run (Fabric Desktop's "Prove"): pinned reads, writes to the proof's own folder.
+        lh._proof = proof.bind(root, opts, mount)
+    lh._bind_proof = bind_proof
     lh.name = lambda: name
     lh.has_schemas = lambda: schemas
     lh.read_csv = lambda p, **kw: _pl.read_csv(path(p), **kw)
     lh.read_parquet = lambda p, **kw: _pl.read_parquet(path(p), **kw)
     lh.read_json = lambda p, **kw: _pl.read_json(path(p), **kw)
-    lh.open_table = lambda table: _DeltaTable(uri(table), storage_options=opts())
+
+    def open_table(table):
+        if lh._proof is not None:
+            return lh._proof.open(*parts(table), lambda location, version: _DeltaTable(location, version=version,
+                                                                                         storage_options=opts()))
+        return _DeltaTable(uri(table), storage_options=opts())
+    lh.open_table = open_table
     lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
-    lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(path(directory)))
+    lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 
     def write_table(data, table, mode="overwrite"):
         if isinstance(data, _pl.LazyFrame):
             data = data.collect()
         arrow = data.to_arrow() if isinstance(data, _pl.DataFrame) else data
-        _write_deltalake(uri(table), arrow, mode=mode, storage_options=opts(),
-                         schema_mode="overwrite" if mode == "overwrite" else None)
-        version = lh.open_table(table).version()
+
+        def write(target, rows, how="overwrite"):
+            _write_deltalake(target, rows, mode=how, storage_options=opts(),
+                             schema_mode="overwrite" if how == "overwrite" else None)
+        target = lh._proof.write_location(*parts(table), mode, write) if lh._proof is not None else uri(table)
+        write(target, arrow, mode)
+        version = _DeltaTable(target, storage_options=opts()).version()
         print(f"Wrote {arrow.num_rows} rows to {table} (Delta version {version})")
         return version
     lh.write_table = write_table
@@ -132,9 +154,9 @@ def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[s
         "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled)}}
 
 
-def _sql_cell(source: str) -> dict[str, Any]:
+def _sql_cell(source: str, source_cell_id: str | None = None) -> dict[str, Any]:
     query = source.lstrip()[len("%%sql"):].strip()
-    return {"type": "code", "source": f"lakehouse.sql({json.dumps(query)})"}
+    return {"type": "code", "source": f"lakehouse.sql({json.dumps(query)})", "cell_id": source_cell_id}
 
 
 _USES_SPARK = re.compile(r"(\bspark\s*\.|\b(from|import)\s+pyspark\b|^\s*%%pyspark\b|\bSparkSession\b)", re.M)
@@ -154,7 +176,7 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
         return to_ipynb(cells, lakehouse)
     if uses_spark(cells):
         return to_ipynb([shim_cell(lakehouse, schemas_enabled)] + cells, lakehouse)
-    body = [_sql_cell(c["source"]) if c.get("type") != "markdown" and c.get("source", "").lstrip().startswith("%%sql")
+    body = [_sql_cell(c["source"], c.get("cell_id")) if c.get("type") != "markdown" and c.get("source", "").lstrip().startswith("%%sql")
             else c for c in cells]
     nb = to_ipynb([shim_cell(lakehouse, schemas_enabled)] + body, lakehouse)
     nb["metadata"] = PYTHON_NOTEBOOK_METADATA | {k: v for k, v in nb["metadata"].items()

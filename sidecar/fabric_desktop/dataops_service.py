@@ -9,6 +9,7 @@ engine (replay); this file only connects them to the project, the stores and the
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 from typing import Any
 
@@ -119,15 +120,41 @@ class DataOpsMixin:
     # ---- quarantine
 
     def _quarantine_table(self, project: Any, name: str, env: str) -> tuple[Any, str, str, pl.DataFrame | None]:
+        store, lh, table, q, _ = self._quarantine_at(project, name, env)
+        return store, lh, table, q
+
+    def _quarantine_at(self, project: Any, name: str, env: str) -> tuple[Any, str, str, pl.DataFrame | None, int | None]:
+        """The quarantine table with an id on every row, and the Delta version it was read at."""
         e = project.entities[name]
         store = self._store(project, env)  # type: ignore[attr-defined]
         lh, table = project.layer(e.layer).lakehouse, f"{e.schema}_{e.table}"
-        q = store.read(lh, "quarantine", table)
+        q, version = store.read_at(lh, "quarantine", table)
         if q is not None:
-            # Rows held before ids existed get one from their position, the same on every read.
-            ids = pl.Series([f"old-{i}" for i in range(q.height)], dtype=pl.String)
+            # Rows held before ids existed get one from their values, not their position: Delta
+            # returns rows in no fixed order, so a position could point at another row next time.
+            values = q.drop([c for c in ("_qid",) if c in q.columns])
+            ids = pl.Series([f"old-{hashlib.sha1(line.encode()).hexdigest()[:16]}"
+                             for line in values.write_ndjson().splitlines()], dtype=pl.String)
             q = q.with_columns(pl.col("_qid").fill_null(ids) if "_qid" in q.columns else ids.alias("_qid"))
-        return store, lh, table, q
+        return store, lh, table, q, version
+
+    def _drop_from_quarantine(self, project: Any, name: str, env: str, ids: set[str],
+                              add: pl.DataFrame | None = None) -> None:
+        """Remove rows by id (and add ``add``), committed against the version read, so rows a run
+        quarantines meanwhile are kept: on a conflict it reads the table again and retries."""
+        from deltalake.exceptions import CommitFailedError
+        for attempt in range(5):
+            store, lh, table, q, version = self._quarantine_at(project, name, env)
+            if q is None:
+                return
+            rest = q.filter(~pl.col("_qid").is_in(list(ids)))
+            out = pl.concat([rest, add], how="diagonal_relaxed") if add is not None else rest
+            try:
+                store.write(lh, "quarantine", table, out, mode="overwrite", read_version=version)
+                return
+            except CommitFailedError:
+                if attempt == 4:
+                    raise
 
     def meta_quarantine(self, name: str, env: str = "dev", limit: int = 500) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -167,9 +194,7 @@ class DataOpsMixin:
         out = res.to_dict()
         out["held"] = 0
         if res.status == "ok":
-            rest = q.filter(~pl.col("_qid").is_in(list(wanted)))
-            remaining = pl.concat([rest, held], how="diagonal_relaxed") if held is not None else rest
-            store.write(lh, "quarantine", table, remaining, mode="overwrite")
+            self._drop_from_quarantine(project, name, env, wanted, held)
             out["held"] = 0 if held is None else held.height
         out["downstream"] = impact(project, name)
         return out
@@ -177,10 +202,7 @@ class DataOpsMixin:
     def meta_discard_quarantine(self, name: str, env: str, ids: list[str]) -> dict[str, Any]:
         """Remove quarantined rows that should never load (test data, true duplicates)."""
         project = self._project()  # type: ignore[attr-defined]
-        store, lh, table, q = self._quarantine_table(project, name, env)
-        if q is None:
-            return self.meta_quarantine(name, env)
-        store.write(lh, "quarantine", table, q.filter(~pl.col("_qid").is_in(list(ids))), mode="overwrite")
+        self._drop_from_quarantine(project, name, env, set(ids))
         return self.meta_quarantine(name, env)
 
     # ---- freshness

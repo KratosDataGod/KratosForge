@@ -41,10 +41,23 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},
+    # Files an entity has loaded (path under the lakehouse's Files, size, modified time), so the next
+    # run reads only new or changed ones. Written after the table commit.
+    "loaded_files": {"entity": pl.String, "lakehouse": pl.String, "path": pl.String, "size": pl.Int64,
+                     "modified": pl.String, "run_id": pl.String, "at": pl.String},
 }
 # Delta returns rows in no particular order, so every meta table is sorted by when it was written.
 _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "schema_history": "at",
-          "deployments": "at", "entities": "at", "restores": "at"}
+          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at"}
+
+
+def ran_on(run: dict[str, Any]) -> str:
+    """Where a run_log row ran, in words: Fabric, an agent (by name and host), or this PC."""
+    if str(run.get("batch_id") or "").startswith("fabric-"):
+        return "Fabric"
+    if run.get("worker"):
+        return f"Agent {run['worker']}" + (f" on {run['host']}" if run.get("host") else "")
+    return "This PC"
 
 
 def _read(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.DataFrame | None:
@@ -58,6 +71,52 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
 
 
+def open_table(uri: str, options: dict[str, str] | None, version: int | None = None) -> DeltaTable | None:
+    """The Delta table (its log, not its data), or None when there is none."""
+    try:
+        return DeltaTable(uri, storage_options=options, version=version)
+    except TableNotFoundError:
+        return None
+
+
+def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
+    """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
+    statistics rule them out are skipped and unused columns are never loaded."""
+    if options is None and "://" not in uri:
+        # On this PC Polars reads the files itself and skips them by their Delta statistics.
+        return pl.scan_delta(table)
+    # In OneLake, read through delta-rs's own file system (the one every other read uses), which
+    # still pushes the filter and the column list down to the Parquet files.
+    return pl.scan_pyarrow_dataset(table.to_pyarrow_dataset())
+
+
+def _scan(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.LazyFrame | None:
+    """The table (at ``version``, default the latest) as a LazyFrame (see lazy); None when there's none."""
+    table = open_table(uri, options, version)
+    return None if table is None else lazy(table, uri, options)
+
+
+scan_table_uri = _scan
+
+
+def _key_bounds(df: pl.DataFrame, on: list[str]) -> list[str]:
+    """``t.k >= lo AND t.k <= hi`` for each integer or text key in ``df`` (other types are left
+    unbounded). Null keys never match in a MERGE, so leaving them out of the range is safe."""
+    out = []
+    for c in on:
+        col = df[c].drop_nulls()
+        if not len(col):
+            continue
+        if col.dtype.is_integer():
+            lo, hi = str(col.min()), str(col.max())
+        elif col.dtype == pl.String:
+            lo, hi = ("'" + str(v).replace("'", "''") + "'" for v in (col.min(), col.max()))
+        else:
+            continue
+        out += [f"t.`{c}` >= {lo}", f"t.`{c}` <= {hi}"]
+    return out
+
+
 class Store:
     env: str
 
@@ -68,6 +127,15 @@ class Store:
         return None
 
     def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
+        return self.fetch_files(lakehouse, self.list_files(lakehouse, pattern))
+
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
+        """Files under the lakehouse's Files matching ``pattern``, without reading them:
+        ``{"path"`` (under Files)``, "size", "modified"}``, sorted by path."""
+        raise NotImplementedError
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        """Local paths for listed files (OneLake downloads them)."""
         raise NotImplementedError
 
     # ---- tables
@@ -76,14 +144,60 @@ class Store:
         """The table now, or as it was at a Delta ``version`` (time travel)."""
         return _read(self.uri(lakehouse, schema, table), self.options(), version)
 
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        """The table to filter and select from before reading it (see _scan); None when there's none."""
+        return _scan(self.uri(lakehouse, schema, table), self.options(), version)
+
+    def table(self, lakehouse: str, schema: str, table: str) -> tuple[DeltaTable | None, str, dict[str, str] | None]:
+        """The Delta table with its address and storage options, for :func:`lazy` and the preflight."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        return open_table(uri, options), uri, options
+
+    def exists(self, lakehouse: str, schema: str, table: str) -> bool:
+        return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
+
+    def version(self, lakehouse: str, schema: str, table: str) -> int | None:
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
+        except TableNotFoundError:
+            return None
+
+    def count(self, lakehouse: str, schema: str, table: str) -> int:
+        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+        except TableNotFoundError:
+            return 0
+
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
-              metadata: dict[str, str] | None = None) -> int:
+              metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
+        """Write the table. ``read_version`` is the Delta version the rows were worked out from
+        (see read_at; None when there was no table): an overwrite then commits only if no other
+        writer committed since, and raises CommitFailedError otherwise, so a read-merge-overwrite
+        never drops another writer's rows. False (the default) writes whatever is there."""
+        from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        write_deltalake(uri, df.to_arrow(), mode=mode, storage_options=self.options(),
-                        schema_mode="overwrite" if mode == "overwrite" else "merge",
-                        commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        target: Any = uri
+        extra: dict[str, Any] = {}
+        if mode == "overwrite" and read_version is not False:
+            if read_version is None:
+                extra["mode"] = "error"  # there was no table: someone else creating it first is a conflict
+            else:
+                # Replacing every row as a predicate against the version read makes Delta check for
+                # commits since then (a plain overwrite doesn't).
+                target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
+                extra["predicate"] = "true"
+        try:
+            how = extra.get("mode", mode)
+            write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
+                            schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        except Exception as exc:
+            if extra.get("mode") == "error" and "already exists" in str(exc):
+                raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            raise
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(dt_)
         return dt_.version()
@@ -140,6 +254,40 @@ class Store:
         delta_profile.check_table(dt_)
         return dt_.version()
 
+    def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+               metadata: dict[str, str] | None = None, prune: list[str] | None = None,
+               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+        """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
+
+        Only the files holding matched rows are rewritten; the rest of the table is never read into
+        memory. New columns in ``df`` are added to the table. Returns the new version and delta-rs's
+        merge metrics (rows updated and inserted, files added and removed). Raises CommitFailedError
+        when another writer's commit conflicts, like any other write. ``prune`` names other columns
+        whose range in ``df`` bounds every matching target row (default: the ``on`` columns).
+        ``read_version`` is the version ``df`` was worked out from: the MERGE then commits against
+        it, so a commit by another writer since then raises CommitFailedError instead of being
+        merged over (new surrogate keys depend on the keys the table already had). ``new_from``
+        (column, first new key) makes rows from that key up part of what the MERGE reads, so a
+        concurrent insert there conflicts.
+        """
+        uri = self.uri(lakehouse, schema, table)
+        target = DeltaTable(uri, storage_options=self.options(), version=read_version)
+        # The keys' range bounds the target rows that can match, so delta-rs skips files by their
+        # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
+        bounds = " AND ".join(_key_bounds(df, prune or on))
+        if bounds and new_from:
+            # Also read the rows from the first new key up, so a writer that inserted keys there
+            # meanwhile is a conflict rather than a key handed out twice.
+            col, first = new_from
+            bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
+        predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
+        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
+            .when_matched_update_all().when_not_matched_insert_all().execute()
+        dt_ = DeltaTable(uri, storage_options=self.options())
+        delta_profile.check_table(dt_)
+        return dt_.version(), metrics
+
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:
             return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).history(limit)
@@ -148,8 +296,10 @@ class Store:
 
     # ---- files
 
-    def read_files(self, lakehouse: str, pattern: str) -> tuple[pl.DataFrame | None, list[str]]:
-        paths = self.file_paths(lakehouse, pattern)
+    def read_files(self, lakehouse: str, pattern: str,
+                   entries: list[dict[str, Any]] | None = None) -> tuple[pl.DataFrame | None, list[str]]:
+        """Every file matching ``pattern`` as one frame, or only ``entries`` (from list_files)."""
+        paths = self.fetch_files(lakehouse, entries) if entries is not None else self.file_paths(lakehouse, pattern)
         frames = []
         for p in paths:
             suffix = p.suffix.lower()
@@ -201,8 +351,18 @@ class LocalStore(Store):
             return self.landing / "Files"
         return self.root / lakehouse / "Files"
 
-    def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
-        return sorted(p for p in self.files_dir(lakehouse).glob(pattern) if p.is_file())
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
+        root = self.files_dir(lakehouse)
+        out = []
+        for p in sorted(p for p in root.glob(pattern) if p.is_file()):
+            st = p.stat()
+            out.append({"path": p.relative_to(root).as_posix(), "size": st.st_size,
+                        "modified": dt.datetime.fromtimestamp(st.st_mtime, dt.timezone.utc).isoformat()})
+        return out
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        root = self.files_dir(lakehouse)
+        return [root / e["path"] for e in entries]
 
 
 class OneLakeStore(Store):
@@ -235,13 +395,15 @@ class OneLakeStore(Store):
     def options(self) -> dict[str, str]:
         return storage_options(self._token())
 
-    def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
         lh = self._lakehouse_id(lakehouse)
         directory, _, name_pattern = f"Files/{pattern.strip('/')}".rpartition("/")
-        out = []
-        ws = self.workspace_of(lakehouse)
-        for entry in self._files.list(ws, lh, directory):
-            if not entry["is_dir"] and fnmatch.fnmatch(entry["name"], name_pattern):
-                dest = self.cache_dir / self.env / lakehouse / entry["path"]
-                out.append(self._files.download(ws, lh, entry["path"], dest))
-        return sorted(out)
+        out = [{"path": entry["path"].removeprefix("Files/"), "size": entry["size"], "modified": entry["modified"]}
+               for entry in self._files.list(self.workspace_of(lakehouse), lh, directory)
+               if not entry["is_dir"] and fnmatch.fnmatch(entry["name"], name_pattern)]
+        return sorted(out, key=lambda e: e["path"])
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        lh, ws = self._lakehouse_id(lakehouse), self.workspace_of(lakehouse)
+        return [self._files.download(ws, lh, f"Files/{e['path']}", self.cache_dir / self.env / lakehouse / "Files" / e["path"])
+                for e in entries]

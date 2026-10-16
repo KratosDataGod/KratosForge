@@ -5,6 +5,7 @@ import json
 import types
 from pathlib import Path
 
+import polars as pl
 import pytest
 
 from fabric_desktop.fabric_compute import RUNNER, bundle_files, bundle_hash, run_bundle, run_parameters, runner_ipynb
@@ -200,12 +201,25 @@ def test_fabric_runs_are_marked_in_the_run_log(tmp_path):
     run_bundle(bundle, entities="bronze.orders", stores=stores, results_dir=tmp_path / "r")
     log = stores[0].meta("run_log")
     assert log["batch_id"][-1].startswith("fabric-")
+    # The request id is on the row, so Monitor can lead from the run to its Fabric job and result.
+    assert log.filter(pl.col("job_id").str.starts_with("scheduled-")).height == log.height
+    assert set(log["host"]) == {"Fabric"}
+    run_bundle(bundle, entities="bronze.orders", request_id="fd-1", stores=stores, results_dir=tmp_path / "r")
+    assert stores[0].meta("run_log")["job_id"][-1] == "fd-1"
+
+
+def test_where_a_run_ran_in_words():
+    from fabric_desktop.meta.store import ran_on
+    assert ran_on({"batch_id": "fabric-1", "worker": "fabric", "host": "Fabric"}) == "Fabric"
+    assert ran_on({"batch_id": "b-1", "worker": "etl-01", "host": "srv1"}) == "Agent etl-01 on srv1"
+    assert ran_on({"batch_id": "b-1", "worker": None}) == "This PC"
 
 
 def test_runs_from_every_environment(svc, tmp_path, monkeypatch):
     svc.meta_run()  # Dev, on this PC
     out = svc.meta_runs_all()
     assert {r["env"] for r in out["runs"]} == {"dev"} and all(r["compute"] == "local" for r in out["runs"])
+    assert all(r["ran_on"] == "This PC" for r in out["runs"])
     assert out["unavailable"] == {}  # Test and Prod have no workspace yet: left out quietly
 
     # Test in OneLake: read only when already signed in, never by asking for a sign-in.
@@ -222,6 +236,7 @@ def test_runs_from_every_environment(svc, tmp_path, monkeypatch):
     out = svc.meta_runs_all()
     first = out["runs"][0]
     assert (first["env"], first["entity"], first["compute"], first["status"]) == ("test", "silver.orders", "fabric", "failed")
+    assert first["ran_on"] == "Fabric"
 
 
 def test_runs_from_every_environment_without_a_project(tmp_path):

@@ -5,8 +5,9 @@
     fabric-desktop agent enqueue prod [entity ...] [--backfill full]
     fabric-desktop agent status   # queue counts and the latest jobs
 
-One loop does three things every ``poll_seconds``: puts back jobs whose worker died, enqueues
-the schedules that are due, and starts queued jobs up to ``concurrency``. Each running job renews
+One loop does four things every ``poll_seconds``: puts back jobs whose worker died, enqueues
+the schedules that are due, reads the pipeline mailbox (every ``pipeline.poll_seconds``, when
+``[pipeline]`` is enabled), and starts queued jobs up to ``concurrency``. Each running job renews
 its lease in the queue; each table it writes is held under a write lease in OneLake. Stopping
 the service (SIGTERM, Ctrl+C, service stop) stops taking new jobs and waits for running ones;
 anything cut off is picked up again by the next start.
@@ -22,11 +23,13 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
+from . import agent_status
 from .agent_config import AgentConfig
 from .dataops_service import post_teams
 from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
+from .mailbox import Mailbox
 from .runtime import Runtime
 
 KIND_META = "meta"
@@ -49,6 +52,30 @@ class Agent:
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
         self._pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="job")
+        self.started_at = clock()
+        self._status_at = 0.0
+        self._controls: dict[str, Any] = {}
+        self.mailbox: Mailbox | None = None
+        self._mailbox_at = 0.0
+        if config.pipeline.enabled:
+            p = config.pipeline
+            self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
+                                   p.retention_days, known_entities=self.runtime.entity_names)
+
+    def _control(self, env: str) -> Any:
+        """The environment's control files (mailbox and status records), built once."""
+        if env not in self._controls:
+            self._controls[env] = self.runtime.control_backend(env)
+        return self._controls[env]
+
+    def publish_status(self, state: str = "running") -> None:
+        """Write agents/<name>.json to each environment's control area. A failure is logged, never fatal."""
+        for env in self.config.environments:
+            try:
+                agent_status.publish(self._control(env), self.config.name, agent_status.record(self, env, state))
+            except Exception as exc:
+                self._controls.pop(env, None)
+                self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
     # ---- adding work
 
@@ -170,18 +197,32 @@ class Agent:
         for job_id in self.queue.recover():
             self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
         self.tick_schedules()
+        if self.mailbox and self.clock() - self._mailbox_at >= self.config.pipeline.poll_seconds:
+            self._mailbox_at = self.clock()
+            self.mailbox.poll()
         self._running = {k: f for k, f in self._running.items() if not f.done()}
         while not self.stopping.is_set() and len(self._running) < self.config.concurrency:
             job = self.queue.claim(self.config.name, self.config.job_lease_seconds)
             if job is None:
                 break
             self._running[job["id"]] = self._pool.submit(self._guarded, job)
+        if self.clock() - self._status_at >= self.config.status_seconds:
+            self._status_at = self.clock()
+            self.publish_status()
 
     def _guarded(self, job: dict[str, Any]) -> None:
+        if self.mailbox:
+            if self.mailbox.cancel_requested(job):
+                self.queue.cancel(job["id"], "the pipeline cancelled it", owner=self.config.name)
+                self.mailbox.job_changed(self.queue.get(job["id"]) or job)
+                return
+            self.mailbox.job_changed(job)
         try:
             self.run_job(job)
         except Exception:  # never let one job take the agent down
             self.log.exception("job crashed", extra=fields(job_id=job["id"]))
+        if self.mailbox:
+            self.mailbox.job_changed(self.queue.get(job["id"]) or job)
 
     def run_forever(self, install_signals: bool = True) -> None:
         if install_signals:
@@ -198,7 +239,9 @@ class Agent:
                 self.log.exception("loop error; carrying on")
             self.stopping.wait(self.config.poll_seconds)
         self.log.info("agent stopping: waiting for running jobs", extra=fields(running=list(self._running)))
+        self.publish_status("stopping")
         self._pool.shutdown(wait=True)
+        self.publish_status("stopped")
         self.log.info("agent stopped")
 
     def stop(self) -> None:

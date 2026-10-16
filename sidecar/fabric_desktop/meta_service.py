@@ -18,7 +18,7 @@ from .meta.engine import RunResult
 from .onelake import storage_options
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
 from .meta.promote import promote_checks
-from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store
+from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 
 
@@ -360,6 +360,14 @@ class MetaMixin:
             return self._run_in_fabric(project, env, store, names, backfill, cascade)  # type: ignore[attr-defined]
         return self._run_here(project, env, names, backfill, cascade)
 
+    def meta_preflight(self, name: str, env: str = "dev", backfill: str | None = None) -> dict[str, Any]:
+        """What running ``name`` on this PC would read and whether it fits in memory, from the Delta
+        log only: for the run dialog."""
+        project = self._project()
+        engine = Engine(project, self._store(project, env), source_options=self._source_options,
+                        link_table=self._link_table(project, env))  # type: ignore[attr-defined]
+        return engine.preflight(name, backfill)
+
     def _run_here(self, project: Project, env: str, names: list[str] | None = None, backfill: str | None = None,
                   cascade: bool = False) -> list[dict[str, Any]]:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""
@@ -378,7 +386,7 @@ class MetaMixin:
     def meta_runs(self, env: str = "dev", limit: int = 100) -> list[dict[str, Any]]:
         project = self._project()
         log = self._store(project, env).meta("run_log").reverse()
-        return _json_rows(log, limit)
+        return [r | {"ran_on": ran_on(r)} for r in _json_rows(log, limit)]
 
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
@@ -387,6 +395,7 @@ class MetaMixin:
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
+        row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
         row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
         return row
@@ -414,7 +423,10 @@ class MetaMixin:
                 and not cfg.get("keys_workspace_id") and not self._keys_in_platform(project, target):
             errors.append(f"Pick a Keys workspace for {target.title()} first (Metadata > Surrogate keys)")
         errors += self._product_gate(project)
-        return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests}
+        breaking, notes = self._breaking_gate(project, target)
+        errors += breaking
+        return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
+                "notes": notes}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
@@ -422,6 +434,8 @@ class MetaMixin:
         errors = promote_checks(project, src, target, dt.date.today())
         errors += self._test_gate(project)[0]  # type: ignore[attr-defined]  # custom code is tested before it moves on
         errors += self._product_gate(project)
+        breaking, notes = self._breaking_gate(project, target)
+        errors += breaking
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
@@ -437,6 +451,8 @@ class MetaMixin:
                 result["variable_library"] = "updated"
             except Exception as exc:  # the promote itself worked; publish it from Source systems
                 result["variable_library"] = f"not updated: {exc}"
+        if notes:
+            result["breaking"] = notes
         if project.products:
             try:  # so other teams' links find this environment's tables
                 result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
@@ -449,6 +465,17 @@ class MetaMixin:
             except Exception as exc:  # the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def _breaking_gate(self, project: Project, target: str) -> tuple[list[str], list[str]]:
+        """Columns other projects read in ``target`` may not be dropped or retyped without a new
+        product version (mesh.breaking_changes). Unreachable catalog: a note, not a block."""
+        if not any(p.status != "draft" for p in project.products.values()):
+            return [], []
+        try:
+            published = self._catalog().call("list_products")  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the promote itself doesn't need the catalog
+            return [], [f"couldn't check what other projects read ({exc}); check the products' consumers before promoting"]
+        return mesh.breaking_changes(project, published, target)
 
     def _product_gate(self, project: Project) -> list[str]:
         """Products other teams read must be documented and owned before they move on."""

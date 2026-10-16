@@ -18,7 +18,7 @@ from .meta.engine import RunResult
 from .onelake import storage_options
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
 from .meta.promote import promote_checks
-from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store
+from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 
 
@@ -378,7 +378,7 @@ class MetaMixin:
     def meta_runs(self, env: str = "dev", limit: int = 100) -> list[dict[str, Any]]:
         project = self._project()
         log = self._store(project, env).meta("run_log").reverse()
-        return _json_rows(log, limit)
+        return [r | {"ran_on": ran_on(r)} for r in _json_rows(log, limit)]
 
     def meta_run_detail(self, run_id: str, env: str = "dev") -> dict[str, Any]:
         project = self._project()
@@ -387,6 +387,7 @@ class MetaMixin:
         if not run.height:
             raise KeyError(f"no run {run_id} in {env}")
         row = _json_rows(run, 1)[0]
+        row["ran_on"] = ran_on(row)
         row["steps"] = json.loads(row.get("steps") or "[]")
         row["dq"] = _json_rows(store.meta("dq_results").filter(pl.col("run_id") == run_id), 100)
         return row

@@ -79,10 +79,11 @@ Home answers "what happened since I was last here". From the top:
 
 ### Estate X-ray (Preview)
 
-The X-ray reads every lakehouse you can reach and lists what needs attention, worst first: too many small files, tables Fabric shows as Unidentified, wide access, cost, tables that stopped changing, tables never vacuumed and empty lakehouses. It only reads; nothing changes until you press a fix on a line.
+The X-ray reads every lakehouse you can reach and lists what needs attention, worst first: too many small files, tables Fabric shows as Unidentified, wide access, cost, tables that stopped changing, tables that need a vacuum and empty lakehouses. It only reads; nothing changes until you press a fix on a line.
 
 - The first scan on a PC starts by itself after you sign in. After that, press **Scan again** when you want fresh results. **Pause** holds a scan where it is.
-- The card folds to one line with the totals, and stays as you left it.
+- The card folds to one line with the totals, and stays as you left it. The list shows six findings; **Show all** opens the rest and **Show fewer** closes them again.
+- **Vacuum** on a table first says how many old files it would delete and how much storage they take, then deletes them in Fabric. It always keeps the history the table's layer promises, so Restore keeps working.
 - **Your lakehouses** lists every lakehouse it read. **Adopt** on a lakehouse turns its tables into metadata entities, so the framework manages them from then on.
 - Every finding and its fix is explained in [xray-fixes.md](xray-fixes.md).
 

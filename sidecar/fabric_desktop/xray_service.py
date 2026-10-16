@@ -163,16 +163,82 @@ class XRayMixin:
         findings = [f | {"fixed": _finding_id(f) in fixed, "id": _finding_id(f)} for f in result.get("findings", [])]
         return result | {"lakehouse_rows": rows, "findings": findings}
 
+    def _xray_keep_days(self, workspace_id: str, lakehouse_name: str, table_days: int | None) -> tuple[int, str]:
+        """The days of history a VACUUM on this table must keep, and why: the longest of Fabric's
+        default, the table's own retention setting, and the Keep history days of the metadata
+        layer whose lakehouse it is (so Restore keeps working as far back as that layer promises)."""
+        keep = [(maintenance.RETENTION_HOURS // 24, "Fabric's default")]
+        if table_days:
+            keep.append((table_days, "the table's own retention setting"))
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            if any(cfg.get("workspace_id") == workspace_id for cfg in project.environments.values()):
+                for name in project.layer_names():
+                    layer = project.layer(name)
+                    if layer.lakehouse == lakehouse_name:
+                        keep.append((layer.retention_days, f"Keep history on the {name} layer"))
+        except Exception:  # no metadata project: nothing more to keep
+            pass
+        days, why = max(keep, key=lambda k: k[0])
+        return days, why
+
+    def _xray_table(self, workspace_id: str, lakehouse_id: str, schema: str | None, table: str) -> tuple[str, dict[str, str]]:
+        ref = TableRef(workspace_id, lakehouse_id, schema or "dbo", table, flat=schema is None)
+        return ref.uri, storage_options(self.auth.storage_token())  # type: ignore[attr-defined]
+
+    def _xray_table_days(self, uri: str, options: dict[str, str]) -> int | None:
+        try:
+            return maintenance.kept_days(DeltaTable(uri, storage_options=options).metadata().configuration)
+        except Exception:  # unreadable here: the job still keeps at least the layer's days
+            return None
+
+    def _xray_mark_fixed(self, finding_id: str) -> None:
+        if finding_id:
+            self._save_settings(xray_fixed=sorted(set(self._settings().get("xray_fixed", [])) | {finding_id}))  # type: ignore[attr-defined]
+
     def xray_optimize(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                       lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
         """Fabric's table maintenance (OPTIMIZE with V-Order, then VACUUM) on one table."""
-        job_id = self.fabric_jobs.run_table_maintenance(workspace_id, lakehouse_id, table, schema)  # type: ignore[attr-defined]
+        uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
+        days, _why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
+            workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
-        if finding_id:
-            self._save_settings(xray_fixed=sorted(set(self._settings().get("xray_fixed", [])) | {finding_id}))  # type: ignore[attr-defined]
+        self._xray_mark_fixed(finding_id)
         return self._log_fabric_run({"kind": "Table maintenance", "name": f"{lakehouse_name} {label}".strip(),  # type: ignore[attr-defined]
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                      "item_id": lakehouse_id, "job_id": job_id})
+
+    def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
+                            lakehouse_name: str = "") -> dict[str, Any]:
+        """What Vacuum would delete from one table, found by a dry run that deletes nothing: how
+        many files, how much storage, and how many days of history it keeps (and why)."""
+        uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
+        days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        doomed = maintenance.vacuum_preview(uri, days, options)
+        folder = f"Tables/{schema}/{table}" if schema else f"Tables/{table}"
+        size = None
+        try:
+            listed = FileStore(self.auth.storage_token).list(workspace_id, lakehouse_id, folder, recursive=True)  # type: ignore[attr-defined]
+            sizes = {e["path"][len(folder) + 1:]: e["size"] for e in listed if not e["is_dir"]}
+            size = sum(sizes.get(f, 0) for f in doomed)
+        except Exception:  # the count still stands without the sizes
+            pass
+        return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why}
+
+    def xray_vacuum(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
+                    lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
+        """VACUUM alone, as Fabric's table maintenance job, keeping the history this table promises."""
+        uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
+        days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
+            workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days), optimize=False)
+        label = f"{schema}.{table}" if schema else table
+        self._xray_mark_fixed(finding_id)
+        run = self._log_fabric_run({"kind": "Table maintenance", "name": f"Vacuum {lakehouse_name} {label}".replace("  ", " ").strip(),  # type: ignore[attr-defined]
+                                    "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
+                                    "item_id": lakehouse_id, "job_id": job_id})
+        return run | {"keep_days": days, "why": why}
 
     # ---- adopt a lakehouse into the metadata project
 

@@ -74,3 +74,56 @@ test("the difference grid lists each changed column, and whole rows by side", ()
   assert.strictEqual(proveVerdict({ state: "done", verdict: { verdict: "inconclusive" } })[1], "Inconclusive");
   assert.strictEqual(proveVerdict({ state: "cancelled" })[1], "Cancelled");
 });
+
+// The pure helpers at the top of deps.js.
+function depsHelpers() {
+  const src = fs.readFileSync(path.join(ui, "deps.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- state ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { depsStale, depsPlan, depsList, depsLines });`, ctx);
+  return ctx;
+}
+
+// Cells 1 (imports), 2 (reads orders), 3 (writes a table from 2's variable), 4 (reads 3's table).
+const depsGraph = { cells: [
+  { cell_id: "a", n: 1, upstream: [], effects: [], dynamic: [], defines: ["pl"] },
+  { cell_id: "b", n: 2, upstream: [{ cell_id: "a", n: 1, kind: "variable", via: ["pl"], source: "detected" }], effects: [], dynamic: [] },
+  { cell_id: "c", n: 3, upstream: [{ cell_id: "b", n: 2, kind: "variable", via: ["orders"], source: "detected" }],
+    effects: [{ line: 1, text: "writes the table silver.daily" }], dynamic: [], writes: [{ kind: "table", name: "silver.daily" }] },
+  { cell_id: "d", n: 4, upstream: [{ cell_id: "c", n: 3, kind: "table", via: ["silver.daily"], source: "detected" }], effects: [], dynamic: [] },
+] };
+const ranCells = (over = {}) => ["a", "b", "c", "d"].map((id, i) => ({ cell_id: id, source: `s${id}`, ran: { source: `s${id}`, seq: i + 1, epoch: 0 }, ...over[id] }));
+
+test("an edited cell and everything that depends on it are stale; nothing else is", () => {
+  const { depsStale } = depsHelpers();
+  assert.deepStrictEqual(Object.keys(depsStale(ranCells(), depsGraph, 0)), []);
+  const stale = depsStale(ranCells({ b: { source: "edited" } }), depsGraph, 0);
+  assert.deepStrictEqual(Object.keys(stale), ["b", "c", "d"]);
+  assert.strictEqual(stale.b.text, "Stale: code changed");
+  assert.strictEqual(stale.d.text, "Stale: cell 3 is out of date");
+});
+
+test("a cell is stale when a cell it depends on ran again after it, or the kernel restarted", () => {
+  const { depsStale } = depsHelpers();
+  const cells = ranCells({ a: { ran: { source: "sa", seq: 9, epoch: 0 } } });
+  assert.strictEqual(depsStale(cells, depsGraph, 0).b.text, "Stale: cell 1 ran again");
+  assert.deepStrictEqual(Object.keys(depsStale(ranCells(), depsGraph, 1)), ["a", "b", "c", "d"]);
+  assert.deepStrictEqual(Object.keys(depsStale(ranCells({ a: { ran: null } }), depsGraph, 0)), [], "a cell that hasn't run isn't stale");
+});
+
+test("a cell reading can't follow depends on every cell above it", () => {
+  const { depsStale } = depsHelpers();
+  const graph = { cells: depsGraph.cells.map((g) => (g.cell_id === "d" ? { ...g, upstream: [], dynamic: [{ line: 1, text: "exec" }] } : g)) };
+  const cells = ranCells({ a: { source: "edited" } });
+  assert.ok(depsStale(cells, graph, 0).d, "exec cell is stale after a change anywhere above");
+});
+
+test("run stale cells asks before a side effect and offers the cells before it", () => {
+  const { depsStale, depsPlan, depsList } = depsHelpers();
+  const plan = depsPlan(depsStale(ranCells({ b: { source: "edited" } }), depsGraph, 0), depsGraph);
+  assert.deepStrictEqual([...plan.run], ["b", "c", "d"]);
+  assert.deepStrictEqual(plan.effects.map((e) => e.n), [3]);
+  assert.deepStrictEqual([...plan.before], ["b"]);
+  assert.strictEqual(depsList([2, 3, 4]), "2, 3 and 4");
+  assert.strictEqual(depsList([2]), "2");
+});

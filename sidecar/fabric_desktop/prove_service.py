@@ -21,7 +21,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import envprofile, proof, receipts, scorecard, verify, wizard
+from . import depgraph, envprofile, proof, receipts, scorecard, verify, wizard
 from .fabric_run import TERMINAL, fabric_ipynb
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -87,6 +87,10 @@ class ProveMixin:
         """Which modules each cell imports and where each is available: this PC, Fabric. Takes
         what the notebook screen sends (notebookPayload)."""
         return envprofile.check(cells, self._fabric_observed())
+
+    def notebook_dependencies(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """How the cells depend on each other, read from their code (depgraph.py)."""
+        return depgraph.graph(cells)
 
     def receipts_list(self, name: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         return self.receipts.list(name, limit)

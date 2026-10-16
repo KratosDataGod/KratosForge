@@ -13,6 +13,7 @@ Last updated: 2026-10-16.
 | 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
 | 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Open for review; stacked on #65 |
+| 5 Notebook state | `claude/prove-stage5-state` | see PR list | Draft until Chris reacts to the mockup board 6; stacked on #67 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -24,6 +25,7 @@ None yet.
 
 - Stage 1 is in review (#59): stable cell ids, `receipts.py`, `envprofile.py`.
 - Stage 2 is in review (#62): `proof_runtime.py`, `proof.py`, `verify.py`, `measure.py`, `scorecard.py`, `prove_*` requests in `prove_service.py`; guide in [how-proofs-work.md](how-proofs-work.md).
+- Stage 5 (items 41 dependency map, 42 stale outputs, 43 conservative re-run): `sidecar/fabric_desktop/depgraph.py` (dependencies read from code with `ast`; detected and declared edges kept apart), request `notebook_dependencies`, `app/ui/deps.js` (staleness decided in the UI from what each cell's code was when it last ran in this kernel). Mockup board 6.
 - Stage 3 is a draft (#65): `app/ui/prove.js` (panel, diff grid, scorecard, receipt export), `app/ui/wizard.js` and `sidecar/fabric_desktop/wizard.py` (three fixed templates, proof contract in notebook metadata `fabric_desktop.proof`). Mockup: https://claude.ai/artifact/Jqhxo9LVmqocGYgmT2ok7W (private to Chris's account).
 
 ## Decisions and assumptions
@@ -43,6 +45,7 @@ None yet.
 - #59: 337 passed, 2 skipped; UI tests pass.
 - Stage 2: 353 passed, 2 skipped; UI tests pass; docs build strict.
 - Stage 4: 372 passed, 2 skipped. With the setting on (LOCALAPPDATA app-settings), agent, schedule and side-by-side tests pass except two side-by-side tests that monkeypatch the lakehouse module in the engine process, which the kernel's process doesn't see (a test limitation).
+- Stage 5: 9 new engine tests (`test_depgraph.py`) and 4 new UI tests pass; the Dependencies view, Stale tags and the Run stale cells confirmation rendered in headless Chromium with dependency answers from the real `depgraph.graph` and cell runs stubbed.
 - Stage 3: 366 passed, 2 skipped; 6 UI tests pass; docs build strict; panel, dialogs and wizard rendered in headless Chromium against a real proof record (engine calls stubbed in the browser). The Fabric side was exercised by running the exact published notebook in a subprocess with a fake `notebookutils`, not on a tenant.
 
 ## Blockers
@@ -54,4 +57,4 @@ None yet.
 
 ## Next action
 
-Stage 4 remaining: RPC timeouts in the Tauri shell (a timed-out call has to end the engine, because its answer would still arrive on the pipe), and per-profile virtual environments for environment profiles (needs Chris's decision on where packages come from). Then stage 5 (debugging and notebook state) on `claude/prove-stage5-state`. When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: RPC timeouts in the Tauri shell (a timed-out call has to end the engine, because its answer would still arrive on the pipe), and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

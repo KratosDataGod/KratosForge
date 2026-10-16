@@ -100,6 +100,16 @@ Printed output shows while a cell runs. Code stuck inside a library call can't a
 
 **Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process, a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
 
+### Cell dependencies and stale outputs (Preview)
+
+**View > Dependencies** shows under each code cell what it depends on, read from its code: the variables it uses and which cell defined them, the tables and `Files/` paths it reads and which cell wrote them, what it writes, and which later cells use it. Names no cell defines are listed, so a typo or a missing import shows before you run. A dependency you know about but the code doesn't show can be declared in the cell's metadata as `depends_on` (a list of cell ids).
+
+A cell gets a **Stale** tag when its output may not match the code above it: its code changed since it ran, a cell it depends on is stale or ran again after it, or the kernel restarted. Cells that use `exec`, `%run` or `from x import *` can depend on anything, so they're stale after any change above them. Cells that haven't run aren't counted.
+
+**Run > Run stale cells** runs the stale cells again, in order. If any of them writes a table or file, installs packages or calls the network, it asks first and lists what each does, and offers to run only the cells before the first one.
+
+Dependencies come from reading the code, not from watching it run. A cell can still depend on something reading can't see (a value read from a file another program changed, a global set inside a function from a library), so **Run all** remains the way to be sure.
+
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.

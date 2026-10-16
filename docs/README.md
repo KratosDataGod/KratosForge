@@ -70,6 +70,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Prove this notebook (isolated PC vs Fabric runs, verification, receipts) | Notebook ribbon |
 | New notebook from a template | Create |
 | Run notebooks in their own process | Settings > Preview features |
+| Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |

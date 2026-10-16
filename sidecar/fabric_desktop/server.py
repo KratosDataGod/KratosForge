@@ -55,7 +55,8 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
-           "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process"}
+           "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
+           "notebook_dependencies"}
 
 
 def handle(service: Service, line: str) -> dict:

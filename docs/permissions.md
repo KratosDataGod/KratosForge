@@ -58,7 +58,7 @@ With your own app, Fabric Desktop signs in with the browser (not Windows sign-in
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and capacity size for the cost view | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric | On first use |
-| Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries | At first sign-in |
+| Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries; reading a notebook's cells for its preview | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 

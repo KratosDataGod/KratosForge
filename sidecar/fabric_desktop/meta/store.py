@@ -47,6 +47,15 @@ _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "sche
           "deployments": "at", "entities": "at", "restores": "at"}
 
 
+def ran_on(run: dict[str, Any]) -> str:
+    """Where a run_log row ran, in words: Fabric, an agent (by name and host), or this PC."""
+    if str(run.get("batch_id") or "").startswith("fabric-"):
+        return "Fabric"
+    if run.get("worker"):
+        return f"Agent {run['worker']}" + (f" on {run['host']}" if run.get("host") else "")
+    return "This PC"
+
+
 def _read(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.DataFrame | None:
     try:
         table = DeltaTable(uri, storage_options=options, version=version)
@@ -56,6 +65,43 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
 
 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
+
+
+def _scan(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.LazyFrame | None:
+    """The table (at ``version``, default the latest) as a LazyFrame, so a filter or column list is
+    applied while reading: files whose statistics rule them out are skipped and unused columns are
+    never loaded."""
+    try:
+        table = DeltaTable(uri, storage_options=options, version=version)
+    except TableNotFoundError:
+        return None
+    if options is None and "://" not in uri:
+        # On this PC Polars reads the files itself and skips them by their Delta statistics.
+        return pl.scan_delta(table)
+    # In OneLake, read through delta-rs's own file system (the one every other read uses), which
+    # still pushes the filter and the column list down to the Parquet files.
+    return pl.scan_pyarrow_dataset(table.to_pyarrow_dataset())
+
+
+scan_table_uri = _scan
+
+
+def _key_bounds(df: pl.DataFrame, on: list[str]) -> list[str]:
+    """``t.k >= lo AND t.k <= hi`` for each integer or text key in ``df`` (other types are left
+    unbounded). Null keys never match in a MERGE, so leaving them out of the range is safe."""
+    out = []
+    for c in on:
+        col = df[c].drop_nulls()
+        if not len(col):
+            continue
+        if col.dtype.is_integer():
+            lo, hi = str(col.min()), str(col.max())
+        elif col.dtype == pl.String:
+            lo, hi = ("'" + str(v).replace("'", "''") + "'" for v in (col.min(), col.max()))
+        else:
+            continue
+        out += [f"t.`{c}` >= {lo}", f"t.`{c}` <= {hi}"]
+    return out
 
 
 class Store:
@@ -76,14 +122,55 @@ class Store:
         """The table now, or as it was at a Delta ``version`` (time travel)."""
         return _read(self.uri(lakehouse, schema, table), self.options(), version)
 
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
+        """The table to filter and select from before reading it (see _scan); None when there's none."""
+        return _scan(self.uri(lakehouse, schema, table), self.options(), version)
+
+    def exists(self, lakehouse: str, schema: str, table: str) -> bool:
+        return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
+
+    def version(self, lakehouse: str, schema: str, table: str) -> int | None:
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
+        except TableNotFoundError:
+            return None
+
+    def count(self, lakehouse: str, schema: str, table: str) -> int:
+        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+        except TableNotFoundError:
+            return 0
+
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
-              metadata: dict[str, str] | None = None) -> int:
+              metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
+        """Write the table. ``read_version`` is the Delta version the rows were worked out from
+        (see read_at; None when there was no table): an overwrite then commits only if no other
+        writer committed since, and raises CommitFailedError otherwise, so a read-merge-overwrite
+        never drops another writer's rows. False (the default) writes whatever is there."""
+        from deltalake.exceptions import CommitFailedError
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
-        write_deltalake(uri, df.to_arrow(), mode=mode, storage_options=self.options(),
-                        schema_mode="overwrite" if mode == "overwrite" else "merge",
-                        commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        target: Any = uri
+        extra: dict[str, Any] = {}
+        if mode == "overwrite" and read_version is not False:
+            if read_version is None:
+                extra["mode"] = "error"  # there was no table: someone else creating it first is a conflict
+            else:
+                # Replacing every row as a predicate against the version read makes Delta check for
+                # commits since then (a plain overwrite doesn't).
+                target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
+                extra["predicate"] = "true"
+        try:
+            how = extra.get("mode", mode)
+            write_deltalake(target, df.to_arrow(), **({"mode": mode} | extra), storage_options=self.options(),
+                            schema_mode={"overwrite": "overwrite", "error": None}.get(how, "merge"),
+                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        except Exception as exc:
+            if extra.get("mode") == "error" and "already exists" in str(exc):
+                raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            raise
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(dt_)
         return dt_.version()
@@ -139,6 +226,40 @@ class Store:
         dt_ = DeltaTable(uri, storage_options=self.options())
         delta_profile.check_table(dt_)
         return dt_.version()
+
+    def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+               metadata: dict[str, str] | None = None, prune: list[str] | None = None,
+               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
+        """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
+
+        Only the files holding matched rows are rewritten; the rest of the table is never read into
+        memory. New columns in ``df`` are added to the table. Returns the new version and delta-rs's
+        merge metrics (rows updated and inserted, files added and removed). Raises CommitFailedError
+        when another writer's commit conflicts, like any other write. ``prune`` names other columns
+        whose range in ``df`` bounds every matching target row (default: the ``on`` columns).
+        ``read_version`` is the version ``df`` was worked out from: the MERGE then commits against
+        it, so a commit by another writer since then raises CommitFailedError instead of being
+        merged over (new surrogate keys depend on the keys the table already had). ``new_from``
+        (column, first new key) makes rows from that key up part of what the MERGE reads, so a
+        concurrent insert there conflicts.
+        """
+        uri = self.uri(lakehouse, schema, table)
+        target = DeltaTable(uri, storage_options=self.options(), version=read_version)
+        # The keys' range bounds the target rows that can match, so delta-rs skips files by their
+        # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
+        bounds = " AND ".join(_key_bounds(df, prune or on))
+        if bounds and new_from:
+            # Also read the rows from the first new key up, so a writer that inserted keys there
+            # meanwhile is a conflict rather than a key handed out twice.
+            col, first = new_from
+            bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
+        predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
+        metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
+                               commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
+            .when_matched_update_all().when_not_matched_insert_all().execute()
+        dt_ = DeltaTable(uri, storage_options=self.options())
+        delta_profile.check_table(dt_)
+        return dt_.version(), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:
         try:

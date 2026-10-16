@@ -157,7 +157,10 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
             raise LookupError(f"link {alias} wasn't resolved when this run was sent to Fabric; run it again from the app")
         return links[alias]
 
-    engine = Engine(project, store, keys_store=keys_store, link_table=link_table)
+    request_id = request_id or f"scheduled-{started:%Y%m%d-%H%M%S}"
+    # The request id goes on every run_log row, so a run in Monitor leads to its Fabric job and result.
+    engine = Engine(project, store, keys_store=keys_store, link_table=link_table,
+                    run_context={"worker": "fabric", "host": "Fabric", "job_id": request_id})
     engine.batch_prefix = "fabric-"
     if cascade and names and len(names) == 1:
         results: list[RunResult] = engine.backfill(names[0])
@@ -166,7 +169,6 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
     out = [r.to_dict() for r in results]
     if fabric_token and config.get("optimize_after_run", True):
         _optimize(project, config, out, fabric_token)
-    request_id = request_id or f"scheduled-{started:%Y%m%d-%H%M%S}"
     record = {"request_id": request_id, "env": env, "version": project.version, "compute": "fabric",
               "started_at": started.isoformat(timespec="seconds"),
               "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "results": out}

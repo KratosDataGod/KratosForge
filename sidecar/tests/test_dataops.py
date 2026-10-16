@@ -102,6 +102,31 @@ def test_discard_quarantined_rows(svc):
     assert svc.meta_discard_quarantine("silver.orders", "dev", [q["rows"][0]["_qid"]])["total"] == 0
 
 
+def test_discard_keeps_rows_quarantined_meanwhile_and_old_rows_keep_their_ids(svc, monkeypatch):
+    proj = svc._project()
+    store = svc._store(proj, "dev")
+    q = store.read("LH_Silver", "quarantine", "dbo_orders")
+    # Rows held before ids existed: their ids come from their values, so they never move.
+    store.write("LH_Silver", "quarantine", "dbo_orders", pl.concat([q.drop("_qid"), q.drop("_qid")
+                .with_columns(pl.lit("other").alias("_check"))], how="diagonal_relaxed"))
+    first = sorted(r["_qid"] for r in svc.meta_quarantine("silver.orders")["rows"])
+    store.write("LH_Silver", "quarantine", "dbo_orders", store.read("LH_Silver", "quarantine", "dbo_orders").reverse())
+    assert sorted(r["_qid"] for r in svc.meta_quarantine("silver.orders")["rows"]) == first
+    # A run quarantines a row between the discard's read and its write: that row stays.
+    real, raced = svc._quarantine_at, []
+
+    def read_then_a_run_quarantines(*a):
+        out = real(*a)
+        if not raced:
+            raced.append(True)
+            store.write("LH_Silver", "quarantine", "dbo_orders",
+                        q.with_columns(pl.lit("new-row").alias("_qid")), mode="append")
+        return out
+    monkeypatch.setattr(svc, "_quarantine_at", read_then_a_run_quarantines)
+    left = svc.meta_discard_quarantine("silver.orders", "dev", first)
+    assert [r["_qid"] for r in left["rows"]] == ["new-row"]
+
+
 def test_replay_of_a_full_reload_table_adds_rows_without_replacing_the_table(svc):
     edit_entity(svc, "bronze.customers", "[contract]\n",
                 '[[check]]\nname = "no_ada"\nexpr = "customer_id <> 1"\non_fail = "quarantine"\n\n[contract]\n')

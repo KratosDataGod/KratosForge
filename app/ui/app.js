@@ -393,7 +393,7 @@ async function renderHome() {
       ...failing.slice(0, 5).map((r) => h("div", { class: "card attention" },
         statusPill(r.status),
         h("div", { class: "grow" },
-          h("div", {}, h("b", { class: "mono" }, r.entity), ` in ${ENV_LABEL[r.env]} · ${r.compute === "fabric" ? "in Fabric" : "on this PC"}`),
+          h("div", {}, h("b", { class: "mono" }, r.entity), ` in ${ENV_LABEL[r.env]} · ${ranOn(r)}`),
           h("div", { class: "reason" }, runReason(r) || "Did not finish"),
           h("div", { class: "muted-text small" }, when(r.started_at))),
         btn("Open entity", null, () => { setGlobalEnv(r.env); openEntity(r.entity); }, "tool outline"),
@@ -507,7 +507,7 @@ async function renderMonitor() {
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
-      env: r.env, where: r.compute || "local", seconds: r.seconds, rows: r.rows_written,
+      env: r.env, where: r.compute || "local", ranOn: ranOn(r), seconds: r.seconds, rows: r.rows_written,
       note: r.quarantined ? `${r.quarantined} quarantined` : "", reason: runReason(r),
       open: () => showRun(r.run_id, r.env),
     })),
@@ -539,7 +539,7 @@ async function renderMonitor() {
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.where === "fabric" ? "Fabric" : "This PC"),
+      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"

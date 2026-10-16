@@ -829,6 +829,28 @@ class NotebookStore:
         os.replace(tmp, path)
         return {"name": name, "cell_ids": ids}
 
+    def extra(self, name: str, key: str) -> Any:
+        """A value Fabric Desktop keeps in the notebook's metadata under ``fabric_desktop.<key>``
+        that the notebook screen doesn't send (the proof contract). None when it isn't set."""
+        nb = json.loads(self.path(name).read_text(encoding="utf-8"))
+        return ((nb.get("metadata") or {}).get("fabric_desktop") or {}).get(key)
+
+    def set_extra(self, name: str, key: str, value: Any) -> None:
+        """Set (or, with None, remove) ``fabric_desktop.<key>`` in the saved notebook. Saves from the
+        notebook screen keep it (merge_saved)."""
+        if key in ("compute", "workspace", "lakehouse"):
+            raise ValueError(f"{key} is saved with the notebook, not set on its own.")
+        path = self.path(name)
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
+        if value is None:
+            fd.pop(key, None)
+        else:
+            fd[key] = value
+        tmp = path.with_suffix(".ipynb.tmp")
+        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}
         i = 1

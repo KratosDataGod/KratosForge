@@ -10,6 +10,7 @@ delta-rs, without V-Order.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Any
 
 from deltalake import DeltaTable
@@ -83,6 +84,28 @@ def retention_properties(days: int) -> dict[str, str]:
     files that long, and the log keeps its entries at least that long (Delta's default is 30)."""
     return {"delta.deletedFileRetentionDuration": f"interval {int(days)} days",
             "delta.logRetentionDuration": f"interval {max(int(days), LOG_RETENTION_DAYS)} days"}
+
+
+_UNIT_HOURS = {"hour": 1, "day": 24, "week": 24 * 7}
+
+
+def kept_days(config: dict[str, str] | None) -> int | None:
+    """The history a table's own ``delta.deletedFileRetentionDuration`` keeps, in whole days
+    (rounded up), or None when it doesn't set one. Spark writes it as ``interval 30 days``."""
+    text = str((config or {}).get("delta.deletedFileRetentionDuration") or "").lower()
+    m = re.search(r"(\d+)\s*(hour|day|week)", text)
+    if not m:
+        return None
+    return -(-int(m.group(1)) * _UNIT_HOURS[m.group(2)] // 24)
+
+
+def vacuum_preview(uri: str, days: int, options: dict[str, str] | None = None) -> list[str]:
+    """The files (relative to the table folder) VACUUM keeping ``days`` of history would delete.
+    A dry run: nothing is deleted."""
+    table = DeltaTable(uri, storage_options=options)
+    paths = table.vacuum(retention_hours=retention_hours(days), dry_run=True, enforce_retention_duration=False)
+    root = uri.rstrip("/") + "/"
+    return [p[len(root):] if p.startswith(root) else p for p in paths]
 
 
 def set_retention(uri: str, days: int, options: dict[str, str] | None = None) -> bool:

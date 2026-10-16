@@ -118,6 +118,11 @@ class FabricClient:
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 
+    def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
+        """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
+        query = f"?format={fmt}" if fmt else ""
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+
     def list_notebooks(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/notebooks")
 
@@ -178,12 +183,16 @@ class FabricClient:
 
     def run_table_maintenance(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                               v_order: bool = True, z_order_by: list[str] | None = None,
-                              vacuum_retention: str | None = "7.01:00:00") -> str:
-        """OPTIMIZE (with V-Order) and VACUUM one table on Fabric capacity. Returns the job id."""
-        data: dict[str, Any] = {"tableName": table, "optimizeSettings": {"vOrder": "true" if v_order else "false"}}
+                              vacuum_retention: str | None = "7.01:00:00", optimize: bool = True) -> str:
+        """OPTIMIZE (with V-Order) and VACUUM one table on Fabric capacity. Returns the job id.
+
+        ``optimize=False`` runs VACUUM alone; ``vacuum_retention=None`` runs OPTIMIZE alone."""
+        data: dict[str, Any] = {"tableName": table}
+        if optimize:
+            data["optimizeSettings"] = {"vOrder": "true" if v_order else "false"}
         if schema:
             data["schemaName"] = schema
-        if z_order_by:
+        if z_order_by and optimize:
             data["optimizeSettings"]["zOrderBy"] = list(z_order_by)
         if vacuum_retention:
             data["vacuumSettings"] = {"retentionPeriod": vacuum_retention}

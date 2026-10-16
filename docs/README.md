@@ -69,6 +69,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Semantic model | Metadata > Deploy |
 | Tests | Metadata > Quality |
 | Estate X-ray | Home |
+| Item preview | Workspaces |
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

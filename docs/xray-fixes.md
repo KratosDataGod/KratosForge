@@ -11,7 +11,7 @@ Each finding links here. Every section says what the finding means, why it matte
 | [Access](#access) | Worth fixing | **Review access** |
 | [Cost](#cost) | Worth fixing ($10 or more in 30 days), otherwise Good to know | **Open notebook** or **See cost** |
 | [Not changing](#not-changing) | Good to know | **Open in Fabric** |
-| [Never vacuumed](#never-vacuumed) | Good to know | **Optimize** |
+| [Needs vacuum](#needs-vacuum) | Good to know | **Vacuum** |
 | [Empty lakehouses](#empty-lakehouses) | Good to know | **Open in Fabric** |
 
 The scan reads at most 500 tables. Scans run when you press **Scan now** or **Scan again** (the very first one on a PC starts by itself), and **Pause** holds a scan where it is.
@@ -89,15 +89,21 @@ The estimate leaves out Spark session start-up. Fabric's **Capacity Metrics** ap
 
 **By hand.** Find what used to write it: in Fabric, the lakehouse's **Lineage** view shows the pipelines and notebooks connected to it, and the table's history (`DESCRIBE HISTORY my_table` in a notebook) shows the last operation and when. Restart that load, or delete the table if nothing uses it. For metadata tables, a **freshness promise** on the entity alerts you (and Teams) when it goes late.
 
-## Never vacuumed
+## Needs vacuum
 
-**What it means.** The table has 30 or more versions and has never been vacuumed.
+**What it means.** The table has 30 or more versions since it was last vacuumed, or has never been vacuumed.
 
 **Why it matters.** Every write leaves the files it replaced in storage. Until `VACUUM` removes them, you pay OneLake storage for every old version.
 
-**What Optimize does.** The same table maintenance as for [small files](#small-files): `OPTIMIZE` with V-Order, then `VACUUM` keeping 7 days.
+**What Vacuum does.** First a dry run, which deletes nothing, says how many old files Vacuum would delete and how much storage they take. Then **Vacuum** runs Fabric's table maintenance with only `VACUUM` ticked (no compaction). It keeps the longest of:
 
-**By hand.** As for small files, with only **Run VACUUM command** ticked, or `VACUUM my_table RETAIN 168 HOURS;` in a notebook. Don't go below 7 days: a shorter retention can break queries running at the time, and you lose restore to those versions.
+- 7 days, Fabric's default,
+- the table's own `delta.deletedFileRetentionDuration`,
+- **Keep history** on the metadata layer whose lakehouse it is, in a workspace your metadata project uses.
+
+So **Restore** and time travel still reach back as far as the layer promises. With the **Needs vacuum** filter on, **Vacuum all** starts one job per table, each keeping its own history. **Optimize** on a small-files finding keeps the same history when it vacuums.
+
+**By hand.** As for small files, with only **Run VACUUM command** ticked, or `VACUUM my_table RETAIN 168 HOURS;` in a notebook (use the layer's days times 24 for metadata tables). Don't go below 7 days: a shorter retention can break queries running at the time, and you lose restore to those versions.
 
 ## Empty lakehouses
 

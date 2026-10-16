@@ -2,6 +2,7 @@
 
 import datetime as dt
 import os
+import re
 from pathlib import Path
 
 import polars as pl
@@ -179,3 +180,84 @@ def test_home_scans_by_itself_only_once(tmp_path, monkeypatch):
     assert svc.xray_pause(True)["paused"] is True
     assert not svc._xray_gate.is_set()
     assert svc.xray_pause(False)["paused"] is False and svc._xray_gate.is_set()
+
+
+def test_vacuum_finding_counts_versions_since_the_last_vacuum():
+    t = {"workspace_id": "w", "workspace_name": "W", "lakehouse_id": "l", "lakehouse_name": "LH", "schema": "dbo", "table": "orders"}
+    now = dt.datetime.now(dt.timezone.utc)
+    base = {"exists": True, "advice": [], "files": 1, "bytes": 1, "last_write": now.isoformat()}
+    [never] = xray.table_findings(t, base | {"versions_since_vacuum": 40}, now)
+    assert never["action"] == "vacuum" and "never been vacuumed (40 versions)" in never["title"]
+    [behind] = xray.table_findings(t, base | {"versions_since_vacuum": 35, "last_vacuum": "2026-01-01T00:00:00+00:00"}, now)
+    assert behind["title"] == "dbo.orders has 35 versions since its last vacuum"
+    assert xray.table_findings(t, base | {"versions_since_vacuum": 29}, now) == []
+
+
+def test_kept_days_reads_the_tables_own_retention():
+    assert maintenance.kept_days({"delta.deletedFileRetentionDuration": "interval 30 days"}) == 30
+    assert maintenance.kept_days({"delta.deletedFileRetentionDuration": "interval 1 weeks"}) == 7
+    assert maintenance.kept_days({"delta.deletedFileRetentionDuration": "interval 200 hours"}) == 9  # rounded up
+    assert maintenance.kept_days({}) is None and maintenance.kept_days(None) is None
+
+
+@pytest.fixture
+def vacuum_svc(tmp_path, monkeypatch):
+    """A table with old versions in a lakehouse that the silver layer (30 days of history) owns in Dev."""
+    uri = tmp_path / "lake" / "ws-dev" / "lh-silver" / "Tables" / "dbo" / "orders"
+    for i in range(3):
+        write_deltalake(str(uri), pl.DataFrame({"id": [i]}).to_arrow(), mode="overwrite")
+    old = dt.datetime.now().timestamp() - 40 * 86400  # the replaced files were removed 40 days ago
+    log = uri / "_delta_log"
+    for f in log.glob("*.json"):
+        text = f.read_text()
+        f.write_text(re.sub(r'"deletionTimestamp":\d+', f'"deletionTimestamp":{int(old * 1000)}', text))
+    svc = Service(root=tmp_path / "app")
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    project = svc._project()
+    layers = [l.to_dict() for l in project.layers]
+    layers[1]["retention_days"] = 30
+    svc.meta_set_layers(layers)
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["dev"] = {"target": "onelake", "workspace_id": "ws-dev"}
+    svc._write_environments(project, envs)
+    monkeypatch.setattr(Service, "_xray_table", lambda self, ws, lh, schema, table: (str(uri), None))
+    jobs = []
+
+    class Jobs:
+        def run_table_maintenance(self, *a, **k):
+            jobs.append((a, k))
+            return "job-1"
+    monkeypatch.setattr(Service, "fabric_jobs", property(lambda self: Jobs()), raising=False)
+    monkeypatch.setattr(Service, "auth", property(lambda self: type("A", (), {"storage_token": lambda _s: "tok"})()), raising=False)
+    import fabric_desktop.xray_service as xs
+    lake = tmp_path / "lake"
+
+    def files(ws, lh, directory, recursive=False):
+        base = lake / ws / lh
+        found = (base / directory).rglob("*") if recursive else (base / directory).iterdir()
+        return [{"name": p.name, "path": p.relative_to(base).as_posix(), "is_dir": p.is_dir(),
+                 "size": 0 if p.is_dir() else p.stat().st_size} for p in found]
+    monkeypatch.setattr(xs, "FileStore", lambda _t: type("F", (), {"list": staticmethod(files)})())
+    return svc, uri, jobs
+
+
+def test_vacuum_keeps_the_history_the_layer_promises(vacuum_svc):
+    svc, uri, jobs = vacuum_svc
+    assert svc._xray_keep_days("ws-dev", "LH_Silver", None) == (30, "Keep history on the silver layer")
+    assert svc._xray_keep_days("ws-other", "LH_Silver", None)[0] == 7  # not a metadata workspace
+    assert svc._xray_keep_days("ws-other", "LH_X", 45) == (45, "the table's own retention setting")
+    out = svc.xray_vacuum("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev", finding_id="vacuum|x")
+    (args, kw), = jobs
+    assert kw == {"vacuum_retention": "30.01:00:00", "optimize": False}
+    assert out["keep_days"] == 30 and out["job_id"] == "job-1" and out["name"] == "Vacuum LH_Silver dbo.orders"
+    assert "vacuum|x" in svc._settings()["xray_fixed"]
+    svc.xray_optimize("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
+    assert jobs[1][1] == {"vacuum_retention": "30.01:00:00"}  # Optimize's vacuum keeps it too
+
+
+def test_vacuum_preview_counts_what_it_would_delete(vacuum_svc):
+    svc, uri, _ = vacuum_svc
+    keep30 = svc.xray_vacuum_preview("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver")
+    assert keep30["files"] == 2 and keep30["bytes"] > 0 and keep30["keep_days"] == 30  # removed 40 days ago
+    assert len(list(uri.glob("*.parquet"))) == 3  # a dry run: nothing deleted

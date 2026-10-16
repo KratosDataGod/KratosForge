@@ -93,7 +93,10 @@ class Authenticator:
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
         self.cache = msal.SerializableTokenCache()
         if self.cache_path.exists():
-            self.cache.deserialize(self.cache_path.read_text())
+            try:
+                self.cache.deserialize(self.cache_path.read_text())
+            except ValueError:  # a damaged cache file: sign in again rather than fail every call
+                pass
         # Windows sign-in (WAM) for Microsoft's app, whose broker redirect Microsoft registered.
         # It uses the Windows work account, so there's often no prompt, and it passes
         # "compliant device" Conditional Access. Elsewhere, or if it can't start, the browser.
@@ -116,7 +119,13 @@ class Authenticator:
     def _save(self) -> None:
         if self.cache.has_state_changed:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
-            self.cache_path.write_text(self.cache.serialize())
+            # Write a temporary file and swap it in: the app and scheduled runs share this cache,
+            # and a half-written file would stop every sign-in.
+            tmp = self.cache_path.with_name(f"{self.cache_path.name}.{os.getpid()}.tmp")
+            tmp.write_text(self.cache.serialize())
+            if os.name != "nt":
+                tmp.chmod(0o600)  # refresh tokens: this user only
+            os.replace(tmp, self.cache_path)
 
     def _token(self, scopes: list[str]) -> str:
         scopes = self.scopes_for(scopes)

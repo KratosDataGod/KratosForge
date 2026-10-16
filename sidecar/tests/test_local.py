@@ -136,6 +136,18 @@ def test_microsofts_sign_in_asks_for_default_scopes_and_an_own_app_for_narrow_on
     assert own.app.asked == [EXECUTE_SCOPES] and not own.broker
 
 
+def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):
+    from fabric_desktop.auth import Authenticator
+    path = tmp_path / "cache.bin"
+    path.write_text('{"AccessToken": {"half-writ')  # e.g. two runs wrote it at once before
+    auth = Authenticator("11111111-2222-3333-4444-555555555555", cache_path=path)
+    auth.cache.add({"client_id": auth.client_id, "scope": ["s"], "token_endpoint": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                    "response": {"access_token": "a", "expires_in": 3600, "token_type": "Bearer"}})
+    auth._save()
+    assert "AccessToken" in path.read_text() and list(tmp_path.iterdir()) == [path]
+    Authenticator("11111111-2222-3333-4444-555555555555", cache_path=path)  # reads back cleanly
+
+
 def test_catalog_lists_lakehouses_across_workspaces_and_keeps_favorites(tmp_path, monkeypatch):
     from fabric_desktop import service as service_mod
     from fabric_desktop.service import Service

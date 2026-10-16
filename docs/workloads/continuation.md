@@ -7,15 +7,16 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | Field | Value |
 | --- | --- |
 | Last updated | 2026-10-16 |
-| Base | `main` at `af11938` |
-| Stage | 0 (plan) done; stage 1 PR 1A open (#63); PR 1B waits for Chris's reaction to the mockup |
+| Base | `main` at `a471c8b` |
+| Stage | 0 (plan) merged (#60); stage 1 engine merged (#63); stage 1 UI open as draft #72, waiting on Chris's reaction to the mockup |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | #60 | This plan and note | Open |
-| `claude/workload-inventory-4su03b` | #63 | Stage 1 PR 1A: engine, RPCs, tests | Open |
+| `claude/workload-management-plan-4su03b` | #60 | This plan and note | Merged |
+| `claude/workload-inventory-4su03b` | #63 | Stage 1 PR 1A: engine, RPCs, tests | Merged |
+| `claude/workload-ui-4su03b` | #72 | Stage 1 PR 1B: Monitor > Workloads, workload page, Home card, guide | Draft |
 
 ## Completed backlog items
 
@@ -23,7 +24,9 @@ None yet.
 
 ## Work in progress
 
-- Stage 1 PR 1A (engine) is open as #63. Items it covers in part: inventory, ownership, health, readiness, actions with preflight.
+- Stage 1 UI is draft #72. Together with #63 it covers in part: inventory, ownership, health, readiness, workload page, actions with preflight, Home.
+- Open product question in #72: Home now has both "Needs your attention" (everything) and "Your workloads" (what you own); whether the new card replaces the old list is Chris's call.
+- How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, an injected failed Test run and a fake Fabric, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
 - Mockup of Monitor > Workloads, the workload page, Home's "Your workloads" and the Retry confirmation: https://claude.ai/artifact/MYaQsSXDJ9iAmpo6nYePJf (waiting on Chris).
 
 ## Assumptions and decisions
@@ -36,6 +39,7 @@ None yet.
 ## Validation evidence
 
 - 2026-10-16: `python -m pytest -q` in `sidecar/` on `af11938`: 322 passed, 2 skipped (Linux, Python 3.13, pinned constraints).
+- 2026-10-16, #72 after merging main: 456 passed, 2 skipped; UI tests 6 passed.
 - 2026-10-16, #63: 348 passed, 2 skipped. 10,000 synthetic workloads: build and assess 0.9 s, each list query 70 to 240 ms (a quadratic join at 4.1 s was fixed first).
 
 ## External dependencies and blockers
@@ -45,7 +49,7 @@ None yet.
 
 ## Next action
 
-When Chris reacts to the mockup, build PR 1B (UI) as a draft on a branch from #63's branch: Monitor Workloads segment (Preview), workload page, Home "Your workloads", command bar entries, `app/ui/workloads.js`, user-guide section, sidecar version bump. Tell the coordinator before touching Monitor and Home in `app.js`. Meanwhile, keep #63 green.
+Keep #72 green and mergeable (main moves often; merge it in). When Chris reacts to the mockup, apply his changes and mark #72 ready. Then start stage 2 (incidents and objectives on the agent, decision W2) on a new branch from main, telling the coordinator before touching `agent.py` or `jobqueue.py`.
 
 ## Resume prompt
 

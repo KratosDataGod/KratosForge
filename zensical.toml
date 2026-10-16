@@ -44,6 +44,8 @@ nav = [
     { "Why Fabric Desktop" = "why-fabric-desktop.md" },
     { "Submitting ideas" = "ideas.md" },
     { "Enterprise roadmap" = "enterprise-roadmap.md" },
+    { "Workload operations plan" = "workloads/plan.md" },
+    { "Workloads: continuation note" = "workloads/continuation.md" },
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },

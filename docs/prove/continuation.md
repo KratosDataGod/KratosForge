@@ -12,7 +12,7 @@ Last updated: 2026-10-16.
 | 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
 | 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
-| 4 Kernel process | `claude/prove-stage4-kernels` | STAGE4 | Open for review; stacked on #65 |
+| 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Open for review; stacked on #65 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 

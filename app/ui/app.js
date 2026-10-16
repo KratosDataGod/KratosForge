@@ -292,6 +292,7 @@ async function renderHome() {
     h("div", { class: "home-two" },
       h("section", { class: "card pad" }, h("h2", {}, "Running now"), running),
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
+    meshMapCard(),
     envSection,
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       btn("New notebook", "notebook", newNotebook, "tool outline"),
@@ -339,7 +340,7 @@ async function renderHome() {
       ].slice(0, 6);
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
-        : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Metadata, on this PC or in Fabric."),
+        : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
         btn("All schedules", "history", () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small"));
       upcoming.replaceWith(next);
       return next;
@@ -1235,7 +1236,12 @@ function renderQuery() {
     const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
     if (!name) return;
     toast(`Writing ${name}...`);
-    const out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
+    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
+    if (out?.exists) {
+      const replace = await confirmDialog("Replace the table?",
+        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
+      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite" }), "Could not save the table");
+    }
     if (out) {
       toast(out.message);
       delete state.tree[treeKey(ref, "tables")];
@@ -1658,7 +1664,7 @@ async function publishNotebook() {
 // ---------- Where a notebook runs: this PC or Fabric ----------
 
 // Each notebook has a "Runs on" choice: This PC, Fabric, or the default, which follows where the
-// environment last picked on the Metadata pages runs (Metadata > Environments). Run all goes there. Fabric
+// environment last picked on the Data mesh pages runs (Data mesh > Environments). Run all goes there. Fabric
 // runs the whole published notebook, so single cells only run on this PC.
 function nbWhere(nb) {
   const choice = nb?.compute || "default";
@@ -1986,8 +1992,9 @@ function detachLakehouse() {
 
 // ---------- Markdown ----------
 
+// Quotes too: inlineMd puts link targets in an attribute, and notebooks come from other people.
 function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function inlineMd(text) {

@@ -12,6 +12,7 @@ Uses only the standard library, because it must work before the sidecar is insta
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -291,6 +292,18 @@ def install_sidecar(commit: str) -> int:
     return 0
 
 
+def release_sha256(tag: str, commit: str) -> str:
+    """The exe's SHA-256 that a release's version.json gives for this build, or "" when it
+    gives none (releases from before checksums) or names another build."""
+    try:
+        with _get(f"{release_url(tag)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
+            info = json.load(resp)
+    except Exception:  # noqa: BLE001 - the commit check below still runs
+        return ""
+    sha = str(info.get("exe_sha256") or "").lower()
+    return sha if info.get("commit") == commit and re.fullmatch(r"[0-9a-f]{64}", sha) else ""
+
+
 def download_app(dest: str, commit: str = "") -> int:
     """Download the latest exe. With a commit, check the file is that build, since each
     exe carries its commit; a stale cached copy is fetched once more, then refused."""
@@ -305,18 +318,27 @@ def download_app(dest: str, commit: str = "") -> int:
                 resp = _get(f"{release_url(tags[0])}/fabric-desktop.exe?nocache={int(time.time())}", timeout=30)
             else:
                 raise
+        digest = hashlib.sha256()
         with resp, open(dest, "wb") as out:
             total = int(resp.headers.get("Content-Length") or 0)
             done, last = 0, -1
             while chunk := resp.read(1 << 16):
                 out.write(chunk)
+                digest.update(chunk)
                 done += len(chunk)
                 percent = done * 100 // total if total else 0
                 if percent != last:
                     print(f"progress {percent}", flush=True)
                     last = percent
+        if total and done != total:  # the connection dropped part way: never install half an exe
+            print(f"The download stopped at {done} of {total} bytes; trying again", flush=True)
+            continue
         if not commit:
             return 0
+        expected = release_sha256(tags[0], commit)
+        if expected and digest.hexdigest() != expected:
+            print(f"The download does not match build {commit[:7]}'s checksum; trying again", flush=True)
+            continue
         with open(dest, "rb") as f:
             if commit.encode() in f.read():
                 return 0

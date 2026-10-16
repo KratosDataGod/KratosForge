@@ -24,7 +24,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | [install.md](install.md) | Everyone | Requirements, download, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
-| [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Metadata, Fabric, Monitor, Settings, the command bar and the bell |
+| [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -62,21 +62,21 @@ Fabric Desktop is new, and it's honest about what has been proven.
 
 | Preview feature | Where |
 | --- | --- |
-| Run in Fabric (notebooks and environments) | Notebook ribbon, Metadata environments |
-| Schedules (on this PC and in Fabric) | Notebook ribbon, Metadata, Monitor |
+| Run in Fabric (notebooks and environments) | Notebook ribbon, Data mesh > Environments |
+| Schedules (on this PC and in Fabric) | Notebook ribbon, Data mesh, Monitor |
 | Side by side (this PC vs Fabric) and the TPC-H benchmark | Notebook ribbon |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |
 | Table history and restore | Entity page |
-| Table health and Optimize | Metadata > Quality |
-| Semantic model | Metadata > Deploy |
-| Tests | Metadata > Quality |
+| Table health and Optimize | Data mesh > Quality |
+| Semantic model | Data mesh > Deploy |
+| Tests | Data mesh > Quality |
 | Estate X-ray | Home |
 | Item preview | Workspaces |
-| Platform (admins, landing zone, business keys, requests) | Platform, Settings, Metadata > Surrogate keys |
+| Platform (admins, landing zone, business keys, requests) | Platform, Settings, Data mesh > Surrogate keys |
 | Data products for everyone | OneLake > Data products |
-| Data mesh (domains, products, links, glossary, About) | Metadata > Mesh, entity page |
+| Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

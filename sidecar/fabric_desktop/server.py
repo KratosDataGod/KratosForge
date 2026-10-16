@@ -19,7 +19,7 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_domains",
-           "platform_save_domain", "platform_delete_domain", "platform_glossary", "platform_save_term", "platform_audit",
+           "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_requests", "platform_request",

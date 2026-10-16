@@ -297,7 +297,7 @@ async function addReviewWorkspace() {
 function accessTable(d) {
   const ws = d.workspaces;
   if (!ws.length) {
-    return [h("p", { class: "muted-text" }, "No environment has a workspace yet. Assign them in Metadata > Environments and promote, or add any workspace to review it.")];
+    return [h("p", { class: "muted-text" }, "No environment has a workspace yet. Assign them in Data mesh > Environments and promote, or add any workspace to review it.")];
   }
   const roleSelect = (p, w) => {
     const cur = p.roles[w.key];

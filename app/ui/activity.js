@@ -205,7 +205,7 @@ function setGlobalEnv(env) {
   render();
 }
 
-// Only the Metadata pages (and the entity page) work against one environment, so the picker
+// Only the Data mesh pages (and the entity page) work against one environment, so the picker
 // shows there and nowhere else. Home's environment tiles pick one by opening it.
 const ENV_VIEWS = new Set(["metadata", "entity"]);
 
@@ -218,8 +218,8 @@ function renderEnvBar() {
   const select = h("select", { class: "env-select", "aria-label": "Environment", onchange: (e) => setGlobalEnv(e.target.value) },
     Object.entries(ENV_LABEL).map(([id, label]) => h("option", { value: id, selected: env === id ? true : null }, label)));
   slot.replaceChildren(
-    h("label", { class: "env-label" }, h("span", { class: "muted-text" }, "Metadata environment"), select),
-    h("button", { class: `pill compute${where.fabric ? " fabric" : ""}`, title: "Where this environment runs. Change it in Metadata > Environments and promote.",
+    h("label", { class: "env-label" }, h("span", { class: "muted-text" }, "Data mesh environment"), select),
+    h("button", { class: `pill compute${where.fabric ? " fabric" : ""}`, title: "Where this environment runs. Change it in Data mesh > Environments and promote.",
       onclick: () => goMeta("environments") }, icon(where.fabric ? "cloud" : "desktop", 14), where.text));
 }
 

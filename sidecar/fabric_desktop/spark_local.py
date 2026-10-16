@@ -68,11 +68,7 @@ class LakehouseWriter:
         if self._mode in ("overwrite", "append"):
             return self._mode
         if self._mode == "ignore" or self._mode in ("error", "errorifexists"):
-            try:
-                lakehouse.open_table(table)
-                exists = True
-            except Exception:  # noqa: BLE001 - missing table (or no access): treat as new
-                exists = False
+            exists = lakehouse.table_exists(table)
             if exists and self._mode == "ignore":
                 return "skip"
             if exists:
@@ -255,6 +251,14 @@ class LocalSparkSession(SparkSession):
                 _sql.bind_tables(query, self.conn, self._bound(), self._is_local)
                 data = self.conn.sql(query.sql("duckdb"))
                 mode = "append" if isinstance(statement, exp.Insert) and not statement.args.get("overwrite") else "overwrite"
+                # CREATE TABLE as Spark does it: an existing table is kept (IF NOT EXISTS) or is an
+                # error, and only CREATE OR REPLACE overwrites it.
+                if isinstance(statement, exp.Create) and not statement.args.get("replace") and lakehouse.table_exists(name):
+                    if statement.args.get("exists"):
+                        print(f"Table {name} already exists; left as it is.")
+                        return None
+                    raise ValueError(f"Table {name} already exists. Use CREATE OR REPLACE TABLE, "
+                                     "INSERT OVERWRITE or INSERT INTO.")
                 print(lakehouse.write_table((getattr(data, "to_arrow_table", None) or data.arrow)(), name, mode=mode))
                 return None
         _sql.bind_tables(statement, self.conn, self._bound(), self._is_local)

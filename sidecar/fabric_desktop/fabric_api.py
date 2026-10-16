@@ -252,6 +252,14 @@ class FabricClient:
         url = f"/workspaces/{workspace_id}/sqlEndpoints/{sql_endpoint_id}/refreshMetadata"
         return self._wait(self._request("POST", url, json={}))
 
+    # ---- domains
+
+    def list_admin_domains(self) -> list[dict[str, Any]]:
+        """Fabric's domains and subdomains: [{id, displayName, description, parentDomainId}].
+        Fabric administrators only (Tenant.Read.All); anyone else gets 401/403."""
+        body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
+        return body.get("domains", body.get("value", []))
+
     # ---- workspaces: who has access
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:

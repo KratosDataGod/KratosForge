@@ -29,6 +29,37 @@ function meshProblems(o) {
 
 // ---------- domains and workspaces ----------
 
+// Which Fabric domain the project's workspaces are in. Any workspace member can read that (no
+// admin rights); the domain's name comes from the catalog once a Fabric admin has imported them.
+async function loadWorkspaceDomains(o, into, domain, subdomain, fillSubs) {
+  const envs = o.environments || {};
+  if (!state.user || !MESH_ENVS.some((e) => envs[e]?.workspace_id)) return;
+  let res;
+  try { res = await rpc("mesh_workspace_domains", {}); } catch { return; }
+  const named = res.workspaces.filter((w) => w.domain);
+  const nameOf = (id) => o.domains.find((d) => d.id === id)?.name || id;
+  const where = (w) => `${ENV_LABEL[w.env]}${w.designation ? ` ${w.designation}` : ""} workspace (${w.workspace_name || w.workspace_id})`;
+  const lines = [];
+  if (res.suggested) {
+    const pick = res.suggested.subdomain || res.suggested.domain;
+    const same = domain.value === res.suggested.domain && subdomain.value === (res.suggested.subdomain || "");
+    const w = [...named].reverse().find((x) => x.domain === pick) || named[0];
+    lines.push(h("span", {}, `In Fabric, your ${where(w)} is in the ${nameOf(pick)} domain. `),
+      same ? h("span", { class: "muted-text" }, "This project matches it.")
+        : h("button", { class: "tool link small", onclick: () => {
+          domain.value = res.suggested.domain; fillSubs(); subdomain.value = res.suggested.subdomain || "";
+          into.replaceChildren(h("span", { class: "muted-text small" }, `Picked ${nameOf(pick)}. Save to keep it.`));
+        } }, "Use it"));
+  }
+  const others = named.filter((w) => res.suggested && w.domain !== (res.suggested.subdomain || res.suggested.domain));
+  if (others.length) lines.push(h("div", { class: "muted-text small" }, "Different domain in Fabric: ",
+    others.map((w) => `${where(w)} is in ${nameOf(w.domain)}`).join("; "), "."));
+  if (res.unnamed.length) lines.push(h("div", { class: "muted-text small" }, res.imported
+    ? "Some of your workspaces are in a Fabric domain the platform doesn't have yet. A platform admin who is a Fabric administrator can import it again on Platform > Domains."
+    : "Your workspaces are in Fabric domains, but their names aren't in the platform yet. Fabric only shows domain names to Fabric administrators: ask one to choose Import from Fabric on Platform > Domains."));
+  if (lines.length) into.replaceChildren(h("div", { class: "note small" }, icon("info", 16), h("div", {}, ...lines)));
+}
+
 async function renderMeshDomainsTab(body) {
   const o = await meshOverview();
   if (!o || state.view !== "metadata" || state.meta.tab !== "domains") return;
@@ -45,6 +76,8 @@ async function renderMeshDomainsTab(body) {
   fillSubs();
   const team = h("input", { value: me.team || "", placeholder: "Like Sales analytics" });
   const description = h("input", { value: me.description || "", placeholder: "What this project is for" });
+  const fabricHint = h("div", { class: "fabric-domain-hint" });
+  loadWorkspaceDomains(o, fabricHint, domain, subdomain, fillSubs);
   const projectCard = h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, `Project ${me.name}`),
       me.upgraded ? null : h("span", { class: "pill-s neu" }, "Not in the mesh yet")),
@@ -54,6 +87,7 @@ async function renderMeshDomainsTab(body) {
     h("div", { class: "form-grid" },
       h("label", { class: "field" }, "Domain", domain), h("label", { class: "field" }, "Subdomain", subdomain),
       h("label", { class: "field" }, "Team", team), h("label", { class: "field" }, "Description", description)),
+    fabricHint,
     h("div", { class: "row end" }, btn(me.upgraded ? "Save" : "Join the mesh", "save", async () => {
       const res = await metaCall("mesh_set_project", { fields: { domain: domain.value, subdomain: subdomain.value,
         team: team.value.trim(), description: description.value.trim() } }, "Not saved");
@@ -83,7 +117,9 @@ async function renderMeshDomainsTab(body) {
         ...MESH_ENVS.map((env) => cell(env, d)))))));
 
   const domainRows = o.domains.map((d) => h("tr", {},
-    h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
+    h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name),
+      d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "From Fabric") : null,
+      h("div", { class: "muted-text small mono" }, d.id)),
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
     h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
     h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length),
@@ -95,6 +131,8 @@ async function renderMeshDomainsTab(body) {
       }, "tool small danger")))));
   const domainsCard = h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
+      btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool outline small",
+        { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator who is also a platform admin." }),
       btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline small")),
     platformNote(o),
     o.domains.length ? h("table", { class: "list" },
@@ -106,23 +144,39 @@ async function renderMeshDomainsTab(body) {
 }
 
 function domainDialog(o, d, done) {
-  const name = h("input", { value: d?.name || "" });
-  const parent = h("select", {}, h("option", { value: "" }, "None (a top-level domain)"),
+  // A domain imported from Fabric keeps Fabric's name and parent: change those in Fabric, then import again.
+  const fromFabric = !!d?.fabric_domain;
+  const locked = fromFabric ? { disabled: true, title: "Comes from Fabric: rename or move it in the Fabric admin portal, then Import from Fabric" } : {};
+  const name = h("input", { value: d?.name || "", ...locked });
+  const parent = h("select", locked, h("option", { value: "" }, "None (a top-level domain)"),
     o.domains.filter((x) => !x.parent_id && x.id !== d?.id).map((x) => h("option", { value: x.id, selected: x.id === d?.parent_id ? true : null }, x.name)));
   const description = h("input", { value: d?.description || "" });
   const owners = h("input", { value: d?.owners || "", placeholder: "Emails, separated by commas" });
-  const fabric = h("input", { value: d?.fabric_domain || "", placeholder: "Optional: the matching domain in the Fabric admin portal" });
   showDialog(d ? `Edit ${d.name}` : "New domain", h("div", {},
+    fromFabric ? h("p", { class: "muted-text small" }, "From Fabric. Its name and parent follow Fabric's domains; owners and description are the platform's.") : null,
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Part of", parent),
-    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners),
-    h("label", { class: "field" }, "Fabric domain", fabric)), [
+    h("label", { class: "field" }, "Description", description), h("label", { class: "field" }, "Owners", owners)), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Save", "save", async () => {
       if (!name.value.trim()) { name.focus(); return; }
       const res = await metaCall("platform_save_domain", { domain: { id: d?.id, name: name.value.trim(), parent_id: parent.value,
-        description: description.value.trim(), owners: owners.value.trim(), fabric_domain: fabric.value.trim() } }, "Not saved");
+        description: description.value.trim(), owners: owners.value.trim() } }, "Not saved");
       if (res) { closeDialog(); done(); }
     }, "tool primary")]);
+}
+
+// Fabric's domain list is a Fabric admin API: only a Fabric administrator can import it.
+async function importFabricDomains(done) {
+  if (!state.user && !(await signIn())) return;
+  const out = await metaCall("platform_import_fabric_domains", {}, "Domains not imported");
+  if (!out) return;
+  const r = out.result;
+  const parts = [r.added.length && `${r.added.length} added`, r.linked.length && `${r.linked.length} matched by name`,
+    r.updated.length && `${r.updated.length} renamed or moved`].filter(Boolean);
+  toast(`Imported ${out.fabric} Fabric domains${parts.length ? `: ${parts.join(", ")}` : ", nothing changed"}`);
+  if (r.skipped.length) toast(`Skipped (deeper than one subdomain): ${r.skipped.join(", ")}`);
+  if (r.gone.length) toast(`No longer in Fabric, kept here: ${r.gone.join(", ")}`);
+  done();
 }
 
 async function pickDesignationWorkspace(env, d, done) {

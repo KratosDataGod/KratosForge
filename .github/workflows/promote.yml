@@ -23,10 +23,19 @@ jobs:
           gh release download latest --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The latest release has no build commit"; exit 1; }
-          jq -n --arg commit "$COMMIT" --arg notes "$NOTES" '{commit: $commit, notes: $notes}' > version.json
-          gh release delete stable --cleanup-tag --yes || true
-          gh release create stable fabric-desktop.exe fabric-desktop-engine.zip version.json \
-            --title "Fabric Desktop (stable)" \
-            --notes "$NOTES" \
-            --target "$COMMIT" \
-            --latest
+          # Keep the build's checksums; only the notes change.
+          jq --arg notes "$NOTES" '.notes = $notes' version.json > version.new && mv version.new version.json
+          if gh release view stable > /dev/null 2>&1; then
+            # Replace the files in place rather than deleting the release: while it was missing,
+            # Stable PCs fell back to Preview and could be offered an untested build.
+            gh release upload stable fabric-desktop.exe fabric-desktop-engine.zip --clobber
+            gh release upload stable version.json --clobber
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/stable" -f sha="$COMMIT" -F force=true
+            gh release edit stable --notes "$NOTES" --latest
+          else
+            gh release create stable fabric-desktop.exe fabric-desktop-engine.zip version.json \
+              --title "Fabric Desktop (stable)" \
+              --notes "$NOTES" \
+              --target "$COMMIT" \
+              --latest
+          fi

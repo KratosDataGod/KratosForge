@@ -63,7 +63,7 @@ from pyspark.sql import functions as F
 ```
 
 - `spark.read.csv/parquet/json/load("Files/...")`, `spark.read.table`, `spark.sql`, `saveAsTable`, temp views and `pyspark.sql.functions` work.
-- `%%sql` cells use the same session, so they see temp views. `CREATE TABLE ... AS SELECT` and `INSERT INTO` write lakehouse tables.
+- `%%sql` cells use the same session, so they see temp views. `CREATE TABLE ... AS SELECT` and `INSERT INTO` write lakehouse tables. As in Fabric, `CREATE TABLE` stops if the table already exists (`IF NOT EXISTS` leaves it as it is); use `CREATE OR REPLACE TABLE` or `INSERT OVERWRITE` to replace it.
 - **Not available on this PC:** RDDs, UDFs, streaming, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
 
 **`notebookutils` (and `mssparkutils`)** cover:
@@ -139,7 +139,7 @@ How it is published:
 | --- | --- |
 | **This PC** | Every cell runs in the kernel on your PC. No capacity used. |
 | **Fabric** (Preview) | Run all publishes the notebook and runs the whole thing on its workspace's Fabric capacity. Single cells can't run in Fabric; switch back to This PC to run one cell. Cell output shows in Fabric, and the bell tells you when it finishes. |
-| **Same as Dev** (default) | Follows the environment picked on the Metadata pages and where that environment runs. |
+| **Same as Dev** (default) | Follows the environment picked on the Data mesh pages and where that environment runs. |
 
 A note above the cells tells you when a notebook can't run where it is set to, and which cell is the reason:
 
@@ -176,7 +176,7 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 | --- | --- |
 | **Copy** | Copies the shown rows, tab-separated, for pasting into Excel |
 | **Download CSV** | Saves the full result to your Downloads folder |
-| **Save as table** | Writes the full result to the lakehouse as a Delta table you name |
+| **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
 

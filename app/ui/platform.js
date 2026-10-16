@@ -175,7 +175,7 @@ function sourceDetail(s, l, rerender) {
       : h("p", { class: "muted-text" }, "No project reads it yet."),
     h("b", {}, "Read it in a project"),
     h("pre", { class: "sql-block" }, `[source]\nlanding = "${s.name}/${s.entities[0]?.name || "<entity>"}/*.csv"`),
-    h("p", { class: "muted-text small" }, "Or Metadata > New entity > From the landing zone."));
+    h("p", { class: "muted-text small" }, "Or Data mesh > New entity > From the landing zone."));
 }
 
 function sourceDialog(s, done) {
@@ -215,7 +215,7 @@ async function platformKeysTab(body) {
         : btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool primary small")),
     h("p", { class: "muted-text small" }, "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
       admin ? "A new key table is made in Dev, Test and Prod at once." : "Only platform admins add key tables; ask for one and it appears here once approved.",
-      " Projects pick from this list in Metadata > Surrogate keys."),
+      " Projects pick from this list in Data mesh > Surrogate keys."),
     k.key_tables.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Key table", "Business key", "Description", "Keys", "Next key", "Created"].map((x) => h("th", {}, x)))),
       h("tbody", {}, k.key_tables.map((t) => h("tr", {},
@@ -335,14 +335,21 @@ async function platformDomainsTab(body) {
   const o = { domains };
   body.replaceChildren(h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
-      adminOnly(btn("New domain", "add", () => domainDialog(o, null, rerender), "tool primary small"))),
-    h("p", { class: "muted-text small" }, "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. Projects join one in Metadata > Mesh. Domain owners keep their domain's glossary terms."),
+      adminOnly(h("span", { class: "row tight" },
+        btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool primary small",
+          { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator." }),
+        btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline small")))),
+    h("p", { class: "muted-text small" }, "An area of the business that owns its data, like Sales or Finance; subdomains go one level deep. Projects join one in Data mesh > Domains. Domain owners keep their domain's glossary terms."),
+    h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
+      ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
+      : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
     domains.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Fabric domain", ""].map((x) => h("th", {}, x)))),
+      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
         h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
         h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
-        h("td", {}, d.fabric_domain || h("span", { class: "muted-text" }, "")),
+        h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {

@@ -74,7 +74,7 @@ const META_TAB_GROUPS = [
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
-  ["mesh", "Mesh", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
+  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
     ["glossary", "Glossary", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
@@ -91,7 +91,7 @@ function goMeta(tab) {
 // ---------- main page ----------
 
 async function renderMetadata() {
-  setView(h("div", { class: "page" }, h("h1", {}, "Metadata"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
+  setView(h("div", { class: "page" }, h("h1", {}, "Data mesh"), h("p", { class: "muted-text" }, "Loading the metadata project...")));
   const p = await loadMetaProject();
   if (state.view !== "metadata" || !p) return;
   if (!p.path) return renderMetaSetup(p);
@@ -109,7 +109,7 @@ async function renderMetadata() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {},
-        h("h1", {}, "Metadata"),
+        h("h1", {}, "Data mesh"),
         h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
           ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("metadata"))),
       h("div", { class: "head-actions" },
@@ -344,7 +344,7 @@ async function renderEntity() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {},
-        h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Metadata"), h("span", { class: "muted-text" }, "/")),
+        h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
           h("span", { class: "mono" }, e.path))),
@@ -554,7 +554,7 @@ function renderLayersTab(body, p) {
         h("td", {}, i + 1),
         h("td", {}, h("b", {}, l.name), l.description ? h("div", { class: "muted-text" }, l.description) : null),
         h("td", { class: "mono small" }, `LH_${l.name[0].toUpperCase()}${l.name.slice(1)}`),
-        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Metadata > Mesh > Domain and workspaces)",
+        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Data mesh > Domains > Domain and workspaces)",
           onchange: (ev) => { l.workspace = ev.target.value; rerender(); } },
         h("option", { value: "" }, "Environment's own"),
         (p.designations || []).map((d) => h("option", { value: d.id, selected: l.workspace === d.id ? true : null }, d.label)))),
@@ -997,11 +997,11 @@ async function renderSourcesTab(body) {
 }
 
 registerFeature({
-  id: "metadata", rail: { label: "Metadata", icon: "metadata", order: 50, also: ["entity"] },
+  id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },
   views: { metadata: renderMetadata, entity: renderEntity },
   commands: [
     ...META_TAB_GROUPS.flatMap(([, , tabs]) => tabs.map(([id, label, previewId]) => ({
-      label: `Metadata: ${label}`, icon: "metadata", keywords: "medallion", preview: !!previewId, run: () => goMeta(id) }))),
+      label: `Data mesh: ${label}`, icon: "metadata", keywords: "metadata medallion", preview: !!previewId, run: () => goMeta(id) }))),
     { label: "New entity", icon: "add", keywords: "metadata table create", run: () => { goMeta("entities"); newEntityDialog(); },
       when: () => !!state.meta?.project?.path },
     { label: "New entity from the landing zone", icon: "folderOpen", keywords: "bronze raw files platform", preview: true,

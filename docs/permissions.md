@@ -34,11 +34,13 @@ With Microsoft's sign-in, Fabric Desktop asks each Microsoft API for its default
 | Giving someone a workspace role by email | Power BI | Yes. No directory permission is needed |
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
 | The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |
+| Importing Fabric's domains and subdomains into the platform (**Platform > Domains > Import from Fabric**) | Fabric admin API | Only for Fabric administrators, and not yet tried. Reading the domain list needs the Fabric administrator role; everyone else is refused |
+| Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in Fabric Desktop's own list, because it needs an admin-only permission. The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in Fabric Desktop's own list, because it needs an admin-only permission. Fabric's domain names are the one admin-only read Fabric Desktop uses, and only when a Fabric administrator chooses **Import from Fabric**: the names are then kept in the platform, so nobody else needs that permission. The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 
@@ -61,6 +63,7 @@ With your own app, Fabric Desktop signs in with the browser (not Windows sign-in
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
 | Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
+| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**). Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop | Optional, when a Fabric administrator imports domains |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.

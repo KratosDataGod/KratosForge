@@ -411,13 +411,76 @@ def save_domain(db: Db, domain: dict[str, Any], by: str = "") -> dict[str, Any]:
             raise PlatformError("Subdomains go one level deep: pick a top-level domain as the parent")
         if parent == did:
             raise PlatformError("A domain can't be its own parent")
+    current = _row(db, "domain", "id", did)
+    linked = (current or {}).get("fabric_domain") or ""
+    if linked and (name != current["name"] or (parent or None) != (current.get("parent_id") or None)):
+        raise PlatformError(f"{current['name']} comes from Fabric: rename or move it in Fabric (Admin portal > "
+                            "Domains), then choose Import from Fabric")
     row = {"id": did, "name": name, "parent_id": parent, "description": str(domain.get("description") or ""),
-           "owners": str(domain.get("owners") or ""), "fabric_domain": str(domain.get("fabric_domain") or ""),
+           "owners": str(domain.get("owners") or ""), "fabric_domain": linked or str(domain.get("fabric_domain") or ""),
            "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "domain", "id", row)
     _audit(db, by, "save domain", did, row)
     db.commit()
     return row
+
+
+def _slug(name: str, taken: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9_.-]+", "-", str(name or "").strip().lower()).strip("-._")[:60] or "domain"
+    did, n = base, 2
+    while did in taken:
+        did, n = f"{base}-{n}", n + 1
+    return did
+
+
+def import_fabric_domains(db: Db, domains: list[dict[str, Any]], by: str = "") -> dict[str, Any]:
+    """Make the catalog's domains follow Fabric's domains and subdomains (``GET /v1/admin/domains``).
+
+    A Fabric domain matches the catalog domain already linked to it (``fabric_domain``), else one
+    with the same name that isn't linked yet, else it's added. Linked domains take Fabric's name and
+    parent; their owners and description stay as the platform set them. Domains that are no longer
+    in Fabric are reported, never deleted: projects may still use them. Platform admins only.
+    """
+    require_admin(db, by, "import domains from Fabric")
+    existing = list_domains(db)
+    by_fabric = {d["fabric_domain"]: d for d in existing if d.get("fabric_domain")}
+    by_name = {str(d["name"] or "").strip().lower(): d for d in existing if not d.get("fabric_domain")}
+    taken = {d["id"] for d in existing}
+    fabric = {str(d.get("id") or ""): d for d in domains if d.get("id")}
+    # parents first, so a subdomain's parent is already in the catalog
+    order = sorted(fabric.values(), key=lambda d: (bool(d.get("parentDomainId")), str(d.get("displayName") or "")))
+    ids: dict[str, str] = {}
+    out: dict[str, list[str]] = {"added": [], "updated": [], "linked": [], "unchanged": [], "skipped": [], "gone": []}
+    for d in order:
+        fid, name = str(d["id"]), str(d.get("displayName") or "").strip() or str(d["id"])
+        parent_fid = str(d.get("parentDomainId") or "")
+        if parent_fid and (parent_fid not in ids or fabric.get(parent_fid, {}).get("parentDomainId")):
+            out["skipped"].append(name)  # deeper than one level, or its parent is missing: Fabric doesn't allow either
+            continue
+        parent = ids.get(parent_fid) if parent_fid else None
+        row = by_fabric.get(fid)
+        kind = "updated"
+        if row is None:
+            row = by_name.pop(name.lower(), None)
+            kind = "linked" if row else "added"
+        if row is None:
+            did = _slug(name, taken)
+            taken.add(did)
+            row = {"id": did, "description": str(d.get("description") or ""), "owners": ""}
+        elif kind == "updated" and row["name"] == name and (row.get("parent_id") or None) == parent:
+            kind = "unchanged"
+        ids[fid] = row["id"]
+        if kind != "unchanged":
+            new = {"id": row["id"], "name": name, "parent_id": parent,
+                   "description": str(row.get("description") or d.get("description") or ""),
+                   "owners": str(row.get("owners") or ""), "fabric_domain": fid, "updated_at": _now(), "updated_by": by}
+            _upsert(db, "catalog", "domain", "id", new)
+        out[kind].append(row["id"])
+    out["gone"] = [d["id"] for f, d in by_fabric.items() if f not in fabric]
+    _audit(db, by, "import domains from Fabric", f"{len(fabric)} domains",
+           {k: v for k, v in out.items() if v and k != "unchanged"})
+    db.commit()
+    return out
 
 
 def delete_domain(db: Db, did: str, by: str = "") -> None:
@@ -896,6 +959,7 @@ OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
     "import_keys": import_keys, "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
+    "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,

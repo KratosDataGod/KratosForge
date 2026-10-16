@@ -16,9 +16,9 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Metadata, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
-| **Environment picker** | Top bar, on Metadata pages only | Dev, Test or Prod. Every Metadata page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
+| **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
 | **Account circle** | Top right | Your initial, or **?** when signed out. Opens the account menu. |
 
@@ -27,7 +27,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 Press **Ctrl+K** anywhere, or click the search box. Type a few letters to find:
 
 - **Pages**, such as Monitor or Settings.
-- **Actions**, such as New notebook, New lakehouse, Run all entities, Metadata: Surrogate keys, OneLake shortcuts, Report a problem, What's new or Sign out.
+- **Actions**, such as New notebook, New lakehouse, Run all entities, Data mesh: Surrogate keys, OneLake shortcuts, Report a problem, What's new or Sign out.
 - **Notebooks** on this PC, **workspaces** you can open, and **entities** in your metadata project.
 
 Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for preview features only show when preview features are on.
@@ -59,7 +59,7 @@ Click your initial at the top right:
 1. **Sign in** with your work account, the same one you use for Fabric. Windows often signs you in with no prompt. There's no app ID to ask anyone for.
 2. **Open a lakehouse** from **OneLake** or **Workspaces** to browse its tables and files, or query them with SQL.
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
-4. **Set up Metadata** when you want Fabric Desktop to build and run your medallion layers for you.
+4. **Set up a metadata project** (Data mesh in the left rail) when you want Fabric Desktop to build and run your medallion layers for you.
 
 Home shows a **Get started** list with these steps until you have a metadata project. Each step has a **Start** button and gets a tick when done. **Hide** removes the list.
 
@@ -73,6 +73,7 @@ Home answers "what happened since I was last here". From the top:
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Running now** | What this app is running, here or in Fabric. |
 | **Coming up** | The next scheduled runs, on this PC and in Fabric. **All schedules** opens Monitor > Schedules. |
+| **Data mesh** (Preview) | A map of the whole mesh: each domain and subdomain, the projects in it, the data products they publish (colored by who may read them) and arrows from each product to the projects that read it. Your open project is outlined; click it to open Data mesh > Domains. The section folds with its arrow. |
 | **Environments** | Dev, Test and Prod: where each runs, and "All green", "2 failed", "Running" or "Never run". Click one to see its runs. Before you have a metadata project, this space shows **Get started** instead. |
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
@@ -147,7 +148,7 @@ Workspaces you can't read are skipped and named at the top.
 
 #### Environments and solutions
 
-A workspace's **environment** comes from your metadata project first: the workspace each environment writes to and its Keys workspace (**Metadata > Environments and promote**). Otherwise it comes from a word in the workspace name: Dev or Development; Test, TST, UAT or QA (all shown as Test); Prod, PRD or Production. The word must stand apart, as in `Sales Dev`, `Sales-PROD`, `Sales [Test]` or `DEV_Sales`. When a name has more than one, the last wins, so `Production Planning Dev` is Dev. A workspace with neither shows under **No environment**.
+A workspace's **environment** comes from your metadata project first: the workspace each environment writes to and its Keys workspace (**Data mesh > Environments and promote**). Otherwise it comes from a word in the workspace name: Dev or Development; Test, TST, UAT or QA (all shown as Test); Prod, PRD or Production. The word must stand apart, as in `Sales Dev`, `Sales-PROD`, `Sales [Test]` or `DEV_Sales`. When a name has more than one, the last wins, so `Production Planning Dev` is Dev. A workspace with neither shows under **No environment**.
 
 A workspace's **solution** is its name without that environment word, so `Adv Wrks DE 2 Dev`, `Adv Wrks DE 2 Test` and `Adv Wrks DE 2 Prod` all belong to the solution **Adv Wrks DE 2**. To make your workspaces group together, name each environment's copy the same way with a different environment word.
 
@@ -184,21 +185,21 @@ Who can reach each environment's workspace, and who can read which tables. Chang
 
 Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Workspace.ReadWrite.All` and Microsoft Graph `User.ReadBasic.All`.
 
-## Metadata
+## Data mesh
 
-Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop builds and runs them. Its tabs are in five groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop builds and runs them. Its tabs are in five groups:
 
 | Group | Tabs |
 | --- | --- |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
-| Mesh (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
+| Domains (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
 
-The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Metadata pages. Everything on these pages, from runs to table health, is for the environment picked there.
+The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Data mesh pages. Everything on these pages, from runs to table health, is for the environment picked there.
 
 The full walkthrough, from setting up a project to promoting to Prod, and a reference for every setting, is in **[the metadata guide](metadata-guide.md)**.
 

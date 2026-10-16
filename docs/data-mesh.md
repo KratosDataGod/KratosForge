@@ -3,7 +3,7 @@
 Fabric Desktop lets many teams build on one platform without stepping on each other. A central team runs the [platform](platform.md): one business key system and one landing zone for everyone. Bronze processing is decentralized: each team builds its own Bronze from the landing zone, and everything after it; domain teams own their projects, publish **data products**, and read each other's products through **links**. Everything a team builds stays in its own Git repository.
 
 !!! note "Preview"
-    The Mesh tabs are tagged Preview: they're tested on the PC but not yet on a live tenant.
+    The Domains tabs are tagged Preview: they're tested on the PC but not yet on a live tenant.
 
 ## Who does what
 
@@ -16,7 +16,7 @@ Fabric Desktop lets many teams build on one platform without stepping on each ot
 | Links | | Link to products open to them; request access to others |
 | Catalog text | Shared glossary terms | Describe their tables and columns |
 
-All of it happens on the **Platform** page (central team, and requests from everyone), **Metadata > Mesh** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
+All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Domains** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
 ## The pieces
 
@@ -24,7 +24,7 @@ All of it happens on the **Platform** page (central team, and requests from ever
 | --- | --- | --- |
 | **Landing zone** | Raw files from every source, landed once for everyone. Entities read it with `[source] landing = "<source>/<entity>/*.csv"` | `LH_Landing` in the Platform workspace |
 | **Surrogate keys** | One key per business key across every team | `SQL_Platform` |
-| **Domain** | An area of the business that owns its data, like Sales or Finance. Subdomains go one level deep (Sales > EMEA) | The platform's catalog |
+| **Domain** | An area of the business that owns its data, like Sales or Finance. Subdomains go one level deep (Sales > EMEA). Imported from Fabric's domains | The platform's catalog, linked to the Fabric domain |
 | **Project** | A metadata project (one Git repository) and the domain and team it belongs to | `project.toml` in the project, and the catalog |
 | **Workspace designation** | What a workspace is for: Ingest, Product, Serve or Sandbox | `environments.toml` and `layers.toml` |
 | **Data product** | The tables (ports) other teams may read from a project, with an owner, a description and who may read it | `metadata/products/<name>.toml`, published to the catalog on promote |
@@ -35,7 +35,7 @@ Logic lives in Git and goes through review and promote. Catalog text lives in th
 
 ## Join the mesh
 
-**Metadata > Mesh > Domain and workspaces.** Pick your domain (and subdomain, if any), your team and a description, then choose **Join the mesh**. That writes `project.toml` at the top of the project:
+**Data mesh > Domains > Domain and workspaces.** Pick your domain (and subdomain, if any), your team and a description, then choose **Join the mesh**. That writes `project.toml` at the top of the project:
 
 ```toml
 [project]
@@ -47,6 +47,24 @@ format = 2
 ```
 
 Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Platform > Domains** (also listed in **Your organization's domains** on this tab).
+
+## Domains come from Fabric
+
+The mesh's domains and subdomains are the ones defined in Fabric (Admin portal > Domains), so a project's domain here is the same one its workspaces have in Fabric.
+
+| Step | Who | Needs |
+| --- | --- | --- |
+| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). Fabric Desktop asks for it only at this step. No app registration |
+| Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
+| **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
+
+How the import works:
+
+- A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
+- Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in Fabric Desktop. Owners and description are the platform's and stay as you set them.
+- A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
+- Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
+- **New domain** still works for organizations that don't use Fabric domains; those show as "Only here".
 
 ## Workspaces by designation
 
@@ -63,7 +81,7 @@ On **Domain and workspaces**, pick or create a workspace for each designation an
 
 ## Data products
 
-**Metadata > Mesh > Data products > New data product.** Choose the tables to share (each becomes a **port**, with the name consumers use), an owner, and who it's **open to**:
+**Data mesh > Domains > Data products > New data product.** Choose the tables to share (each becomes a **port**, with the name consumers use), an owner, and who it's **open to**:
 
 | Open to | Who may link to it |
 | --- | --- |
@@ -128,7 +146,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (Metadata > Mesh > Glossary) holds shared terms like *Active customer*. It also shows recent changes in the catalog and who made them.
+**Glossary** (Data mesh > Domains > Glossary) holds shared terms like *Active customer*. It also shows recent changes in the catalog and who made them.
 
 ## At scale
 

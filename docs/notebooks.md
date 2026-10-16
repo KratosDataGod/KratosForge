@@ -139,7 +139,7 @@ How it is published:
 | --- | --- |
 | **This PC** | Every cell runs in the kernel on your PC. No capacity used. |
 | **Fabric** (Preview) | Run all publishes the notebook and runs the whole thing on its workspace's Fabric capacity. Single cells can't run in Fabric; switch back to This PC to run one cell. Cell output shows in Fabric, and the bell tells you when it finishes. |
-| **Same as Dev** (default) | Follows the environment picked on the Metadata pages and where that environment runs. |
+| **Same as Dev** (default) | Follows the environment picked on the Data mesh pages and where that environment runs. |
 
 A note above the cells tells you when a notebook can't run where it is set to, and which cell is the reason:
 

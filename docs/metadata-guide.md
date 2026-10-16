@@ -22,7 +22,7 @@ This guide goes from an empty folder to Prod. The [reference](#reference) at the
 
 ## 1. Set up a project
 
-1. Open **Metadata** in the left rail. With no project yet, it shows **Set up a metadata project**.
+1. Open **Data mesh** in the left rail. With no project yet, it shows **Set up a metadata project**.
 2. **Folder:** where the project goes. The default is `Documents\FabricDesktop\metadata`. Choose a folder inside a Git repository if you have one.
 3. **Layers:** pick 2 (raw, curated), 3 (bronze, silver, gold) or 5 (landing, bronze, silver, gold, semantic). You can add, remove, rename and reorder later.
 4. **Add the sample tables:** with 3 layers, tick this to get customers and orders from Bronze to Gold with sample CSV files, so you can try everything straight away.
@@ -57,7 +57,7 @@ When you're ready to use Fabric for Dev, assign it a workspace (step 7) and swit
 
 ## 3. Design your layers
 
-**Metadata > Design > Layers** lists your layers in order, with each one's rules. Change them, then **Save layers**.
+**Data mesh > Design > Layers** lists your layers in order, with each one's rules. Change them, then **Save layers**.
 
 | Column | What it sets |
 | --- | --- |
@@ -75,7 +75,7 @@ Rules that always hold: a table writes only to its own layer's lakehouse; it rea
 
 ## 4. Add entities
 
-**New entity** (on any Metadata page, or Ctrl+K) asks for:
+**New entity** (on any Data mesh page, or Ctrl+K) asks for:
 
 | Field | What to put |
 | --- | --- |
@@ -190,18 +190,18 @@ Late tables show on Home and in the bell. To get them in Teams, **Settings > Not
 
 ### Tests (Preview)
 
-**Metadata > Quality > Tests** runs the `test_*.py` files in the project's `tests` folder. A test is a function named `test_something` that uses `assert`, as in pytest; it can take `tmp_path` for a scratch folder. Each run imports `transforms/` and `tests/` fresh, so it tests what you just saved. Promote runs them first and won't promote while one fails.
+**Data mesh > Quality > Tests** runs the `test_*.py` files in the project's `tests` folder. A test is a function named `test_something` that uses `assert`, as in pytest; it can take `tmp_path` for a scratch folder. Each run imports `transforms/` and `tests/` fresh, so it tests what you just saved. Promote runs them first and won't promote while one fails.
 
 ### Table health (Preview)
 
-**Metadata > Quality > Table health** reads every managed table's Delta log in the picked environment: files, size, average file size, V-Order, versions since the last VACUUM and the last OPTIMIZE, with advice.
+**Data mesh > Quality > Table health** reads every managed table's Delta log in the picked environment: files, size, average file size, V-Order, versions since the last VACUUM and the last OPTIMIZE, with advice.
 
 - In **Test and Prod**, **Optimize** runs Fabric's table maintenance job on the workspace's capacity: OPTIMIZE with V-Order (what Direct Lake and the SQL endpoint read fastest), then VACUUM keeping the layer's history days. Tables written from a PC have no V-Order until it runs, so by default every table a Test or Prod run writes is optimized right after the run. Untick **Optimize every table a run writes** to stop that.
 - In **Dev on this PC**, **Compact** does the same with delta-rs, without V-Order.
 
 ## 7. Environments and promote
 
-**Metadata > Deploy > Environments and promote** has a card for Dev, Test and Prod.
+**Data mesh > Deploy > Environments and promote** has a card for Dev, Test and Prod.
 
 | On the card | What it does |
 | --- | --- |
@@ -232,7 +232,7 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
-**Metadata > Design > Surrogate keys:**
+**Data mesh > Design > Surrogate keys:**
 
 - **New key table** adds one, for example `customer`.
 - **Pick Keys workspace** (or **Change**) sets where `LH_Keys` lives for the picked environment.
@@ -255,7 +255,7 @@ In an environment whose keys are in the platform, the project doesn't make its o
 
 ## 9. Source systems and the variable library
 
-**Metadata > Design > Source systems** keeps every source's fixed id, code (like `CRM`), name, type, owner and active flag, and its connection in Dev, Test and Prod: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Switch environment with the Dev / Test / Prod buttons above the connection fields.
+**Data mesh > Design > Source systems** keeps every source's fixed id, code (like `CRM`), name, type, owner and active flag, and its connection in Dev, Test and Prod: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Switch environment with the Dev / Test / Prod buttons above the connection fields.
 
 **Passwords and keys never go here.** Give the Key Vault URL and the secret's name; the notebook reads the secret when it runs.
 
@@ -270,7 +270,7 @@ lib.CRM_server_host
 
 ## 10. Semantic model (Preview)
 
-**Metadata > Deploy > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule.
+**Data mesh > Deploy > Semantic model** builds a Direct Lake semantic model over a layer's tables (the last layer, usually Gold) in Test or Prod. It reads the layer's lakehouse through its SQL analytics endpoint, with no import and no refresh schedule.
 
 - Each entity is a table; dimensions and facts are marked. Facts get a row count measure.
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.

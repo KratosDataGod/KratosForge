@@ -531,3 +531,93 @@ def test_data_products_show_what_the_open_project_may_link(svc):
     assert by["stores"]["can_link"] and not by["c360"]["can_link"] and by["c360"]["why"] == "request"
     svc.platform_request("access", "shop/c360", "Invoices by customer")
     assert {p["name"]: p for p in svc.platform_products()["products"]}["c360"]["why"] == "requested"
+
+
+# --------------------------------------------------------------------------- domains from Fabric
+
+FABRIC_DOMAINS = [
+    {"id": "f-sales", "displayName": "Sales", "description": "Sales in Fabric"},
+    {"id": "f-emea", "displayName": "Sales EMEA", "parentDomainId": "f-sales"},
+    {"id": "f-fin", "displayName": "Finance & Risk"},
+]
+
+
+def test_fabric_domains_import_link_by_name_and_keep_owners(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "ana@example.com", "description": "Ours"})
+    out = platform.call("import_fabric_domains", domains=FABRIC_DOMAINS)
+    assert out["linked"] == ["sales"] and sorted(out["added"]) == ["finance-risk", "sales-emea"]
+    got = {d["id"]: d for d in platform.call("list_domains")}
+    assert got["sales"]["fabric_domain"] == "f-sales" and got["sales"]["owners"] == "ana@example.com"
+    assert got["sales"]["description"] == "Ours" and got["sales-emea"]["parent_id"] == "sales"
+    # renamed and moved in Fabric: the same catalog id follows it, so projects keep their domain
+    platform.call("register_project", project={"name": "crm", "domain": "sales", "subdomain": "sales-emea"})
+    moved = [FABRIC_DOMAINS[0], {"id": "f-emea", "displayName": "Europe", "parentDomainId": "f-sales"}]
+    out = platform.call("import_fabric_domains", domains=moved)
+    assert out["updated"] == ["sales-emea"] and out["unchanged"] == ["sales"] and out["gone"] == ["finance-risk"]
+    got = {d["id"]: d for d in platform.call("list_domains")}
+    assert got["sales-emea"]["name"] == "Europe" and "finance-risk" in got  # gone from Fabric, never deleted here
+
+
+def test_fabric_domains_are_locked_and_admin_only(platform):
+    platform.call("import_fabric_domains", domains=FABRIC_DOMAINS)
+    with pytest.raises(core.PlatformError, match="comes from Fabric"):
+        platform.call("save_domain", domain={"id": "sales", "name": "Revenue"})
+    saved = platform.call("save_domain", domain={"id": "sales", "name": "Sales", "owners": "lee@example.com"})
+    assert saved["fabric_domain"] == "f-sales" and saved["owners"] == "lee@example.com"
+    with pytest.raises(core.PlatformError, match="Only platform admins"):
+        _as(platform, "ana@example.com").call("import_fabric_domains", domains=FABRIC_DOMAINS)
+    deep = [{"id": "a", "displayName": "A"}, {"id": "b", "displayName": "B", "parentDomainId": "a"},
+            {"id": "c", "displayName": "C", "parentDomainId": "b"}]
+    assert platform.call("import_fabric_domains", domains=deep)["skipped"] == ["C"]
+
+
+class _FakeFabric:
+    def __init__(self, domains=None, workspaces=None, status=200):
+        self.domains, self.workspaces, self.status = domains or [], workspaces or {}, status
+
+    def list_admin_domains(self):
+        from fabric_desktop.fabric_api import FabricError
+        if self.status != 200:
+            raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
+        return self.domains
+
+    def get_workspace(self, wid):
+        return {"id": wid, "displayName": f"WS {wid}", **({"domainId": self.workspaces[wid]} if wid in self.workspaces else {})}
+
+
+def test_import_needs_a_fabric_admin_and_workspaces_suggest_the_domain(svc, monkeypatch):
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self: _FakeFabric(status=403))
+    with pytest.raises(PermissionError, match="Fabric administrator"):
+        svc.platform_import_fabric_domains()
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self: _FakeFabric(FABRIC_DOMAINS))
+    out = svc.platform_import_fabric_domains()
+    assert out["fabric"] == 3 and len(out["domains"]) == 3
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["test"] = {"workspace_id": "ws-test"}
+    envs["prod"] = {"workspace_id": "ws-prod", "workspaces": {"ingest": {"id": "ws-ingest", "name": "Ingest"}}}
+    svc._write_environments(project, envs)
+    monkeypatch.setattr(Service, "fabric", property(lambda self: _FakeFabric(
+        workspaces={"ws-test": "f-unknown", "ws-prod": "f-emea"})))
+    got = svc.mesh_workspace_domains()
+    assert got["suggested"] == {"domain": "sales", "subdomain": "sales-emea"}
+    assert got["unnamed"] == ["f-unknown"] and got["imported"]
+    assert {(r["env"], r["designation"], r["domain"]) for r in got["workspaces"]} == {
+        ("test", "", None), ("prod", "", "sales-emea"), ("prod", "ingest", None)}
+
+
+def test_mesh_map_lists_domains_projects_products_and_links(svc):
+    for d in ({"name": "Sales"}, {"name": "Finance"}):
+        svc.platform_save_domain(d)
+    svc.mesh_set_project({"domain": "sales"})
+    cat = svc._catalog()
+    cat.call("register_project", project={"name": "ledger", "domain": "finance"})
+    cat.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "public",
+                                          "status": "published"}, ports=[], env="prod")
+    cat.call("register_product", product={"project": "crm", "name": "wip", "status": "draft"}, ports=[], env="prod")
+    cat.call("register_link", consumer="ledger", alias="customers", product_id="crm/c360", port="customer",
+             reads={"prod": "prod"})
+    m = svc.mesh_map()
+    assert m["me"] == "crm" and [p["id"] for p in m["products"]] == ["crm/c360"]
+    assert m["links"] == [{"from": "ledger", "product": "crm/c360", "to": "crm"}]
+    assert {p["name"]: p["domain_id"] for p in m["projects"]} == {"crm": "sales", "ledger": "finance"}

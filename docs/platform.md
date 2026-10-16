@@ -77,7 +77,7 @@ The rail's **Platform** page is the central team's home, and the same screens sh
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
-- **Domains** and **Glossary:** your organization's domains and shared terms.
+- **Domains** and **Glossary:** your organization's domains and shared terms. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
 - **Requests:** what domain teams asked for, and what was decided.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).
 
@@ -87,7 +87,7 @@ What only someone else may give is asked for, not taken:
 
 | Request | Sent from | Decided by | Approving |
 | --- | --- | --- | --- |
-| **A key table** | Platform > Business keys, or Metadata > Surrogate keys > Use a key table > Request a new one | A platform admin | Creates the key table in every environment |
+| **A key table** | Platform > Business keys, or Data mesh > Surrogate keys > Use a key table > Request a new one | A platform admin | Creates the key table in every environment |
 | **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files |
 | **Access to a data product** open only to its domain, or private | OneLake > Data products > Request access | The product's owner (or a platform admin) | Lets the project link to it. The owner still gives read access in OneLake (a data access role on the Product workspace) |
 
@@ -97,7 +97,7 @@ Each request records who sent it, why, who decided and a note. A request can be 
 
 Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. **Only the central team writes there**, with pipelines or copy jobs it owns; nobody lands the same source twice. Platform admins register each source on **Platform > Landing zone** with its owner, how often it should arrive, and the name of the Key Vault secret its connection uses per environment (secrets themselves never go in the platform). A domain team that needs a new source requests it.
 
-Each team builds its own Bronze from it: **Metadata > New entity > From the landing zone** picks a source and entity, or an entity reads the landing zone with `landing` instead of `files`:
+Each team builds its own Bronze from it: **Data mesh > New entity > From the landing zone** picks a source and entity, or an entity reads the landing zone with `landing` instead of `files`:
 
 ```toml
 [source]
@@ -110,11 +110,11 @@ In Test and Prod that reads `LH_Landing` in the environment's Platform workspace
 
 Once an environment's platform is in Fabric, every project's surrogate keys in that environment come from `SQL_Platform`. A new project never gets an `LH_Keys` of its own, so Customer ABC has one key across every team. Keys are still kept apart per environment: Dev keys never mix with Prod keys.
 
-Key tables are the platform's, not a project's. Only platform admins create one (**Platform > Business keys > New key table**, or by approving a request), and it's made in every environment at once. A project picks the ones it uses on **Metadata > Design > Surrogate keys > Use a key table**. A run that needs a key table the platform doesn't have stops before writing anything and says to request it.
+Key tables are the platform's, not a project's. Only platform admins create one (**Platform > Business keys > New key table**, or by approving a request), and it's made in every environment at once. A project picks the ones it uses on **Data mesh > Design > Surrogate keys > Use a key table**. A run that needs a key table the platform doesn't have stops before writing anything and says to request it.
 
 ## Moving surrogate keys into the platform
 
-Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Metadata > Design > Surrogate keys**, choose **Move keys** for Test or Prod. Fabric Desktop:
+Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Data mesh > Design > Surrogate keys**, choose **Move keys** for Test or Prod. Fabric Desktop:
 
 1. Copies every key into `SQL_Platform` with the **same number**. A business key that already has a different number in the platform stops the move; nothing is renumbered.
 2. Reads the copy back and compares it, row by row, with `LH_Keys`.
@@ -138,6 +138,7 @@ These are built to Microsoft's documentation and tested against SQLite, but have
 - Calling user data functions with Microsoft's Fabric sign-in (the app uses the `Item.Execute.All` access it already asks for), and that the functions' context names the caller (`executing_user`), which platform admins and the audit trail rely on.
 - Creating a SQL database and user data functions through the Fabric items API, and the shape of the functions' definition.
 - The T-SQL that issues keys (`OPENJSON`, `IDENTITY_INSERT`, `DBCC CHECKIDENT`) on Fabric SQL database.
+- Importing Fabric's domains with Microsoft's Fabric sign-in: whether it gets `Tenant.Read.All` for a Fabric administrator, and the exact shape of `GET /v1/admin/domains?preview=false`.
 
 If you try it, please say how it went in a [bug report or the Ideas forum](ideas.md).
 

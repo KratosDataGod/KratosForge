@@ -333,7 +333,10 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let mut result = Err(String::new());
     for url in engine_urls() {
         let mut curl = Command::new("curl.exe");
-        curl.args(["-L", "--fail", "-sS", "-H", "Cache-Control: no-cache", "-o"])
+        // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
+        // leaving "Downloading the engine" up for ever; Retry is then shown.
+        curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
+                   "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
             .arg(format!("{url}?nocache={nocache}"));
         result = run_tool(curl, "download the engine");

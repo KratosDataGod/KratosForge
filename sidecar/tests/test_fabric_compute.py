@@ -250,3 +250,27 @@ def test_every_environment_keeps_a_workspace_and_can_run_on_this_pc(svc):
     # Test has no workspace yet, so it can't point at one.
     with pytest.raises(LookupError, match="Assign a workspace to Test"):
         svc.meta_set_environment("test", target="onelake")
+
+
+def test_fabric_runs_vacuum_with_the_layers_keep_history(tmp_path, monkeypatch):
+    from fabric_desktop import fabric_api, fabric_compute
+    proj = tmp_path / "proj"
+    init_project(proj, "3", "Chris", True)
+    project = Project(proj)
+    entity = next(iter(project.entities.values()))
+    project.layer(entity.layer).retention_days = 30
+    calls = []
+
+    class Fabric:
+        def __init__(self, token):
+            pass
+
+        def run_table_maintenance(self, ws, lh, table, schema=None, **kw):
+            calls.append(kw)
+            return "job"
+
+    monkeypatch.setattr(fabric_api, "FabricClient", Fabric)
+    lakehouse = project.layer(entity.layer).lakehouse
+    results = [{"entity": entity.name, "status": "ok", "rows_written": 3}]
+    fabric_compute._optimize(project, {"lakehouse_ids": {lakehouse: "lh"}, "workspace_id": "ws"}, results, lambda: "t")
+    assert calls == [{"vacuum_retention": "30.01:00:00"}] and results[0]["maintenance"] == "queued"

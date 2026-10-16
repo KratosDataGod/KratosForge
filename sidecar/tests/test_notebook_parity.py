@@ -199,3 +199,31 @@ def test_restart_clears_variables_and_gives_a_new_spark():
     k.restart()
     assert "x" not in k.namespace
     assert k.run("spark.sql('select * from t')")["status"] == "error"
+
+
+def test_create_table_keeps_an_existing_table_like_spark(tmp_path, monkeypatch):
+    service, _ = _sql_service(tmp_path, monkeypatch)
+    written = {}
+    monkeypatch.setattr(lakehouse, "write_table",
+                        lambda data, table, mode="overwrite": written.setdefault(table, mode) and f"Wrote {table}")
+    out = service.run_cell("%%sql\nCREATE TABLE IF NOT EXISTS dbo.sales AS SELECT 1 AS x", LH)
+    assert out["status"] == "ok", out
+    assert "left as it is" in out["outputs"][0]["text"] and not written
+    out = service.run_cell("%%sql\nCREATE TABLE dbo.sales AS SELECT 1 AS x", LH)
+    assert "already exists" in str(out["outputs"]) and not written
+    out = service.run_cell("%%sql\nCREATE TABLE dbo.new_one AS SELECT 1 AS x", LH)
+    assert out["status"] == "ok", out
+    out = service.run_cell("%%sql\nCREATE OR REPLACE TABLE dbo.sales AS SELECT 1 AS x", LH)
+    assert written == {"dbo.new_one": "overwrite", "dbo.sales": "overwrite"}
+
+
+def test_a_failed_existence_check_is_not_a_missing_table(tmp_path, monkeypatch):
+    service, _ = _sql_service(tmp_path, monkeypatch)
+
+    def throttled(name):
+        raise OSError("429 Too Many Requests")
+
+    monkeypatch.setattr(lakehouse, "open_table", throttled)
+    monkeypatch.setattr(lakehouse, "write_table", lambda *a, **k: pytest.fail("must not write"))
+    out = service.run_cell("spark.createDataFrame([(1,)], ['x']).write.saveAsTable('dbo.sales')", LH)
+    assert out["status"] == "error" and "429" in str(out["outputs"]), out

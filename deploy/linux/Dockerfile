@@ -10,7 +10,7 @@ FROM python:3.12-slim
 
 RUN useradd --system --create-home --home-dir /var/lib/fabric-desktop fabric-desktop
 COPY sidecar /tmp/sidecar
-RUN pip install --no-cache-dir /tmp/sidecar && rm -rf /tmp/sidecar
+RUN pip install --no-cache-dir -c /tmp/sidecar/constraints.txt /tmp/sidecar && rm -rf /tmp/sidecar
 
 ENV FABRIC_DESKTOP_AGENT_CONFIG=/etc/fabric-desktop/agent.toml \
     FABRIC_DESKTOP_HOME=/var/lib/fabric-desktop \

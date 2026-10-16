@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import random
 import time
 import tomllib
 from dataclasses import dataclass, field
@@ -49,7 +50,7 @@ CONNECTION_FIELDS = ("connection_type", "server_host", "port", "database_name", 
 _SECRET_FIELDS = ("password", "secret", "client_secret", "api_key", "token", "connection_string")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
-MAX_ATTEMPTS = 5
+MAX_ATTEMPTS = 10  # each retry follows another run's commit, so many runs at once still get through
 
 
 def key_schema() -> dict[str, pl.DataType]:
@@ -240,25 +241,49 @@ def read_keys(store: Store, kt: KeyTable) -> pl.DataFrame:
 
 
 def ensure_key_table(store: Store, kt: KeyTable) -> bool:
-    """Create the key table with its Unknown member if it doesn't exist. True if it was created."""
-    if store.read(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table) is not None:
-        return False
-    store.write(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.seed(), mode="overwrite")
-    return True
+    """Create the key table with its Unknown member if it doesn't exist. True if it was created.
+
+    Never overwrites: the table is created empty only if absent, and the Unknown member is
+    MERGEd in, so a run that filled the table a moment ago keeps every key.
+    """
+    from deltalake.exceptions import CommitFailedError
+
+    created = store.create_if_absent(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.schema())
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        existing, version = store.read_at(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table)
+        if existing is not None and (existing[kt.sk] == UNKNOWN_KEY).any():
+            return created
+        try:
+            store.merge_insert(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, kt.seed(), on=[kt.bk], version=version)
+            return created
+        except CommitFailedError:
+            time.sleep(random.uniform(0.1, 0.3) * attempt)  # jitter: runs that collided retry apart
+    raise RuntimeError(f"sk.{kt.table}: other runs kept changing the key table; try again")
+
+
+def _check_unique(kt: KeyTable, keys: pl.DataFrame) -> None:
+    """Stop before any row gets a key that two business keys share (or one business key with two keys)."""
+    if keys[kt.sk].is_duplicated().any() or keys[kt.bk].drop_nulls().is_duplicated().any():
+        raise RuntimeError(f"sk.{kt.table}: the key table has a {kt.sk} or business key twice. Nothing was "
+                           f"written; the duplicate rows need fixing in LH_Keys before this table runs again.")
 
 
 def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
     """Insert keys for business keys the key table doesn't have yet, continuing from the highest key.
 
-    The insert is a Delta MERGE on the business key, so a business key never gets two keys. If
-    another run commits first, the MERGE fails and is retried against the new table.
+    The new keys are worked out from one version of the key table and committed as a Delta MERGE
+    against that same version. If any other run (another entity, project or machine) committed in
+    between, the commit fails and is redone on the new table, so two business keys never get the
+    same key. The table is checked for duplicates every time, before any row gets a key.
     """
     from deltalake.exceptions import CommitFailedError
 
     wanted = pl.DataFrame({kt.bk: bks}).filter(pl.col(kt.bk).is_not_null()).unique()
     ensure_key_table(store, kt)
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        existing = read_keys(store, kt)
+        existing, version = store.read_at(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table)
+        existing = kt.seed().clear() if existing is None else existing
+        _check_unique(kt, existing)
         new = wanted.join(existing.select(kt.bk), on=kt.bk, how="anti").sort(kt.bk)
         if new.height == 0:
             return {"inserted": 0, "existing": wanted.height, "first": None, "last": None, "attempts": attempt}
@@ -267,14 +292,11 @@ def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
                                 pl.lit(dt.datetime.now(dt.timezone.utc)).cast(pl.Datetime("us", "UTC"))
                                 .alias("create_date")).select(list(kt.schema()))
         try:
-            store.merge_insert(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, rows, on=[kt.bk])
+            store.merge_insert(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table, rows, on=[kt.bk], version=version)
         except CommitFailedError:
-            time.sleep(0.2 * attempt)
+            time.sleep(random.uniform(0.1, 0.3) * attempt)  # jitter: runs that collided retry apart
             continue
-        after = read_keys(store, kt)
-        if after[kt.sk].is_duplicated().any():
-            raise RuntimeError(f"sk.{kt.table}: two runs issued the same {kt.sk} at once. Run this table again; "
-                               f"the duplicate keys need fixing in LH_Keys first.")
+        _check_unique(kt, read_keys(store, kt))
         return {"inserted": new.height, "existing": wanted.height - new.height, "first": start,
                 "last": start + new.height - 1, "attempts": attempt}
     raise RuntimeError(f"sk.{kt.table}: other runs kept adding keys at the same time; try again")

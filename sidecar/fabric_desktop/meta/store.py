@@ -88,13 +88,51 @@ class Store:
         delta_profile.check_table(dt_)
         return dt_.version()
 
-    def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str]) -> int:
-        """Insert the rows whose ``on`` columns aren't in the table yet, as one Delta MERGE commit."""
+    def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
+        """The table and the Delta version it was read at (None, None when there's no table), so a
+        write computed from it can commit against that same version."""
+        try:
+            t = DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options())
+        except TableNotFoundError:
+            return None, None
+        return pl.from_arrow(t.to_pyarrow_table()), t.version()
+
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+        """Create an empty table, only if there is none: never overwrites one another writer made or
+        filled. True if this call created it."""
         uri = self.uri(lakehouse, schema, table)
         try:
-            target = DeltaTable(uri, storage_options=self.options())
+            DeltaTable(uri, storage_options=self.options())
+            return False
         except TableNotFoundError:
-            return self.write(lakehouse, schema, table, df, mode="overwrite")
+            pass
+        if isinstance(self, LocalStore):
+            Path(uri).mkdir(parents=True, exist_ok=True)
+        # mode="ignore" is one put-if-absent commit of version 0: when two writers race, one creates it
+        # and the other leaves it as it is.
+        DeltaTable.create(uri, schema=pl.DataFrame(schema=columns).to_arrow().schema, mode="ignore",
+                          storage_options=self.options())
+        return True
+
+    def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+                     version: int | None = None) -> int:
+        """Insert the rows whose ``on`` columns aren't in the table yet, as one Delta MERGE commit.
+
+        With ``version`` (the one the rows were computed from, see read_at), the commit fails with
+        CommitFailedError if any other writer committed since, so nothing is decided on stale data.
+        """
+        from deltalake.exceptions import CommitFailedError
+        uri = self.uri(lakehouse, schema, table)
+        try:
+            target = DeltaTable(uri, storage_options=self.options(), version=version)
+        except TableNotFoundError:
+            if version is not None:
+                raise
+            # A new table: created empty only if still absent, then merged into like any other.
+            self.create_if_absent(lakehouse, schema, table, dict(df.schema))
+            target = DeltaTable(uri, storage_options=self.options(), version=0)
+        if version is not None and DeltaTable(uri, storage_options=self.options()).version() != version:
+            raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()

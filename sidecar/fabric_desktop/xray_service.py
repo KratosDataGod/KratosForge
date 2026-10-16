@@ -59,6 +59,21 @@ keys = {json.dumps(keys)}
 {checks}"""
 
 
+
+def _layer_workspaces(project: Any) -> list[tuple[str, Any]]:
+    """(workspace id, layer) for every environment: a layer with a designation (workspace =
+    "serve" in layers.toml) lives in that designation's workspace. The environment's own workspace
+    counts for every layer too, since a designated layer may have lived there before: keeping a
+    layer's history in one workspace too many never deletes anything Restore needs."""
+    out = []
+    for cfg in project.environments.values():
+        spaces = cfg.get("workspaces") or {}
+        for name in project.layer_names():
+            layer = project.layer(name)
+            ws = (spaces.get(layer.workspace) or {}).get("id") if layer.workspace else None
+            out += [(w, layer) for w in {ws, cfg.get("workspace_id")} if w]
+    return out
+
 class XRayMixin:
     _xray_state: dict[str, Any] | None = None
     _xray_lock = threading.Lock()
@@ -147,10 +162,7 @@ class XRayMixin:
         adopted: set[str] = set()
         try:
             project = self._project()  # type: ignore[attr-defined]
-            layers = {project.layer(n).lakehouse for n in project.layer_names()}
-            for cfg in project.environments.values():
-                if cfg.get("workspace_id"):
-                    managed |= {(cfg["workspace_id"], lh) for lh in layers}
+            managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
         except Exception:
             pass
@@ -172,11 +184,9 @@ class XRayMixin:
             keep.append((table_days, "the table's own retention setting"))
         try:
             project = self._project()  # type: ignore[attr-defined]
-            if any(cfg.get("workspace_id") == workspace_id for cfg in project.environments.values()):
-                for name in project.layer_names():
-                    layer = project.layer(name)
-                    if layer.lakehouse == lakehouse_name:
-                        keep.append((layer.retention_days, f"Keep history on the {name} layer"))
+            for ws, layer in _layer_workspaces(project):
+                if ws == workspace_id and layer.lakehouse == lakehouse_name:
+                    keep.append((layer.retention_days, f"Keep history on the {layer.name} layer"))
         except Exception:  # no metadata project: nothing more to keep
             pass
         days, why = max(keep, key=lambda k: k[0])

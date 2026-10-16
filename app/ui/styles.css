@@ -877,3 +877,12 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .sbs-table > a { display: block; padding: 6px 12px; }
 .sbs-tr { display: grid; grid-template-columns: minmax(140px, 1.4fr) 0.7fr 0.7fr minmax(80px, 1fr) minmax(160px, 1.6fr); gap: 8px; padding: 6px 12px; border-top: 1px solid var(--border-soft); align-items: center; }
 .sbs-tr.head { border-top: 0; background: #f5f5f5; font-weight: 600; }
+
+/* Data mesh (mesh.js) */
+.pill-s.warn { background: #fff4ce; color: #7a5300; }
+.fail-text { color: var(--danger); }
+.port-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow: auto; }
+.port-row { display: flex; align-items: center; gap: 8px; }
+.port-row input[type="text"], .port-row input:not([type]) { width: 160px; }
+.steps-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
+.list td.grow input { width: 100%; }

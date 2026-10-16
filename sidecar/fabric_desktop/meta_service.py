@@ -452,7 +452,8 @@ class MetaMixin:
             problem = str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": keys_mod.KEYS_LAKEHOUSE, "key_tables": tables,
+                "lakehouse": "SQL_Platform" if cfg.get("keys") == "platform" else keys_mod.KEYS_LAKEHOUSE,
+                "platform": cfg.get("keys") == "platform", "moved_at": cfg.get("keys_moved_at", ""), "key_tables": tables,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
                 "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]}

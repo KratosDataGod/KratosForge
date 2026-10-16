@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments
+  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links | glossary
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -74,6 +74,8 @@ const META_TAB_GROUPS = [
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
+  ["mesh", "Mesh", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
+    ["glossary", "Glossary", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
 
@@ -123,7 +125,8 @@ async function renderMetadata() {
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
   const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
-    runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab }[m.tab];
+    runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab }[m.tab];
   await render(body, p);
 }
 
@@ -349,6 +352,7 @@ async function renderEntity() {
         driftCard(e),
         freshnessCard(e),
         recentRuns)),
+    aboutCard(e),
     quarantineCard(e),
     keysCard(e),
     e.preview ? h("div", { class: "card pad" }, h("b", {}, `Data in ${ENV_LABEL[state.meta.env]} · ${e.preview.total} rows`), dataTable(e.preview)) : null));
@@ -512,11 +516,15 @@ function renderLayersTab(body, p) {
     h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: "layer-chip big", style: `background:${LAYER_COLORS[i % LAYER_COLORS.length]}` }, l.name)])),
     h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Workspace", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, L.map((l, i) => h("tr", {},
         h("td", {}, i + 1),
         h("td", {}, h("b", {}, l.name), l.description ? h("div", { class: "muted-text" }, l.description) : null),
         h("td", { class: "mono small" }, `LH_${l.name[0].toUpperCase()}${l.name.slice(1)}`),
+        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Metadata > Mesh > Domain and workspaces)",
+          onchange: (ev) => { l.workspace = ev.target.value; rerender(); } },
+        h("option", { value: "" }, "Environment's own"),
+        (p.designations || []).map((d) => h("option", { value: d.id, selected: l.workspace === d.id ? true : null }, d.label)))),
         h("td", {}, i === 0 ? h("span", { class: "muted-text" }, "Files and sources") :
           h("select", { "aria-label": "Can read from", onchange: (ev) => { l.reads_from = ev.target.value ? [ev.target.value] : []; rerender(); } },
             h("option", { value: "" }, "Any earlier layer"),
@@ -563,7 +571,8 @@ function renderLayersTab(body, p) {
 
 function stripLayer(l) {
   return { name: l.name, drift: l.drift, required_checks: [...l.required_checks].sort(), reads_from: l.reads_from || [],
-    description: l.description || "", require_keys: !!l.require_keys, retention_days: Number(l.retention_days ?? 7) };
+    description: l.description || "", require_keys: !!l.require_keys, retention_days: Number(l.retention_days ?? 7),
+    workspace: l.workspace || "" };
 }
 
 function infoCard(title, text) {
@@ -787,7 +796,7 @@ async function renderKeysTab(body) {
       h("span", { class: "text" }, "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
       btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary"));
 
-  body.replaceChildren(...[head,
+  body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
     h("div", { class: "keys-grid" }, list, sel ? keyTableDetail(sel, k, rerender) : null)].filter(Boolean));
 }

@@ -46,6 +46,8 @@ const PREVIEW_FEATURES = {
   tests: "Tests",
   xray: "Estate X-ray",
   itemPreview: "Item preview",
+  mesh: "Data mesh",
+  platform: "Platform",
 };
 
 function previewShown() {

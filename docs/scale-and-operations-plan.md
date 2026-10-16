@@ -8,7 +8,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 1 | Large-table execution within machine limits | Partial | This plan | Stage 1.1 (MERGE writes, pushdown reads): [PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review |
+| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)) and 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56): in review |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
@@ -109,7 +109,11 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 - Learned: delta-rs MERGE scans every file unless the predicate bounds the keys; adding the incoming key range halved its memory. Changes spread over every file still rewrite every file, so 1.5's partitioning matters for tables updated everywhere.
 - Live validation: see [Live verification for stage 1.1](#live-verification-for-stage-11).
 
-**1.2 Dimensions without full reads.** Effort M, risk medium. Type 1 and Type 2 read only key, surrogate-key and tracked columns of the current rows whose business keys arrive (a filtered scan), then write one MERGE that closes changed versions and inserts new ones. Acceptance: `scd2_invariants` hold, equivalence with the rewrite path across the existing dimension stories (`tests/test_meta.py` 04 to 04d), and a measured 1-million-row dimension update. Depends on 1.1.
+**1.2 Dimensions without full reads: built, [PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61) (stacked on #56).** Effort M, risk medium.
+
+- Built: only the versions of the arriving business keys are read; the existing `scd1_merge`/`scd2_merge` run on that subset with the table's next key, `scd2_invariants` check it, and one MERGE on the surrogate key writes it. A Type 2 full snapshot first drops rows that change nothing. Lookups and `exists_in` checks read only their columns. Falls back to a rewrite, saying why, when most of the table's keys arrived, keys repeat or types changed.
+- Measured: a 5-million-key Type 2 dimension fed a full snapshot with 1,000 changed and 1,000 new keys went from 24.1 s, 3.7 GB and 52 MB written to 6.5 s, 2.1 GB and 5.5 MB; identical rows. 336 tests pass.
+- Discovered: a Type 2 run whose source repeats a key fails with a Polars `ShapeError`, before and after; a clear error (or a required `unique` check for dimensions) is a follow-up. Key assignment (`meta/keys.py`, data-mesh work) still reads each whole key table, which now dominates keyed runs on large key tables; raise with that owner.
 
 **1.3 Preflight estimate and memory guard.** Effort M, risk low. Before a run, estimate files, bytes and rows to read from the Delta log (add-action sizes, row counts and min/max statistics against the watermark), compare with the PC's free memory, and warn or stop with a plain explanation; record rows and bytes read in the run's steps. UI goes in the existing entity run dialog, after a mockup. Depends on 1.1.
 
@@ -162,7 +166,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 ## Delivery sequence
 
 1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review) and **9.3** run correlation ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58), in review).
-2. **1.2** dimensions (stacked on 1.1), then **1.3** preflight.
+2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight.
 3. **7.1** pipeline job contract and **7.2** agent status records, built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
 4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
 5. **1.4** landing manifest, then **4.1** once D2 is answered.
@@ -194,5 +198,6 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 1.2 built and measured ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61)). |
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56)). |

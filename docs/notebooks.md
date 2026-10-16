@@ -33,6 +33,9 @@ Notebooks are `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks`. They s
 | `lakehouse.read_table("schema.table")` | Read a Delta table. The schema defaults to `dbo`. |
 | `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. |
 | `lakehouse.sql("SELECT ...")` | Run Spark SQL over the attached lakehouse's tables, on this PC, and return a Polars DataFrame. |
+| `lakehouse.has_schemas()` | `False` when the attached lakehouse was created without schemas. |
+
+Table names work as they do in Fabric: `table`, `schema.table`, or either with the lakehouse's name in front (`Sales_Lakehouse.dbo.orders`). A lakehouse created without schemas has only `dbo`, so a name such as `tpch.region` fails there, in Fabric too; use `tpch_region` instead, or check `lakehouse.has_schemas()` to pick the name.
 
 Every write:
 

@@ -47,11 +47,24 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas):
         return f"{mount}/{p}" if p == "Files" or p.startswith("Files/") else p
 
     def uri(table):
-        schema, _, tbl = table.rpartition(".")
-        return f"{root}/Tables/{schema or 'dbo'}/{tbl}" if schemas else f"{root}/Tables/{tbl}"
+        # The same names as on the PC (lakehouse.table_ref there).
+        parts = table.split(".")
+        if parts[0].lower() == name.lower() and (len(parts) == 3 or len(parts) == 2 and not schemas):
+            parts = parts[1:]
+        if len(parts) > 2:
+            raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({name}).")
+        schema, tbl = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
+        if schemas:
+            return f"{root}/Tables/{schema or 'dbo'}/{tbl}"
+        if schema.lower() not in ("", "dbo"):
+            raise ValueError(f"{name} was created without schemas, so a table can't go in {schema!r}. "
+                             f"Use {tbl!r}, or put the schema in the name: '{schema}_{tbl}'. "
+                             f"lakehouse.has_schemas() tells a notebook which kind it has.")
+        return f"{root}/Tables/{tbl}"
 
     lh = _types.ModuleType("fabric_desktop.lakehouse")
     lh.name = lambda: name
+    lh.has_schemas = lambda: schemas
     lh.read_csv = lambda p, **kw: _pl.read_csv(path(p), **kw)
     lh.read_parquet = lambda p, **kw: _pl.read_parquet(path(p), **kw)
     lh.read_json = lambda p, **kw: _pl.read_json(path(p), **kw)
@@ -86,7 +99,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas):
             for t in list(st.find_all(exp.Table)):
                 if not isinstance(t.this, exp.Identifier) or (not t.db and t.name.lower() in ctes):
                     continue
-                key = (f"{t.db}.{t.name}" if t.db else t.name).lower()
+                key = ".".join(p for p in (t.catalog, t.db, t.name) if p).lower()
                 if key not in views:
                     views[key] = f"__t{len(views)}"
                     con.register(views[key], lh.open_table(key).to_pyarrow_dataset())

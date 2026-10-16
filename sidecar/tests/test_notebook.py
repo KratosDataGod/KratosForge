@@ -155,10 +155,20 @@ def test_lakehouse_without_schemas_keeps_tables_under_tables_root(tmp_path):
     try:
         assert lakehouse.table_ref("dbo.sales").uri.endswith("/lh1/Tables/sales")
         assert lakehouse.table_ref("sales").uri.endswith("/lh1/Tables/sales")
-        with pytest.raises(ValueError, match="without schemas"):
+        with pytest.raises(ValueError, match="without schemas.*'crm_sales'"):
             lakehouse.table_ref("crm.sales")
+        assert lakehouse.has_schemas() is False
+        # Spark in Fabric also takes the lakehouse's name in front of the table.
+        assert lakehouse.table_ref("Fabric_Lakehouse.sales").uri.endswith("/lh1/Tables/sales")
+        assert lakehouse.table_ref("fabric_lakehouse.dbo.sales").uri.endswith("/lh1/Tables/sales")
+        with pytest.raises(ValueError, match="table or schema.table"):
+            lakehouse.table_ref("Other_Lakehouse.dbo.sales")
         _attach(tmp_path, True)
+        assert lakehouse.has_schemas() is True
         assert lakehouse.table_ref("sales").uri.endswith("/lh1/Tables/dbo/sales")
+        assert lakehouse.table_ref("Fabric_Lakehouse.crm.sales").uri.endswith("/lh1/Tables/crm/sales")
+        # With schemas, two parts are schema.table, as in Fabric.
+        assert lakehouse.table_ref("Fabric_Lakehouse.sales").uri.endswith("/lh1/Tables/Fabric_Lakehouse/sales")
     finally:
         lakehouse.attach(None)
 
@@ -244,6 +254,13 @@ def test_sql_errors_are_plain(tmp_path, monkeypatch):
         service.run_sql("  -- nothing here\n", LH)
     with pytest.raises(ValueError, match="schema.table"):
         service.run_sql("SELECT * FROM other_lh.dbo.sales", LH)
+
+
+def test_sql_takes_the_lakehouse_name_in_front_of_a_table(tmp_path, monkeypatch):
+    service, opened = _sql_service(tmp_path, monkeypatch)
+    out = service.run_sql("SELECT count(*) AS n FROM SalesLakehouse.sales JOIN SalesLakehouse.dbo.regions USING (Country)", LH)
+    assert out["rows"] == [[3]]
+    assert sorted(opened) == ["SalesLakehouse.dbo.regions", "SalesLakehouse.sales"]
 
 
 def test_sql_result_saves_as_a_table_and_exports_csv(tmp_path, monkeypatch):

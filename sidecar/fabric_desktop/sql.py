@@ -47,10 +47,8 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             continue  # a table function such as range(10)
         if not table.db and (table.name.lower() in ctes or is_local(table.name)):
             continue
-        if table.catalog:
-            raise ValueError(f"{table.sql('spark')}: name tables as table or schema.table "
-                             f"in the attached lakehouse.")
-        name = f"{table.db}.{table.name}" if table.db else table.name
+        # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
+        name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
         key = name.lower()
         if key not in views:
             views[key] = f"__lakehouse_table_{len(views)}"

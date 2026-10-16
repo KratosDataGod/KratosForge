@@ -92,6 +92,25 @@ def test_setup_cell_runs_a_notebook_against_the_mounted_lakehouse(tmp_path, monk
     assert shim.files() == ["Files/sales.csv"]
 
 
+def test_setup_cell_names_tables_like_the_pc_in_a_lakehouse_without_schemas(monkeypatch):
+    fake_nbu = types.SimpleNamespace(credentials=types.SimpleNamespace(getToken=lambda aud: "tok"))
+    monkeypatch.setitem(sys.modules, "notebookutils", fake_nbu)
+    for name in ("fabric_desktop", "fabric_desktop.lakehouse"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+    cells = [{"type": "code", "source": "from fabric_desktop import lakehouse"}]
+    source = "".join(fabric_ipynb(cells, LH, schemas_enabled=False)["cells"][0]["source"])
+    ns: dict = {}
+    exec(compile(source, "setup", "exec"), ns)
+    uris = []
+    ns["_DeltaTable"] = lambda uri, storage_options=None: uris.append(uri)
+    from fabric_desktop import lakehouse as shim
+    assert shim.has_schemas() is False
+    shim.open_table("sales"), shim.open_table("dbo.sales"), shim.open_table(f"{LH['name']}.sales")
+    assert {u.rsplit("/Tables/", 1)[1] for u in uris} == {"sales"}
+    with pytest.raises(ValueError, match="without schemas.*'tpch_region'"):
+        shim.open_table("tpch.region")
+
+
 def test_schedule_configuration():
     daily = schedule_configuration("daily", ["06:00", "18:30"], time_zone="Central Standard Time")
     assert daily["type"] == "Daily" and daily["times"] == ["06:00", "18:30"]

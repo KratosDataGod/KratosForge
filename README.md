@@ -44,6 +44,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/xray-fixes.md](docs/xray-fixes.md) | Each Estate X-ray finding: what it means, what the app's fix button does, and how to fix it by hand in Fabric |
 | [docs/agent.md](docs/agent.md) | The headless agent: identity setup, `agent.toml`, installing on Linux (systemd or container) and Windows, operating it, and what to verify on your tenant |
 | [docs/enterprise-roadmap.md](docs/enterprise-roadmap.md) | The enterprise local execution assessment: feature inventory, gap analysis, architecture changes, roadmap milestones M0 to M6 and work items |
+| [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |

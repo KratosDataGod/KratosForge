@@ -47,7 +47,7 @@ None fully yet. In part: 43 (objectives: success rate; completion time is the fr
 - 2026-10-16: `python -m pytest -q` in `sidecar/` on `af11938`: 322 passed, 2 skipped (Linux, Python 3.13, pinned constraints).
 - 2026-10-16, #63: 348 passed, 2 skipped. 10,000 synthetic workloads: build and assess 0.9 s, each list query 70 to 240 ms (a quadratic join at 4.1 s was fixed first).
 - 2026-10-16, #72 after merging main: 456 passed, 2 skipped; UI tests 6 passed.
-- 2026-10-16, stage 2: `tests/test_incidents.py` 19 passed, five runs in a row (8 evaluators racing on one backend open one incident). Full suite: SUITE_RESULT.
+- 2026-10-16, stage 2: `tests/test_incidents.py` 20 passed, five runs in a row (8 evaluators racing on one backend open one incident). Full suite: 476 passed, 2 skipped.
 
 ## External dependencies and blockers
 

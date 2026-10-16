@@ -27,6 +27,7 @@ PRESETS: dict[str, list[Layer]] = {
 
 TEMPLATES = {
     "files": "Ingest files (CSV, Parquet or JSON) as they arrived",
+    "landing": "From the landing zone: Bronze from the raw files your central team lands",
     "clean": "Clean, deduplicate and merge changed rows from another table",
     "dim1": "Dimension, Type 1: overwrite changes, stable surrogate keys",
     "dim2": "Dimension, Type 2: keep history with valid from and to dates",
@@ -404,7 +405,7 @@ def entity_text(project: Project, template: str, name: str, owner: str, source: 
     table = name.split(".")[-1]
     extra: dict[str, str] = {}
     upstream = project.entities.get(source)
-    if template == "files":
+    if template in ("files", "landing"):
         columns = {c: _dtype_name(t) for c, t in sample.schema.items()} if sample is not None else {"id": "int64"}
     elif upstream is not None:
         columns = dict(upstream.columns)
@@ -422,10 +423,13 @@ def entity_text(project: Project, template: str, name: str, owner: str, source: 
         unique = true
         on_fail = "stop\"""") for k in keys[:1])
 
-    if template == "files":
+    if template in ("files", "landing"):
+        where = (f'landing = {json.dumps(source or f"<source>/{table}/*.csv")}   # LH_Landing in the platform, Files/<source>/<entity>/'
+                 if template == "landing" else
+                 f'files = {json.dumps(source or f"landing/{table}/*.csv")}   # under this layer\'s lakehouse Files area')
         body = f"""\
 [source]
-files = {json.dumps(source or f"landing/{table}/*.csv")}   # under this layer's lakehouse Files area
+{where}
 
 [load]
 mode = "full"

@@ -280,6 +280,24 @@ def merge_keys(store: Store, kt: KeyTable, bks: pl.Series) -> dict[str, Any]:
     raise RuntimeError(f"sk.{kt.table}: other runs kept adding keys at the same time; try again")
 
 
+def is_service(store: Any) -> bool:
+    """True for the platform's key service (keys in SQL_Platform), False for LH_Keys in a lakehouse."""
+    return hasattr(store, "issue") and hasattr(store, "client")
+
+
+def _issue(service: Any, kt: KeyTable, bks: pl.Series) -> tuple[pl.DataFrame, dict[str, Any]]:
+    """Keys from the platform: one call per batch, new business keys get the next keys in SQL."""
+    wanted = bks.drop_nulls().unique().to_list()
+    keys, inserted = service.issue(kt.name, wanted)
+    found = pl.DataFrame({"__bk": list(keys), "__sk": list(keys.values())},
+                         schema={"__bk": pl.String, "__sk": pl.Int32})
+    new = found.filter(pl.col("__sk") != UNKNOWN_KEY).sort("__sk").tail(inserted)["__sk"] if inserted else None
+    stats = {"inserted": inserted, "existing": len(wanted) - inserted,
+             "first": int(new.min()) if new is not None and len(new) else None,
+             "last": int(new.max()) if new is not None and len(new) else None}
+    return found.filter(pl.col("__sk") != UNKNOWN_KEY), stats
+
+
 def assign(store: Store, project: Project, e: Entity, df: pl.DataFrame) -> tuple[pl.DataFrame, list[str]]:
     """Cell 1 of every template: MERGE new business keys, then put each surrogate key on every row."""
     details = []
@@ -287,9 +305,12 @@ def assign(store: Store, project: Project, e: Entity, df: pl.DataFrame) -> tuple
         kt = project.key_tables[b["table"]]
         bk = business_key(b["business_key"])
         df = df.with_columns(bk.alias("__bk"))
-        stats = merge_keys(store, kt, df["__bk"])
-        keys = read_keys(store, kt).filter(pl.col(kt.sk) != UNKNOWN_KEY).select(
-            pl.col(kt.bk).alias("__bk"), pl.col(kt.sk).alias("__sk"))
+        if is_service(store):
+            keys, stats = _issue(store, kt, df["__bk"])
+        else:
+            stats = merge_keys(store, kt, df["__bk"])
+            keys = read_keys(store, kt).filter(pl.col(kt.sk) != UNKNOWN_KEY).select(
+                pl.col(kt.bk).alias("__bk"), pl.col(kt.sk).alias("__sk"))
         df = (df.join(keys, on="__bk", how="left", maintain_order="left")
               .with_columns(pl.col("__sk").fill_null(UNKNOWN_KEY).cast(pl.Int32).alias(b["column"]))
               .drop("__bk", "__sk"))
@@ -301,6 +322,8 @@ def assign(store: Store, project: Project, e: Entity, df: pl.DataFrame) -> tuple
 
 
 def lookup(store: Store, kt: KeyTable, value: str) -> dict[str, Any] | None:
+    if is_service(store):
+        return store.lookup(kt.name, value)
     df = read_keys(store, kt)
     hit = df.filter(pl.col(kt.bk) == value.strip())
     if not hit.height:
@@ -310,6 +333,8 @@ def lookup(store: Store, kt: KeyTable, value: str) -> dict[str, Any] | None:
 
 
 def key_stats(store: Store, kt: KeyTable) -> dict[str, Any]:
+    if is_service(store):
+        return store.stats(kt.name)
     df = store.read(KEYS_LAKEHOUSE, KEY_SCHEMA, kt.table)
     if df is None:
         return {"created": False, "keys": 0, "next": 1}
@@ -481,6 +506,17 @@ def config_tables(project: Project) -> dict[str, pl.DataFrame]:
 
 def sync(project: Project, store: Store) -> dict[str, Any]:
     """Write the source system tables and create any missing key table (with its -1 row) in LH_Keys."""
+    if is_service(store):  # keys in SQL_Platform: platform admins create key tables, everyone else asks
+        from ..central.core import PlatformError
+        created, missing = [], []
+        for kt in project.key_tables.values():
+            try:
+                if store.ensure(kt.name, kt.bk, kt.spec.get("description", "")):
+                    created.append(kt.name)
+            except PlatformError:
+                missing.append(kt.name)
+        return {"env": store.env, "config": {}, "created": created, "missing": missing, "version": project.version,
+                "platform": True}
     written = {}
     for table, df in config_tables(project).items():
         store.write(KEYS_LAKEHOUSE, CONFIG_SCHEMA, table, df, mode="overwrite",

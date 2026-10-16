@@ -1,0 +1,603 @@
+"""The platform and the data mesh, as the desktop UI calls them.
+
+Platform: which Platform workspace each environment uses (from IT's policy.json, else this
+PC's settings), creating or joining one, and moving keys into SQL_Platform. Without a
+platform in Fabric, everything runs against a SQLite platform on this PC, so a single
+engineer can use domains, products and the catalog before the central team exists.
+
+Mesh: the open project's domain, data products, links and catalog text.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+from pathlib import Path
+from typing import Any
+
+from .. import app_settings
+from ..auth import EXECUTE_SCOPES
+from ..meta import keys as keys_mod
+from ..meta import mesh
+from ..meta.project import ENVIRONMENTS, GateError
+from ..onelake import FileStore, TableRef
+from . import setup as setup_mod
+from .client import FabricPlatform, LocalPlatform, PlatformKeys
+from .migrate import migrate
+
+CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
+
+
+class PlatformMixin:
+    root: Path
+
+    # ---- which platform
+
+    def _platform_config(self) -> dict[str, dict[str, Any]]:
+        policy = app_settings.value("platform") or {}
+        mine = self._settings().get("platform", {})  # type: ignore[attr-defined]
+        return {env: dict(policy.get(env) or mine.get(env) or {}) for env in ENVIRONMENTS}
+
+    def _platform_source(self) -> str:
+        return "policy" if app_settings.load()["platform"]["source"] == "policy" else "user"
+
+    def _user(self) -> str:
+        try:
+            return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - offline: changes are recorded without a name
+            return ""
+
+    def _platform(self, env: str) -> LocalPlatform | FabricPlatform:
+        cfg = self._platform_config().get(env, {})
+        if cfg.get("functions_id"):
+            return FabricPlatform(lambda: self.auth._token(EXECUTE_SCOPES),  # type: ignore[attr-defined]
+                                  cfg["workspace_id"], cfg["functions_id"])
+        cached = getattr(self, "_local_platforms", None)
+        if cached is None:
+            cached = self._local_platforms = {}
+        if env not in cached:
+            cached[env] = LocalPlatform(self.root / "platform" / f"platform-{env}.sqlite", self._user)
+        return cached[env]
+
+    def _catalog(self) -> LocalPlatform | FabricPlatform:
+        return self._platform(CATALOG_ENV)
+
+    def _platform_keys(self, env: str) -> PlatformKeys:
+        return PlatformKeys(self._platform(env), env)
+
+    def platform_status(self) -> dict[str, Any]:
+        cfg = self._platform_config()
+        return {"source": self._platform_source(), "default_names": {e: setup_mod.default_name(e) for e in ENVIRONMENTS},
+                "environments": {env: {"kind": "fabric" if c.get("functions_id") else "local", **c}
+                                 for env, c in cfg.items()},
+                "local_path": str(self.root / "platform")}
+
+    def _save_platform(self, env: str, cfg: dict[str, Any]) -> None:
+        if self._platform_source() == "policy":
+            raise PermissionError("Your organization sets the platform, so it can't be changed here")
+        mine = dict(self._settings().get("platform", {}))  # type: ignore[attr-defined]
+        if cfg:
+            mine[env] = cfg
+        else:
+            mine.pop(env, None)
+        self._save_settings(platform=mine)  # type: ignore[attr-defined]
+
+    def platform_setup(self, env: str, name: str = "", capacity_id: str = "") -> dict[str, Any]:
+        """Create (or finish creating) the Platform workspace of one environment."""
+        current = self._platform_config().get(env, {})
+        out = setup_mod.setup(self.fabric, lambda: self.auth._token(EXECUTE_SCOPES),  # type: ignore[attr-defined]
+                              env, name, capacity_id, current)
+        self._save_platform(env, out["config"])
+        if out["ready"] and env == CATALOG_ENV:
+            self._register_open_project()
+        return out | {"status": self.platform_status()}
+
+    def platform_join(self, env: str, workspace_id: str) -> dict[str, Any]:
+        cfg = setup_mod.join(self.fabric, env, workspace_id)  # type: ignore[attr-defined]
+        self._save_platform(env, cfg)
+        return self.platform_status()
+
+    def platform_forget(self, env: str) -> dict[str, Any]:
+        """Stop using a Platform workspace on this PC. Nothing in Fabric is deleted."""
+        self._save_platform(env, {})
+        return self.platform_status()
+
+    # ---- domains and glossary (the central team's lists)
+
+    def platform_domains(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_domains")
+
+    def platform_save_domain(self, domain: dict[str, Any]) -> list[dict[str, Any]]:
+        self._catalog().call("save_domain", domain=domain)
+        return self.platform_domains()
+
+    def platform_delete_domain(self, id: str) -> list[dict[str, Any]]:
+        self._catalog().call("delete_domain", did=id)
+        return self.platform_domains()
+
+    def platform_glossary(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_glossary")
+
+    def platform_save_term(self, term: dict[str, Any]) -> list[dict[str, Any]]:
+        self._catalog().call("save_term", term=term)
+        return self.platform_glossary()
+
+    def platform_audit(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self._catalog().call("audit", limit=limit)
+
+    # ---- the Platform page: who's an admin, key tables, the landing zone, requests
+
+    def _distinct_platforms(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
+        """Each environment's platform once (two environments may share one)."""
+        seen, out = set(), []
+        for env in ENVIRONMENTS:
+            client = self._platform(env)
+            ident = getattr(client, "functions_id", None) or str(getattr(client, "path", env))
+            if ident not in seen:
+                seen.add(ident)
+                out.append((env, client))
+        return out
+
+    def platform_whoami(self) -> dict[str, Any]:
+        me = self._catalog().call("whoami")
+        return me | {"signed_in": bool(self._user()), "catalog_env": CATALOG_ENV}
+
+    def platform_admins(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_admins")
+
+    def _each_platform(self, op: str, **kwargs: Any) -> list[dict[str, Any]]:
+        """Run one change on every environment's platform (admins and key tables live in each).
+        The catalog's goes first, so a refusal there stops the rest."""
+        envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
+        done = []
+        for i, (env, client) in enumerate(envs):
+            try:
+                done.append({"env": env, "ok": True, "result": client.call(op, **kwargs)})
+            except Exception as exc:  # noqa: BLE001 - later environments still get the change
+                if i == 0:
+                    raise
+                done.append({"env": env, "ok": False, "message": str(exc)})
+        return done
+
+    def platform_claim_admin(self) -> dict[str, Any]:
+        self._each_platform("claim_admin")
+        return self.platform_whoami()
+
+    def platform_add_admin(self, user: str) -> list[dict[str, Any]]:
+        self._each_platform("add_admin", user=user)
+        return self.platform_admins()
+
+    def platform_remove_admin(self, user: str) -> list[dict[str, Any]]:
+        self._each_platform("remove_admin", user=user)
+        return self.platform_admins()
+
+    def platform_key_tables(self, env: str = "dev") -> dict[str, Any]:
+        tables = self._platform(env).call("list_key_tables")
+        waiting = [r for r in self._catalog().call("list_requests", status="waiting") if r["kind"] == "key_table"]
+        return {"env": env, "key_tables": tables, "requested": waiting}
+
+    def platform_create_key_table(self, name: str, business_key: str = "", description: str = "",
+                                  domain_id: str = "") -> dict[str, Any]:
+        """A new key table in every environment's platform at once, so Dev, Test and Prod match."""
+        name = name.strip().lower()
+        report = self._each_platform("ensure_key_table", name=name, business_key=business_key,
+                                     description=description, domain_id=domain_id)
+        return {"name": name, "environments": report}
+
+    def platform_sources(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_sources")
+
+    def platform_save_source(self, source: dict[str, Any]) -> list[dict[str, Any]]:
+        return self._catalog().call("save_source", source=source)
+
+    def platform_delete_source(self, name: str) -> list[dict[str, Any]]:
+        return self._catalog().call("delete_source", name=name)
+
+    def _landing_files(self, env: str) -> list[dict[str, Any]]:
+        """Every file in an environment's landing zone: {path under Files, size, modified}."""
+        cfg = self._platform_config().get(env, {})
+        if cfg.get("landing_id"):
+            store = FileStore(lambda: self.auth.storage_token())  # type: ignore[attr-defined]
+            return [{"path": e["path"][len("Files/"):], "size": e["size"], "modified": e.get("modified", "")}
+                    for e in store.list(cfg["workspace_id"], cfg["landing_id"], "Files", recursive=True)
+                    if not e["is_dir"] and e["path"].startswith("Files/")]
+        top = self._landing_dir(env) / "Files"  # type: ignore[attr-defined]
+        if not top.exists():
+            return []
+        out = []
+        for f in top.rglob("*"):
+            if f.is_file():
+                st = f.stat()
+                out.append({"path": f.relative_to(top).as_posix(), "size": st.st_size,
+                            "modified": dt.datetime.fromtimestamp(st.st_mtime, dt.timezone.utc).isoformat(timespec="seconds")})
+        return out
+
+    def platform_landing(self, env: str = "dev") -> dict[str, Any]:
+        """The landing zone of one environment: each source, its entities, newest arrival, and
+        whether it's late against the hours the central team expects it every."""
+        cfg = self._platform_config().get(env, {})
+        sources = {s["name"]: s for s in self._catalog().call("list_sources")}
+        problem = None
+        try:
+            files = self._landing_files(env)
+        except Exception as exc:  # noqa: BLE001 - the registered sources still show
+            files, problem = [], f"The landing zone couldn't be read: {exc}"
+        tree: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for f in files:
+            parts = f["path"].split("/")
+            if len(parts) < 2:
+                continue  # a file at the top of Files belongs to no source
+            entity = parts[1] if len(parts) > 2 else ""
+            tree.setdefault(parts[0], {}).setdefault(entity, []).append(f)
+        now = dt.datetime.now(dt.timezone.utc)
+        out = []
+        for name in sorted(set(sources) | set(tree)):
+            src = sources.get(name, {})
+            entities = []
+            for ent, fs in sorted(tree.get(name, {}).items()):
+                newest = max((f["modified"] for f in fs), default="")
+                entities.append({"name": ent, "files": len(fs), "size": sum(f["size"] for f in fs), "newest": newest})
+            newest = max((e["newest"] for e in entities), default="")
+            late = False
+            hours = src.get("expected_hours")
+            if hours and newest:
+                try:
+                    late = now - dt.datetime.fromisoformat(newest) > dt.timedelta(hours=float(hours) * 1.25)
+                except ValueError:
+                    late = False
+            elif hours and not newest:
+                late = True
+            out.append({"name": name, "registered": bool(src), "title": src.get("title", name),
+                        "description": src.get("description", ""), "owner": src.get("owner", ""),
+                        "expected_hours": hours or "", "readers": src.get("readers", []),
+                        "connections": src.get("connections", {}), "entities": entities, "newest": newest,
+                        "late": late})
+        return {"env": env, "kind": "fabric" if cfg.get("landing_id") else "local",
+                "where": cfg.get("workspace_name") or str(self._landing_dir(env) / "Files"),  # type: ignore[attr-defined]
+                "sources": out, "problem": problem}
+
+    def platform_landing_files(self, env: str, source: str, entity: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        prefix = f"{source}/{entity}/" if entity else f"{source}/"
+        files = [f for f in self._landing_files(env) if f["path"].startswith(prefix)]
+        return sorted(files, key=lambda f: f["modified"], reverse=True)[:limit]
+
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        return self._catalog().call("list_requests", status=status)
+
+    def platform_request(self, kind: str, target: str, reason: str = "", detail: dict[str, Any] | None = None,
+                         project: str = "") -> dict[str, Any]:
+        if not project:
+            try:
+                project = mesh.project_name(self._project())  # type: ignore[attr-defined]
+            except LookupError:
+                project = ""
+        return self._catalog().call("request", kind=kind, target=target, project=project, reason=reason,
+                                    detail=detail or {})
+
+    def platform_decide(self, id: str, approve: bool, note: str = "") -> dict[str, Any]:
+        out = self._catalog().call("decide_request", id=id, approve=approve, note=note)
+        if approve and out.get("kind") == "key_table":
+            # The catalog's platform made it; the other environments get the same key table.
+            d = out.get("detail") or {}
+            for env, client in self._distinct_platforms():
+                if env == CATALOG_ENV:
+                    continue
+                try:
+                    client.call("ensure_key_table", name=out["target"], business_key=d.get("business_key", ""),
+                                description=d.get("description", "") or out.get("reason", ""))
+                except Exception as exc:  # noqa: BLE001
+                    out.setdefault("problems", []).append(f"{env.title()}: {exc}")
+        return out
+
+    def platform_withdraw(self, id: str) -> dict[str, Any]:
+        return self._catalog().call("withdraw_request", id=id)
+
+    def platform_revoke(self, product_id: str, project: str) -> list[dict[str, Any]]:
+        return self._catalog().call("revoke_grant", product_id=product_id, project=project)
+
+    def platform_overview(self, env: str = "dev") -> dict[str, Any]:
+        """The central team's home: counts, what needs a decision, the landing zone and each
+        environment's platform."""
+        catalog = self._catalog()
+        problems = []
+        me = self.platform_whoami()
+        domains = catalog.call("list_domains")
+        projects = catalog.call("list_projects")
+        products = catalog.call("list_products")
+        requests = catalog.call("list_requests", status="waiting")
+        try:
+            keys = self._platform(env).call("list_key_tables")
+        except Exception as exc:  # noqa: BLE001
+            keys, problems = [], problems + [str(exc)]
+        try:
+            landing = self.platform_landing(env)
+        except Exception as exc:  # noqa: BLE001
+            landing = {"sources": [], "problem": str(exc)}
+        status = self.platform_status()
+        return {"env": env, "me": me, "status": status,
+                "counts": {"domains": len([d for d in domains if not d.get("parent_id")]),
+                           "subdomains": len([d for d in domains if d.get("parent_id")]),
+                           "projects": len(projects), "teams": len({p.get("team") for p in projects if p.get("team")}),
+                           "key_tables": len(keys), "keys": sum(int(k.get("keys") or 0) for k in keys),
+                           "products": len(products), "published": len([p for p in products if p["status"] == "published"]),
+                           "requests": len(requests)},
+                "needs_you": [r for r in requests if r.get("can_decide")], "mine": [r for r in requests if r.get("mine")],
+                "landing": landing, "recent": catalog.call("audit", limit=8), "problems": problems}
+
+    def platform_products(self) -> dict[str, Any]:
+        """Every published data product, for the OneLake catalog: what the open project may link
+        to now, and what it must ask for."""
+        products = [p for p in self._catalog().call("list_products") if p["status"] != "draft"]
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            me = mesh.identity(project)
+        except LookupError:
+            me = None
+        waiting = {(r["target"], r["project"]) for r in self._catalog().call("list_requests", status="waiting")
+                   if r["kind"] == "access"}
+        for p in products:
+            if me is None:
+                p["can_link"], p["why"] = False, "Open a metadata project to link"
+            elif p["project"] == me["name"]:
+                p["can_link"], p["why"] = False, "Your own product"
+            elif p["access"] == "public" or me["name"] in p.get("granted", []):
+                p["can_link"], p["why"] = True, ""
+            elif p["access"] == "domain" and p.get("domain_id") and p.get("domain_id") == me.get("domain"):
+                p["can_link"], p["why"] = True, ""
+            else:
+                p["can_link"] = False
+                p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
+            p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
+        return {"project": me, "products": products}
+
+    # ---- the open project in the mesh
+
+    def _register_open_project(self) -> None:
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+        except LookupError:
+            return
+        if project.info:
+            i = mesh.identity(project) | {"landing": mesh.landing_readers(project)}
+            self._catalog().call("register_project", project=i)
+
+    def mesh_overview(self) -> dict[str, Any]:
+        """Everything the Mesh tabs show: this project, the domains, products here and published elsewhere."""
+        project = self._project()  # type: ignore[attr-defined]
+        summary = project.summary()
+        catalog = self._catalog()
+        problems = []
+        try:
+            domains = catalog.call("list_domains")
+            published = catalog.call("list_products")
+            projects = catalog.call("list_projects")
+        except Exception as exc:  # noqa: BLE001 - the project's own files still show
+            domains, published, projects = [], [], []
+            problems.append(f"The platform's catalog couldn't be read: {exc}")
+        me = mesh.identity(project)
+        return {"project": me, "products": summary["products"], "links": summary["links"],
+                "layers": summary["layers"], "environments": summary["environments"],
+                "designations": summary["designations"], "domains": domains, "published": published,
+                "projects": projects, "platform": self.platform_status(), "problems": problems,
+                "errors": [e for e in summary["errors"] if e.startswith(("products/", "links/", mesh.PROJECT_FILE, "layer "))]}
+
+    def mesh_set_project(self, fields: dict[str, Any]) -> dict[str, Any]:
+        """Write project.toml (the Upgrade), then record the project and its domain in the catalog."""
+        project = self._project()  # type: ignore[attr-defined]
+        fields = {**mesh.identity(project), **{k: v for k, v in fields.items() if v is not None}}
+        fields["name"] = str(fields.get("name") or project.root.name).strip().lower().replace(" ", "-")
+        catalog = self._catalog()
+        if fields.get("domain"):
+            known = {d["id"]: d for d in catalog.call("list_domains")}
+            if fields["domain"] not in known:
+                raise GateError("save", [f"domain {fields['domain']} isn't one of your organization's domains"])
+            if fields.get("subdomain") and known.get(fields["subdomain"], {}).get("parent_id") != fields["domain"]:
+                raise GateError("save", [f"{fields['subdomain']} isn't a subdomain of {fields['domain']}"])
+        mesh.write_project_file(project.root, fields)
+        catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
+        return self.mesh_overview()
+
+    def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:
+        project = self._project()  # type: ignore[attr-defined]
+        path = project.root / "metadata" / "products" / f"{product.get('name', '')}.toml"
+        old = path.read_text(encoding="utf-8") if path.exists() else None
+        new_path = mesh.write_product(project.root, product)
+        project.reload()
+        problems = [e for e in mesh.validate(project) if e.startswith(f"products/{product.get('name')}")]
+        if problems:
+            if old is None:
+                new_path.unlink()
+            else:
+                new_path.write_text(old, encoding="utf-8")
+            raise GateError("save", problems)
+        if original and original != product.get("name"):
+            (project.root / "metadata" / "products" / f"{original}.toml").unlink(missing_ok=True)
+        return self.mesh_overview()
+
+    def mesh_delete_product(self, name: str) -> dict[str, Any]:
+        project = self._project()  # type: ignore[attr-defined]
+        (project.root / "metadata" / "products" / f"{name}.toml").unlink(missing_ok=True)
+        return self.mesh_overview()
+
+    def _port_location(self, project: Any, env: str, entity: str) -> dict[str, Any]:
+        """Where an entity's table is in an environment, as the catalog records a product port."""
+        e = project.entities[entity]
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        lh = project.layer(e.layer).lakehouse
+        ws = getattr(store, "lakehouse_workspaces", {}).get(lh) or getattr(store, "workspace_id", "")
+        cfg = project.environments.get(env, {})
+        return {"entity": entity, "workspace_id": ws, "workspace_name": cfg.get("workspace_name", ""),
+                "lakehouse_id": getattr(store, "lakehouse_ids", {}).get(lh, ""), "lakehouse_name": lh,
+                "schema": e.schema, "table": e.table, "columns": e.columns}
+
+    def mesh_publish(self, env: str) -> dict[str, Any]:
+        """Record every published product's ports, with where they live in ``env``, in the catalog.
+        Promote does this; it can be run by hand after changing a product."""
+        project = self._project()  # type: ignore[attr-defined]
+        saved = self._catalog().call("enrichment", project=mesh.project_name(project))
+        problems = mesh.publish_problems(project, saved)
+        if problems:
+            raise GateError("promote", problems)
+        name = mesh.project_name(project)
+        done = []
+        for p in project.products.values():
+            if p.status == "draft":
+                continue
+            ports = [{"port": port["name"], **self._port_location(project, env, port["entity"])} for port in p.ports]
+            info = p.summary() | {"project": name, "domain": project.info.get("domain", "")}
+            self._catalog().call("register_product", product=info, ports=ports, env=env)
+            done.append(p.name)
+        return {"env": env, "published": done}
+
+    def mesh_save_link(self, link: dict[str, Any]) -> dict[str, Any]:
+        """Write metadata/links/<alias>.toml and tell the producer's catalog entry who reads it."""
+        project = self._project()  # type: ignore[attr-defined]
+        reads = {env: (link.get("reads") or {}).get(env, env) for env in ENVIRONMENTS}
+        if not link.get("pinned"):
+            self._catalog().call("register_link", consumer=mesh.project_name(project), alias=link.get("alias", ""),
+                                 product_id=link.get("product", ""), port=link.get("port", ""), reads=reads)
+        mesh.write_link(project.root, link | {"reads": reads})
+        project.reload()
+        problems = [e for e in mesh.validate(project) if e.startswith(f"links/{link.get('alias')}")]
+        if problems:
+            raise GateError("save", problems)
+        return self.mesh_overview()
+
+    def mesh_delete_link(self, alias: str) -> dict[str, Any]:
+        project = self._project()  # type: ignore[attr-defined]
+        users = [e.name for e in project.entities.values() if e.spec.get("source", {}).get("link") == alias]
+        if users:
+            raise GateError("save", [f"can't delete link {alias}: {', '.join(users)} read it"])
+        (project.root / "metadata" / "links" / f"{alias}.toml").unlink(missing_ok=True)
+        return self.mesh_overview()
+
+    def _link_table(self, project: Any, env: str):
+        """For the engine: a link's alias to the OneLake address it reads in ``env``."""
+        def resolve(alias: str) -> str:
+            link = project.links.get(alias)
+            if link is None:
+                raise LookupError(f"link {alias} isn't in metadata/links")
+            if link.location(env):
+                return link.location(env)
+            port = self._catalog().call("resolve_port", product_id=link.product, port=link.port, env=link.reads(env))
+            if not port or not port.get("lakehouse_id"):
+                raise LookupError(f"{link.product} hasn't published port {link.port} in {link.reads(env)} yet. "
+                                  f"Its owner publishes it when they promote to {link.reads(env)}.")
+            return TableRef(port["workspace_id"], port["lakehouse_id"], port["schema_name"] or "dbo",
+                            port["table_name"]).uri
+        return resolve
+
+    def mesh_resolve_links(self, env: str = "dev") -> list[dict[str, Any]]:
+        project = self._project()  # type: ignore[attr-defined]
+        resolve = self._link_table(project, env)
+        out = []
+        for link in project.links.values():
+            try:
+                out.append({"alias": link.alias, "table": resolve(link.alias), "ok": True})
+            except Exception as exc:  # noqa: BLE001
+                out.append({"alias": link.alias, "ok": False, "message": str(exc)})
+        return out
+
+    # ---- catalog text (enrichment)
+
+    def mesh_about(self, name: str) -> dict[str, Any]:
+        """An entity's catalog text: what the catalog saved, else the starter text in its file."""
+        project = self._project()  # type: ignore[attr-defined]
+        e = project.entities[name]
+        problem = None
+        try:
+            saved = self._catalog().call("enrichment", project=mesh.project_name(project))
+            glossary = [t["term"] for t in self._catalog().call("list_glossary")]
+        except Exception as exc:  # noqa: BLE001
+            saved, glossary, problem = {}, [], str(exc)
+        return mesh.merged_catalog(project, e, saved) | {
+            "entity": name, "products": mesh.products_of(project, name), "owner": e.spec.get("owner", ""),
+            "classifications": list(mesh.CLASSIFICATIONS), "glossary": glossary, "problem": problem,
+            "publish_problems": [x for x in mesh.publish_problems(project, saved) if x.startswith(name + ":")]}
+
+    def mesh_save_about(self, name: str, fields: dict[str, Any], column: str = "") -> dict[str, Any]:
+        project = self._project()  # type: ignore[attr-defined]
+        if name not in project.entities:
+            raise LookupError(f"{name} isn't an entity in this project")
+        target = f"{mesh.project_name(project)}:{name}" + (f"#{column}" if column else "")
+        allowed = {"description", "tags", "classification", "terms", "steward", "certified"}
+        self._catalog().call("save_enrichment", target=target, fields={k: v for k, v in fields.items() if k in allowed})
+        return self.mesh_about(name)
+
+    # ---- workspaces by designation
+
+    def meta_set_designation(self, env: str, designation: str, workspace_id: str = "",
+                             workspace_name: str = "") -> dict[str, Any]:
+        """Point a workspace designation (ingest, product, ...) of an environment at a workspace.
+        An empty workspace_id goes back to the environment's own workspace."""
+        if env not in ENVIRONMENTS:
+            raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
+        if designation not in mesh.DESIGNATIONS:
+            raise ValueError(f"designation must be one of {', '.join(mesh.DESIGNATIONS)}")
+        project = self._project()  # type: ignore[attr-defined]
+        envs = {k: dict(v) for k, v in project.environments.items()}
+        spaces = dict(envs.get(env, {}).get("workspaces") or {})
+        if workspace_id:
+            spaces[designation] = {"id": workspace_id, "name": workspace_name}
+        else:
+            spaces.pop(designation, None)
+        envs.setdefault(env, {})["workspaces"] = spaces
+        if not spaces:
+            envs[env].pop("workspaces")
+        self._write_environments(project, envs)  # type: ignore[attr-defined]
+        return self.mesh_overview()
+
+    def meta_create_designation_workspace(self, env: str, designation: str, capacity_id: str = "") -> dict[str, Any]:
+        project = self._project()  # type: ignore[attr-defined]
+        i = mesh.identity(project)
+        domain = (i["subdomain"] or i["domain"] or i["name"]).replace("-", " ").title()
+        name = f"{domain} {mesh.DESIGNATION_LABELS[designation]} - {env.title()}"
+        ws = self.fabric.create_workspace(name, capacity_id,  # type: ignore[attr-defined]
+                                          f"{mesh.DESIGNATION_LABELS[designation]} workspace, managed by Fabric Desktop")
+        return self.meta_set_designation(env, designation, ws["id"], ws.get("displayName") or name)
+
+    # ---- keys into SQL_Platform
+
+    def meta_keys_to_platform(self, env: str) -> dict[str, Any]:
+        """Copy this environment's keys from LH_Keys into the platform with the same numbers, check
+        every row, and switch the environment to the platform's keys only if all of them match."""
+        project = self._project()  # type: ignore[attr-defined]
+        if self._keys_in_platform(project, env):  # type: ignore[attr-defined]
+            return {"env": env, "ok": True, "already": True, "tables": []}
+        lakehouse_keys = self._keys_store(project, env)  # type: ignore[attr-defined]
+        report = migrate(project, lakehouse_keys, self._platform_keys(env))
+        if report["ok"]:
+            envs = {k: dict(v) for k, v in project.environments.items()}
+            envs[env]["keys"] = "platform"
+            envs[env]["keys_moved_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+            self._write_environments(project, envs)  # type: ignore[attr-defined]
+        return {"env": env, **report}
+
+    def meta_keys_to_lakehouse(self, env: str) -> dict[str, Any]:
+        """Go back to LH_Keys. Refused while the platform holds keys LH_Keys doesn't have: going back
+        then would hand out those numbers again to other business keys."""
+        project = self._project()  # type: ignore[attr-defined]
+        if self._keys_in_platform(project, env):  # type: ignore[attr-defined]
+            platform = self._platform_keys(env)
+            envs_now = {k: dict(v) for k, v in project.environments.items()}
+            envs_now.setdefault(env, {})["keys"] = "lakehouse"
+            project.environments = envs_now
+            try:
+                lakehouse_keys = self._keys_store(project, env)  # type: ignore[attr-defined]
+            finally:
+                project.reload()
+            newer = []
+            for kt in project.key_tables.values():
+                have = keys_mod.key_stats(lakehouse_keys, kt)
+                top = platform.stats(kt.name)
+                if top.get("next", 1) > have.get("next", 1):
+                    newer.append(f"{kt.name} (keys {have['next']} to {top['next'] - 1})")
+            if newer:
+                raise GateError("save", [f"The platform issued keys after the move that LH_Keys doesn't have: "
+                                         f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
+                                         "in the platform."])
+        envs = {k: dict(v) for k, v in project.environments.items()}
+        envs.setdefault(env, {})["keys"] = "lakehouse"
+        envs[env].pop("keys_moved_at", None)
+        self._write_environments(project, envs)  # type: ignore[attr-defined]
+        return {"env": env, "keys": "lakehouse"}
+

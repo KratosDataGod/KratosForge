@@ -31,6 +31,8 @@ nav = [
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Working across teams" = "teams.md" },
+    { "The platform" = "platform.md" },
+    { "Data mesh" = "data-mesh.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
   ] },

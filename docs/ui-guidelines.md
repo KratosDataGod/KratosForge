@@ -4,7 +4,7 @@ Fabric Desktop is used by people who learned where things are. New features go w
 
 ## Where a new page goes
 
-- The left rail holds at most 8 pages (`RAIL_LIMIT`). Today: Home, Create, Workspaces, OneLake, Metadata, Fabric, Monitor, with Settings at the bottom.
+- The left rail holds at most 8 pages (`RAIL_LIMIT`). Today: Home, Create, Workspaces, OneLake, Metadata, Platform, Fabric, Monitor, with Settings at the bottom. The rail is full: a new page now goes inside one of these.
 - A new feature becomes a **tab or group inside an existing page**. Metadata's tabs are in four groups (Design, Runs, Quality, Deploy, `META_TAB_GROUPS` in `meta.js`); a new metadata feature joins a group, not a fifth row.
 - The rail grows only for a new kind of work, and only after a mockup is agreed.
 - Settings for a feature go on the Settings page (`settings.js`), in an existing section where one fits.

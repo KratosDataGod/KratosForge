@@ -850,6 +850,7 @@ function onelakeTabs() {
   const tab = (id, label) => h("button", { class: `tab${catalogPage.tab === id ? " active" : ""}`,
     onclick: () => { catalogPage.tab = id; render(); } }, label);
   return h("div", { class: "subtabs onelake-tabs" }, tab("catalog", "Catalog"),
+    preview("mesh", tab("products", "Data products")),
     preview("shortcuts", tab("shortcuts", "Shortcuts")), preview("access", tab("access", "Access")),
     h("span", { class: "spacer" }), learnMore("onelake"));
 }
@@ -858,6 +859,7 @@ async function renderOneLake() {
   if (!previewShown()) catalogPage.tab = "catalog";
   if (catalogPage.tab === "shortcuts") return renderShortcuts();
   if (catalogPage.tab === "access") return renderAccess();
+  if (catalogPage.tab === "products") return renderDataProducts();
   const cp = catalogPage;
   const nav = h("nav", { class: "catalog-nav" });
   const head = h("div", { class: "catalog-head" });

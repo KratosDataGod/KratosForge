@@ -21,6 +21,9 @@ from .. import delta_profile
 from ..onelake import FileStore, TableRef, storage_options
 
 META_LAKEHOUSE = "LH_Meta"
+# The organization's one landing zone: raw files from every source, in the platform's workspace.
+# Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
+LANDING_LAKEHOUSE = "LH_Landing"
 META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "run_log": {"run_id": pl.String, "batch_id": pl.String, "entity": pl.String, "env": pl.String,
                 "status": pl.String, "metadata": pl.String, "logic": pl.String, "load_date": pl.String,
@@ -146,14 +149,18 @@ class Store:
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""
 
-    def __init__(self, root: Path, env: str = "dev"):
+    def __init__(self, root: Path, env: str = "dev", landing: Path | None = None):
         self.root = Path(root)
         self.env = env
+        # The PC's shared landing folder (every project on this PC reads the same one).
+        self.landing = Path(landing) if landing else None
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
 
     def files_dir(self, lakehouse: str) -> Path:
+        if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:
+            return self.landing / "Files"
         return self.root / lakehouse / "Files"
 
     def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
@@ -164,10 +171,13 @@ class OneLakeStore(Store):
     """Delta tables in an environment's workspace: one lakehouse per layer, addressed by GUID."""
 
     def __init__(self, env: str, workspace_id: str, lakehouse_ids: dict[str, str],
-                 storage_token: Callable[[], str], cache_dir: Path, files: FileStore | None = None):
+                 storage_token: Callable[[], str], cache_dir: Path, files: FileStore | None = None,
+                 lakehouse_workspaces: dict[str, str] | None = None):
         self.env = env
         self.workspace_id = workspace_id
         self.lakehouse_ids = lakehouse_ids
+        # A layer can live in another workspace (its designation's): lakehouse name -> workspace id.
+        self.lakehouse_workspaces = dict(lakehouse_workspaces or {})
         self._token = storage_token
         self.cache_dir = Path(cache_dir)
         self._files = files or FileStore(storage_token)
@@ -178,8 +188,11 @@ class OneLakeStore(Store):
             raise LookupError(f"{lakehouse} doesn't exist in the {self.env} workspace yet; {how}")
         return self.lakehouse_ids[lakehouse]
 
+    def workspace_of(self, lakehouse: str) -> str:
+        return self.lakehouse_workspaces.get(lakehouse) or self.workspace_id
+
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
-        return TableRef(self.workspace_id, self._lakehouse_id(lakehouse), schema, table).uri
+        return TableRef(self.workspace_of(lakehouse), self._lakehouse_id(lakehouse), schema, table).uri
 
     def options(self) -> dict[str, str]:
         return storage_options(self._token())
@@ -188,8 +201,9 @@ class OneLakeStore(Store):
         lh = self._lakehouse_id(lakehouse)
         directory, _, name_pattern = f"Files/{pattern.strip('/')}".rpartition("/")
         out = []
-        for entry in self._files.list(self.workspace_id, lh, directory):
+        ws = self.workspace_of(lakehouse)
+        for entry in self._files.list(ws, lh, directory):
             if not entry["is_dir"] and fnmatch.fnmatch(entry["name"], name_pattern):
                 dest = self.cache_dir / self.env / lakehouse / entry["path"]
-                out.append(self._files.download(self.workspace_id, lh, entry["path"], dest))
+                out.append(self._files.download(ws, lh, entry["path"], dest))
         return sorted(out)

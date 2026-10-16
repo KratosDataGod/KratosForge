@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments
+  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links | glossary
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -74,6 +74,8 @@ const META_TAB_GROUPS = [
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
+  ["mesh", "Mesh", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
+    ["glossary", "Glossary", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
 
@@ -123,7 +125,8 @@ async function renderMetadata() {
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
   const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
-    runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab }[m.tab];
+    runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab }[m.tab];
   await render(body, p);
 }
 
@@ -212,7 +215,7 @@ async function renderEntitiesTab(body, p) {
     btn("New entity", "add", newEntityDialog, "tool primary")));
 }
 
-function newEntityDialog() {
+function newEntityDialog(preset) {
   const p = state.meta.project;
   const template = h("select", { id: "ne-template" }, Object.entries(p.templates).map(([id, d]) => h("option", { value: id }, d)));
   const layer = h("select", { id: "ne-layer" }, p.layers.map((l) => h("option", { value: l.name }, `${l.name} (${l.lakehouse})`)));
@@ -221,18 +224,51 @@ function newEntityDialog() {
   const keys = h("input", { id: "ne-keys", placeholder: "order_id" });
   const list = h("datalist", { id: "ne-entities" }, p.entities.map((e) => h("option", { value: e.name })));
   const hint = h("p", { class: "text" });
+  // From the landing zone: pick a source and entity the central team lands, instead of typing a path.
+  const landingSource = h("select", { "aria-label": "Landing zone source" });
+  const landingEntity = h("select", { "aria-label": "Landing zone entity" });
+  const landingPick = h("div", { class: "row", hidden: true },
+    h("label", { class: "field grow" }, "Landing zone source", landingSource), h("label", { class: "field grow" }, "Entity", landingEntity));
+  let landing = null;
+  const fillLanding = () => {
+    const src = (landing?.sources || []).find((x) => x.name === landingSource.value);
+    landingEntity.replaceChildren(...(src?.entities || []).filter((e) => e.name).map((e) => h("option", { value: e.name }, `${e.name} (${e.files} file${e.files === 1 ? "" : "s"})`)));
+    const ent = landingEntity.value;
+    if (src && ent) {
+      source.value = `${src.name}/${ent}/*.csv`;
+      table.value = `${src.name}_${ent}`;
+    }
+  };
+  landingSource.addEventListener("change", fillLanding);
+  landingEntity.addEventListener("change", () => {
+    source.value = `${landingSource.value}/${landingEntity.value}/*.csv`;
+    table.value = `${landingSource.value}_${landingEntity.value}`;
+  });
+  const loadLanding = async () => {
+    landing = landing || await attempt(() => rpc("platform_landing", { env: "dev" }), "Could not read the landing zone");
+    const sources = (landing?.sources || []).filter((x) => x.entities.some((e) => e.name));
+    landingSource.replaceChildren(...sources.map((x) => h("option", { value: x.name }, x.title && x.title !== x.name ? `${x.name} (${x.title})` : x.name)));
+    if (!sources.length) hint.textContent = "Nothing has landed yet. Type the path, like sap/customer/*.csv, or ask your central team to land the source.";
+    fillLanding();
+  };
   const sync = () => {
     const t = template.value;
-    source.placeholder = t === "files" ? "landing/orders/*.csv (under this layer's lakehouse Files)" : "an entity, like silver.orders";
+    landingPick.hidden = t !== "landing";
+    source.placeholder = t === "files" ? "landing/orders/*.csv (under this layer's lakehouse Files)"
+      : t === "landing" ? "sap/customer/*.csv (in the platform's LH_Landing)" : "an entity, like silver.orders";
     hint.textContent = t === "files" ? "Columns are read from the first matching file in Dev, if there is one."
-      : t === "custom" ? "Creates transforms/<table>.py and a test for it. The source is optional."
-        : "Columns are copied from the source entity's contract.";
+      : t === "landing" ? "Reads the raw files your central team lands for everyone. Columns come from the newest file in Dev's landing zone."
+        : t === "custom" ? "Creates transforms/<table>.py and a test for it. The source is optional."
+          : "Columns are copied from the source entity's contract.";
     if (["dim1", "dim2", "fact"].includes(t) && !table.value) table.placeholder = t === "fact" ? "fact_sales" : "dim_customer";
+    if (t === "landing") { layer.value = p.layers[0]?.name || layer.value; loadLanding(); }
   };
   template.addEventListener("change", sync);
+  if (preset === "landing" && p.templates.landing) template.value = "landing";
   sync();
   showDialog("New entity", h("div", { class: "scroll" },
     h("label", { class: "field" }, "Template", template),
+    landingPick,
     h("div", { class: "row" }, h("label", { class: "field grow" }, "Layer", layer), h("label", { class: "field grow" }, "Table name", table)),
     h("label", { class: "field" }, "Source", source, list),
     h("label", { class: "field" }, "Key columns (comma separated)", keys),
@@ -349,6 +385,7 @@ async function renderEntity() {
         driftCard(e),
         freshnessCard(e),
         recentRuns)),
+    aboutCard(e),
     quarantineCard(e),
     keysCard(e),
     e.preview ? h("div", { class: "card pad" }, h("b", {}, `Data in ${ENV_LABEL[state.meta.env]} · ${e.preview.total} rows`), dataTable(e.preview)) : null));
@@ -512,11 +549,15 @@ function renderLayersTab(body, p) {
     h("div", { class: "flow" }, L.map((l, i) => [i ? h("span", { class: "arrow" }, "→") : null,
       h("span", { class: "layer-chip big", style: `background:${LAYER_COLORS[i % LAYER_COLORS.length]}` }, l.name)])),
     h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["#", "Layer", "Lakehouse in each environment", "Workspace", "Can read from", "Schema drift", "Required checks", "Surrogate keys", "Keep history", "Entities", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, L.map((l, i) => h("tr", {},
         h("td", {}, i + 1),
         h("td", {}, h("b", {}, l.name), l.description ? h("div", { class: "muted-text" }, l.description) : null),
         h("td", { class: "mono small" }, `LH_${l.name[0].toUpperCase()}${l.name.slice(1)}`),
+        h("td", {}, h("select", { "aria-label": "Workspace", title: "Which workspace of each environment holds this layer's lakehouse (Metadata > Mesh > Domain and workspaces)",
+          onchange: (ev) => { l.workspace = ev.target.value; rerender(); } },
+        h("option", { value: "" }, "Environment's own"),
+        (p.designations || []).map((d) => h("option", { value: d.id, selected: l.workspace === d.id ? true : null }, d.label)))),
         h("td", {}, i === 0 ? h("span", { class: "muted-text" }, "Files and sources") :
           h("select", { "aria-label": "Can read from", onchange: (ev) => { l.reads_from = ev.target.value ? [ev.target.value] : []; rerender(); } },
             h("option", { value: "" }, "Any earlier layer"),
@@ -563,7 +604,8 @@ function renderLayersTab(body, p) {
 
 function stripLayer(l) {
   return { name: l.name, drift: l.drift, required_checks: [...l.required_checks].sort(), reads_from: l.reads_from || [],
-    description: l.description || "", require_keys: !!l.require_keys, retention_days: Number(l.retention_days ?? 7) };
+    description: l.description || "", require_keys: !!l.require_keys, retention_days: Number(l.retention_days ?? 7),
+    workspace: l.workspace || "" };
 }
 
 function infoCard(title, text) {
@@ -766,11 +808,14 @@ async function renderKeysTab(body) {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
-        toast(`Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
+        if (res.missing?.length) toast(`Not in the platform yet: ${res.missing.map((n) => `sk.${n}`).join(", ")}. Request them in Platform > Business keys.`, true);
+        else toast(res.platform ? `Every key table is in the platform${res.created.length ? `; created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`
+          : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
       }
     }, "tool outline small"),
-    btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary small")));
+    k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, rerender), "tool primary small")
+      : btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary small")));
 
   const problems = [...k.errors, ...(k.problem ? [k.problem] : [])];
   const list = tables.length ? h("table", { class: "list" },
@@ -787,7 +832,7 @@ async function renderKeysTab(body) {
       h("span", { class: "text" }, "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
       btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary"));
 
-  body.replaceChildren(...[head,
+  body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
     h("div", { class: "keys-grid" }, list, sel ? keyTableDetail(sel, k, rerender) : null)].filter(Boolean));
 }
@@ -823,6 +868,23 @@ function keyTableDetail(t, k, rerender) {
     t.used_by.length ? h("div", { class: "row wrap" }, t.used_by.map((n) => h("button", { class: "tool link mono", onclick: () => openEntity(n) }, n)))
       : h("p", { class: "muted-text" }, "No table uses it yet. Add this to an entity:"),
     h("pre", { class: "sql-block" }, `[[keys]]\ntable = "${t.name}"\nbusiness_key = "${t.name}_id"`));
+}
+
+// Keys in the platform: a project uses the platform's key tables, it doesn't make its own.
+function useKeyTableDialog(k, done) {
+  const have = new Set(k.key_tables.map((t) => t.name));
+  const free = k.central_key_tables.filter((t) => !have.has(t.name));
+  const pick = h("select", {}, free.map((t) => h("option", { value: t.name }, `sk.${t.name}${t.description ? `: ${t.description}` : ""}`)));
+  showDialog("Use a key table", h("div", {},
+    h("p", { class: "text" }, "Keys come from the platform, one key system for every team. Pick the business key this project needs; the platform's admins add new ones."),
+    free.length ? h("label", { class: "field" }, "Key table", pick) : h("p", { class: "muted-text" }, "This project already uses every key table the platform has.")), [
+    btn("Request a new one", null, () => { closeDialog(); requestDialog("key_table", "", done); }, "tool outline"),
+    btn("Cancel", null, closeDialog, "tool outline"),
+    free.length ? btn("Use it", null, async () => {
+      const t = free.find((x) => x.name === pick.value);
+      const res = await metaCall("meta_new_key_table", { name: t.name, description: t.description || "", env: state.meta.env }, "Not added");
+      if (res) { closeDialog(); state.meta.keyTable = t.name; toast(`This project now uses sk.${t.name}`); done(); }
+    }, "tool primary") : null].filter(Boolean));
 }
 
 function newKeyTableDialog(done) {
@@ -941,6 +1003,9 @@ registerFeature({
     ...META_TAB_GROUPS.flatMap(([, , tabs]) => tabs.map(([id, label, previewId]) => ({
       label: `Metadata: ${label}`, icon: "metadata", keywords: "medallion", preview: !!previewId, run: () => goMeta(id) }))),
     { label: "New entity", icon: "add", keywords: "metadata table create", run: () => { goMeta("entities"); newEntityDialog(); },
+      when: () => !!state.meta?.project?.path },
+    { label: "New entity from the landing zone", icon: "folderOpen", keywords: "bronze raw files platform", preview: true,
+      run: () => { goMeta("entities"); newEntityDialog("landing"); },
       when: () => !!state.meta?.project?.path },
     { label: "Run all entities", icon: "play", keywords: "metadata run", run: () => { goMeta("runs"); runEntities(null); },
       when: () => !!state.meta?.project?.path },

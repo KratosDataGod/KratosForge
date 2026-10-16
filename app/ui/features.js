@@ -21,7 +21,8 @@ function registerFeature(f) {
 }
 
 function railFeatures(bottom = false) {
-  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom).sort((a, b) => a.rail.order - b.rail.order);
+  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
+    .sort((a, b) => a.rail.order - b.rail.order);
 }
 
 function railItem(f) {
@@ -46,6 +47,8 @@ const PREVIEW_FEATURES = {
   tests: "Tests",
   xray: "Estate X-ray",
   itemPreview: "Item preview",
+  mesh: "Data mesh",
+  platform: "Platform",
 };
 
 function previewShown() {

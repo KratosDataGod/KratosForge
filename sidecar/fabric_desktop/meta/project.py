@@ -30,6 +30,7 @@ import polars as pl
 
 from . import freshness as freshness_mod
 from . import keys as keys_mod
+from . import mesh as mesh_mod
 
 MAX_LAYERS = 10
 # Fabric's table maintenance won't VACUUM with less than 7 days' retention.
@@ -74,6 +75,7 @@ class Layer:
     description: str = ""
     require_keys: bool = False  # every table in the layer must take surrogate keys from LH_Keys
     retention_days: int = DEFAULT_RETENTION_DAYS  # how far back its tables can be restored (VACUUM keeps this long)
+    workspace: str = ""  # workspace designation (ingest, product, ...); empty: the environment's workspace
 
     @property
     def lakehouse(self) -> str:
@@ -82,7 +84,8 @@ class Layer:
     def to_dict(self) -> dict[str, Any]:
         return {"name": self.name, "drift": self.drift, "required_checks": self.required_checks,
                 "reads_from": self.reads_from, "description": self.description, "lakehouse": self.lakehouse,
-                "require_keys": self.require_keys, "retention_days": self.retention_days}
+                "require_keys": self.require_keys, "retention_days": self.retention_days,
+                "workspace": self.workspace}
 
 
 @dataclass
@@ -182,11 +185,15 @@ class Entity:
         return {
             "name": self.name, "layer": self.layer, "schema": self.schema, "table": self.table,
             "owner": s.get("owner", ""), "mode": self.mode, "watermark": s.get("load", {}).get("watermark"),
-            "source": src.get("files") or src.get("from") or src.get("table") or ", ".join(self.sources()) or ("custom step" if s.get("step") else ""),
+            "source": src.get("files") or (f"landing {src['landing']}" if src.get("landing") else "")
+            or src.get("from") or src.get("table")
+            or (f"link {src['link']}" if src.get("link") else "")
+            or ", ".join(self.sources()) or ("custom step" if s.get("step") else ""),
             "clean": len(s.get("clean", [])), "derive": len(s.get("derive", [])), "checks": len(s.get("check", [])),
             "custom": [kind for kind, _, _ in self.python_refs()],
             "keys": self.keys, "columns": self.columns, "surrogate_keys": keys_mod.entity_keys(self), "derived": self.derived, "hook_adds": self.hook_adds,
             "reads": self.reads(), "path": str(self.path), "freshness": freshness_mod.promise(s),
+            "link": src.get("link"), "description": mesh_mod.entity_catalog(self)["description"],
         }
 
 
@@ -207,6 +214,8 @@ def write_layers_file(root: Path, layers: list[Layer], rules: dict[str, Any]) ->
             lines.append("require_keys = true")
         if l.retention_days != DEFAULT_RETENTION_DAYS:
             lines.append(f"retention_days = {int(l.retention_days)}")
+        if l.workspace:
+            lines.append(f"workspace = {json.dumps(l.workspace)}")
         lines.append("")
     (Path(root) / "layers.toml").write_text("\n".join(lines), encoding="utf-8")
 
@@ -250,6 +259,7 @@ class Project:
         self.key_errors += more
         for env in ENVIRONMENTS:
             self.environments.setdefault(env, {"target": "local"} if env == "dev" else {"workspace_id": ""})
+        self.info, self.products, self.links, self.mesh_errors = mesh_mod.load(self.root)
         self.purge_code()
 
     def purge_code(self) -> None:
@@ -350,6 +360,10 @@ class Project:
             "source_systems": [s.to_dict() for s in sorted(self.source_systems, key=lambda s: s.id)],
             "errors": errors,
             "run_order": run_order(self) if not any("cycle" in e for e in errors) else [],
+            "project": mesh_mod.identity(self),
+            "products": [p.summary() for p in sorted(self.products.values(), key=lambda p: p.name)],
+            "links": [l.summary() for l in sorted(self.links.values(), key=lambda l: l.alias)],
+            "designations": [{"id": d, "label": mesh_mod.DESIGNATION_LABELS[d]} for d in mesh_mod.DESIGNATIONS],
         }
 
     def _layer_pos(self, e: Entity) -> int:
@@ -387,8 +401,11 @@ def check_python(ref: str) -> str | None:
 
 def source_columns(project: Project, e: Entity) -> set[str]:
     src = e.spec.get("source", {})
-    if "files" in src or "table" in src:
+    if "files" in src or "landing" in src or "table" in src:
         return set(src.get("columns", e.columns))
+    if "link" in src:
+        link = project.links.get(src["link"])
+        return set(src.get("columns") or (link.columns if link else {}) or e.columns)
     cols: set[str] = set()
     for s in e.sources():
         if s in project.entities:
@@ -434,7 +451,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: dimensions need a business key in [contract] keys")
             if e.mode == "scd2" and not s.get("scd", {}).get("tracked"):
                 errors.append(f"{e.name}: Type 2 dimensions need [scd] tracked columns")
-        files = s.get("source", {}).get("files", "")
+        files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
         if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
@@ -524,6 +541,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 err(e.name, "custom_code_test", f"{kind} {ref} needs a test")
 
     errors += keys_mod.validate_keys(project, today)
+    errors += mesh_mod.validate(project)
 
     cycle = find_cycle(project)
     if cycle:

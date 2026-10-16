@@ -219,6 +219,34 @@ class FabricClient:
         self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
 
+    # ---- any item type (SQL databases, User Data Functions)
+
+    def find_item(self, workspace_id: str, item_type: str, name: str) -> dict[str, Any] | None:
+        return next((i for i in self.list_items(workspace_id)
+                     if i.get("type") == item_type and i.get("displayName") == name), None)
+
+    def save_item(self, workspace_id: str, item_type: str, name: str, parts: dict[str, str] | None = None,
+                  description: str = "") -> dict[str, Any]:
+        """Create an item of this type, or replace the definition of the one with this name.
+        Without parts, an existing item is left as it is."""
+        definition = {"parts": [{"path": path, "payload": base64.b64encode(text.encode()).decode(),
+                                 "payloadType": "InlineBase64"} for path, text in parts.items()]} if parts else None
+        existing = self.find_item(workspace_id, item_type, name)
+        if existing is None:
+            body: dict[str, Any] = {"displayName": name, "type": item_type}
+            if definition:
+                body["definition"] = definition
+            if description:
+                body["description"] = description
+            created = self._wait(self._request("POST", f"/workspaces/{workspace_id}/items", json=body))
+            if not created.get("id"):
+                created = self.find_item(workspace_id, item_type, name) or created
+            return created | {"created": True}
+        if definition:
+            url = f"/workspaces/{workspace_id}/items/{existing['id']}/updateDefinition"
+            self._wait(self._request("POST", url, json={"definition": definition}))
+        return existing | {"created": False}
+
     def refresh_sql_endpoint(self, workspace_id: str, sql_endpoint_id: str) -> dict[str, Any]:
         """Ask the lakehouse's SQL analytics endpoint to pick up tables written from outside Fabric."""
         url = f"/workspaces/{workspace_id}/sqlEndpoints/{sql_endpoint_id}/refreshMetadata"

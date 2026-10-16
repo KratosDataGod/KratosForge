@@ -16,7 +16,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Metadata, Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Metadata, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Metadata pages only | Dev, Test or Prod. Every Metadata page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
@@ -125,7 +125,7 @@ Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and 
 
 ## OneLake
 
-The OneLake page has three tabs: **Catalog**, and the preview tabs **Shortcuts** and **Access**.
+The OneLake page has four tabs: **Catalog**, and the preview tabs **Data products**, **Shortcuts** and **Access**.
 
 ### Catalog
 
@@ -150,6 +150,14 @@ Workspaces you can't read are skipped and named at the top.
 A workspace's **environment** comes from your metadata project first: the workspace each environment writes to and its Keys workspace (**Metadata > Environments and promote**). Otherwise it comes from a word in the workspace name: Dev or Development; Test, TST, UAT or QA (all shown as Test); Prod, PRD or Production. The word must stand apart, as in `Sales Dev`, `Sales-PROD`, `Sales [Test]` or `DEV_Sales`. When a name has more than one, the last wins, so `Production Planning Dev` is Dev. A workspace with neither shows under **No environment**.
 
 A workspace's **solution** is its name without that environment word, so `Adv Wrks DE 2 Dev`, `Adv Wrks DE 2 Test` and `Adv Wrks DE 2 Prod` all belong to the solution **Adv Wrks DE 2**. To make your workspaces group together, name each environment's copy the same way with a different environment word.
+
+### Data products (Preview)
+
+Every team's published [data products](data-mesh.md#data-products), from the platform's catalog, so anyone can find what other teams share without opening their project. Filter by domain or search by name, port or owner. Each row shows who owns it, who it's open to, its ports and how many projects read it, and what your open metadata project can do:
+
+- **Link** opens the new link dialog for that product (it's open to everyone, to your domain, or its owner let your project in).
+- **Request access** asks the product's owner to let your project link to it. They approve it on **Platform > Requests**; then **Link** shows here.
+- **Linked**: your project already reads it.
 
 ### Shortcuts (Preview)
 
@@ -178,18 +186,38 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Metadata
 
-Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop builds and runs them. Its tabs are in four groups:
+Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop builds and runs them. Its tabs are in five groups:
 
 | Group | Tabs |
 | --- | --- |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
+| Mesh (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
+
+Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
 
 The **Environment** picker in the top bar (Dev, Test or Prod) only shows on Metadata pages. Everything on these pages, from runs to table health, is for the environment picked there.
 
 The full walkthrough, from setting up a project to promoting to Prod, and a reference for every setting, is in **[the metadata guide](metadata-guide.md)**.
+
+## Platform
+
+The Platform page (Preview) is the central data team's home, and where every other team sees what the platform offers and asks for what it needs. **Platform admins** (the central team) create domains, business key tables and landing zone sources, and decide requests; everyone else sees the same screens and sends requests. The platform itself checks who may do what, so hiding a button is only a convenience. Details in [The platform](platform.md#the-platform-page).
+
+| Tab | What's there |
+| --- | --- |
+| **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
+| **Landing zone** | Every source in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source** |
+| **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
+| **Domains** | Your organization's domains and subdomains, with their owners |
+| **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
+| **Requests** | Waiting, decided and your own requests: key tables, sources, and access to data products. **Approve** does what was asked |
+| **Audit** | Every change in the catalog and who made it |
+| **Settings** | Where each environment's platform is ([Platform settings](#platform-settings)) and the platform's admins |
+
+Whoever creates the platform in Fabric becomes its first admin. Admins add other admins on **Settings**; a platform always keeps at least one.
 
 ## Fabric
 
@@ -218,10 +246,15 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide every feature tagged Preview. |
+| **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
 | **Notifications** | **Teams alerts**: post late and failed tables to a Teams channel. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 
 Anything your organization has set shows "Set by your organization" and can't be changed there.
+
+### Platform settings
+
+Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
 
 ## Updates
 

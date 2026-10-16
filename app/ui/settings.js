@@ -222,6 +222,9 @@ async function renderSettings() {
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop signs in, updates and talks to you. ", learnMore("settings")))),
     account, updates, previews, notify, about));
+  // The platform's status comes from the engine; it fills in after the page shows.
+  const platform = await platformSection();
+  if (state.view === "settings" && previewShown()) notify.before(platform);
 }
 
 // ---------- Get started (Home, until there's a metadata project) ----------

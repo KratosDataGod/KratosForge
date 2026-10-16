@@ -22,7 +22,7 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
-from .store import Store, read_table_uri
+from .store import LANDING_LAKEHOUSE, Store, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -159,8 +159,10 @@ class Engine:
     def __init__(self, project: Project, store: Store, load_date: dt.date | None = None,
                  keys_store: Store | None = None, source_options: Callable[[], dict[str, str] | None] | None = None,
                  table_lock: Callable[[Entity], AbstractContextManager[Any]] | None = None,
-                 run_context: dict[str, Any] | None = None):
+                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None):
         self.project, self.store = project, store
+        # Where a link ([source] link = "alias") points in this environment: another team's table.
+        self.link_table = link_table or self._no_links
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
         # read and overwrite the same table in between. The agent passes one; the app runs without.
         self.table_lock = table_lock or (lambda entity: nullcontext())
@@ -174,6 +176,10 @@ class Engine:
         self._evolved: list[str] = []
         self._replay_rows: pl.DataFrame | None = None
         self._held: list[pl.DataFrame] | None = None  # during a replay, rows that fail again wait here
+
+    def _no_links(self, alias: str) -> str:
+        raise CheckStop(f"link {alias} can't be resolved here: connect a platform, or pin its location for "
+                        f"{self.store.env} in metadata/links/{alias}.toml")
 
     # ---- reading managed tables
 
@@ -295,18 +301,28 @@ class Engine:
         src = e.spec.get("source", {})
         if not src:
             df, detail = pl.DataFrame(), "no source: the custom step provides the rows"
-        elif "files" in src:
-            df, names = self.store.read_files(self.lakehouse(e), src["files"])
+        elif "files" in src or "landing" in src:
+            where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
+            pattern = src.get("landing") or src["files"]
+            try:
+                df, names = self.store.read_files(where, pattern)
+            except LookupError as exc:
+                if where != LANDING_LAKEHOUSE:
+                    raise
+                raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
+                                f"Settings > Platform ({exc})") from exc
             if df is None:
-                raise CheckStop(f"no files match {src['files']} in {self.lakehouse(e)}/Files")
+                raise CheckStop(f"no files match {pattern} in {where}/Files")
             detail = f"{len(names)} file{'s' if len(names) != 1 else ''}"
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
-            if "table" in src:
-                df = self.read_source_table(src["table"])
+            if "table" in src or "link" in src:
+                uri = src["table"] if "table" in src else self.link_table(src["link"])
+                df = self.read_source_table(uri)
                 if df is None:
-                    raise CheckStop(f"the source table {src.get('from') or src['table']} doesn't exist")
+                    what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
+                    raise CheckStop(f"the source table {what} doesn't exist")
             else:
                 df = self.read_entity(src["entity"])
                 if df is None:

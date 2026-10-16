@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]" -c constraints.txt
       - run: python -m pytest -q
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
@@ -71,7 +71,7 @@ jobs:
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; client_id = "${{ vars.FABRIC_CLIENT_ID }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV

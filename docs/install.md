@@ -1,6 +1,6 @@
 # Install Fabric Desktop
 
-This page takes you from nothing to a running app on one Windows PC. If you are setting it up for a whole organization, read [Configure Azure and Fabric](azure-setup.md) first, then come back here.
+This page takes you from nothing to a running app on one Windows PC. There is no app registration to set up: you sign in with your work account and that's it. If you look after Fabric for a whole organization, [Configure Azure and Fabric](azure-setup.md) lists the few tenant settings worth checking.
 
 > **Before you start:** Fabric Desktop is new. The parts that only talk to your own PC are tested on every build. Several features that talk to Fabric are marked **Preview** in the app because nobody has tried them on a live Fabric tenant yet. See [What is tested and what isn't](README.md#what-is-tested-and-what-isnt).
 
@@ -11,7 +11,6 @@ This page takes you from nothing to a running app on one Windows PC. If you are 
 | Windows 10 or 11 (64-bit) | The desktop app is Windows only. The [headless agent](agent.md) also runs on Linux. |
 | Microsoft Edge WebView2 Runtime | The app's window is WebView2. It is already on every up-to-date Windows 11 and most Windows 10 PCs. If the app opens a blank window, install it from [Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/). |
 | A work account with Microsoft Fabric | You sign in with the same account you use at `app.fabric.microsoft.com`. |
-| An app (client) ID | The Microsoft Entra app Fabric Desktop signs in through. Your admin creates it once for everyone ([Configure Azure and Fabric](azure-setup.md)). If the build you download already carries one, you never see this step. |
 | A Fabric capacity on your workspaces | Only for creating lakehouses and for the features that run in Fabric. Work that runs on your PC uses no capacity. |
 | Disk space | The engine takes several hundred MB, plus local copies of the tables you work on. |
 
@@ -32,7 +31,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
    | Local engine | Downloads `fabric-desktop-engine.zip` (Python plus every package) and unpacks it into `%LOCALAPPDATA%\FabricDesktop\engine`. |
 
    This takes a minute or two the first time. Later starts go straight to Home unless something is updating.
-6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). A browser window asks for your work account. If the app asks for an **App (client) ID**, paste the one your admin gave you and choose **Save and sign in**. If you don't have one, choose **Send the guide to my admin**.
+6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; Fabric Desktop signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
 
 That's it. Home shows a **Get started** list until you set up a metadata project. Go on to the [user guide](user-guide.md).
 

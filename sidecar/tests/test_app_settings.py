@@ -5,6 +5,7 @@ import json
 import pytest
 
 from fabric_desktop import app_settings
+from fabric_desktop.auth import MICROSOFT_CLIENT_ID
 from fabric_desktop.service import Service
 
 APP = "11111111-2222-3333-4444-555555555555"
@@ -24,7 +25,7 @@ def dirs(monkeypatch, tmp_path):
 
 def test_defaults(dirs):
     s = app_settings.load()
-    assert s["client_id"] == {"value": "", "source": "default"}
+    assert s["client_id"] == {"value": MICROSOFT_CLIENT_ID, "source": "default"}  # no app registration
     assert s["channel"] == {"value": "stable", "source": "default"}
     assert s["show_preview"]["value"] is True
 
@@ -62,12 +63,12 @@ def test_save_checks_values(dirs):
 
 def test_service_uses_the_current_app_id(dirs, tmp_path):
     svc = Service(root=tmp_path / "app")
-    with pytest.raises(ValueError, match="Settings > Account"):
-        svc.auth
+    assert svc.auth.client_id == MICROSOFT_CLIENT_ID and svc.auth.microsoft
     svc.save_app_settings({"client_id": APP})
     assert svc.auth.client_id == APP
     svc.save_app_settings({"client_id": OTHER})
     assert svc.auth.client_id == OTHER  # a new ID means a new sign-in
+    assert not svc.auth.microsoft
     assert svc.sign_out() == {"user": None}
 
 

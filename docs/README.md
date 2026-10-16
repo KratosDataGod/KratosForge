@@ -20,8 +20,8 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | Document | For | What it covers |
 | --- | --- | --- |
 | [install.md](install.md) | Everyone | Requirements, download, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
-| [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, the Entra app registration, consent, giving everyone the app ID, workspaces and capacity, access, optional extras, a check that it works |
-| [permissions.md](permissions.md) | Admins | Every Entra permission, in alphabetical order; fixing admin consent errors; the policy file; what the agent needs |
+| [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
+| [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Metadata, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -48,7 +48,9 @@ Fabric Desktop is new, and it's honest about what has been proven.
 - Startup, updates and settings
 - The headless agent's queue, retries and leases
 
-**Used on the maintainer's own Fabric tenant:** sign-in and admin consent, listing workspaces and items, the OneLake catalog, the embedded Fabric pages (Fabric and the Monitoring hub) and their saved sign-in, and writing tables to OneLake from the PC. That is one tenant; yours may differ in settings and permissions.
+**Not yet tried on a live tenant:** sign-in through Microsoft's Fabric sign-in with no app registration, and Windows sign-in (version 0.15.0). Until it is, the maintainer's tenant results below are with an own app registration.
+
+**Used on the maintainer's own Fabric tenant (with an own app registration):** sign-in and admin consent, listing workspaces and items, the OneLake catalog, the embedded Fabric pages (Fabric and the Monitoring hub) and their saved sign-in, and writing tables to OneLake from the PC. That is one tenant; yours may differ in settings and permissions.
 
 **Built to Fabric's documented APIs but not yet tried on a live tenant.** These are tagged **Preview** in the app and can be hidden in **Settings > Preview features**:
 

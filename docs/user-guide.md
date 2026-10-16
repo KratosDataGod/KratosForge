@@ -55,7 +55,7 @@ Click your initial at the top right:
 
 ## Get started
 
-1. **Sign in** with your work account, the same one you use for Fabric. The first time, Fabric Desktop may ask for an **App (client) ID**; your Fabric admin has it. If sign-in says your organization needs to approve Fabric Desktop, send your admin the link from **Settings > Account > Admin approval**.
+1. **Sign in** with your work account, the same one you use for Fabric. Windows often signs you in with no prompt. There's no app ID to ask anyone for.
 2. **Open a lakehouse** from **OneLake** or **Workspaces** to browse its tables and files, or query them with SQL.
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
 4. **Set up Metadata** when you want Fabric Desktop to build and run your medallion layers for you.
@@ -119,7 +119,7 @@ Every item in every workspace you can open: lakehouses, warehouses, notebooks, s
 - **Type** narrows by item type, grouped as Fabric groups them (Data, Insights, Processes, Solutions, Configurations). Pick a group or open it to pick one type. **Clear** resets it.
 - **Click a column heading** to sort by it; click again to reverse.
 - **Star** an item to make it a favorite. Fabric has no public API for its own favorites, so these are kept on this PC.
-- **Endorsement** (Certified or Promoted) comes from Fabric's admin scan. It only shows when you are a Fabric administrator and the app has `Tenant.Read.All`. Otherwise Endorsed items is greyed out with the reason.
+- **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. Fabric Desktop's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
 - **Layer** shows which metadata layer a lakehouse is, when it belongs to your metadata project.
 - On a lakehouse row, **▸** shows its tables and files, **SQL query** opens a query tab, and **Open in notebook** starts a notebook with it attached. **Show in Fabric** (any item) opens it in the Fabric page.
 - **Open Fabric's catalog** opens Fabric's own OneLake catalog.
@@ -190,7 +190,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 
 | Section | What's there |
 | --- | --- |
-| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID** Fabric Desktop signs in with. Leave the ID empty to use the one that comes with the app. **Admin approval** copies the link a Microsoft Entra admin opens once to approve the app for your organization. |
+| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide every feature tagged Preview. |
 | **Notifications** | **Teams alerts**: post late and failed tables to a Teams channel. See [Freshness promises](metadata-guide.md#freshness-promises). |

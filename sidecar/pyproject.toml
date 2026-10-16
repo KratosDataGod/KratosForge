@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fabric-desktop"
-version = "0.14.0"
+version = "0.15.0"
 description = "Run data jobs on your own machine and publish Delta tables to Microsoft Fabric OneLake."
 requires-python = ">=3.11"
 dependencies = [
@@ -13,7 +13,10 @@ dependencies = [
     "polars>=1.20",
     "pyarrow>=16",
     "deltalake>=0.25",
-    "msal>=1.28",
+    "msal>=1.31",
+    # Windows sign-in (Web Account Manager) for MSAL: single sign-on with the Windows work account,
+    # and it passes "compliant device" Conditional Access. msal 1.3x pairs with 0.20.
+    "pymsalruntime>=0.20,<0.21; sys_platform == 'win32'",
     "requests>=2.31",
     # Charts in notebook cells, as Fabric notebooks have.
     "matplotlib>=3.8",

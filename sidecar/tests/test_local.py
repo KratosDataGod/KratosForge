@@ -101,6 +101,35 @@ def test_signed_in_tenant_comes_from_the_msal_account():
     assert auth.signed_in_tenant() is None
 
 
+def test_microsofts_sign_in_asks_for_default_scopes_and_an_own_app_for_narrow_ones(tmp_path):
+    from fabric_desktop.auth import EXECUTE_SCOPES, MICROSOFT_CLIENT_ID, STORAGE_SCOPES, Authenticator
+
+    class App:
+        def __init__(self):
+            self.asked = []
+
+        def get_accounts(self):
+            return [{"username": "chris@contoso.com"}]
+
+        def acquire_token_silent(self, scopes, account):
+            self.asked.append(scopes)
+            return {"access_token": "tok"}
+
+    auth = Authenticator(cache_path=tmp_path / "cache.bin")  # nothing set: Microsoft's app
+    assert auth.client_id == MICROSOFT_CLIENT_ID
+    auth.app = App()
+    auth._token(EXECUTE_SCOPES)
+    auth.storage_token()
+    assert auth.silent_token(STORAGE_SCOPES) == "tok"
+    assert auth.app.asked == [["https://api.fabric.microsoft.com/.default"], ["https://storage.azure.com/.default"],
+                              ["https://storage.azure.com/.default"]]
+
+    own = Authenticator("11111111-2222-3333-4444-555555555555", cache_path=tmp_path / "cache.bin")
+    own.app = App()
+    own._token(EXECUTE_SCOPES)
+    assert own.app.asked == [EXECUTE_SCOPES] and not own.broker
+
+
 def test_catalog_lists_lakehouses_across_workspaces_and_keeps_favorites(tmp_path, monkeypatch):
     from fabric_desktop import service as service_mod
     from fabric_desktop.service import Service

@@ -142,8 +142,6 @@ function closeMenu() {
 // ---------- account and data ----------
 
 async function signIn() {
-  if (!state.settings) await loadSettings();
-  if (state.settings && !clientId() && !(await signInSetup())) return false;
   const result = await attempt(() => rpc("sign_in"), "Sign-in failed");
   if (!result) return false;
   state.user = result.user;

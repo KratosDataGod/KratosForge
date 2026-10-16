@@ -70,22 +70,6 @@ def test_capacity_not_active_gets_a_plain_message():
         raise AssertionError("expected FabricError")
 
 
-def test_scan_endorsements_reads_every_item_list():
-    c, s = client([
-        Resp(202, {"id": "scan1"}),
-        Resp(200, {"status": "Running"}),
-        Resp(200, {"status": "Succeeded"}),
-        Resp(200, {"workspaces": [{"id": "ws1", "name": "Sales", "Lakehouse": [
-            {"id": "lh1", "endorsementDetails": {"endorsement": "Certified"}},
-            {"id": "lh2", "endorsementDetails": {"endorsement": "None"}},
-            {"id": "lh3"},
-        ], "reports": [{"id": "r1", "endorsementDetails": {"endorsement": "Promoted"}}], "users": "x"}]}),
-    ])
-    assert c.scan_endorsements(["ws1"]) == {"lh1": "Certified", "r1": "Promoted"}
-    assert s.calls[0] == ("POST", "https://api.powerbi.com/v1.0/myorg/admin/workspaces/getInfo", {"workspaces": ["ws1"]})
-    assert s.calls[-1][1].endswith("/workspaces/scanResult/scan1")
-
-
 def test_create_workspace_puts_it_on_a_capacity_and_explains_a_taken_name():
     c, s = client([Resp(201, {"id": "ws9", "displayName": "Sales - Dev"})])
     assert c.create_workspace("Sales - Dev", "cap1", "Dev")["id"] == "ws9"

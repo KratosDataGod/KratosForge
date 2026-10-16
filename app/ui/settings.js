@@ -1,4 +1,4 @@
-// Settings, the account menu, first-run sign-in setup, Report a problem, What's new and
+// Settings, the account menu, Report a problem, What's new and
 // Get started. The values live in the sidecar's app_settings.py: this person's choices, or
 // what their organization fixed in its policy file.
 
@@ -9,6 +9,8 @@ const SOURCE_TEXT = {
   built_in: "Comes with Fabric Desktop",
   default: "Default",
 };
+// Shown under the app ID when nothing set one.
+const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
@@ -44,40 +46,7 @@ function openLink(url) {
   return attempt(() => invoke("open_link", { url }), "Could not open the link");
 }
 
-// ---------- sign-in setup and sign-out ----------
-
-// First sign-in on a PC with no app ID from the build, IT or Settings: say what's needed and
-// take the ID here, never through a command prompt.
-function signInSetup() {
-  return new Promise((resolve) => {
-    const input = h("input", { placeholder: "00000000-0000-0000-0000-000000000000", spellcheck: "false" });
-    const error = h("p", { class: "field-error", hidden: true });
-    const done = (ok) => { closeDialog(); resolve(ok); };
-    const save = async () => {
-      const res = await rpc("save_app_settings", { changes: { client_id: input.value.trim() } }).catch((e) => {
-        error.textContent = friendlyError(e).text;
-        error.hidden = false;
-        return null;
-      });
-      if (!res) return;
-      state.settings = res;
-      done(true);
-    };
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") save(); });
-    showDialog("Set up sign-in", h("div", { class: "setup" },
-      h("p", {}, "Fabric Desktop signs in with your work account, the same one you use for Fabric. ",
-        "It does that through an app your organization approves once."),
-      h("p", {}, "Paste the app (client) ID your Fabric or Microsoft Entra admin gave you. ",
-        "If you don't have one, send your admin the setup guide."),
-      h("label", { class: "field" }, "App (client) ID", input), error,
-      h("p", { class: "muted-text small" }, "Admins can set this for everyone instead, so nobody sees this step. ",
-        learnMore("for-it-admins", "How"))),
-    [btn("Send the guide to my admin", null, () => openLink("https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/permissions.md"), "tool link"),
-      h("span", { class: "spacer" }),
-      btn("Cancel", null, () => done(false), "tool outline"),
-      btn("Save and sign in", null, save, "tool primary")]);
-  });
-}
+// ---------- sign-out ----------
 
 async function signOut() {
   if (!(await confirmDialog("Sign out?", "Fabric Desktop forgets your sign-in on this PC, in the app and in the Fabric views. " +
@@ -193,19 +162,19 @@ async function renderSettings() {
 
   // Account
   const idInput = h("input", { value: s.client_id.source === "user" ? s.client_id.value : "", spellcheck: "false",
-    placeholder: s.client_id.value || "00000000-0000-0000-0000-000000000000", disabled: locked("client_id") ? true : null });
+    placeholder: s.client_id.source === "default" ? "Empty: Microsoft's Fabric sign-in" : s.client_id.value, disabled: locked("client_id") ? true : null });
   const account = h("section", { class: "card pad" }, h("h2", {}, "Account"),
     settingRow(state.user ? `Signed in as ${state.user}` : "Not signed in",
       state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
-    settingRow("App (client) ID", "The Microsoft Entra app Fabric Desktop signs in with. Leave it empty to use the one that comes with the app.",
+    settingRow("App (client) ID", "Leave it empty: Fabric Desktop signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
       h("div", { class: "row" }, idInput,
         locked("client_id") ? null : btn("Save", null, async () => {
           if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
         }, "tool outline")),
-      s.client_id.value ? s.client_id.source : null),
-    s.client_id.value ? settingRow("Admin approval",
+      s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
+    s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve Fabric Desktop, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
         if (!(await copyText(adminConsentUrl(), "Link"))) toast(adminConsentUrl());

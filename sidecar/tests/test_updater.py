@@ -155,8 +155,31 @@ def test_download_app_checks_the_build(monkeypatch, tmp_path):
 def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
     seen = serve(monkeypatch, {"fabric-desktop.exe": b"MZ...old build..."})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
-    assert len(seen) == 2 and "nocache=" in seen[1][0]
+    exe = [url for url, _ in seen if "fabric-desktop.exe" in url]
+    assert len(exe) == 2 and "nocache=" in exe[1]
     assert "not build 0123456 yet" in capsys.readouterr().out
+
+
+def test_download_app_checks_the_checksum(monkeypatch, tmp_path, capsys):
+    import hashlib
+    good = b"MZ..." + SHA.encode()
+    info = {"commit": SHA, "exe_sha256": hashlib.sha256(good).hexdigest()}
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
+    serve(monkeypatch, {"version.json": json.dumps(info).encode(), "fabric-desktop.exe": good + b"tampered"})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+    assert "checksum" in capsys.readouterr().out
+
+
+def test_download_app_refuses_a_cut_off_download(monkeypatch, tmp_path, capsys):
+    class Short(FakeResponse):
+        def __init__(self, body):
+            super().__init__(body)
+            self.headers = {"Content-Length": str(len(body) + 1000)}
+
+    monkeypatch.setattr(updater.urllib.request, "urlopen", lambda req, timeout=None: Short(b"MZ..." + SHA.encode()))
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+    assert "stopped at" in capsys.readouterr().out
 
 
 def test_install_sidecar_reinstalls_from_commit(monkeypatch):

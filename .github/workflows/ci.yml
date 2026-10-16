@@ -165,10 +165,20 @@ jobs:
         run: |
           # What's new for Preview: the pull request's title (a merge commit's body), else the commit subject.
           NOTES=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message' | awk 'NR==1{s=$0} NR>2&&!b&&NF{b=$0} END{print (s ~ /^Merge pull request/ && b) ? b : s}')
-          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" '{commit: $commit, notes: $notes}' > version.json
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
-            --title "Fabric Desktop (latest build)" \
-            --notes "Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it." \
-            --target "$GITHUB_SHA" \
-            --prerelease
+          # Checksums let the app refuse a cut-off or mixed-up download before installing it.
+          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" \
+            --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
+            --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
+            '{commit: $commit, notes: $notes, exe_sha256: $exe, engine_sha256: $engine}' > version.json
+          BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
+          if gh release view latest > /dev/null 2>&1; then
+            # Replace the files in place rather than deleting the release, so PCs checking for an
+            # update never find it missing. version.json goes last: it names the new build.
+            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip --clobber
+            gh release upload latest version.json --clobber
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
+            gh release edit latest --notes "$BODY"
+          else
+            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
+              --title "Fabric Desktop (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
+          fi

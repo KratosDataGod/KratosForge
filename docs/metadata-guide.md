@@ -135,7 +135,7 @@ An incremental run is built to stay small when the table is big:
 - **It rewrites only what changed.** New and changed rows go into the table with a Delta MERGE on the key: rows with a key already in the table are replaced, the rest are added, and Parquet files without any of those keys stay as they are. A table without keys gets a plain append. The **write** step says what happened, for example *merged 2000 rows on id: 1000 updated, 1000 new (Delta MERGE rewrote 1 file, added 1)*.
 - **It falls back to a rewrite when a MERGE would change the result.** If the new rows repeat a key (there's no `unique` check), or a column's type changed, the run reads the whole table and replaces it, as every run did before 0.20, and the write step says why.
 
-Replayed quarantine rows go in the same way. Full loads, rebuilds and Type 1 and Type 2 dimensions still read and replace the whole table; making dimensions incremental too is planned (stage 1.2 in [the scale and operations plan](scale-and-operations-plan.md)).
+Replayed quarantine rows go in the same way. Full loads, rebuilds and Type 1 and Type 2 dimensions still read and replace the whole table; making dimensions incremental too is planned.
 
 Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
 

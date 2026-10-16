@@ -8,7 +8,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)), 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61)) and 1.3 preflight ([#69](https://github.com/KratosDataGod/fabric-desktop/pull/69)), stacked in that order: in review |
+| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)), 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61)) and 1.3 preflight ([#69](https://github.com/KratosDataGod/fabric-desktop/pull/69)), stacked in that order; 1.4 new files only ([#70](https://github.com/KratosDataGod/fabric-desktop/pull/70)), independent: in review |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
@@ -121,6 +121,8 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.4 Read only new landing files.** Effort M, risk low. A per-entity manifest in `meta` of files already loaded (path, size, modified time), so a landing or file source reads only new or changed files; idempotent on retry because the manifest is written after the table commit. Shared with ingestion (4.x). Migration: the first run after upgrade records every file already present as loaded only if the entity has run before, so nothing loads twice.
 
+*Built in [PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)*, independent of #56. The migration turned out simpler than planned. Before this, every run read every file, so the first run after upgrading reads them all once more, as it would have anyway, and records them; no file is marked loaded without being read. Incremental and dimension modes use the list. Full loads and full backfills read every file, and the backfill records them all. No new files is a successful run that writes nothing. `[source] new_files_only = false` opts out. Read settings (`new_files_only`, `memory_guard`) no longer count as logic changes. Measured locally with 31 files of 100,000 rows plus one new one: 2.8 s reading 100,000 rows, against 7.3 s reading 3.1M.
+
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
 
 ### Capability 9: always-on monitoring (moved to the Workload management program)
@@ -175,7 +177,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69), stacked on #61).
 3. **7.1** pipeline job contract ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and **7.2** agent status records ([PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)), built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
 4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
-5. **1.4** landing manifest, then **4.1** once D2 is answered.
+5. **1.4** landing manifest ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)), then **4.1** once D2 is answered.
 6. **1.5**, **5.3**, **8.2**, **8.3**, **4.2**, **4.3**, **7.3**.
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
@@ -204,6 +206,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 1.4 built ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)). |
 | 2026-10-16 | Stage 1.3 engine part built ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)). #54 merged into #56 and #61; fixed a surrogate-key race in #61's dimension MERGE. |
 | 2026-10-16 | Stages 7.1 and 7.2 built ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64), [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)). |
 | 2026-10-16 | Stage 1.2 built and measured ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61)). |

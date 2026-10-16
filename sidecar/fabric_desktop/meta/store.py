@@ -47,6 +47,15 @@ _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "sche
           "deployments": "at", "entities": "at", "restores": "at"}
 
 
+def ran_on(run: dict[str, Any]) -> str:
+    """Where a run_log row ran, in words: Fabric, an agent (by name and host), or this PC."""
+    if str(run.get("batch_id") or "").startswith("fabric-"):
+        return "Fabric"
+    if run.get("worker"):
+        return f"Agent {run['worker']}" + (f" on {run['host']}" if run.get("host") else "")
+    return "This PC"
+
+
 def _read(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.DataFrame | None:
     try:
         table = DeltaTable(uri, storage_options=options, version=version)

@@ -47,6 +47,8 @@ None yet.
 
 ## Blockers
 
+- Decisions asked of Chris on 2026-10-16 (cards in the project thread): where environment profiles install packages from (recommended: an IT wheel folder from the policy file, then PyPI if the policy allows), and which AI service powers assistant features (recommended: each organization's own endpoint and key in the policy file, off by default).
+
 - Live tenant checks: plan section 5, needs Chris.
 - AI features: needs Chris's decision on service and data policy.
 

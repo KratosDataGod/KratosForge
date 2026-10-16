@@ -41,6 +41,15 @@ def test_spark_session_builder_and_temp_views_and_sql_cells():
     assert out["outputs"][0]["rows"] == [[2]]
 
 
+def test_spark_and_sql_cells_use_utc_like_fabric():
+    k = Kernel()
+    for cell in ("spark.sql(\"SELECT current_setting('TimeZone') AS tz\")",
+                 "%%sql\nSELECT current_setting('TimeZone') AS tz"):
+        out = k.run(cell)
+        assert out["status"] == "ok", out
+        assert out["outputs"][-1]["rows"] == [["UTC"]]
+
+
 def test_spark_reads_and_writes_lakehouse_tables(tmp_path, monkeypatch):
     service, opened = _sql_service(tmp_path, monkeypatch)
     written = {}

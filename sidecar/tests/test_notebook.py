@@ -238,6 +238,13 @@ def test_sql_limits_rows_but_counts_all_and_keeps_repeated_names(tmp_path, monke
     assert ts.startswith("1970-01-01")
 
 
+def test_sql_uses_utc_whatever_this_pc_time_zone_is():
+    # Fabric's Spark sessions run in UTC, so year(), date_format() and friends must not
+    # follow this PC's time zone. CI runs in UTC, so check the setting, not just results.
+    from fabric_desktop import sql
+    assert sql.run("SELECT current_setting('TimeZone') AS tz").column("tz").to_pylist() == ["UTC"]
+
+
 def test_sql_errors_are_plain(tmp_path, monkeypatch):
     service, _ = _sql_service(tmp_path, monkeypatch)
     with pytest.raises(ValueError, match="empty"):

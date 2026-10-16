@@ -193,6 +193,7 @@ class LocalSparkSession(SparkSession):
 
     def __init__(self) -> None:
         super().__init__(SparkContext("local"))
+        self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         self._views: dict[str, str] = {}
         self._snapshot = None
 

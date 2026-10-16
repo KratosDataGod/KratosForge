@@ -9,7 +9,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import delta_profile
-from fabric_desktop.jobs import Job, run_local
+from fabric_desktop.jobs import Job, Target, run_local
 from fabric_desktop.onelake import TableRef, check_name
 from fabric_desktop.publish import stage_locally
 from fabric_desktop.server import handle
@@ -21,6 +21,12 @@ def test_duckdb_job_runs_locally():
     data = run_local(Job.load(EXAMPLES / "sales_by_region.toml"))
     assert data.column("region").to_pylist() == ["East", "North", "West"]
     assert data.column("total_amount").to_pylist() == [960, 400, 1350]
+
+
+def test_duckdb_job_uses_utc(tmp_path):
+    job = Job(name="tz", engine="duckdb", base_dir=tmp_path, target=Target("ws", "lh", "tz"),
+              sql="select current_setting('TimeZone') as tz")
+    assert run_local(job).column("tz").to_pylist() == ["UTC"]
 
 
 def test_polars_job_runs_locally():

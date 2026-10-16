@@ -16,7 +16,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 5 | Integrated Git and release workflow | Partial: release records and meaningful diffs built | This plan | 5.1 and 5.2 engine in review; their views after a mockup; then 5.3 |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
-| 8 | Cross-project lineage and product compatibility | Partial: 8.1 merged | This plan | 8.3, then 8.2 |
+| 8 | Cross-project lineage and product compatibility | Partial: 8.1 merged, 8.3 engine built | This plan | 8.3 in review; then 8.2 (platform owner decision) |
 | 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3) merged ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
@@ -170,6 +170,8 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **8.3 Column lineage from configuration.** Effort M, risk low. Column-level lineage derived from what the config states (renames, derive expressions, lookups, keys, hook `adds`), labelled declared or inferred; columns produced by custom Python are marked opaque rather than guessed.
 
+*Engine part built in this PR*, stacked on 5.2. `meta/lineage.py` gives each column one record: how it's made (source, derived, lookup, key, framework, custom), a declared, inferred or opaque label, and its inputs. A derived column's inputs are read from its expression by Polars' SQL parser. Inputs a column uses from its own table point at that table's column, so cleaning and renames sit on the path. Columns a hook runs after carry `custom_may_change`. `meta_lineage` returns one entity's columns, or one column's full upstream path and every downstream column in the project. Lineage across projects (through mesh links) and the view wait for 8.2 and a mockup. 7 tests.
+
 ### Capability 4: ingestion
 
 **4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so Fabric Desktop does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
@@ -211,6 +213,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 8.3 engine part built: column lineage from configuration. |
 | 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |
 | 2026-10-16 | Stage 5.1 engine part built: Git status, release records in `meta.deployments`, `require_commit`. |
 | 2026-10-16 | Stage 1.4 built ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)). |

@@ -80,6 +80,10 @@ class CheckStop(Exception):
     pass
 
 
+class NothingNew(Exception):
+    """The source has nothing this run hasn't loaded already (every file is loaded)."""
+
+
 class DecisionNeeded(Exception):
     def __init__(self, message: str, options: list[str]):
         super().__init__(message)
@@ -295,6 +299,7 @@ class Engine:
         started_at = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         self._dq: list[dict[str, Any]] = []
         self._schema_changes: list[dict[str, Any]] = []
+        self._files_read: tuple[str, list[dict[str, Any]]] | None = None
         try:
             with self.table_lock(e):
                 if backfill == "migrate":
@@ -302,6 +307,9 @@ class Engine:
                 df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
                 df, bad = self._checks(e, df, res)
                 self._write(e, df, res, backfill)
+                self._record_files(e, res)
+        except NothingNew as ex:  # nothing to do is a successful run
+            res.steps.append(Step("read", 0, 0.0, str(ex)))
         except DecisionNeeded as ex:
             res.status, res.message, res.options = "needs_decision", str(ex), ex.options
             return res
@@ -344,15 +352,26 @@ class Engine:
             where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
             pattern = src.get("landing") or src["files"]
             try:
-                df, names = self.store.read_files(where, pattern)
+                listed = self.store.list_files(where, pattern)
             except LookupError as exc:
                 if where != LANDING_LAKEHOUSE:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
                                 f"Settings > Platform ({exc})") from exc
+            if not listed:
+                raise CheckStop(f"no files match {pattern} in {where}/Files")
+            todo, detail = listed, f"{plural(len(listed), 'file')}"
+            if self._tracks_files(e):
+                if not full:
+                    done = self._loaded_files(e, where)
+                    todo = [f for f in listed if (f["path"], f["size"], f["modified"]) not in done]
+                    detail = f"{plural(len(todo), 'new file')} of {len(listed)}"
+                    if not todo:
+                        raise NothingNew(f"no new files: all {plural(len(listed), 'file')} matching {pattern} are loaded")
+                self._files_read = (where, todo)  # a full rebuild has loaded every file too
+            df, names = self.store.read_files(where, pattern, todo)
             if df is None:
                 raise CheckStop(f"no files match {pattern} in {where}/Files")
-            detail = f"{len(names)} file{'s' if len(names) != 1 else ''}"
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
@@ -419,6 +438,29 @@ class Engine:
         guard = e.spec.get("load", {}).get("memory_guard", True) is not False
         return {"entity": name, "estimate": est.to_dict(), "detail": detail, "free_memory_bytes": free,
                 "stop": preflight.too_big(est, free) if guard else "", "guard": guard}
+
+    def _tracks_files(self, e: Entity) -> bool:
+        """Incremental and dimension loads from files read only files they haven't loaded (a full
+        backfill reads them all). Full loads, and ``[source] new_files_only = false``, read them all."""
+        return e.mode in ("incremental", "scd1", "scd2") and e.spec.get("source", {}).get("new_files_only", True) is not False
+
+    def _loaded_files(self, e: Entity, lakehouse: str) -> set[tuple[str, int, str]]:
+        m = self.store.meta("loaded_files").filter((pl.col("entity") == e.name) & (pl.col("lakehouse") == lakehouse))
+        return {(r["path"], r["size"], r["modified"]) for r in m.iter_rows(named=True)}
+
+    def _record_files(self, e: Entity, res: RunResult) -> None:
+        """After the table commit: the files this run read are loaded. If this fails, the next run
+        reads them again, which a keyed load absorbs."""
+        if not self._files_read:
+            return
+        where, files = self._files_read
+        try:
+            self.store.meta_append("loaded_files", [{"entity": e.name, "lakehouse": where, "run_id": self.run_id,
+                                                     "path": f["path"], "size": f["size"], "modified": f["modified"]}
+                                                    for f in files])
+        except Exception as exc:  # the table is written; only the next run's file list is affected
+            res.steps.append(Step("files", len(files), 0.0, f"couldn't record the files read ({type(exc).__name__}: "
+                                                             f"{exc}); the next run reads them again"))
 
     def _expected_needed(self, e: Entity, columns: list[str]) -> tuple[set[str], set[str]]:
         """The source columns the contract expects, and those this entity uses."""

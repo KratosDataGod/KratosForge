@@ -41,10 +41,14 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},
+    # Files an entity has loaded (path under the lakehouse's Files, size, modified time), so the next
+    # run reads only new or changed ones. Written after the table commit.
+    "loaded_files": {"entity": pl.String, "lakehouse": pl.String, "path": pl.String, "size": pl.Int64,
+                     "modified": pl.String, "run_id": pl.String, "at": pl.String},
 }
 # Delta returns rows in no particular order, so every meta table is sorted by when it was written.
 _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "schema_history": "at",
-          "deployments": "at", "entities": "at", "restores": "at"}
+          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at"}
 
 
 def ran_on(run: dict[str, Any]) -> str:
@@ -123,6 +127,15 @@ class Store:
         return None
 
     def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
+        return self.fetch_files(lakehouse, self.list_files(lakehouse, pattern))
+
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
+        """Files under the lakehouse's Files matching ``pattern``, without reading them:
+        ``{"path"`` (under Files)``, "size", "modified"}``, sorted by path."""
+        raise NotImplementedError
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        """Local paths for listed files (OneLake downloads them)."""
         raise NotImplementedError
 
     # ---- tables
@@ -283,8 +296,10 @@ class Store:
 
     # ---- files
 
-    def read_files(self, lakehouse: str, pattern: str) -> tuple[pl.DataFrame | None, list[str]]:
-        paths = self.file_paths(lakehouse, pattern)
+    def read_files(self, lakehouse: str, pattern: str,
+                   entries: list[dict[str, Any]] | None = None) -> tuple[pl.DataFrame | None, list[str]]:
+        """Every file matching ``pattern`` as one frame, or only ``entries`` (from list_files)."""
+        paths = self.fetch_files(lakehouse, entries) if entries is not None else self.file_paths(lakehouse, pattern)
         frames = []
         for p in paths:
             suffix = p.suffix.lower()
@@ -336,8 +351,18 @@ class LocalStore(Store):
             return self.landing / "Files"
         return self.root / lakehouse / "Files"
 
-    def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
-        return sorted(p for p in self.files_dir(lakehouse).glob(pattern) if p.is_file())
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
+        root = self.files_dir(lakehouse)
+        out = []
+        for p in sorted(p for p in root.glob(pattern) if p.is_file()):
+            st = p.stat()
+            out.append({"path": p.relative_to(root).as_posix(), "size": st.st_size,
+                        "modified": dt.datetime.fromtimestamp(st.st_mtime, dt.timezone.utc).isoformat()})
+        return out
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        root = self.files_dir(lakehouse)
+        return [root / e["path"] for e in entries]
 
 
 class OneLakeStore(Store):
@@ -370,13 +395,15 @@ class OneLakeStore(Store):
     def options(self) -> dict[str, str]:
         return storage_options(self._token())
 
-    def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:
+    def list_files(self, lakehouse: str, pattern: str) -> list[dict[str, Any]]:
         lh = self._lakehouse_id(lakehouse)
         directory, _, name_pattern = f"Files/{pattern.strip('/')}".rpartition("/")
-        out = []
-        ws = self.workspace_of(lakehouse)
-        for entry in self._files.list(ws, lh, directory):
-            if not entry["is_dir"] and fnmatch.fnmatch(entry["name"], name_pattern):
-                dest = self.cache_dir / self.env / lakehouse / entry["path"]
-                out.append(self._files.download(ws, lh, entry["path"], dest))
-        return sorted(out)
+        out = [{"path": entry["path"].removeprefix("Files/"), "size": entry["size"], "modified": entry["modified"]}
+               for entry in self._files.list(self.workspace_of(lakehouse), lh, directory)
+               if not entry["is_dir"] and fnmatch.fnmatch(entry["name"], name_pattern)]
+        return sorted(out, key=lambda e: e["path"])
+
+    def fetch_files(self, lakehouse: str, entries: list[dict[str, Any]]) -> list[Path]:
+        lh, ws = self._lakehouse_id(lakehouse), self.workspace_of(lakehouse)
+        return [self._files.download(ws, lh, f"Files/{e['path']}", self.cache_dir / self.env / lakehouse / "Files" / e["path"])
+                for e in entries]

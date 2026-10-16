@@ -85,3 +85,12 @@ def test_the_run_dialog_can_ask_before_running(tmp_path):
     assert "this machine has" in ahead["stop"] and "after 2026-10-01" in ahead["detail"]
     assert engine.preflight("bronze.events", backfill="full")["estimate"]["rows"] == 1100
     assert s.table().height == 1000  # asking ran nothing
+
+
+def test_turning_the_guard_off_is_not_a_logic_change(tmp_path):
+    s = Setup(tmp_path, True)
+    before = Project(s.root).fingerprint(Project(s.root).entities["bronze.events"])
+    text = (s.root / "metadata" / "entities" / "bronze.events.toml").read_text(encoding="utf-8")
+    entity(s.root, "bronze.events", text.replace('watermark = "modified"', 'watermark = "modified"\nmemory_guard = false'))
+    p = Project(s.root)
+    assert p.fingerprint(p.entities["bronze.events"]) == before

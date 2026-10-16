@@ -232,8 +232,13 @@ function entityName(name) {
 }
 
 // A metadata run row for the entity page: status, where and when, and the reason if it failed.
+// Where a metadata run ran: Fabric, an agent (by name and host) or this PC, as the engine says.
+function ranOn(r) {
+  return r.ran_on || (r.compute === "fabric" ? "Fabric" : "This PC");
+}
+
 function runLine(r, onOpen) {
-  const where = r.compute === "fabric" ? "Fabric" : "This PC";
+  const where = ranOn(r);
   const reason = runReason(r);
   return h("div", { class: "run-line" },
     statusPill(r.status),

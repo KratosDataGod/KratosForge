@@ -16,7 +16,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
                           └─ JSON logs, run_log rows with worker, host, attempt and job id
 ```
 
-- **Same engine as the app.** A job runs an environment's entities through `fabric_desktop.meta.Engine`, in dependency order, with the same checks, quarantine, SCD, surrogate keys and run log. Runs show in the app's Monitor with batch ids starting `agent-`.
+- **Same engine as the app.** A job runs an environment's entities through `fabric_desktop.meta.Engine`, in dependency order, with the same checks, quarantine, SCD, surrogate keys and run log. Runs show in the app's Monitor as *Agent \<name\> on \<host\>*, with the job id and try in their details.
 - **No one at the keyboard.** The agent signs in as an app identity. Nothing ever opens a sign-in window.
 - **Durable queue.** Jobs are kept in `queue.sqlite3` in the agent's home folder. A job is `queued`, then `running`, then `succeeded`, `failed` or `dead`. A running job holds a lease that its worker renews; if the worker dies (crash, reboot, killed service), the lease runs out and the job is put back in the queue on the next start.
 - **Retries that make sense.** Network errors, throttling (HTTP 429 and 5xx), a lost Delta commit race and a table busy with another writer are retried, waiting `backoff_seconds`, then twice that, up to `max_backoff_seconds`, for `max_attempts` tries in all. A retry runs only the tables that didn't finish. A job that still fails is `dead` and posts to Teams. A table that fails its checks is `failed` straight away, since running it again would fail the same way.

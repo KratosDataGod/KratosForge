@@ -159,8 +159,10 @@ class Engine:
     def __init__(self, project: Project, store: Store, load_date: dt.date | None = None,
                  keys_store: Store | None = None, source_options: Callable[[], dict[str, str] | None] | None = None,
                  table_lock: Callable[[Entity], AbstractContextManager[Any]] | None = None,
-                 run_context: dict[str, Any] | None = None):
+                 run_context: dict[str, Any] | None = None, link_table: Callable[[str], str] | None = None):
         self.project, self.store = project, store
+        # Where a link ([source] link = "alias") points in this environment: another team's table.
+        self.link_table = link_table or self._no_links
         # Held for the whole of an entity's run, so no other writer (another agent, the app) can
         # read and overwrite the same table in between. The agent passes one; the app runs without.
         self.table_lock = table_lock or (lambda entity: nullcontext())
@@ -174,6 +176,10 @@ class Engine:
         self._evolved: list[str] = []
         self._replay_rows: pl.DataFrame | None = None
         self._held: list[pl.DataFrame] | None = None  # during a replay, rows that fail again wait here
+
+    def _no_links(self, alias: str) -> str:
+        raise CheckStop(f"link {alias} can't be resolved here: connect a platform, or pin its location for "
+                        f"{self.store.env} in metadata/links/{alias}.toml")
 
     # ---- reading managed tables
 
@@ -303,10 +309,12 @@ class Engine:
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df
         else:
-            if "table" in src:
-                df = self.read_source_table(src["table"])
+            if "table" in src or "link" in src:
+                uri = src["table"] if "table" in src else self.link_table(src["link"])
+                df = self.read_source_table(uri)
                 if df is None:
-                    raise CheckStop(f"the source table {src.get('from') or src['table']} doesn't exist")
+                    what = f"link {src['link']}" if "link" in src else (src.get("from") or src["table"])
+                    raise CheckStop(f"the source table {what} doesn't exist")
             else:
                 df = self.read_entity(src["entity"])
                 if df is None:

@@ -8,3 +8,6 @@ app/src-tauri/gen/
 # Documentation site built by Zensical (zensical.toml)
 site/
 .cache/
+
+# setuptools build output
+build/

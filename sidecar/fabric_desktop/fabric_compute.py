@@ -138,14 +138,26 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
     project = Project(work / "project")
     env = config["env"]
     if stores is None:
-        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], storage_token, work / "cache")
+        store = OneLakeStore(env, config["workspace_id"], config["lakehouse_ids"], storage_token, work / "cache",
+                             lakehouse_workspaces=config.get("lakehouse_workspaces"))
         keys_store = (OneLakeStore(env, config["keys_workspace_id"], config["keys_lakehouse_ids"], storage_token,
                                    work / "cache") if config.get("keys_workspace_id") else None)
+        if config.get("platform_keys") and fabric_token:  # keys in SQL_Platform, through UDF_Platform
+            from .central.client import FabricPlatform, PlatformKeys
+            pk = config["platform_keys"]
+            keys_store = PlatformKeys(FabricPlatform(fabric_token, pk["workspace_id"], pk["functions_id"]), env)
     else:
         store, keys_store = stores
     names = [n.strip() for n in entities.split(",") if n.strip()] or None
     started = dt.datetime.now(dt.timezone.utc)
-    engine = Engine(project, store, keys_store=keys_store)
+    links = config.get("links", {})
+
+    def link_table(alias: str) -> str:
+        if alias not in links:
+            raise LookupError(f"link {alias} wasn't resolved when this run was sent to Fabric; run it again from the app")
+        return links[alias]
+
+    engine = Engine(project, store, keys_store=keys_store, link_table=link_table)
     engine.batch_prefix = "fabric-"
     if cascade and names and len(names) == 1:
         results: list[RunResult] = engine.backfill(names[0])
@@ -180,9 +192,11 @@ def _optimize(project: Any, config: dict[str, Any], results: list[dict[str, Any]
         e = project.entities.get(r["entity"])
         if not e or r.get("status") != "ok" or not r.get("rows_written"):
             continue
-        lakehouse_id = config["lakehouse_ids"].get(project.layer(e.layer).lakehouse)
+        lakehouse = project.layer(e.layer).lakehouse
+        lakehouse_id = config["lakehouse_ids"].get(lakehouse)
+        ws = (config.get("lakehouse_workspaces") or {}).get(lakehouse) or config["workspace_id"]
         try:
-            fabric.run_table_maintenance(config["workspace_id"], lakehouse_id, e.table, e.schema)
+            fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema)
             r["maintenance"] = "queued"
         except Exception as exc:  # the run itself succeeded; say why the optimize didn't start
             r["maintenance"], r["maintenance_message"] = "Failed", str(exc)

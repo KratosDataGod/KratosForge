@@ -12,6 +12,7 @@ import polars as pl
 
 from . import lakehouse
 from .meta import keys as keys_mod
+from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
 from .onelake import storage_options
@@ -23,6 +24,15 @@ from .meta.templates import TEMPLATES, describe, entity_text, init_project
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
+
+
+def _toml(v: Any) -> str:
+    """A TOML value; tables are written inline: { ingest = { id = "...", name = "..." } }."""
+    if isinstance(v, dict):
+        return "{ " + ", ".join(f"{k} = {_toml(x)}" for k, x in v.items()) + " }" if v else "{}"
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml(x) for x in v) + "]"
+    return json.dumps(v)
 
 
 def _days(value: Any) -> Any:
@@ -117,21 +127,31 @@ class MetaMixin:
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
-        wanted = [l.lakehouse for l in project.layers] + [META_LAKEHOUSE]
-        existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
+        # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
+        spaces = cfg.get("workspaces") or {}
+        where = {l.lakehouse: (spaces.get(l.workspace) or {}).get("id") or ws for l in project.layers}
+        where[META_LAKEHOUSE] = ws
+        existing: dict[str, str] = {}
+        for space in dict.fromkeys(where.values()):
+            found = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(space)}
+            existing.update({name: found[name] for name, w in where.items() if w == space and name in found})
         if create:
-            for name in wanted:
+            for name, space in where.items():
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
-                        ws, name, "Managed by Fabric Desktop's metadata framework")["id"]
+                        space, name, "Managed by Fabric Desktop's metadata framework")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
-                            self.root / "onelake-cache")
+                            self.root / "onelake-cache",
+                            lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
 
     def _keys_store(self, project: Project, env: str, create: bool = False) -> Store:
-        """LH_Keys for an environment: on this PC for a local environment, else in its Keys workspace."""
+        """Where an environment's surrogate keys are: the platform's SQL database once they've moved
+        there (keys = "platform"), else LH_Keys, on this PC for a local environment or in its Keys workspace."""
         if env not in ENVIRONMENTS:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
+        if cfg.get("keys") == "platform":
+            return self._platform_keys(env)  # type: ignore[attr-defined,return-value]
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
             return LocalStore(project.local_data / f"keys-{env}", env)
         ws = cfg.get("keys_workspace_id")
@@ -153,9 +173,11 @@ class MetaMixin:
                  "# lakehouses, LH_<Layer>, created when first needed) or \"local\" (offline, in .local).",
                  "# compute = \"local\" runs on this PC, \"fabric\" on the workspace's capacity.",
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
+        lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
+                  "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
-            lines += [f"{k} = {json.dumps(v)}" for k, v in envs.get(name, {}).items()]
+            lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
             lines.append("")
         (project.root / "environments.toml").write_text("\n".join(lines), encoding="utf-8")
 
@@ -300,7 +322,8 @@ class MetaMixin:
                                   required_checks=list(l.get("required_checks", [])),
                                   reads_from=list(l.get("reads_from", [])), description=l.get("description", ""),
                                   require_keys=bool(l.get("require_keys", False)),
-                                  retention_days=_days(l.get("retention_days")))
+                                  retention_days=_days(l.get("retention_days")),
+                                  workspace=str(l.get("workspace") or ""))
                             for l in layers])
         return self.meta_project()
 
@@ -319,7 +342,8 @@ class MetaMixin:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""
         keys_store = self._keys_store(project, env, create=env == "dev") if self._uses_keys(project, names) else None
         store = self._store(project, env, create=env == "dev")
-        engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options)
+        engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
+                        link_table=self._link_table(project, env))  # type: ignore[attr-defined]
         if cascade and names and len(names) == 1:
             results: list[RunResult] = engine.backfill(names[0])
         else:
@@ -364,8 +388,9 @@ class MetaMixin:
         errors += test_errors
         cfg = project.environments.get(target, {})
         if (project.key_tables or project.source_systems) and cfg.get("target", "onelake") != "local" \
-                and not cfg.get("keys_workspace_id"):
+                and not cfg.get("keys_workspace_id") and cfg.get("keys") != "platform":
             errors.append(f"Pick a Keys workspace for {target.title()} first (Metadata > Surrogate keys)")
+        errors += self._product_gate(project)
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
@@ -373,6 +398,7 @@ class MetaMixin:
         src = self._store(project, source)
         errors = promote_checks(project, src, target, dt.date.today())
         errors += self._test_gate(project)[0]  # type: ignore[attr-defined]  # custom code is tested before it moves on
+        errors += self._product_gate(project)
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
@@ -388,6 +414,11 @@ class MetaMixin:
                 result["variable_library"] = "updated"
             except Exception as exc:  # the promote itself worked; publish it from Source systems
                 result["variable_library"] = f"not updated: {exc}"
+        if project.products:
+            try:  # so other teams' links find this environment's tables
+                result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
+            except Exception as exc:  # the promote itself worked; publish again from Mesh > Data products
+                result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version
                 self._fabric_bundle(project, target, target_store)  # type: ignore[attr-defined]
@@ -395,6 +426,16 @@ class MetaMixin:
             except Exception as exc:  # the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def _product_gate(self, project: Project) -> list[str]:
+        """Products other teams read must be documented and owned before they move on."""
+        if not project.products:
+            return []
+        try:
+            saved = self._catalog().call("enrichment", project=mesh.project_name(project))  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - the catalog is unreachable: judge on the text in Git alone
+            saved = {}
+        return mesh.publish_problems(project, saved)
 
     # ---- surrogate keys and source systems
 

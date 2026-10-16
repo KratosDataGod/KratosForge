@@ -25,6 +25,7 @@ from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundl
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
 from .meta.engine import Engine, RunResult, apply_clean
 from .meta.project import ENVIRONMENTS, GateError, validate
+from .meta import keys as keys_mod
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore
 
@@ -264,11 +265,12 @@ class CloudMixin:
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
                 except Exception:  # noqa: BLE001 - the maintenance job still runs with the right retention
                     pass
+                ws = store.workspace_of(t["lakehouse"])
                 job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
-                    store.workspace_id, lh_id, t["table"], t["schema"], vacuum_retention=maintenance.fabric_retention(days))
+                    ws, lh_id, t["table"], t["schema"], vacuum_retention=maintenance.fabric_retention(days))
                 out.append(self._log_fabric_run({
                     "kind": "Table maintenance", "name": f"{t['lakehouse']} {label}", "env": env, "table": label,
-                    "workspace_id": store.workspace_id, "item_id": lh_id, "job_id": job_id}))
+                    "workspace_id": ws, "item_id": lh_id, "job_id": job_id}))
             except Exception as exc:  # one table failing doesn't stop the rest
                 out.append({"table": label, "status": "Failed", "message": f"{type(exc).__name__}: {exc}"})
         return out
@@ -336,11 +338,21 @@ class CloudMixin:
         if not meta_id:
             raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
         config: dict[str, Any] = {"env": env, "workspace_id": ws, "lakehouse_ids": dict(store.lakehouse_ids),
+                                  "lakehouse_workspaces": dict(store.lakehouse_workspaces),
                                   "optimize_after_run": self._optimize_after_run(project, env)}
         if self._uses_keys(project):  # type: ignore[attr-defined]
             keys_store = self._keys_store(project, env, create=env == "dev")  # type: ignore[attr-defined]
             if isinstance(keys_store, OneLakeStore):
                 config |= {"keys_workspace_id": keys_store.workspace_id, "keys_lakehouse_ids": dict(keys_store.lakehouse_ids)}
+            elif keys_mod.is_service(keys_store):
+                client = keys_store.client
+                if not getattr(client, "functions_id", ""):
+                    raise ValueError(f"{env.title()}'s keys are in the platform on this PC, which Fabric can't reach. "
+                                     "Create or join a platform in Fabric first (Settings > Platform).")
+                config["platform_keys"] = {"workspace_id": client.workspace_id, "functions_id": client.functions_id}
+        if project.links:  # where each link points in this environment, resolved now for the runner
+            resolve = self._link_table(project, env)  # type: ignore[attr-defined]
+            config["links"] = {alias: resolve(alias) for alias in project.links}
         files = bundle_files(project.root, config)
         digest = bundle_hash(files)
         try:
@@ -499,13 +511,13 @@ class CloudMixin:
                 and r.from_column in dict(next(t for t in tables if t.name == r.from_table).columns)
                 and r.to_column in dict(next(t for t in tables if t.name == r.to_table).columns)]
         fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
-        props = (fabric.get_lakehouse(store.workspace_id, store.lakehouse_ids[lakehouse]).get("properties") or {})
+        props = (fabric.get_lakehouse(store.workspace_of(lakehouse), store.lakehouse_ids[lakehouse]).get("properties") or {})
         endpoint = props.get("sqlEndpointProperties") or {}
         if not endpoint.get("connectionString") or not endpoint.get("id"):
             raise LookupError(f"{lakehouse}'s SQL analytics endpoint isn't ready yet; try again in a minute")
         refreshed = True
         try:  # so the endpoint sees tables this app wrote; the model reads through it
-            fabric.refresh_sql_endpoint(store.workspace_id, endpoint["id"])
+            fabric.refresh_sql_endpoint(store.workspace_of(lakehouse), endpoint["id"])
         except Exception:
             refreshed = False
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])

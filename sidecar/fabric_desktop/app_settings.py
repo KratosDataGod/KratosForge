@@ -21,6 +21,8 @@ Keys:
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
     support_url      where "Report a problem" goes: an https link or a mailto: address
+    platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
+                     so every PC joins the same platform without anyone picking it
 """
 
 from __future__ import annotations
@@ -34,7 +36,8 @@ from typing import Any
 from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
-DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": ""}
+DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
+                            "platform": {}}
 USER_KEYS = ("client_id", "channel", "show_preview")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 

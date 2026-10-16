@@ -24,12 +24,13 @@ from .leases import Backend, Leases, LocalBackend, OneLakeBackend, table_key
 from .meta import Engine, LocalStore, OneLakeStore, Project
 from .meta.store import META_LAKEHOUSE, Store
 from .meta_service import MetaMixin
+from .central.service import PlatformMixin
 
 # Settings that come from agent.toml and are never written to the agent's settings file.
 _FROM_CONFIG = ("meta_project", "teams_webhook")
 
 
-class Runtime(MetaMixin, CloudMixin, DataOpsMixin):
+class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
     def __init__(self, config: AgentConfig, credential: Credential | None = None):
         self.config = config
         self.root = config.home / "data"
@@ -71,8 +72,9 @@ class Runtime(MetaMixin, CloudMixin, DataOpsMixin):
         if not self.config.workspaces:
             return
         cfg = project.environments.get(env, {})
-        for key in ("workspace_id", "keys_workspace_id"):
-            ws = cfg.get(key)
+        targets = [(key, cfg.get(key)) for key in ("workspace_id", "keys_workspace_id")]
+        targets += [(f"{d} workspace", w.get("id")) for d, w in (cfg.get("workspaces") or {}).items()]
+        for key, ws in targets:
             if ws and ws not in self.config.workspaces:
                 raise PermissionError(f"{env.title()}'s {key} {ws} isn't in agent.workspaces, so this agent won't write there")
 
@@ -102,6 +104,7 @@ class Runtime(MetaMixin, CloudMixin, DataOpsMixin):
                         ttl=self.config.table_lease_seconds, wait=self.config.table_lease_seconds)
         job = job or {}
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
+                        link_table=self._link_table(project, env),
                         table_lock=lambda e: leases.hold(table_key(project.layer(e.layer).lakehouse, e.schema, e.table)),
                         run_context={"worker": self.config.name, "host": socket.gethostname(),
                                      "attempt": int(job.get("attempts") or 1), "job_id": job.get("id", "")})

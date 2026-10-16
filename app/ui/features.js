@@ -44,6 +44,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   tests: "Tests",
   xray: "Estate X-ray",
+  itemPreview: "Item preview",
 };
 
 function previewShown() {

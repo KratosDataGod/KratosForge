@@ -103,9 +103,24 @@ Every Fabric workspace you can open.
 - Click a workspace's row to open it: its lakehouses, with **New lakehouse**, **New notebook** and **Open in notebook**.
 - **Open in Fabric** opens the workspace in the Fabric page.
 
+### Item preview (Preview)
+
+Click an item's row (not its name) to see it in a panel on the right, without leaving the page. **×** closes the panel.
+
+| You click | The panel shows |
+| --- | --- |
+| A table | Its first 100 rows, its column types (the **Schema** tab) and its row count, read on this PC from OneLake |
+| A data file (CSV, TSV, Parquet, JSON) | Its first 100 rows. Files over 200 MB aren't downloaded for a preview |
+| A text file (txt, md, py, sql, yaml and similar) | The start of the file |
+| A notebook | Its cells, read only, from its Fabric definition. Outputs aren't shown, since Fabric keeps them with each run |
+| A lakehouse | Its tables and files. Click one to preview it; **Back** returns to the lakehouse |
+| A report, semantic model, pipeline or any other item | Fabric's own page for it, inside the panel, signed in as you. **Open full page** opens it in the Fabric page |
+
+Previews only read; nothing is changed. They use the permissions sign-in already has.
+
 ### A lakehouse
 
-Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and file sizes) as a tree, with **Open in new notebook** and **New SQL query**.
+Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and file sizes) as a tree, with **Open in new notebook** and **New SQL query**. Click a table or file to [preview](#item-preview-preview) it beside the tree.
 
 ## OneLake
 
@@ -122,10 +137,18 @@ Every item in every workspace you can open: lakehouses, warehouses, notebooks, s
 - **Star** an item to make it a favorite. Fabric has no public API for its own favorites, so these are kept on this PC.
 - **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. Fabric Desktop's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
 - **Layer** shows which metadata layer a lakehouse is, when it belongs to your metadata project.
+- **Environments** on the left (**All**, **Dev**, **Test**, **Prod**) shows only that environment's items, and **Location** marks each item's environment. See [Environments and solutions](#environments-and-solutions).
+- **Group by** puts the list under headings: **Environment**, **Solution**, or **Solution, then environment**. Click a heading to open or close it; the first one starts open. Your choice is kept on this PC.
 - On a lakehouse row, **▸** shows its tables and files, **SQL query** opens a query tab, and **Open in notebook** starts a notebook with it attached. **Show in Fabric** (any item) opens it in the Fabric page.
 - **Open Fabric's catalog** opens Fabric's own OneLake catalog.
 
 Workspaces you can't read are skipped and named at the top.
+
+#### Environments and solutions
+
+A workspace's **environment** comes from your metadata project first: the workspace each environment writes to and its Keys workspace (**Metadata > Environments and promote**). Otherwise it comes from a word in the workspace name: Dev or Development; Test, TST, UAT or QA (all shown as Test); Prod, PRD or Production. The word must stand apart, as in `Sales Dev`, `Sales-PROD`, `Sales [Test]` or `DEV_Sales`. When a name has more than one, the last wins, so `Production Planning Dev` is Dev. A workspace with neither shows under **No environment**.
+
+A workspace's **solution** is its name without that environment word, so `Adv Wrks DE 2 Dev`, `Adv Wrks DE 2 Test` and `Adv Wrks DE 2 Prod` all belong to the solution **Adv Wrks DE 2**. To make your workspaces group together, name each environment's copy the same way with a different environment word.
 
 ### Shortcuts (Preview)
 
@@ -212,7 +235,7 @@ A channel change takes effect the next time Fabric Desktop starts. More detail, 
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Cost, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, and the Estate X-ray. To hide them all, turn off **Settings > Preview features**.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Cost, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray and Item preview. To hide them all, turn off **Settings > Preview features**.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 

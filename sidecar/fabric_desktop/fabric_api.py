@@ -118,6 +118,11 @@ class FabricClient:
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 
+    def get_item_definition(self, workspace_id: str, item_id: str, fmt: str | None = None) -> dict[str, Any]:
+        """An item's definition parts (base64), e.g. a notebook as ipynb. Needs Item.ReadWrite.All, which sign-in already asks for."""
+        query = f"?format={fmt}" if fmt else ""
+        return self._wait(self._request("POST", f"/workspaces/{workspace_id}/items/{item_id}/getDefinition{query}"))
+
     def list_notebooks(self, workspace_id: str) -> list[dict[str, Any]]:
         return self._paged(f"/workspaces/{workspace_id}/notebooks")
 

@@ -597,9 +597,12 @@ async function renderWorkspaces() {
   const wp = workspacesPage;
   const body = h("div", {}, h("p", { class: "muted-text" }, state.user ? "Loading workspaces..." : ""));
   const chips = h("div", { class: "ws-filters" });
+  const previewing = itemPreviewOn();
+  if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"),
-    h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ", learnMore("workspaces")),
-    signInCallout(), chips, body));
+    h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
+      previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
+    signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
     wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
@@ -634,14 +637,17 @@ async function renderWorkspaces() {
     return h("table", { class: "list ws-items" }, h("tbody", {}, sorted.map((it) => {
       const r = { workspace_id: ws.id, item_id: it.id, type: it.type, name: it.displayName };
       const lh = it.type === "Lakehouse" ? lakehouseRef(ws, it) : null;
-      return h("tr", {},
+      const target = { kind: "item", item: { ...r, workspace_name: ws.displayName } };
+      const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
+      return h("tr", { class: `${previewing ? "click" : ""}${isPreviewed(target) ? " selected" : ""}`,
+        title: previewing ? `Preview ${it.displayName}` : null, onclick: () => selectPreview(target) },
         h("td", {}, h("span", { class: "item" }, itemIcon(it.type),
-          h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, it.displayName))),
+          h("button", { class: "name-link", title: "Open in Fabric", onclick: stop(() => openInFabric(fabricItemLink(r))) }, it.displayName))),
         h("td", { class: "ws-type" }, typeLabel(it.type)),
         h("td", { class: "actions" },
-          lh ? btn("Open", null, () => openLakehouse(lh), "tool small link") : null,
-          lh ? btn("SQL query", null, () => openSqlQuery(lh), "tool small link") : null,
-          btn("Open in Fabric", "open", () => openInFabric(fabricItemLink(r)), "tool small link")));
+          lh ? btn("Open", null, stop(() => openLakehouse(lh)), "tool small link") : null,
+          lh ? btn("SQL query", null, stop(() => openSqlQuery(lh)), "tool small link") : null,
+          btn("Open in Fabric", "open", stop(() => openInFabric(fabricItemLink(r))), "tool small link")));
     })));
   }
 
@@ -755,6 +761,13 @@ function typeLabel(type) {
   return words.map((w, i) => (i && w !== w.toUpperCase() ? w.toLowerCase() : w)).join(" ");
 }
 
+// A workspace's environment as a small colored pill; nothing for one with no environment
+// unless always (a group header).
+function envPill(env, always = false) {
+  if (env === "none" && !always) return null;
+  return h("span", { class: `env-pill env-${env}` }, ENV_NAMES[env]);
+}
+
 // An icon for each Fabric item type, tinted by workload the way the Fabric portal groups them.
 // Fluent UI icons, not Fabric's own artwork; other types get a plain document.
 const ITEM_ICONS = {
@@ -804,7 +817,11 @@ async function pollSidecar(method, params, done, keepGoing) {
 }
 
 const catalogPage = { data: null, tables: null, layers: {}, scope: "all", type: "all", query: "",
-                      wsQuery: "", wsAll: false, sort: "name", dir: 1, open: new Set(), tab: "catalog", typeOpen: new Set() };
+                      wsQuery: "", wsAll: false, sort: "name", dir: 1, open: new Set(), tab: "catalog", typeOpen: new Set(),
+                      // Grouping (catalog-groups.js): none | env | solution | both, remembered on this PC.
+                      groupBy: "none", env: "all", envWs: {}, groupOpen: new Map() };
+try { catalogPage.groupBy = localStorage.getItem("fd.catalog.groupBy") || "none"; } catch { /* not remembered: no grouping */ }
+const GROUP_BY = [["none", "None"], ["env", "Environment"], ["solution", "Solution"], ["both", "Solution, then environment"]];
 
 // Item types grouped the way Fabric's OneLake catalog groups its Type filter. A type not listed
 // falls under Other types.
@@ -868,8 +885,10 @@ async function renderOneLake() {
   // cp.type is "all", a group ("g:data") or one item type ("Lakehouse").
   const typeMatches = (r) => cp.type === "all" || (cp.type.startsWith("g:") ? typeGroup(r.type) === cp.type.slice(2) : r.type === cp.type);
   const personal = () => new Set((cp.data?.workspaces || []).filter((w) => w.type === "Personal").map((w) => w.id));
+  const envOf = (r) => workspaceEnv(r.workspace_id, r.workspace_name, cp.envWs);
 
   function inScope(r) {
+    if (cp.env !== "all" && envOf(r) !== cp.env) return false;
     if (cp.scope === "fav") return favorites().has(key(r));
     if (cp.scope === "mine") return personal().has(r.workspace_id);
     if (cp.scope === "endorsed") return !!endorsed()[key(r)];
@@ -934,6 +953,47 @@ async function renderOneLake() {
       cp.typePanel ? panel : null);
     return wrap;
   }
+  function envChips(items) {
+    const count = (env) => items.filter((r) => envOf(r) === env).length;
+    const chip = (env, label) => h("button", { class: `chip${cp.env === env ? " on" : ""}`, "aria-pressed": String(cp.env === env),
+      title: env === "all" ? "Every environment" : `Only ${label} workspaces`, onclick: () => { cp.env = env; draw(); } },
+    env === "all" ? label : `${label} ${count(env)}`);
+    return h("div", { class: "catalog-envs" }, chip("all", "All"), ...ENVS.map((e) => chip(e, ENV_NAMES[e])));
+  }
+
+  function groupBySelect() {
+    const select = h("select", { class: "group-select", "aria-label": "Group by",
+      onchange: () => {
+        cp.groupBy = select.value;
+        cp.groupOpen = new Map();
+        try { localStorage.setItem("fd.catalog.groupBy", cp.groupBy); } catch { /* this session only */ }
+        draw();
+      } }, GROUP_BY.map(([v, label]) => h("option", { value: v, selected: cp.groupBy === v }, label)));
+    return h("label", { class: `group-by${cp.groupBy !== "none" ? " on" : ""}` }, icon("apps", 16), "Group by", select);
+  }
+
+  // Group headers in the table; the first group starts open, the rest closed, so a long
+  // catalog reads as a list of solutions or environments.
+  function drawGroups(groups, body, itemRow, depth = 0) {
+    groups.forEach((g, i) => {
+      const open = cp.groupOpen.has(g.key) ? cp.groupOpen.get(g.key) : depth > 0 || i === 0;
+      const toggle = () => { cp.groupOpen.set(g.key, !open); draw(); };
+      const wsCount = new Set(g.rows.map((r) => r.workspace_id)).size;
+      const bits = [`${g.rows.length} item${g.rows.length === 1 ? "" : "s"}`];
+      if (!g.env) bits.unshift(`${wsCount} workspace${wsCount === 1 ? "" : "s"}`);
+      if (g.children && g.children.every((c) => c.env === "none")) bits.push("no environment");
+      body.push(h("tr", { class: `group-row depth-${depth}` }, h("td", { colspan: 8 },
+        h("button", { class: "group-head", "aria-expanded": String(open), onclick: toggle },
+          icon(open ? "chevronDown" : "chevronRight", 14),
+          g.env ? envPill(g.env, true) : null,
+          h("span", { class: "group-label" }, g.env && depth > 0 ? (g.workspaces || []).join(", ") : g.env ? "" : g.label),
+          h("span", { class: "muted-text" }, bits.join("  ·  "))))));
+      if (!open) return;
+      if (g.children) drawGroups(g.children, body, itemRow, depth + 1);
+      else g.rows.forEach(itemRow);
+    });
+  }
+
   function closeTypePanel() { cp.typePanel = false; }
   function drawTypePanel() { draw(); }
 
@@ -964,6 +1024,7 @@ async function renderOneLake() {
       scopeButton("endorsed", "Endorsed items", "shield", end?.available ? items.filter((r) => endorsed()[key(r)]).length : "",
         !end?.available, !end ? "Checking endorsement..." : end.reason || ""),
       scopeButton("fav", "Favorites", "star", items.filter((r) => favorites().has(key(r))).length),
+      h("div", { class: "sec" }, "Environments"), envChips(items),
       h("div", { class: "sec" }, "Workspaces"), wsFilter, wsList].filter(Boolean));
     if (keepFocus) wsFilter.focus();
 
@@ -974,6 +1035,7 @@ async function renderOneLake() {
       && (!q || `${r.name} ${r.workspace_name} ${typeLabel(r.type)} ${r.description} ${tablesOf(r).join(" ")}`.toLowerCase().includes(q)));
     head.replaceChildren(...[typeFilter(scoped),
       cp.type !== "all" ? btn("Clear", "dismiss", () => { cp.type = "all"; draw(); }, "tool link small") : null,
+      groupBySelect(),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, `${rows.length} item${rows.length === 1 ? "" : "s"}`)].filter(Boolean));
 
@@ -981,7 +1043,7 @@ async function renderOneLake() {
       onclick: () => { cp.dir = cp.sort === col ? -cp.dir : 1; cp.sort = col; draw(); } },
     label + (cp.sort === col ? (cp.dir > 0 ? " ▲" : " ▼") : "")));
     const body = [];
-    for (const r of rows) {
+    const itemRow = (r) => {
       const fav = favorites().has(key(r));
       const isLh = r.type === "Lakehouse";
       const open = isLh && cp.open.has(key(r));
@@ -995,7 +1057,8 @@ async function renderOneLake() {
           h("button", { class: "name-link", title: "Open in Fabric", onclick: () => openInFabric(fabricItemLink(r)) }, r.name))),
         h("td", {}, typeLabel(r.type)),
         h("td", {}, h("button", { class: "name-link", title: "Open the workspace in Fabric",
-          onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name)),
+          onclick: () => openInFabric(fabricItemLink({ workspace_id: r.workspace_id })) }, r.workspace_name),
+        envPill(envOf(r))),
         h("td", {}, e ? h("span", { class: `pill-s ${e === "Certified" ? "pass" : "info"}` }, e) : ""),
         h("td", {}, (isLh && cp.layers[r.name]) || ""),
         h("td", { class: "actions" },
@@ -1007,7 +1070,9 @@ async function renderOneLake() {
         body.push(h("tr", { class: "sub-row" }, h("td", {}), h("td", {}), h("td", { colspan: 6 }, tree)));
         renderTree(tree, r, null);
       }
-    }
+    };
+    if (cp.groupBy === "none") rows.forEach(itemRow);
+    else drawGroups(groupCatalog(rows, cp.groupBy, envOf), body, itemRow);
     list.replaceChildren(rows.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, h("th", { style: "width:28px" }), h("th", { style: "width:32px" }),
         sortHead("name", "Name"), sortHead("type", "Type"), sortHead("ws", "Location"),
@@ -1022,7 +1087,11 @@ async function renderOneLake() {
   }
 
   if (cp.data) { draw(); return; }
-  rpc("meta_project").then((p) => { (p.layers || []).forEach((l) => { cp.layers[l.lakehouse] = l.name; }); draw(); }).catch(() => {});
+  rpc("meta_project").then((p) => {
+    (p.layers || []).forEach((l) => { cp.layers[l.lakehouse] = l.name; });
+    cp.envWs = envWorkspaces(p.environments);
+    draw();
+  }).catch(() => {});
   const data = await attempt(() => rpc("catalog", { all_types: true }), "Could not list the catalog");
   if (!data || !here()) return;
   cp.data = data;
@@ -1048,13 +1117,18 @@ function openLakehouse(ref) {
 function renderLakehouse() {
   const ref = state.lakehouseView;
   const tree = h("div", { class: "explorer-content", style: "padding:0" });
+  if (itemPreview.target && itemPreview.target.ref?.lakehouse_id !== ref.lakehouse_id) itemPreview.target = null;
+  const pick = itemPreviewOn() ? (p) => selectPreview({ ...p, ref }) : null;
+  const draw = () => renderTree(tree, ref, null, pick);
+  const box = h("div", { class: "lakehouse-tree" }, tree,
+    pick ? h("p", { class: "muted-text tree-hint" }, "Click a table or file to preview it.") : null);
   setView(h("div", { class: "page" }, h("h1", {}, ref.name),
     h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}`),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("Open in new notebook", "notebook", () => newNotebook(ref), "tool primary"),
       btn("New SQL query", "code", () => openSqlQuery(ref), "tool outline")),
-    h("div", { style: "max-width:520px;background:#fff;border:1px solid var(--border);border-radius:8px;padding:8px" }, tree)));
-  renderTree(tree, ref, null);
+    pick ? previewLayout(box, draw) : box));
+  draw();
 }
 
 // ---------- SQL query page ----------
@@ -1380,8 +1454,9 @@ function chevron(open) {
   return icon(open ? "chevronDown" : "chevronRight", 12);
 }
 
-function renderTree(container, ref, onInsert) {
-  const rerender = () => renderTree(container, ref, onInsert);
+// onPick({kind: "table", schema, table} | {kind: "file", path, size}): a click previews instead.
+function renderTree(container, ref, onInsert, onPick = null) {
+  const rerender = () => renderTree(container, ref, onInsert, onPick);
   const rows = [];
   const tablesKey = treeKey(ref, "tables");
   const tables = state.tree[tablesKey] || {};
@@ -1398,18 +1473,22 @@ function renderTree(container, ref, onInsert) {
       chevron(sOpen), h("span", { class: "label", style: "color:var(--muted)" }, schema)));
       if (sOpen) {
         if (!names.length) rows.push(h("div", { class: "tree-row muted", style: "padding-left:46px" }, "No tables"));
-        names.forEach((t) => rows.push(h("button", {
-          class: "tree-row", style: "padding-left:44px", title: onInsert ? "Insert code that loads this table" : `${schema}.${t}`,
-          onclick: () => onInsert && onInsert(`df = lakehouse.read_table("${schema}.${t}")\ndf`),
-        }, icon("table", 15), h("span", { class: "label" }, t))));
+        names.forEach((t) => {
+          const pick = { kind: "table", schema, table: t };
+          rows.push(h("button", {
+            class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
+            title: onInsert ? "Insert code that loads this table" : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
+            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table("${schema}.${t}")\ndf`) : onPick && onPick(pick),
+          }, icon("table", 15), h("span", { class: "label" }, t)));
+        });
       }
     }
   }
-  rows.push(...fileRows(ref, "Files", 6, onInsert, rerender));
+  rows.push(...fileRows(ref, "Files", 6, onInsert, rerender, onPick));
   container.replaceChildren(...rows);
 }
 
-function fileRows(ref, path, indent, onInsert, rerender) {
+function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
   const key = treeKey(ref, `files:${path}`);
   const node = state.tree[key] || {};
   const isRoot = path === "Files";
@@ -1421,11 +1500,12 @@ function fileRows(ref, path, indent, onInsert, rerender) {
   if (node.items && !node.items.length) rows.push(h("div", { class: "tree-row muted", style: `padding-left:${indent + 22}px` }, "Empty"));
   for (const item of node.items || []) {
     if (item.is_dir) {
-      rows.push(...fileRows(ref, item.path, indent + 20, onInsert, rerender));
+      rows.push(...fileRows(ref, item.path, indent + 20, onInsert, rerender, onPick));
     } else {
-      rows.push(h("button", { class: "tree-row", style: `padding-left:${indent + 38}px`,
-        title: onInsert ? "Insert code that reads this file" : item.path,
-        onclick: () => onInsert && onInsert(readSnippet(item.path)) },
+      const pick = { kind: "file", path: item.path, size: item.size };
+      rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
+        title: onInsert ? "Insert code that reads this file" : onPick ? `Preview ${item.path}` : item.path,
+        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick) },
       icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
     }
   }

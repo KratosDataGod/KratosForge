@@ -147,12 +147,14 @@ class CloudMixin:
         raise ValueError(f"Pick a workspace to publish {name} to.")
 
     def _publish(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
-                 compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                 compute: str | None = None, workspace: dict[str, str] | None = None,
+                 fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                    if lakehouse_ref else True)
-        ipynb = json.dumps(fabric_ipynb(cells, lakehouse_ref, schemas)).encode()
+        ipynb = json.dumps(fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)).encode()
         item = self.fabric.save_notebook(ws["workspace_id"], name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]

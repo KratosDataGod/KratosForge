@@ -15,6 +15,7 @@ Do your Microsoft Fabric data engineering on your own Windows PC: notebooks, Spa
 - **Fabric-safe tables:** every table is checked against a conservative Delta profile (reader 1, writer 2, classic checkpoints, no deletion vectors or column mapping). This keeps tables readable by the SQL analytics endpoint and Direct Lake.
 - **Signs in as you:** the app uses delegated MSAL sign-in. Your token cache lives in `%LOCALAPPDATA%\FabricDesktop`.
 - **Headless agent for servers:** the same engine runs unattended on Windows or Linux servers as a service principal or managed identity, with a durable job queue, retries, crash recovery and per-table write leases. See [docs/agent.md](docs/agent.md).
+- **Side by side, this PC vs Fabric:** one toggle runs a notebook on the PC and then in Fabric, and shows the time, the estimated capacity cost and whether both wrote the same tables. The [TPC-H benchmark notebooks](examples/benchmark) test it at scale. See [docs/side-by-side.md](docs/side-by-side.md).
 - **Fabric's own pages inside the app:** the Monitoring hub and the OneLake catalog are embedded, and their sign-in is kept between launches.
 
 How the pieces fit together, how a request flows and how writes reach OneLake: see [docs/architecture.md](docs/architecture.md).
@@ -30,6 +31,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
@@ -53,7 +55,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | `app/` | Tauri 2 shell (`src-tauri/`) and the Fabric-style UI (`ui/`, plain HTML and JavaScript). The shell starts the sidecar and forwards UI actions to it |
 | `docs/` | The [documentation](docs/README.md): install, Azure setup, user guide, notebooks, metadata, teams, troubleshooting and ideas guides, plus architecture, agent, roadmap and the KratosBI logo files (`docs/brand/`) |
 | `deploy/` | Headless agent packaging: example `agent.toml`, systemd unit and Dockerfile (`linux/`), and the Windows install script (`windows/`) |
-| `examples/` | Sample jobs (`sales_by_region.toml` for DuckDB, `top_products.toml` for Polars) and sample data |
+| `examples/` | Sample jobs (`sales_by_region.toml` for DuckDB, `top_products.toml` for Polars), sample data, and the TPC-H benchmark notebooks (`benchmark/`) |
 
 ## Sign-in: no app registration
 

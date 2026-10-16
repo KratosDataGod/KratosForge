@@ -24,6 +24,7 @@ from .dataops_service import DataOpsMixin
 from .estate_service import EstateMixin
 from .meta_service import MetaMixin
 from .schedule_service import ScheduleMixin
+from .side_by_side_service import SideBySideMixin
 from .xray_service import XRayMixin
 from .notebook import Kernel, NotebookStore
 from .onelake import FileStore, TableCatalog
@@ -35,7 +36,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin):
+class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, SideBySideMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings

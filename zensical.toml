@@ -28,6 +28,7 @@ nav = [
   { "Use the app" = [
     { "User guide" = "user-guide.md" },
     { "Notebooks and SQL" = "notebooks.md" },
+    { "Side by side: PC vs Fabric" = "side-by-side.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Working across teams" = "teams.md" },
     { "Troubleshooting" = "troubleshooting.md" },

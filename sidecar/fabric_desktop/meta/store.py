@@ -67,19 +67,29 @@ def _read(uri: str, options: dict[str, str] | None, version: int | None = None) 
 read_table_uri = _read  # any Delta table by URI: a local path, or OneLake with storage options
 
 
-def _scan(uri: str, options: dict[str, str] | None) -> pl.LazyFrame | None:
-    """The table as a LazyFrame, so a filter or column list is applied while reading: files whose
-    statistics rule them out are skipped and unused columns are never loaded."""
+def open_table(uri: str, options: dict[str, str] | None, version: int | None = None) -> DeltaTable | None:
+    """The Delta table (its log, not its data), or None when there is none."""
     try:
-        table = DeltaTable(uri, storage_options=options)
+        return DeltaTable(uri, storage_options=options, version=version)
     except TableNotFoundError:
         return None
+
+
+def lazy(table: DeltaTable, uri: str, options: dict[str, str] | None) -> pl.LazyFrame:
+    """``table`` as a LazyFrame, so a filter or column list is applied while reading: files whose
+    statistics rule them out are skipped and unused columns are never loaded."""
     if options is None and "://" not in uri:
         # On this PC Polars reads the files itself and skips them by their Delta statistics.
         return pl.scan_delta(table)
     # In OneLake, read through delta-rs's own file system (the one every other read uses), which
     # still pushes the filter and the column list down to the Parquet files.
     return pl.scan_pyarrow_dataset(table.to_pyarrow_dataset())
+
+
+def _scan(uri: str, options: dict[str, str] | None, version: int | None = None) -> pl.LazyFrame | None:
+    """The table (at ``version``, default the latest) as a LazyFrame (see lazy); None when there's none."""
+    table = open_table(uri, options, version)
+    return None if table is None else lazy(table, uri, options)
 
 
 scan_table_uri = _scan
@@ -121,12 +131,23 @@ class Store:
         """The table now, or as it was at a Delta ``version`` (time travel)."""
         return _read(self.uri(lakehouse, schema, table), self.options(), version)
 
-    def scan(self, lakehouse: str, schema: str, table: str) -> pl.LazyFrame | None:
+    def scan(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.LazyFrame | None:
         """The table to filter and select from before reading it (see _scan); None when there's none."""
-        return _scan(self.uri(lakehouse, schema, table), self.options())
+        return _scan(self.uri(lakehouse, schema, table), self.options(), version)
+
+    def table(self, lakehouse: str, schema: str, table: str) -> tuple[DeltaTable | None, str, dict[str, str] | None]:
+        """The Delta table with its address and storage options, for :func:`lazy` and the preflight."""
+        uri, options = self.uri(lakehouse, schema, table), self.options()
+        return open_table(uri, options), uri, options
 
     def exists(self, lakehouse: str, schema: str, table: str) -> bool:
         return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
+
+    def version(self, lakehouse: str, schema: str, table: str) -> int | None:
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
+        except TableNotFoundError:
+            return None
 
     def count(self, lakehouse: str, schema: str, table: str) -> int:
         """Rows in the table, from the Delta log's file statistics: no data is read."""
@@ -221,19 +242,32 @@ class Store:
         return dt_.version()
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
-               metadata: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
+               metadata: dict[str, str] | None = None, prune: list[str] | None = None,
+               read_version: int | None = None, new_from: tuple[str, int] | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
         memory. New columns in ``df`` are added to the table. Returns the new version and delta-rs's
         merge metrics (rows updated and inserted, files added and removed). Raises CommitFailedError
-        when another writer's commit conflicts, like any other write.
+        when another writer's commit conflicts, like any other write. ``prune`` names other columns
+        whose range in ``df`` bounds every matching target row (default: the ``on`` columns).
+        ``read_version`` is the version ``df`` was worked out from: the MERGE then commits against
+        it, so a commit by another writer since then raises CommitFailedError instead of being
+        merged over (new surrogate keys depend on the keys the table already had). ``new_from``
+        (column, first new key) makes rows from that key up part of what the MERGE reads, so a
+        concurrent insert there conflicts.
         """
         uri = self.uri(lakehouse, schema, table)
-        target = DeltaTable(uri, storage_options=self.options())
+        target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
-        predicate = " AND ".join(_key_bounds(df, on) + [f"t.`{c}` = s.`{c}`" for c in on])
+        bounds = " AND ".join(_key_bounds(df, prune or on))
+        if bounds and new_from:
+            # Also read the rows from the first new key up, so a writer that inserted keys there
+            # meanwhile is a conflict rather than a key handed out twice.
+            col, first = new_from
+            bounds = f"(({bounds}) OR t.`{col}` >= {int(first)})"
+        predicate = " AND ".join(([bounds] if bounds else []) + [f"t.`{c}` = s.`{c}`" for c in on])
         metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()

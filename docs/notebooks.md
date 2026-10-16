@@ -23,6 +23,8 @@ Notebooks in Fabric Desktop look and work like Fabric's, but every cell runs in 
 
 Notebooks are `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks`. They stay on your PC until you publish them.
 
+Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
+
 ## The lakehouse module
 
 `from fabric_desktop import lakehouse` is the notebook's way to the attached lakehouse.

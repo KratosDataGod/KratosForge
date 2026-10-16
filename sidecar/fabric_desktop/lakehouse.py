@@ -15,6 +15,7 @@ locally; only the input file download and the Delta write touch OneLake.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,20 @@ class WriteResult:
 
 
 _attached: Attached | None = None
+
+# Set while a proof runs on this PC (proof_runtime.ProofRuntime): tables are read at their pinned
+# versions and written to the proof's sandbox instead of the lakehouse's shared tables.
+proof: Any = None
+# The thread that answers the app's other requests (the RPC loop) while a proof runs: the Explorer's
+# previews and lookups read the real lakehouse, not the proof's view of it. Every other thread (the
+# notebook's cells and any threads they start) goes through the proof.
+proof_exempt_thread: threading.Thread | None = threading.main_thread()
+
+
+def _proof() -> Any:
+    if proof is None or threading.current_thread() is proof_exempt_thread:
+        return None
+    return proof
 
 # Set by the service when a metadata project is open: returns why a table may not be
 # written from a notebook (it is managed by the framework), or None.
@@ -139,7 +154,10 @@ def local_path(path: str) -> Path:
         raise ValueError(f"{path} is not a file under Files/. Read tables with read_table.")
     lh = _current()
     dest = lh.work_dir / "files" / lh.lakehouse_id / rel
-    return FileStore(lh.storage_token).download(lh.workspace_id, lh.lakehouse_id, rel, dest)
+    got = FileStore(lh.storage_token).download(lh.workspace_id, lh.lakehouse_id, rel, dest)
+    if (p := _proof()) is not None:
+        p.file_read(rel, got)
+    return got
 
 
 def read_csv(path: str, **kwargs: Any) -> pl.DataFrame:
@@ -156,6 +174,13 @@ def read_json(path: str, **kwargs: Any) -> pl.DataFrame:
 
 def open_table(table: str) -> DeltaTable:
     ref = table_ref(table)
+    if (p := _proof()) is not None:
+        from .proof_runtime import ProofTableMissing
+        try:
+            return p.open(ref.schema, ref.table,
+                          lambda uri, version: DeltaTable(uri, version=version, storage_options=p.options()))
+        except ProofTableMissing as e:
+            raise TableNotFoundError(str(e)) from None
     opts = storage_options(_current().storage_token())
     try:
         return DeltaTable(ref.uri, storage_options=opts)
@@ -216,6 +241,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
         raise PermissionError(reason)
     arrow = _to_arrow(data)
     stage_locally(arrow, lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
+    if (p := _proof()) is not None:
+        return _write_proof(p, arrow, ref, mode)
     delta = publish(arrow, ref, mode, lh.storage_token())
     result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
     if lh.history_file:
@@ -227,3 +254,20 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
         with lh.history_file.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
     return result
+
+
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str) -> WriteResult:
+    """A write during a proof: to this run's sandbox, never the shared table."""
+    from deltalake import write_deltalake
+
+    from . import delta_profile
+
+    def write(uri: str, data: pa.Table, how: str = "overwrite") -> DeltaTable:
+        write_deltalake(uri, data, mode=how, storage_options=proof.options(),
+                        schema_mode="overwrite" if how == "overwrite" else None)
+        table = DeltaTable(uri, storage_options=proof.options())
+        delta_profile.check_table(table)
+        return table
+    uri = proof.write_location(ref.schema, ref.table, mode, write)
+    table = write(uri, arrow, mode)
+    return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

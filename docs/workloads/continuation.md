@@ -8,13 +8,14 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | --- | --- |
 | Last updated | 2026-10-16 |
 | Base | `main` at `af11938` |
-| Stage | 0 (plan) done in this PR; stage 1 next |
+| Stage | 0 (plan) done; stage 1 PR 1A open (#63); PR 1B waits for Chris's reaction to the mockup |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | planning PR | This plan and note | Open |
+| `claude/workload-management-plan-4su03b` | #60 | This plan and note | Open |
+| `claude/workload-inventory-4su03b` | #63 | Stage 1 PR 1A: engine, RPCs, tests | Open |
 
 ## Completed backlog items
 
@@ -22,8 +23,8 @@ None yet.
 
 ## Work in progress
 
-- Stage 1 PR 1A (engine): `sidecar/fabric_desktop/workloads/`, `workload_service.py`, RPCs, tests.
-- Mockup of Monitor > Workloads, the workload page and Home's "Your workloads" for Chris.
+- Stage 1 PR 1A (engine) is open as #63. Items it covers in part: inventory, ownership, health, readiness, actions with preflight.
+- Mockup of Monitor > Workloads, the workload page, Home's "Your workloads" and the Retry confirmation: https://claude.ai/artifact/MYaQsSXDJ9iAmpo6nYePJf (waiting on Chris).
 
 ## Assumptions and decisions
 
@@ -35,6 +36,7 @@ None yet.
 ## Validation evidence
 
 - 2026-10-16: `python -m pytest -q` in `sidecar/` on `af11938`: 322 passed, 2 skipped (Linux, Python 3.13, pinned constraints).
+- 2026-10-16, #63: 348 passed, 2 skipped. 10,000 synthetic workloads: build and assess 0.9 s, each list query 70 to 240 ms (a quadratic join at 4.1 s was fixed first).
 
 ## External dependencies and blockers
 
@@ -43,7 +45,7 @@ None yet.
 
 ## Next action
 
-Build stage 1 PR 1A on a new branch from `main`, publish the mockup, then PR 1B.
+When Chris reacts to the mockup, build PR 1B (UI) as a draft on a branch from #63's branch: Monitor Workloads segment (Preview), workload page, Home "Your workloads", command bar entries, `app/ui/workloads.js`, user-guide section, sidecar version bump. Tell the coordinator before touching Monitor and Home in `app.js`. Meanwhile, keep #63 green.
 
 ## Resume prompt
 

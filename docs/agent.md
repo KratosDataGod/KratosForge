@@ -77,6 +77,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `agent.poll_seconds` | 5 | How often the loop looks for work |
 | `agent.job_lease_seconds` | 300 | How long a silent worker keeps a job before it runs again |
 | `agent.table_lease_seconds` | 120 | Write lease length, and how long to wait for a busy table |
+| `agent.status_seconds` | 60 | How often to publish the [status record](#status-records) to each environment |
 | `auth.type` | required | `service_principal`, `managed_identity` or `user` |
 | `retry.max_attempts` | 3 | Tries for retryable errors |
 | `retry.backoff_seconds` | 60 | First wait; doubles each try |
@@ -160,9 +161,29 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 | `dead` | Retryable errors on every try | Read `error`; usually network, throttling or a table held by another writer |
 | `cancelled` | A pipeline cancelled it, or its deadline passed, before it started | Nothing |
 
+### Status records
+
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop's workload views read these files.
+
+| Field | Meaning |
+| --- | --- |
+| `contract`, `kind` | `1` and `agent_status` |
+| `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop version |
+| `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
+| `env`, `environments` | The environment this record is for, and every environment the agent runs |
+| `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
+| `status_seconds`, `concurrency` | Its settings |
+| `pipeline` | Whether it takes pipeline requests here, its entity allowlist, and whether it allows backfills |
+| `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
+| `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
+| `schedules` | This environment's schedules and when each fires `next` |
+| `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
+
+Fields may be added within contract 1; readers should ignore fields they don't know. A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
+
 ## Run from a Fabric pipeline
 
-> **Preview.** Built and tested against local folders and a mocked OneLake. It has not yet run on a live tenant; see step 5 of [Verify on your tenant](#verify-on-your-tenant).
+> **Preview.** Built and tested against local folders and a mocked OneLake. It has not yet run on a live tenant; see step 6 of [Verify on your tenant](#verify-on-your-tenant).
 
 A Fabric pipeline can ask the agent to run an environment and wait for the result, so the agent's runs fit into pipelines you already orchestrate in Fabric (after a Copy job lands files, before a semantic model refresh). The pipeline and the agent talk through files in the environment's `LH_Meta` lakehouse. Nothing listens on a network port, and the agent needs no inbound firewall rule.
 
@@ -239,7 +260,8 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 2. `fabric-desktop agent enqueue dev` writes the Dev tables, and they show in the lakehouse after a refresh.
 3. A lease file appears in `LH_Meta/Files/_fabric_desktop/leases/` while a table runs and is gone after. OneLake's support for `If-None-Match` and `If-Match` on these requests is the key thing to confirm.
 4. Two agents, or the agent and the app, running the same table at once: one waits for the other and no rows are lost.
-5. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
+5. Status records: `LH_Meta/Files/_fabric_desktop/agents/<name>.json` appears within `status_seconds` of starting the agent, its `heartbeat_at` moves on, and `state` is `stopped` after `systemctl stop` (or stopping the Windows service).
+6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
 
 ## Limits in this version
 

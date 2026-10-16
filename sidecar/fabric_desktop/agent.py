@@ -23,6 +23,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
+from . import agent_status
 from .agent_config import AgentConfig
 from .dataops_service import post_teams
 from .jobqueue import JobQueue
@@ -51,12 +52,30 @@ class Agent:
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
         self._pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="job")
+        self.started_at = clock()
+        self._status_at = 0.0
+        self._controls: dict[str, Any] = {}
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
         if config.pipeline.enabled:
             p = config.pipeline
-            self.mailbox = Mailbox(self, self.runtime.control_backend, p.environments, p.entities, p.allow_backfill,
+            self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
                                    p.retention_days, known_entities=self.runtime.entity_names)
+
+    def _control(self, env: str) -> Any:
+        """The environment's control files (mailbox and status records), built once."""
+        if env not in self._controls:
+            self._controls[env] = self.runtime.control_backend(env)
+        return self._controls[env]
+
+    def publish_status(self, state: str = "running") -> None:
+        """Write agents/<name>.json to each environment's control area. A failure is logged, never fatal."""
+        for env in self.config.environments:
+            try:
+                agent_status.publish(self._control(env), self.config.name, agent_status.record(self, env, state))
+            except Exception as exc:
+                self._controls.pop(env, None)
+                self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
     # ---- adding work
 
@@ -187,6 +206,9 @@ class Agent:
             if job is None:
                 break
             self._running[job["id"]] = self._pool.submit(self._guarded, job)
+        if self.clock() - self._status_at >= self.config.status_seconds:
+            self._status_at = self.clock()
+            self.publish_status()
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:
@@ -217,7 +239,9 @@ class Agent:
                 self.log.exception("loop error; carrying on")
             self.stopping.wait(self.config.poll_seconds)
         self.log.info("agent stopping: waiting for running jobs", extra=fields(running=list(self._running)))
+        self.publish_status("stopping")
         self._pool.shutdown(wait=True)
+        self.publish_status("stopped")
         self.log.info("agent stopped")
 
     def stop(self) -> None:

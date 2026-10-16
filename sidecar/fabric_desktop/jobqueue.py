@@ -207,9 +207,21 @@ class JobQueue:
         rows = self._db().execute(sql + " order by created_at desc limit ?", (*args, limit)).fetchall()
         return [self._row(r) for r in rows]  # type: ignore[misc]
 
-    def counts(self) -> dict[str, int]:
-        rows = self._db().execute("select state, count(*) as n from jobs group by state").fetchall()
+    def counts(self, env: str | None = None) -> dict[str, int]:
+        """Jobs in each state; with ``env``, only that environment's."""
+        sql, args = "select state, count(*) as n from jobs", ()
+        if env is not None:
+            sql, args = sql + " where json_extract(payload, '$.env') = ?", (env,)
+        rows = self._db().execute(sql + " group by state", args).fetchall()
         return {s: 0 for s in STATES} | {r["state"]: r["n"] for r in rows}
+
+    def for_env(self, env: str, limit: int = 200) -> list[dict[str, Any]]:
+        """An environment's newest jobs, plus every one still queued or running."""
+        rows = self._db().execute(
+            "select * from jobs where json_extract(payload, '$.env') = ? and (state in ('queued', 'running') or id in"
+            " (select id from jobs where json_extract(payload, '$.env') = ? order by created_at desc limit ?))"
+            " order by created_at desc", (env, env, limit)).fetchall()
+        return [self._row(r) for r in rows]  # type: ignore[misc]
 
     # ---- schedules: when each fires next, kept here so a restart neither skips nor doubles a run
 

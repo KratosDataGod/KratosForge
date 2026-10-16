@@ -165,6 +165,7 @@ class Mailbox:
                 self._poll_env(env)
             except Exception as exc:
                 self._controls.pop(env, None)  # build it again next time (a token or lakehouse may have changed)
+                getattr(self.agent, "_controls", {}).pop(env, None)
                 self.log.warning("couldn't read the pipeline mailbox", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
     def _poll_env(self, env: str) -> None:

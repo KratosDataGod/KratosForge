@@ -469,6 +469,29 @@ class Kernel:
                 namespace.update(arguments)
         return None
 
+    # ---- proofs (prove_service): the proof runtime is bound where the cells run
+
+    def bind_proof(self, config: dict[str, Any], side: str, root: str, options: Callable[[], dict[str, str]]) -> None:
+        from . import lakehouse
+        from .proof_runtime import ProofRuntime
+        self._proof = ProofRuntime(config, side).bind(root, options)
+        lakehouse.proof = self._proof
+
+    def unbind_proof(self) -> None:
+        from . import lakehouse
+        lakehouse.proof = None
+        if getattr(self, "_proof", None) is not None:
+            self._proof.restore()
+
+    def finish_proof(self, modules: list[str]) -> dict[str, Any]:
+        log = self._proof.finish(modules)
+        self._proof = None
+        return log
+
+    def stop(self) -> dict[str, Any]:
+        """This kernel runs inside the engine: only ending the engine stops a cell stuck in native code."""
+        return {"stopped": False, "in_engine": True}
+
     # ---- what the Variables pane and autocomplete show
 
     def variables(self) -> list[dict[str, Any]]:
@@ -828,6 +851,28 @@ class NotebookStore:
         tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
         os.replace(tmp, path)
         return {"name": name, "cell_ids": ids}
+
+    def extra(self, name: str, key: str) -> Any:
+        """A value Fabric Desktop keeps in the notebook's metadata under ``fabric_desktop.<key>``
+        that the notebook screen doesn't send (the proof contract). None when it isn't set."""
+        nb = json.loads(self.path(name).read_text(encoding="utf-8"))
+        return ((nb.get("metadata") or {}).get("fabric_desktop") or {}).get(key)
+
+    def set_extra(self, name: str, key: str, value: Any) -> None:
+        """Set (or, with None, remove) ``fabric_desktop.<key>`` in the saved notebook. Saves from the
+        notebook screen keep it (merge_saved)."""
+        if key in ("compute", "workspace", "lakehouse"):
+            raise ValueError(f"{key} is saved with the notebook, not set on its own.")
+        path = self.path(name)
+        nb = json.loads(path.read_text(encoding="utf-8"))
+        fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
+        if value is None:
+            fd.pop(key, None)
+        else:
+            fd[key] = value
+        tmp = path.with_suffix(".ipynb.tmp")
+        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}

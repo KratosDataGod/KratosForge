@@ -968,3 +968,45 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .wl-warning { margin: 0; background: #fff4d6; color: #8a5300; }
 .wl-home .wl-counts { gap: 6px; margin: 8px 0; }
 .wl-home { display: flex; flex-direction: column; gap: 8px; }
+/* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
+.provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+.provepane .explorer-head .row { gap: 6px; }
+.prove-body { display: flex; flex-direction: column; gap: 12px; padding: 8px 16px 16px; font-size: 13px; }
+.prove-banner { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 4px; font-size: 14px; }
+.prove-banner.ok { background: #e7f4e8; color: #0e5c2a; }
+.prove-banner.bad { background: var(--danger-soft); color: var(--danger); }
+.prove-note { padding: 6px 8px; border-radius: 4px; background: #fff8ec; border: 1px solid #f1d6a8; }
+.prove-note.bad { background: var(--danger-soft); border-color: #f3c3c8; }
+.prove-sec { display: flex; flex-direction: column; gap: 4px; }
+.prove-sec h3 { margin: 0 0 2px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.prove-row { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid var(--border-soft); }
+.prove-row > span:last-child { text-align: right; }
+.prove-row.head { font-weight: 600; }
+.prove-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.prove-table { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
+.prove-table:hover { background: var(--hover); }
+.prove-table .muted { grid-column: 1 / -1; }
+.prove-rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.prove-rules input { min-height: 32px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; }
+.prove-form, .prove-diff, .prove-receipt { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.prove-grid { overflow: auto; max-height: 360px; border: 1px solid var(--border); border-radius: 4px; }
+.prove-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.prove-card { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; }
+.prove-card .pill-s { align-self: flex-start; }
+.prove-checks { display: flex; flex-direction: column; gap: 4px; }
+.dialog.wide { max-width: 1040px; }
+.wizard { display: flex; gap: 16px; min-height: 0; }
+.wizard-steps { list-style: none; margin: 0; padding: 0; width: 170px; flex: none; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.wizard-steps li { padding: 6px 10px; border-radius: 4px; color: var(--muted); }
+.wizard-steps li.done { color: #0e5c2a; }
+.wizard-steps li.now { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wizard-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.wizard-templates { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.wizard-template { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
+.wizard-template:hover { border-color: var(--accent); }
+.wizard-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.wizard-cells { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+.wizard-cells pre { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--canvas); white-space: pre-wrap; font-size: 12px; }
+.wizard-md { font-weight: 600; }
+@media (max-width: 720px) { .wizard { flex-direction: column; } .wizard-steps { width: auto; flex-direction: row; flex-wrap: wrap; } .provepane { width: 100%; } }
+.dialog-head .preview-tag { margin: 0 auto 0 8px; }

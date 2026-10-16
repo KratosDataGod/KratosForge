@@ -160,6 +160,17 @@ Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremen
 
 Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
 
+### Loads from files read only new files
+
+An incremental or dimension load from files (`files` or `landing`) remembers each file it loaded: its path, size and modified time, in `LH_Meta`'s `meta.loaded_files`. Each run then reads only files that are new or have changed since, instead of every file in the folder. The **read** step says so, for example *1 new file of 30*.
+
+- When every file is loaded already, the run succeeds without writing anything: *no new files*.
+- A full backfill reads every file again and records them all.
+- Full loads always read every file.
+- To read every file on each run anyway, set `new_files_only = false` under `[source]`. This isn't a logic change, so it doesn't ask whether to rebuild.
+
+The list is written after the table. A run that fails before its write reads the same files next time. If the table is written but the list can't be, the run says so and the next run reads those files again, which a load with keys absorbs.
+
 **When a table's logic changes**, an incremental run stops and asks you to choose:
 
 - **Apply to new rows only:** rows already loaded keep the old logic. `_run_id` shows which rows used which version.
@@ -384,6 +395,7 @@ business_key = "order_id"
 | | `entity` | Another entity it reads |
 | | `table` | An existing Delta table, by OneLake URI (adopted tables) |
 | | `rename` | Source column names mapped to the contract's names |
+| | `new_files_only` | `false` makes an incremental or dimension load read every file each run ([Loads from files](#loads-from-files-read-only-new-files)) |
 | `[load]` | `mode` | `full`, `incremental`, `scd1` or `scd2` |
 | | `watermark` | The column incremental loads move forward on |
 | | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |

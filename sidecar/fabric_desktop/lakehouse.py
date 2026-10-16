@@ -165,6 +165,16 @@ def open_table(table: str) -> DeltaTable:
                                  f"Check the name in the Explorer. ({e})") from None
 
 
+def table_exists(table: str) -> bool:
+    """Whether the attached lakehouse has this table. Only "not found" means no: any other
+    failure (sign-in, throttling, network) is raised, so it can't turn into an overwrite."""
+    try:
+        open_table(table)
+    except TableNotFoundError:
+        return False
+    return True
+
+
 def read_table(table: str) -> pl.DataFrame:
     return pl.from_arrow(open_table(table).to_pyarrow_table())
 

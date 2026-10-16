@@ -315,8 +315,14 @@ class Service(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, S
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
                 "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
-    def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "overwrite") -> dict[str, Any]:
+    def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new") -> dict[str, Any]:
+        """Write the query result as a table. "new" (the default) writes nothing when the table
+        exists and says so, so the page can ask before replacing it."""
         self._attach(lakehouse_ref)
+        if mode == "new":
+            if lakehouse.table_exists(table):
+                return {"table": table, "exists": True}
+            mode = "overwrite"
         written = lakehouse.write_table(sql.run(query), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 

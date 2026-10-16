@@ -35,6 +35,7 @@ The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the 
 ## Rules for changes
 
 - **Tests pass.** `python -m pytest -q` in `sidecar/` before you push. CI also builds the exe and the engine on Windows.
+- **Package versions are pinned.** The engine ships the versions in `sidecar/constraints.txt`. To move a package, change it there in its own pull request so CI tests it first. Install with `python -m pip install -e ".[dev]" -c constraints.txt` to test what users get.
 - **New UI goes where people already look.** Read [docs/ui-guidelines.md](docs/ui-guidelines.md): register pages and commands in `features.js`, keep the left rail at 8 items or fewer, put new features in an existing page.
 - **Untested on a tenant means Preview.** A feature that hasn't run against a live Fabric tenant is added to `PREVIEW_FEATURES` and shows a Preview tag.
 - **Docs in the same pull request.** A new feature updates [docs/user-guide.md](docs/user-guide.md) (and the notebooks or metadata guide if it belongs there), and its page's **Learn more** link points at that section.

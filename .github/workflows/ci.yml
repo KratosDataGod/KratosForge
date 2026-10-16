@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]" -c constraints.txt
       - run: python -m pytest -q
       # Users get a regular (not editable) install, so check that one has every module.
       - name: Check the installed package
@@ -29,6 +29,16 @@ jobs:
         run: |
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
+
+  ui:
+    # The UI has no build step, so a syntax error would otherwise ship as a blank page.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test app/tests/ui.test.cjs
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
@@ -61,7 +71,7 @@ jobs:
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
-          python -m pip install --only-binary=:all: --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
+          python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
           @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; client_id = "${{ vars.FABRIC_CLIENT_ID }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV
@@ -138,7 +148,7 @@ jobs:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
     # exe. People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, engine, shell]
+    needs: [sidecar, ui, engine, shell]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -155,10 +165,20 @@ jobs:
         run: |
           # What's new for Preview: the pull request's title (a merge commit's body), else the commit subject.
           NOTES=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message' | awk 'NR==1{s=$0} NR>2&&!b&&NF{b=$0} END{print (s ~ /^Merge pull request/ && b) ? b : s}')
-          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" '{commit: $commit, notes: $notes}' > version.json
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
-            --title "Fabric Desktop (latest build)" \
-            --notes "Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it." \
-            --target "$GITHUB_SHA" \
-            --prerelease
+          # Checksums let the app refuse a cut-off or mixed-up download before installing it.
+          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" \
+            --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
+            --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
+            '{commit: $commit, notes: $notes, exe_sha256: $exe, engine_sha256: $engine}' > version.json
+          BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
+          if gh release view latest > /dev/null 2>&1; then
+            # Replace the files in place rather than deleting the release, so PCs checking for an
+            # update never find it missing. version.json goes last: it names the new build.
+            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip --clobber
+            gh release upload latest version.json --clobber
+            gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
+            gh release edit latest --notes "$BODY"
+          else
+            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
+              --title "Fabric Desktop (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
+          fi

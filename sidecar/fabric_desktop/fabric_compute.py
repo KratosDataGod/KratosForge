@@ -187,16 +187,20 @@ def run_bundle(bundle: str | Path, entities: str = "", backfill: str = "", casca
 def _optimize(project: Any, config: dict[str, Any], results: list[dict[str, Any]],
               fabric_token: Callable[[], str]) -> None:
     from .fabric_api import FabricClient
+    from .maintenance import fabric_retention
     fabric = FabricClient(fabric_token)
     for r in results:
         e = project.entities.get(r["entity"])
         if not e or r.get("status") != "ok" or not r.get("rows_written"):
             continue
-        lakehouse = project.layer(e.layer).lakehouse
+        layer = project.layer(e.layer)
+        lakehouse = layer.lakehouse
         lakehouse_id = config["lakehouse_ids"].get(lakehouse)
         ws = (config.get("lakehouse_workspaces") or {}).get(lakehouse) or config["workspace_id"]
         try:
-            fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema)
+            # VACUUM keeps the layer's Keep history days, as runs on this PC do (not Fabric's 7).
+            fabric.run_table_maintenance(ws, lakehouse_id, e.table, e.schema,
+                                         vacuum_retention=fabric_retention(layer.retention_days))
             r["maintenance"] = "queued"
         except Exception as exc:  # the run itself succeeded; say why the optimize didn't start
             r["maintenance"], r["maintenance_message"] = "Failed", str(exc)

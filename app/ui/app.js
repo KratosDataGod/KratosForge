@@ -1236,7 +1236,12 @@ function renderQuery() {
     const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
     if (!name) return;
     toast(`Writing ${name}...`);
-    const out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
+    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
+    if (out?.exists) {
+      const replace = await confirmDialog("Replace the table?",
+        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
+      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite" }), "Could not save the table");
+    }
     if (out) {
       toast(out.message);
       delete state.tree[treeKey(ref, "tables")];
@@ -1987,8 +1992,9 @@ function detachLakehouse() {
 
 // ---------- Markdown ----------
 
+// Quotes too: inlineMd puts link targets in an attribute, and notebooks come from other people.
 function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function inlineMd(text) {

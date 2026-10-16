@@ -25,6 +25,7 @@ from .estate_service import EstateMixin
 from .meta_service import MetaMixin
 from .schedule_service import ScheduleMixin
 from .side_by_side_service import SideBySideMixin
+from .prove_service import ProveMixin
 from .xray_service import XRayMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
@@ -40,7 +41,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin):
+class Service(WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings

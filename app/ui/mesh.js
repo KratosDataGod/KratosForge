@@ -1,7 +1,7 @@
 // Data mesh screens: this project's domain and workspaces, its data products, links to other
 // teams' products, the glossary, and an entity's catalog text (About). Domains, glossary and
 // published products live in the platform (SQL_Platform, or a SQLite file on this PC until a
-// platform is set up in Settings > Platform); products and links are files in the project.
+// platform is set up in Platform > Settings); products and links are files in the project.
 
 const MESH_ENVS = ["dev", "test", "prod"];
 const ACCESS_LABEL = { public: "Everyone", domain: "My domain", private: "This project" };
@@ -18,7 +18,7 @@ function platformNote(o) {
   const prod = o.platform?.environments?.prod || {};
   const where = prod.kind === "fabric" ? `the platform in ${prod.workspace_name || "Fabric"}` : "the platform on this PC";
   return h("p", { class: "muted-text small" }, `Domains, glossary and published products are kept in ${where}. `,
-    prod.kind === "fabric" ? null : h("a", { href: "#", onclick: (e) => { e.preventDefault(); go("settings"); } }, "Set up the platform in Fabric"),
+    prod.kind === "fabric" ? null : h("a", { href: "#", onclick: (e) => { e.preventDefault(); goPlatform("settings"); } }, "Set up the platform in Fabric"),
     prod.kind === "fabric" ? null : " so every team shares them.");
 }
 
@@ -489,6 +489,6 @@ registerFeature({
   commands: [
     { label: "New data product", icon: "cube", keywords: "mesh publish share", preview: true, run: () => goMeta("products"), when: () => !!state.meta?.project?.path },
     { label: "Link another team's product", icon: "databaseLink", keywords: "mesh shortcut reference", preview: true, run: () => goMeta("links"), when: () => !!state.meta?.project?.path },
-    { label: "Set up the platform", icon: "database", keywords: "central sql keys catalog", preview: true, run: () => go("settings") },
+    { label: "Set up the platform", icon: "database", keywords: "central sql keys catalog", preview: true, run: () => goPlatform("settings") },
   ],
 });

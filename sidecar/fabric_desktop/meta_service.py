@@ -310,10 +310,11 @@ class MetaMixin:
         if layer not in project.layer_names():
             raise ValueError(f"{layer} is not a layer; use one of {', '.join(project.layer_names())}")
         sample = None
-        if template == "files" and source:
+        if template in ("files", "landing") and source:
             try:
                 store = self._store(project, "dev")
-                sample, _ = store.read_files(project.layer(layer).lakehouse, source)
+                where = LANDING_LAKEHOUSE if template == "landing" else project.layer(layer).lakehouse
+                sample, _ = store.read_files(where, source)
             except Exception:  # no files yet: the contract starts with a placeholder column
                 sample = None
         if not owner:
@@ -472,12 +473,18 @@ class MetaMixin:
             tables = [t | keys_mod.key_stats(store, project.key_tables[t["name"]]) for t in tables]
         except Exception as exc:  # the definitions are still useful when LH_Keys can't be read
             problem = str(exc)
+        central = None  # the platform's key tables, when this environment's keys are there
+        if self._keys_in_platform(project, env):
+            try:
+                central = self._platform(env).call("list_key_tables")  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
                 "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
                 "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
-                "key_tables": tables,
+                "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
                 "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]}
@@ -487,6 +494,12 @@ class MetaMixin:
         name = name.strip().lower()
         if name in project.key_tables:
             raise ValueError(f"key table {name} already exists")
+        if self._keys_in_platform(project, env):
+            # One key system: the project uses a key table the platform has, it doesn't make its own.
+            central = {t["name"] for t in self._platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            if name not in central:
+                raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
+                                         "Platform > Business keys, or pick one from the list."])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]

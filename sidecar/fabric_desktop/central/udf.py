@@ -44,9 +44,12 @@ def ensure_schema(sqlDB: fn.FabricSqlConnection) -> dict:
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def ensure_key_table(sqlDB: fn.FabricSqlConnection, name: str) -> bool:
-    return _run(sqlDB, "ensure_key_table", name=name)
+def ensure_key_table(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str,
+                     business_key: str = "", description: str = "", domain_id: str = "") -> bool:
+    return _run(sqlDB, "ensure_key_table", ctx, name=name, business_key=business_key, description=description,
+                domain_id=domain_id)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -56,9 +59,10 @@ def issue_keys(sqlDB: fn.FabricSqlConnection, name: str, business_keys: list) ->
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
 @udf.function()
-def import_keys(sqlDB: fn.FabricSqlConnection, name: str, rows: list) -> dict:
-    return _run(sqlDB, "import_keys", name=name, rows=rows)
+def import_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str, rows: list) -> dict:
+    return _run(sqlDB, "import_keys", ctx, name=name, rows=rows)
 
 
 @udf.connection(argName="sqlDB", alias="platform")
@@ -172,6 +176,111 @@ def save_term(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, te
 @udf.function()
 def audit(sqlDB: fn.FabricSqlConnection, limit: int) -> list:
     return _run(sqlDB, "audit", limit=limit)
+
+
+# ---- who may change what, key tables, sources and requests
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def whoami(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "whoami", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_admins(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_admins")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def claim_admin(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "claim_admin", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def add_admin(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, user: str) -> list:
+    return _run(sqlDB, "add_admin", ctx, user=user)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def remove_admin(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, user: str) -> list:
+    return _run(sqlDB, "remove_admin", ctx, user=user)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_key_tables(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_key_tables")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_sources(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_sources")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_source(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, source: dict) -> list:
+    return _run(sqlDB, "save_source", ctx, source=source)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def delete_source(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, name: str) -> list:
+    return _run(sqlDB, "delete_source", ctx, name=name)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str,
+            project: str = "", reason: str = "", detail: dict = None) -> dict:
+    return _run(sqlDB, "request", ctx, kind=kind, target=target, project=project, reason=reason, detail=detail or {})
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def list_requests(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, status: str = "") -> list:
+    return _run(sqlDB, "list_requests", ctx, status=status)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def decide_request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, approve: bool,
+                   note: str = "") -> dict:
+    return _run(sqlDB, "decide_request", ctx, id=id, approve=approve, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def withdraw_request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str) -> dict:
+    return _run(sqlDB, "withdraw_request", ctx, id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_grants(sqlDB: fn.FabricSqlConnection, product_id: str = "") -> list:
+    return _run(sqlDB, "list_grants", product_id=product_id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def revoke_grant(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, product_id: str, project: str) -> list:
+    return _run(sqlDB, "revoke_grant", ctx, product_id=product_id, project=project)
 
 
 # Report buttons (translytical task flows) need functions that return text.

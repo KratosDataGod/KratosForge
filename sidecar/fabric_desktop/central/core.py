@@ -22,6 +22,19 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.enrichment   description, tags, classification, glossary terms, steward of a table or column
     catalog.glossary     business terms
     catalog.audit        who changed what in the catalog
+    catalog.admin        platform admins: the central team, who create domains, key tables and sources
+    catalog.key_table    the platform's key tables: business key, description, who made it
+    catalog.source       source systems landed in LH_Landing: owner, expected arrival, connections per env
+    catalog.reader       which project reads which landing zone source
+    catalog.request      requests from domain teams: a key table, a source, or access to a product
+    catalog.grant        projects let in to a domain or private product by its owner
+
+Who may change what (the caller is always who Fabric says it is, see udf.py):
+
+    platform admins      domains, key tables, source systems, glossary, admins, and every request
+    domain owners        glossary terms of their domain
+    product owners       access requests to their product
+    everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
 """
 
 from __future__ import annotations
@@ -29,15 +42,18 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import uuid
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
+REQUEST_KINDS = ("key_table", "source", "access")
+REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
@@ -123,6 +139,17 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                    ("updated_by", "text")],
     "glossary": [("term", "key"), ("definition", "long"), ("domain_id", "text"), ("owner", "text"),
                  ("updated_at", "text"), ("updated_by", "text")],
+    "admin": [("user_name", "key"), ("added_at", "text"), ("added_by", "text")],
+    "key_table": [("name", "key"), ("business_key", "text"), ("description", "long"), ("domain_id", "text"),
+                  ("created_at", "text"), ("created_by", "text")],
+    "source": [("name", "key"), ("title", "text"), ("description", "long"), ("owner", "text"),
+               ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text")],
+    "reader": [("id", "key"), ("project", "text"), ("source", "text"), ("entities", "long"), ("updated_at", "text")],
+    "request": [("id", "key"), ("kind", "text"), ("target", "text"), ("detail", "long"), ("project", "text"),
+                ("reason", "long"), ("requested_by", "text"), ("requested_at", "text"), ("status", "text"),
+                ("decided_by", "text"), ("decided_at", "text"), ("note", "long")],
+    "grant": [("id", "key"), ("product_id", "text"), ("project", "text"), ("request_id", "text"),
+              ("granted_by", "text"), ("granted_at", "text")],
 }
 
 
@@ -175,8 +202,8 @@ def _audit(db: Db, by: str, action: str, target: str, detail: Any = None) -> Non
 # --------------------------------------------------------------------------- surrogate keys
 
 
-def ensure_key_table(db: Db, name: str) -> bool:
-    """keys.<name> with its Unknown member (-1). True if it was created now."""
+def _make_key_table(db: Db, name: str) -> bool:
+    """keys.<name> with its Unknown member (-1). True if it was created now. Callers check who may."""
     name = key_name(name)
     if db.exists("keys", name):
         return False
@@ -195,6 +222,35 @@ def ensure_key_table(db: Db, name: str) -> bool:
                (UNKNOWN_KEY, UNKNOWN_BK, "1900-01-01T00:00:00+00:00"))
     db.commit()
     return True
+
+
+def ensure_key_table(db: Db, name: str, by: str = "", business_key: str = "", description: str = "",
+                     domain_id: str = "") -> bool:
+    """Create a key table. Only platform admins create one; anyone else asks with request().
+    True if it was created now, False if it was already there (which anyone may ask)."""
+    name = key_name(name)
+    if db.exists("keys", name):
+        if _row(db, "key_table", "name", name) is None:  # made before key tables were registered
+            _register_key_table(db, name, "", "", "", "")
+            db.commit()
+        return False
+    require_admin(db, by, f"create key table {name}")
+    created = _make_key_table(db, name)
+    _register_key_table(db, name, business_key, description, domain_id, by)
+    _audit(db, by, "create key table", name, {"business_key": business_key})
+    db.commit()
+    return created
+
+
+def _register_key_table(db: Db, name: str, business_key: str, description: str, domain_id: str, by: str) -> None:
+    _upsert(db, "catalog", "key_table", "name", {
+        "name": name, "business_key": str(business_key or "").strip(), "description": str(description or ""),
+        "domain_id": str(domain_id or "") or None, "created_at": _now(), "created_by": by})
+
+
+def _missing_key_table(name: str) -> PlatformError:
+    return PlatformError(f"keys.{name} isn't one of the platform's key tables. Ask a platform admin for it: "
+                         "Platform > Business keys > Request a key table")
 
 
 def _clean_bks(business_keys: list[Any]) -> list[str]:
@@ -219,7 +275,8 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     business key. Returns {"keys": {bk: sk}, "inserted": n}."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
-    ensure_key_table(db, name)
+    if not db.exists("keys", name):
+        raise _missing_key_table(name)
     if not bks:
         return {"keys": {}, "inserted": 0}
     t = db.t("keys", name)
@@ -257,13 +314,14 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     return {"keys": out, "inserted": len(new)}
 
 
-def import_keys(db: Db, name: str, rows: list[list[Any]]) -> dict[str, Any]:
+def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[str, Any]:
     """Copy existing keys in with the same numbers ([[sk, bk, create_date], ...]): moving from LH_Keys.
 
     A business key already here must already have the same key; anything else is refused, so a
-    migration never renumbers a key. The identity continues after the highest key."""
+    migration never renumbers a key. The identity continues after the highest key. A key table
+    that isn't there yet is created, which only a platform admin may do."""
     name = key_name(name)
-    ensure_key_table(db, name)
+    ensure_key_table(db, name, by)
     t = db.t("keys", name)
     have = {r["bk"]: int(r["sk"]) for r in db.rows(f"SELECT {name}_bk AS bk, {name}_sk AS sk FROM {t}")}
     taken = set(have.values())
@@ -337,7 +395,9 @@ def list_domains(db: Db) -> list[dict[str, Any]]:
 
 
 def save_domain(db: Db, domain: dict[str, Any], by: str = "") -> dict[str, Any]:
+    """Add or change a domain. Platform admins only."""
     did = domain_id(domain.get("id") or domain.get("name", ""))
+    require_admin(db, by, "create or change domains")
     name = str(domain.get("name") or "").strip()
     if not name:
         raise PlatformError("A domain needs a name")
@@ -362,6 +422,7 @@ def save_domain(db: Db, domain: dict[str, Any], by: str = "") -> dict[str, Any]:
 
 def delete_domain(db: Db, did: str, by: str = "") -> None:
     did = domain_id(did)
+    require_admin(db, by, "delete domains")
     children = db.rows(f"SELECT id FROM {db.t('catalog', 'domain')} WHERE parent_id = ?", (did,))
     users = db.rows(f"SELECT name FROM {db.t('catalog', 'project')} WHERE domain_id = ? OR subdomain_id = ?", (did, did))
     if children or users:
@@ -388,6 +449,8 @@ def register_project(db: Db, project: dict[str, Any], by: str = "") -> dict[str,
     row = {"name": name, "domain_id": dom or None, "subdomain_id": sub or None, "team": str(project.get("team") or ""),
            "description": str(project.get("description") or ""), "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "project", "name", row)
+    if "landing" in project:
+        _save_readers(db, name, project.get("landing") or {})
     db.commit()
     return row
 
@@ -429,7 +492,9 @@ def list_products(db: Db) -> list[dict[str, Any]]:
     products = db.rows(f"SELECT * FROM {db.t('catalog', 'product')}")
     ports = db.rows(f"SELECT * FROM {db.t('catalog', 'port')}")
     links = db.rows(f"SELECT * FROM {db.t('catalog', 'link')}")
+    grants = db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}")
     for p in products:
+        p["granted"] = sorted(g["project"] for g in grants if g["product_id"] == p["id"])
         p["ports"] = [dict(x, columns=json.loads(x["columns"] or "{}")) for x in ports if x["product_id"] == p["id"]]
         p["consumers"] = [dict(l, reads=json.loads(l["reads"] or "{}")) for l in links if l["product_id"] == p["id"]]
     return sorted(products, key=lambda p: p["id"])
@@ -450,12 +515,14 @@ def register_link(db: Db, consumer: str, alias: str, product_id: str, port: str,
         raise PlatformError(f"{product_id} isn't a published data product")
     if product["status"] == "draft":
         raise PlatformError(f"{product_id} is still a draft; its owner publishes it on promote")
-    if product["access"] == "private" and product["project"] != consumer:
-        raise PlatformError(f"{product_id} is private to {product['project']}")
-    if product["access"] == "domain":
+    granted = _row(db, "grant", "id", f"{product_id}|{consumer}") is not None
+    if product["access"] == "private" and product["project"] != consumer and not granted:
+        raise PlatformError(f"{product_id} is private to {product['project']}. Ask its owner: Request access")
+    if product["access"] == "domain" and not granted:
         mine = _row(db, "project", "name", consumer) or {}
         if mine.get("domain_id") != product.get("domain_id"):
-            raise PlatformError(f"{product_id} is open to the {product.get('domain_id')} domain only")
+            raise PlatformError(f"{product_id} is open to the {product.get('domain_id')} domain only. "
+                                "Ask its owner: Request access")
     row = {"id": f"{consumer}:{alias}", "consumer_project": consumer, "alias": alias, "product_id": product_id,
            "port": port, "reads": json.dumps(reads), "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "link", "id", row)
@@ -510,6 +577,12 @@ def save_term(db: Db, term: dict[str, Any], by: str = "") -> dict[str, Any]:
     name = str(term.get("term") or "").strip()
     if not name:
         raise PlatformError("A glossary term needs a name")
+    if not is_admin(db, by):
+        before = _row(db, "glossary", "term", name)
+        domains = {term.get("domain_id") or None} | ({before.get("domain_id")} if before else set())
+        owners = [_names((_row(db, "domain", "id", d) or {}).get("owners")) if d else set() for d in domains]
+        if not all(_who(by) in o for o in owners):
+            raise PlatformError("Only platform admins, or the owners of the term's domain, can change the glossary")
     row = {"term": name, "definition": str(term.get("definition") or ""), "domain_id": term.get("domain_id") or None,
            "owner": str(term.get("owner") or ""), "updated_at": _now(), "updated_by": by}
     _upsert(db, "catalog", "glossary", "term", row)
@@ -524,6 +597,300 @@ def audit(db: Db, limit: int = 100) -> list[dict[str, Any]]:
     return db.rows(f"SELECT {top}* FROM {db.t('catalog', 'audit')} ORDER BY id DESC{tail}")
 
 
+# --------------------------------------------------------------------------- who may change what
+
+
+def _who(by: str) -> str:
+    return str(by or "").strip().lower()
+
+
+def _names(value: Any) -> set[str]:
+    """People in an owners field: emails or names separated by commas or semicolons."""
+    return {x.strip().lower() for x in re.split(r"[,;]", str(value or "")) if x.strip()}
+
+
+def list_admins(db: Db) -> list[dict[str, Any]]:
+    return sorted(db.rows(f"SELECT * FROM {db.t('catalog', 'admin')}"), key=lambda a: a["user_name"])
+
+
+def is_admin(db: Db, by: str) -> bool:
+    who = _who(by)
+    if not who:
+        # Only the SQLite platform on someone's own PC is called without a name (signed out):
+        # it's theirs alone. In Fabric every call carries the caller.
+        return not db.tsql
+    return _row(db, "admin", "user_name", who) is not None
+
+
+def require_admin(db: Db, by: str, action: str) -> None:
+    if is_admin(db, by):
+        return
+    if not list_admins(db):
+        raise PlatformError(f"Can't {action}: the platform has no admins yet. The person who set it up claims "
+                            "admin in Platform > Settings.")
+    raise PlatformError(f"Only platform admins can {action}. Send a request in Platform > Requests, "
+                        "or ask a platform admin.")
+
+
+def claim_admin(db: Db, by: str = "") -> dict[str, Any]:
+    """Become the first platform admin. Allowed only while the platform has none."""
+    who = _who(by)
+    if not who:
+        raise PlatformError("Sign in to become a platform admin")
+    if list_admins(db):
+        if is_admin(db, who):
+            return whoami(db, who)
+        raise PlatformError("This platform already has admins. Ask one of them to add you.")
+    _upsert(db, "catalog", "admin", "user_name", {"user_name": who, "added_at": _now(), "added_by": who})
+    _audit(db, who, "claim admin", who)
+    db.commit()
+    return whoami(db, who)
+
+
+def add_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
+    require_admin(db, by, "add platform admins")
+    who = _who(user)
+    if not who:
+        raise PlatformError("Give the new admin's sign-in name, like ana@contoso.com")
+    _upsert(db, "catalog", "admin", "user_name", {"user_name": who, "added_at": _now(), "added_by": _who(by)})
+    _audit(db, by, "add admin", who)
+    db.commit()
+    return list_admins(db)
+
+
+def remove_admin(db: Db, user: str, by: str = "") -> list[dict[str, Any]]:
+    require_admin(db, by, "remove platform admins")
+    who = _who(user)
+    admins = list_admins(db)
+    if [a["user_name"] for a in admins] == [who]:
+        raise PlatformError("A platform keeps at least one admin. Add another before removing this one.")
+    db.run(f"DELETE FROM {db.t('catalog', 'admin')} WHERE user_name = ?", (who,))
+    _audit(db, by, "remove admin", who)
+    db.commit()
+    return list_admins(db)
+
+
+def whoami(db: Db, by: str = "") -> dict[str, Any]:
+    """The caller as the platform sees them: what they may do, and the domains they own."""
+    who = _who(by)
+    admins = list_admins(db)
+    owns = [d["id"] for d in db.rows(f"SELECT id, owners FROM {db.t('catalog', 'domain')}") if who and who in _names(d["owners"])]
+    return {"user": who, "admin": is_admin(db, who), "admins": len(admins), "can_claim": not admins and bool(who),
+            "domains_owned": owns}
+
+
+# --------------------------------------------------------------------------- key tables and sources
+
+
+def list_key_tables(db: Db) -> list[dict[str, Any]]:
+    """Every key table in the platform, with how many keys it holds."""
+    registered = {r["name"]: r for r in db.rows(f"SELECT * FROM {db.t('catalog', 'key_table')}")}
+    if db.tsql:
+        physical = [r["name"] for r in db.rows("SELECT t.name FROM sys.tables t JOIN sys.schemas s ON s.schema_id = t.schema_id "
+                                               "WHERE s.name = 'keys'")]
+    else:
+        physical = [r["name"][len("keys__"):] for r in db.rows("SELECT name FROM sqlite_master WHERE type = 'table' "
+                                                              "AND name LIKE 'keys\\_\\_%' ESCAPE '\\'")]
+    out = []
+    for name in sorted(set(physical) | set(registered)):
+        if not _NAME.match(name):
+            continue
+        row = dict(registered.get(name) or {"name": name, "business_key": "", "description": "", "domain_id": None,
+                                            "created_at": "", "created_by": ""})
+        out.append(row | key_stats(db, name))
+    return out
+
+
+def list_sources(db: Db) -> list[dict[str, Any]]:
+    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    readers = db.rows(f"SELECT * FROM {db.t('catalog', 'reader')}")
+    for src in sources:
+        src["connections"] = json.loads(src["connections"] or "{}")
+        src["readers"] = [{"project": r["project"], "entities": json.loads(r["entities"] or "[]")}
+                          for r in readers if r["source"] == src["name"]]
+    return sorted(sources, key=lambda x: x["name"])
+
+
+def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
+    name = key_name(source.get("name"))
+    hours = str(source.get("expected_hours") or "").strip()
+    if hours and not hours.replace(".", "", 1).isdigit():
+        raise PlatformError("Expected every ... hours is a number, like 24")
+    conns = source.get("connections") or {}
+    if not isinstance(conns, dict):
+        raise PlatformError("connections is one set of fields per environment")
+    for env, fields in conns.items():
+        for k, v in (fields or {}).items():
+            if any(w in k.lower() for w in ("password", "secret_value", "token")) and v:
+                raise PlatformError(f"{env}.{k}: keep secrets in Key Vault and give the secret's name only")
+    return {"name": name, "title": str(source.get("title") or name), "description": str(source.get("description") or ""),
+            "owner": str(source.get("owner") or ""), "expected_hours": hours, "connections": json.dumps(conns),
+            "updated_at": _now(), "updated_by": by}
+
+
+def save_source(db: Db, source: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
+    """Add or change a source system landed in LH_Landing (Files/<name>/<entity>/). Platform admins only."""
+    row = _source_row(source, by)
+    require_admin(db, by, "add or change source systems")
+    _upsert(db, "catalog", "source", "name", row)
+    _audit(db, by, "save source", row["name"])
+    db.commit()
+    return list_sources(db)
+
+
+def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
+    name = key_name(name)
+    require_admin(db, by, "remove source systems")
+    readers = db.rows(f"SELECT project FROM {db.t('catalog', 'reader')} WHERE source = ?", (name,))
+    if readers:
+        raise PlatformError(f"{name} is still read by {', '.join(sorted({r['project'] for r in readers}))}")
+    db.run(f"DELETE FROM {db.t('catalog', 'source')} WHERE name = ?", (name,))
+    _audit(db, by, "delete source", name)
+    db.commit()
+    return list_sources(db)
+
+
+def _save_readers(db: Db, project: str, landing: dict[str, list[str]]) -> None:
+    db.run(f"DELETE FROM {db.t('catalog', 'reader')} WHERE project = ?", (project,))
+    for source, entities in sorted((landing or {}).items()):
+        db.run(f"INSERT INTO {db.t('catalog', 'reader')} (id, project, source, entities, updated_at) VALUES (?, ?, ?, ?, ?)",
+               (f"{project}:{source}", project, source, json.dumps(sorted(entities)), _now()))
+
+
+# --------------------------------------------------------------------------- requests
+
+
+def _product_owners(product: dict[str, Any]) -> set[str]:
+    return _names(product.get("owner"))
+
+
+def request(db: Db, kind: str, target: str, project: str = "", reason: str = "", detail: dict[str, Any] | None = None,
+            by: str = "") -> dict[str, Any]:
+    """Ask for something only someone else may give: a key table or source (platform admins), or
+    access to a domain or private data product (its owner)."""
+    if kind not in REQUEST_KINDS:
+        raise PlatformError(f"kind must be one of {', '.join(REQUEST_KINDS)}")
+    detail = dict(detail or {})
+    target = str(target or "").strip()
+    if kind == "key_table":
+        target = key_name(target)
+        if db.exists("keys", target):
+            raise PlatformError(f"keys.{target} is already there: pick it from the list")
+    elif kind == "source":
+        target = key_name(target)
+        if _row(db, "source", "name", target):
+            raise PlatformError(f"{target} is already a source in the landing zone")
+    else:
+        product = _row(db, "product", "id", target)
+        if product is None:
+            raise PlatformError(f"{target} isn't a published data product")
+        if not project:
+            raise PlatformError("Say which project needs access")
+        if product["access"] == "public":
+            raise PlatformError(f"{target} is open to everyone: link to it without asking")
+        if _row(db, "grant", "id", f"{target}|{project}"):
+            raise PlatformError(f"{project} already has access to {target}")
+    for r in db.rows(f"SELECT * FROM {db.t('catalog', 'request')} WHERE kind = ? AND target = ? AND status = 'waiting'",
+                     (kind, target)):
+        if kind != "access" or r["project"] == project:
+            raise PlatformError(f"There's already a request waiting for {target}, from {r['requested_by'] or 'someone'}")
+    row = {"id": uuid.uuid4().hex[:12], "kind": kind, "target": target, "detail": json.dumps(detail),
+           "project": project or "", "reason": str(reason or ""), "requested_by": _who(by), "requested_at": _now(),
+           "status": "waiting", "decided_by": "", "decided_at": "", "note": ""}
+    _upsert(db, "catalog", "request", "id", row)
+    _audit(db, by, f"request {kind}", target, {"project": project})
+    db.commit()
+    return _request_out(row)
+
+
+def _request_out(row: dict[str, Any]) -> dict[str, Any]:
+    return dict(row, detail=json.loads(row.get("detail") or "{}"))
+
+
+def _deciders(db: Db, req: dict[str, Any]) -> set[str]:
+    if req["kind"] == "access":
+        product = _row(db, "product", "id", req["target"]) or {}
+        return _product_owners(product)
+    return set()
+
+
+def list_requests(db: Db, status: str = "", by: str = "") -> list[dict[str, Any]]:
+    """Requests, newest first, each saying whether the caller may decide it."""
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'request')}" + (" WHERE status = ?" if status else ""),
+                   (status,) if status else ())
+    admin, who = is_admin(db, by), _who(by)
+    out = []
+    for r in rows:
+        r = _request_out(r)
+        r["can_decide"] = r["status"] == "waiting" and (admin or who in _deciders(db, r))
+        r["mine"] = bool(who) and r["requested_by"] == who
+        out.append(r)
+    return sorted(out, key=lambda r: r["requested_at"], reverse=True)
+
+
+def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "") -> dict[str, Any]:
+    """Approve or decline a waiting request. Approving does what was asked: creates the key table,
+    adds the source, or lets the project link to the product."""
+    req = _row(db, "request", "id", str(id))
+    if req is None:
+        raise PlatformError("That request isn't there any more")
+    if req["status"] != "waiting":
+        raise PlatformError(f"That request was already {req['status']}")
+    req = _request_out(req)
+    if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
+        who = "the product's owner or a platform admin" if req["kind"] == "access" else "a platform admin"
+        raise PlatformError(f"Only {who} can decide this request")
+    if approve:
+        d = req["detail"]
+        if req["kind"] == "key_table":
+            if db.exists("keys", req["target"]):
+                raise PlatformError(f"keys.{req['target']} was made since: decline this request")
+            _make_key_table(db, req["target"])
+            _register_key_table(db, req["target"], d.get("business_key", ""), d.get("description", "") or req["reason"],
+                                d.get("domain_id", ""), _who(by))
+        elif req["kind"] == "source":
+            _upsert(db, "catalog", "source", "name", _source_row({"name": req["target"], **d}, _who(by)))
+        else:
+            _upsert(db, "catalog", "grant", "id", {"id": f"{req['target']}|{req['project']}", "product_id": req["target"],
+                                                   "project": req["project"], "request_id": req["id"],
+                                                   "granted_by": _who(by), "granted_at": _now()})
+    status = "approved" if approve else "declined"
+    db.run(f"UPDATE {db.t('catalog', 'request')} SET status = ?, decided_by = ?, decided_at = ?, note = ? WHERE id = ?",
+           (status, _who(by), _now(), str(note or ""), req["id"]))
+    _audit(db, by, f"{status} {req['kind']}", req["target"], {"request": req["id"], "project": req["project"]})
+    db.commit()
+    return _request_out(_row(db, "request", "id", req["id"]) or {})
+
+
+def withdraw_request(db: Db, id: str, by: str = "") -> dict[str, Any]:
+    req = _row(db, "request", "id", str(id))
+    if req is None or req["status"] != "waiting":
+        raise PlatformError("Only a waiting request can be withdrawn")
+    if req["requested_by"] != _who(by) and not is_admin(db, by):
+        raise PlatformError("Only the person who sent a request can withdraw it")
+    db.run(f"UPDATE {db.t('catalog', 'request')} SET status = 'withdrawn', decided_by = ?, decided_at = ? WHERE id = ?",
+           (_who(by), _now(), req["id"]))
+    db.commit()
+    return _request_out(_row(db, "request", "id", req["id"]) or {})
+
+
+def list_grants(db: Db, product_id: str = "") -> list[dict[str, Any]]:
+    rows = db.rows(f"SELECT * FROM {db.t('catalog', 'grant')}" + (" WHERE product_id = ?" if product_id else ""),
+                   (product_id,) if product_id else ())
+    return sorted(rows, key=lambda g: g["id"])
+
+
+def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[dict[str, Any]]:
+    """Take a project's access to a product away. New links are refused; existing link files stay."""
+    product = _row(db, "product", "id", product_id) or {}
+    if not (is_admin(db, by) or _who(by) in _product_owners(product)):
+        raise PlatformError("Only the product's owner or a platform admin can take access away")
+    db.run(f"DELETE FROM {db.t('catalog', 'grant')} WHERE id = ?", (f"{product_id}|{project}",))
+    _audit(db, by, "revoke access", product_id, {"project": project})
+    db.commit()
+    return list_grants(db, product_id)
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -533,4 +900,9 @@ OPERATIONS = {
     "list_products": list_products, "resolve_port": resolve_port, "register_link": register_link,
     "save_enrichment": save_enrichment, "enrichment": enrichment, "list_glossary": list_glossary,
     "save_term": save_term, "audit": audit,
+    "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
+    "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
+    "save_source": save_source, "delete_source": delete_source, "request": request, "list_requests": list_requests,
+    "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
+    "revoke_grant": revoke_grant,
 }

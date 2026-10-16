@@ -140,6 +140,17 @@ def identity(project: Project) -> dict[str, Any]:
             "contacts": list(i.get("contacts", [])), "upgraded": bool(i), "format": int(i.get("format", 1) or 1)}
 
 
+def landing_readers(project: Project) -> dict[str, list[str]]:
+    """Which landing zone sources the project reads, and the entities that read each:
+    [source] landing = "sap/customer/*.csv" reads source sap."""
+    out: dict[str, list[str]] = {}
+    for e in project.entities.values():
+        pattern = str(e.spec.get("source", {}).get("landing") or "").strip("/")
+        if pattern:
+            out.setdefault(pattern.split("/")[0], []).append(e.name)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
 def write_project_file(root: Path, fields: dict[str, Any]) -> Path:
     def q(v: Any) -> str:
         import json

@@ -337,3 +337,197 @@ def test_one_key_system_once_the_platform_is_in_fabric(svc):
     assert not any("Keys workspace" in e for e in svc.meta_promote_check("dev", "test")["errors"])
     # ...but one that already issued keys in LH_Keys keeps them until they're moved with their numbers.
     assert not svc._keys_in_platform(project, "dev")
+
+
+# --------------------------------------------------------------------------- platform admins, requests, landing
+
+
+def _as(platform, user):
+    """The same platform database, called as someone else (as UDF_Platform would record them)."""
+    return LocalPlatform(platform.path, lambda: user)
+
+
+def test_only_platform_admins_create_domains_key_tables_and_sources(platform):
+    # Chris opened the platform first, so he's its admin; Ana is a domain engineer.
+    assert platform.call("whoami")["admin"] and [a["user_name"] for a in platform.call("list_admins")] == ["chris@example.com"]
+    ana = _as(platform, "Ana@Example.com")
+    me = ana.call("whoami")
+    assert me == {"user": "ana@example.com", "admin": False, "admins": 1, "can_claim": False, "domains_owned": []}
+    with pytest.raises(core.PlatformError, match="already has admins"):
+        ana.call("claim_admin")
+    for op, kwargs in (("save_domain", {"domain": {"name": "Sales"}}), ("ensure_key_table", {"name": "supplier"}),
+                       ("save_source", {"source": {"name": "sap"}}), ("add_admin", {"user": "ana@example.com"})):
+        with pytest.raises(core.PlatformError, match="Only platform admins"):
+            ana.call(op, **kwargs)
+    # Issuing keys from a key table that isn't there is refused too, with what to do.
+    with pytest.raises(core.PlatformError, match="Request a key table"):
+        PlatformKeys(ana, "dev").issue("supplier", ["S1"])
+    platform.call("ensure_key_table", name="supplier", business_key="supplier_id", description="A supplier")
+    assert PlatformKeys(ana, "dev").issue("supplier", ["S1"])[0] == {"S1": 1}
+    [kt] = ana.call("list_key_tables")
+    assert kt["name"] == "supplier" and kt["business_key"] == "supplier_id" and kt["keys"] == 1
+    assert kt["created_by"] == "chris@example.com"
+    # Admins add admins, and a platform always keeps one.
+    platform.call("add_admin", user="ana@example.com")
+    assert ana.call("whoami")["admin"]
+    ana.call("remove_admin", user="chris@example.com")
+    with pytest.raises(core.PlatformError, match="at least one admin"):
+        ana.call("remove_admin", user="ana@example.com")
+
+
+def test_a_new_platform_has_no_admin_until_someone_claims_it(tmp_path):
+    fresh = LocalPlatform(tmp_path / "p.sqlite", lambda: "")  # signed out on their own PC: it's theirs
+    assert fresh.call("whoami")["admin"]
+    with fresh._db() as db:  # in Fabric every call has a caller, and there's no admin yet
+        fabric_like = core.Db(db.conn, "sqlite")
+        assert core.whoami(fabric_like, "lee@example.com")["can_claim"]
+        with pytest.raises(core.PlatformError, match="no admins yet"):
+            core.save_domain(fabric_like, {"name": "Sales"}, by="lee@example.com")
+        assert core.claim_admin(fabric_like, "lee@example.com")["admin"]
+        core.save_domain(fabric_like, {"name": "Sales"}, by="lee@example.com")
+
+
+def test_domain_owners_keep_their_own_glossary(platform):
+    platform.call("save_domain", domain={"name": "Sales", "owners": "ana@example.com; bo@example.com"})
+    platform.call("save_domain", domain={"name": "Finance"})
+    ana = _as(platform, "ana@example.com")
+    assert ana.call("whoami")["domains_owned"] == ["sales"]
+    ana.call("save_term", term={"term": "Active customer", "definition": "Bought in 12 months", "domain_id": "sales"})
+    for term in ({"term": "Revenue", "domain_id": "finance"}, {"term": "Shared"},
+                 {"term": "Active customer", "domain_id": "finance"}):
+        with pytest.raises(core.PlatformError, match="glossary"):
+            ana.call("save_term", term=term)
+
+
+def test_requests_for_key_tables_sources_and_access(platform):
+    for d in ("sales", "finance"):
+        platform.call("save_domain", domain={"name": d})
+    platform.call("register_project", project={"name": "crm", "domain": "sales"})
+    platform.call("register_project", project={"name": "ledger", "domain": "finance"})
+    port = [{"port": "customers", "entity": "gold.dim_customer", "workspace_id": "w", "lakehouse_id": "l", "table": "dim_customer"}]
+    platform.call("register_product", product={"project": "crm", "name": "c360", "domain": "sales", "access": "domain",
+                                               "status": "published", "owner": "Bo@example.com"}, ports=port, env="prod")
+    ana, bo = _as(platform, "ana@example.com"), _as(platform, "bo@example.com")
+    reads = {"dev": "prod", "test": "prod", "prod": "prod"}
+
+    # A key table: Ana asks, only an admin decides, approving makes it.
+    req = ana.call("request", kind="key_table", target="Supplier", project="ledger", reason="Supplier dimension",
+                   detail={"business_key": "supplier_id"})
+    assert req["target"] == "supplier" and req["status"] == "waiting"
+    with pytest.raises(core.PlatformError, match="already a request waiting"):
+        ana.call("request", kind="key_table", target="supplier")
+    [mine] = ana.call("list_requests")
+    assert mine["mine"] and not mine["can_decide"]
+    with pytest.raises(core.PlatformError, match="Only a platform admin"):
+        ana.call("decide_request", id=req["id"], approve=True)
+    assert platform.call("list_requests")[0]["can_decide"]
+    done = platform.call("decide_request", id=req["id"], approve=True, note="Made it")
+    assert done["status"] == "approved" and done["decided_by"] == "chris@example.com"
+    assert [k["name"] for k in platform.call("list_key_tables")] == ["supplier"]
+    with pytest.raises(core.PlatformError, match="already approved"):
+        platform.call("decide_request", id=req["id"], approve=False)
+    with pytest.raises(core.PlatformError, match="already there"):
+        ana.call("request", kind="key_table", target="supplier")
+
+    # A source for the landing zone: approving adds it.
+    src = ana.call("request", kind="source", target="shopify", detail={"owner": "lee@example.com", "expected_hours": "24"})
+    platform.call("decide_request", id=src["id"], approve=True)
+    assert [(s["name"], s["expected_hours"]) for s in ana.call("list_sources")] == [("shopify", "24")]
+
+    # Access to another domain's product: its owner decides, then the link is allowed.
+    with pytest.raises(core.PlatformError, match="Request access"):
+        ana.call("register_link", consumer="ledger", alias="cust", product_id="crm/c360", port="customers", reads=reads)
+    acc = ana.call("request", kind="access", target="crm/c360", project="ledger", reason="Invoices by customer")
+    assert [r["can_decide"] for r in bo.call("list_requests", status="waiting")] == [True]
+    bo.call("decide_request", id=acc["id"], approve=True)
+    ana.call("register_link", consumer="ledger", alias="cust", product_id="crm/c360", port="customers", reads=reads)
+    assert next(p for p in ana.call("list_products") if p["id"] == "crm/c360")["granted"] == ["ledger"]
+    with pytest.raises(core.PlatformError, match="already has access"):
+        ana.call("request", kind="access", target="crm/c360", project="ledger")
+    with pytest.raises(core.PlatformError, match="owner or a platform admin"):
+        ana.call("revoke_grant", product_id="crm/c360", project="ledger")
+    assert bo.call("revoke_grant", product_id="crm/c360", project="ledger") == []
+
+    # Declined and withdrawn requests stay in the list with who and when.
+    nope = ana.call("request", kind="key_table", target="vendor")
+    with pytest.raises(core.PlatformError, match="person who sent"):
+        bo.call("withdraw_request", id=nope["id"])
+    assert ana.call("withdraw_request", id=nope["id"])["status"] == "withdrawn"
+    assert {r["status"] for r in platform.call("list_requests")} == {"approved", "withdrawn"}
+
+
+def test_sources_keep_secrets_out_and_in_use_ones_stay(platform):
+    with pytest.raises(core.PlatformError, match="Key Vault"):
+        platform.call("save_source", source={"name": "sap", "connections": {"dev": {"password": "hunter2"}}})
+    platform.call("save_source", source={"name": "sap", "title": "SAP ERP", "expected_hours": "24",
+                                         "connections": {"dev": {"secret_name": "sap-conn"}}})
+    platform.call("register_project", project={"name": "crm", "landing": {"sap": ["bronze.sap_customer"]}})
+    [sap] = platform.call("list_sources")
+    assert sap["connections"] == {"dev": {"secret_name": "sap-conn"}}
+    assert sap["readers"] == [{"project": "crm", "entities": ["bronze.sap_customer"]}]
+    with pytest.raises(core.PlatformError, match="still read by crm"):
+        platform.call("delete_source", name="sap")
+    platform.call("register_project", project={"name": "crm", "landing": {}})
+    assert platform.call("delete_source", name="sap") == []
+
+
+def test_platform_page_lists_the_landing_zone_and_who_reads_it(svc):
+    landing = svc._landing_dir("dev") / "Files"
+    (landing / "erp" / "customers").mkdir(parents=True)
+    (landing / "erp" / "customers" / "day1.csv").write_text("customer_id,name\n1,Ada\n", encoding="utf-8")
+    (landing / "crm" / "leads").mkdir(parents=True)
+    old = landing / "crm" / "leads" / "old.csv"
+    old.write_text("id\n1\n", encoding="utf-8")
+    import os
+    os.utime(old, (1_600_000_000, 1_600_000_000))
+    svc.platform_save_source({"name": "erp", "title": "ERP", "expected_hours": "24"})
+    svc.platform_save_source({"name": "crm", "expected_hours": "24"})
+    svc.platform_save_source({"name": "hr", "expected_hours": "24"})
+    out = svc.platform_landing("dev")
+    by = {s["name"]: s for s in out["sources"]}
+    assert by["erp"]["entities"][0]["name"] == "customers" and by["erp"]["entities"][0]["files"] == 1
+    assert not by["erp"]["late"] and by["crm"]["late"] and by["hr"]["late"]
+    assert [f["path"] for f in svc.platform_landing_files("dev", "erp", "customers")] == ["erp/customers/day1.csv"]
+
+    # A project that reads the landing zone is listed as a reader once it joins the mesh.
+    svc.platform_save_domain({"name": "Sales"})
+    text = svc.meta_new_entity("landing", "bronze.erp_customers", source="erp/customers/*.csv")["text"]
+    assert 'landing = "erp/customers/*.csv"' in text and "customer_id" in text
+    svc.mesh_set_project({"domain": "sales"})
+    assert svc.platform_landing("dev")["sources"][1]["readers"] == [{"project": "crm", "entities": ["bronze.erp_customers"]}]
+
+    overview = svc.platform_overview("dev")
+    assert overview["me"]["admin"] and overview["counts"]["domains"] == 1
+    assert [s["name"] for s in overview["landing"]["sources"]] == ["crm", "erp", "hr"]
+
+
+def test_project_key_tables_come_from_the_platform_once_keys_are_there(svc):
+    project = svc._project()
+    envs = {k: dict(v) for k, v in project.environments.items()}
+    envs["dev"]["keys"] = "platform"
+    svc._write_environments(project, envs)
+    with pytest.raises(GateError, match="Request it"):
+        svc.meta_new_key_table("vendor")
+    out = svc.platform_create_key_table("vendor", "vendor_id", "A vendor")
+    assert [e["ok"] for e in out["environments"]] == [True, True, True]
+    keys = svc.meta_new_key_table("vendor")
+    assert "vendor" in [k["name"] for k in keys["central_key_tables"]]
+    assert "vendor" in [k["name"] for k in keys["key_tables"]]
+
+
+def test_data_products_show_what_the_open_project_may_link(svc):
+    for d in ("Sales", "Finance"):
+        svc.platform_save_domain({"name": d})
+    svc.mesh_set_project({"domain": "finance"})
+    cat = svc._catalog()
+    cat.call("register_project", project={"name": "shop", "domain": "sales"})
+    port = [{"port": "customers", "entity": "gold.dim_customer"}]
+    for name, access in (("c360", "domain"), ("stores", "public"), ("wip", "public")):
+        cat.call("register_product", product={"project": "shop", "name": name, "domain": "sales", "access": access,
+                                              "status": "draft" if name == "wip" else "published"}, ports=port, env="prod")
+    out = svc.platform_products()
+    by = {p["name"]: p for p in out["products"]}
+    assert "wip" not in by
+    assert by["stores"]["can_link"] and not by["c360"]["can_link"] and by["c360"]["why"] == "request"
+    svc.platform_request("access", "shop/c360", "Invoices by customer")
+    assert {p["name"]: p for p in svc.platform_products()["products"]}["c360"]["why"] == "requested"

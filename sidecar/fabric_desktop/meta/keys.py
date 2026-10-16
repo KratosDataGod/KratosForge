@@ -506,9 +506,17 @@ def config_tables(project: Project) -> dict[str, pl.DataFrame]:
 
 def sync(project: Project, store: Store) -> dict[str, Any]:
     """Write the source system tables and create any missing key table (with its -1 row) in LH_Keys."""
-    if is_service(store):  # keys in SQL_Platform: the platform creates each key table with its -1 row
-        created = [kt.name for kt in project.key_tables.values() if store.ensure(kt.name)]
-        return {"env": store.env, "config": {}, "created": created, "version": project.version, "platform": True}
+    if is_service(store):  # keys in SQL_Platform: platform admins create key tables, everyone else asks
+        from ..central.core import PlatformError
+        created, missing = [], []
+        for kt in project.key_tables.values():
+            try:
+                if store.ensure(kt.name, kt.bk, kt.spec.get("description", "")):
+                    created.append(kt.name)
+            except PlatformError:
+                missing.append(kt.name)
+        return {"env": store.env, "config": {}, "created": created, "missing": missing, "version": project.version,
+                "platform": True}
     written = {}
     for table, df in config_tables(project).items():
         store.write(KEYS_LAKEHOUSE, CONFIG_SCHEMA, table, df, mode="overwrite",

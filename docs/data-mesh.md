@@ -5,6 +5,19 @@ Fabric Desktop lets many teams build on one platform without stepping on each ot
 !!! note "Preview"
     The Mesh tabs are tagged Preview: they're tested on the PC but not yet on a live tenant.
 
+## Who does what
+
+| | Central team (platform admins) | Domain teams |
+| --- | --- | --- |
+| Landing zone | Land every source once, register sources | Read it in their own Bronze; request a new source |
+| Business keys | Create key tables (in every environment at once) | Use them; request a new one |
+| Domains | Create domains and subdomains, name their owners | Join one; owners keep its glossary terms |
+| Data products | | Publish their own; decide who else may read them |
+| Links | | Link to products open to them; request access to others |
+| Catalog text | Shared glossary terms | Describe their tables and columns |
+
+All of it happens on the **Platform** page (central team, and requests from everyone), **Metadata > Mesh** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
+
 ## The pieces
 
 | Piece | What it is | Where it's kept |
@@ -33,7 +46,7 @@ team = "CRM analytics"
 format = 2
 ```
 
-Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; the central team creates them in **Your organization's domains** on the same tab.
+Nothing else in the project changes, and a project without `project.toml` works exactly as before. Domains come from the platform; platform admins create them on **Platform > Domains** (also listed in **Your organization's domains** on this tab).
 
 ## Workspaces by designation
 
@@ -80,7 +93,7 @@ entity = "gold.dim_customer"
 
 ## Links
 
-**Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain.
+**OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace).
 
 An entity reads a link like any source:
 

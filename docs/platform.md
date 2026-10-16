@@ -1,6 +1,6 @@
 # The platform
 
-The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop creates it for you, in Fabric, from **Settings > Platform**.
+The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop creates it for you, in Fabric, from **Platform > Settings** (also in **Settings > Platform**), and the **Platform** page is where the central team runs it and every other team asks for what it needs.
 
 !!! note "Preview"
     The platform is built to Fabric's documented APIs but hasn't been tried on a live tenant yet. Create it in a test tenant or a non-production capacity first. See [What isn't proven yet](#what-isnt-proven-yet).
@@ -11,7 +11,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 
 | Item | Type | What it's for |
 | --- | --- | --- |
-| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`), source systems (`config.*`) and the catalog (`catalog.*`: domains, projects, data products and their ports, links, descriptions, glossary, and an audit trail of every change) |
+| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
 | `UDF_Platform` | User data functions | The platform's API. Fabric Desktop, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
 | `LH_Landing` | Lakehouse | The one landing zone: raw files from every source system, in `Files/<source>/<entity>/`. Teams read it; they don't copy it |
 | `LH_Meta` | Lakehouse | Run history from every project |
@@ -24,9 +24,10 @@ Without a platform in Fabric, the same tables live in a SQLite file on your PC (
 ## Create it
 
 1. Sign in with an account that can create workspaces on the capacity you'll use.
-2. Open **Settings > Platform** and choose **Create** next to Prod (then Test, then Dev, if you want all three).
+2. Open **Platform > Settings** and choose **Create** next to Prod (then Test, then Dev, if you want all three).
 3. Pick a capacity. A SQL database and user data functions need a Fabric capacity (F2 or larger, or a trial).
 4. Each step reports **done** or **failed**. A failed step says what to do; fix it and choose **Finish or repair**. Every step is safe to run again: what exists is kept.
+5. You become the platform's first **platform admin**. Add the rest of the central team on **Platform > Settings**.
 
 If the step **Platform tables** fails because `UDF_Platform` has no connection to the database, open `UDF_Platform` in Fabric, choose **Manage connections**, add `SQL_Platform` with the alias `platform`, publish, and choose **Finish or repair**.
 
@@ -49,32 +50,67 @@ The ids are in each Platform workspace's `VL_Platform` variable library.
 
 ## Who can do what
 
-The platform uses Fabric workspace roles. Nothing new needs to be registered or consented.
+Two things decide it: your **role on the Platform workspace** in Fabric (what you can reach at all), and whether you're a **platform admin** (what the platform lets you change). Nothing new needs to be registered or consented.
 
 | Role on the Platform workspace | Who | Can |
 | --- | --- | --- |
-| Admin | The central data team | Create and repair the platform, edit the functions |
-| Contributor or Member | Domain data owners | Everything Viewer can, and manage items in the workspace |
-| Viewer, plus **Execute** on `UDF_Platform` | Every engineer | Get keys, publish products, link to products, describe tables |
+| Admin | The central data team | Create and repair the platform, edit the functions, write to `LH_Landing` |
+| Viewer, plus **Execute** on `UDF_Platform` | Every engineer | Read the landing zone, get keys, publish products, link to products, describe tables, send requests |
 
-Every call runs as the signed-in person, and the audit trail records who did what (**Metadata > Mesh > Glossary** shows recent changes).
+Inside the platform:
+
+| Who | Can change |
+| --- | --- |
+| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, the list of admins, and every request |
+| **A domain's owners** (set on the domain) | Their domain's glossary terms |
+| **A data product's owner** | Who else may read their product (access requests) |
+| **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
+
+The platform checks these itself on every call, as the person Fabric says is calling (a user data function reads the caller from Fabric, never from what the app sends). The app hides buttons you can't use, but that's only a convenience. Whoever sets the platform up is its first admin; a platform with no admin lets the first person who signs in claim it on **Platform > Settings**, and always keeps at least one. Admins are kept in each environment's `SQL_Platform`; adding or removing one on the Platform page changes all of them.
+
+Every change is recorded with who made it and when (**Platform > Audit**).
+
+## The Platform page
+
+The rail's **Platform** page is the central team's home, and the same screens show every other team what the platform offers.
+
+- **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
+- **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
+- **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
+- **Domains** and **Glossary:** your organization's domains and shared terms.
+- **Requests:** what domain teams asked for, and what was decided.
+- **Audit** and **Settings** (where each environment's platform is, and its admins).
+
+## Requests
+
+What only someone else may give is asked for, not taken:
+
+| Request | Sent from | Decided by | Approving |
+| --- | --- | --- | --- |
+| **A key table** | Platform > Business keys, or Metadata > Surrogate keys > Use a key table > Request a new one | A platform admin | Creates the key table in every environment |
+| **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files |
+| **Access to a data product** open only to its domain, or private | OneLake > Data products > Request access | The product's owner (or a platform admin) | Lets the project link to it. The owner still gives read access in OneLake (a data access role on the Product workspace) |
+
+Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
 
 ## One landing zone
 
-Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. Whoever loads it (a pipeline, a copy job, an upload) writes there; nobody lands the same source twice.
+Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. **Only the central team writes there**, with pipelines or copy jobs it owns; nobody lands the same source twice. Platform admins register each source on **Platform > Landing zone** with its owner, how often it should arrive, and the name of the Key Vault secret its connection uses per environment (secrets themselves never go in the platform). A domain team that needs a new source requests it.
 
-Each team builds its own Bronze from it. An entity reads the landing zone with `landing` instead of `files`:
+Each team builds its own Bronze from it: **Metadata > New entity > From the landing zone** picks a source and entity, or an entity reads the landing zone with `landing` instead of `files`:
 
 ```toml
 [source]
 landing = "erp/customers/*.csv"
 ```
 
-In Test and Prod that reads `LH_Landing` in the environment's Platform workspace. In Dev on a PC it reads `%LOCALAPPDATA%\FabricDesktop\platform\landing-dev\Files`, one folder shared by every project on that PC. Give teams **Viewer** on the Platform workspace, or a OneLake data access role on the landing folders they may read.
+In Test and Prod that reads `LH_Landing` in the environment's Platform workspace. In Dev on a PC it reads `%LOCALAPPDATA%\FabricDesktop\platform\landing-dev\Files`, one folder shared by every project on that PC. Give teams **Viewer** on the Platform workspace, or a OneLake data access role on the landing folders they may read; only the central team gets Contributor or above, so only it can write. When a project joins the mesh, the catalog records which sources it reads, so the Landing zone tab shows each source's readers and a source still read can't be removed.
 
 ## One business key system
 
 Once an environment's platform is in Fabric, every project's surrogate keys in that environment come from `SQL_Platform`. A new project never gets an `LH_Keys` of its own, so Customer ABC has one key across every team. Keys are still kept apart per environment: Dev keys never mix with Prod keys.
+
+Key tables are the platform's, not a project's. Only platform admins create one (**Platform > Business keys > New key table**, or by approving a request), and it's made in every environment at once. A project picks the ones it uses on **Metadata > Design > Surrogate keys > Use a key table**. A run that needs a key table the platform doesn't have stops before writing anything and says to request it.
 
 ## Moving surrogate keys into the platform
 
@@ -99,7 +135,7 @@ Projects that already issue keys in `LH_Keys` keep them there until you move the
 
 These are built to Microsoft's documentation and tested against SQLite, but haven't run on a live tenant:
 
-- Calling user data functions with Microsoft's Fabric sign-in (the app uses the `Item.Execute.All` access it already asks for).
+- Calling user data functions with Microsoft's Fabric sign-in (the app uses the `Item.Execute.All` access it already asks for), and that the functions' context names the caller (`executing_user`), which platform admins and the audit trail rely on.
 - Creating a SQL database and user data functions through the Fabric items API, and the shape of the functions' definition.
 - The T-SQL that issues keys (`OPENJSON`, `IDENTITY_INSERT`, `DBCC CHECKIDENT`) on Fabric SQL database.
 

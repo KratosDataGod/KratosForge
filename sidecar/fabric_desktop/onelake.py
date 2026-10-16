@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import email.utils
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,6 +72,16 @@ class TableCatalog:
         return [t["name"] for t in body.get("tables", [])]
 
 
+def _iso(http_date: str | None) -> str:
+    """An HTTP date (as the DFS API gives lastModified) as ISO 8601, or "" when there isn't one."""
+    if not http_date:
+        return ""
+    try:
+        return email.utils.parsedate_to_datetime(http_date).isoformat()
+    except (TypeError, ValueError):
+        return ""
+
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API."""
 
@@ -83,7 +94,7 @@ class FileStore:
 
     def list(self, workspace_id: str, lakehouse_id: str, directory: str = "Files",
              recursive: bool = False) -> list[dict[str, Any]]:
-        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size"}``."""
+        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size", "modified"}``."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "true" if recursive else "false",
                   "directory": f"{lakehouse_id}/{directory.strip('/')}"}
@@ -95,7 +106,7 @@ class FileStore:
                 path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
                 entries.append({"name": path.rsplit("/", 1)[-1], "path": path,
                                 "is_dir": str(p.get("isDirectory", "")).lower() == "true",
-                                "size": int(p.get("contentLength") or 0)})
+                                "size": int(p.get("contentLength") or 0), "modified": _iso(p.get("lastModified"))})
             token = resp.headers.get("x-ms-continuation")
             if not token:
                 break

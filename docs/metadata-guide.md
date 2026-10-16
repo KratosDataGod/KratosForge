@@ -87,6 +87,7 @@ Rules that always hold: a table writes only to its own layer's lakehouse; it rea
 | Template | Makes |
 | --- | --- |
 | Ingest files | Reads CSV, Parquet or JSON as they arrived. Columns come from the first matching file in Dev, if there is one. |
+| From the landing zone | Bronze from the raw files your central team lands in the platform's `LH_Landing`. Pick a source and entity; the source becomes `[source] landing = "<source>/<entity>/*.csv"` and columns come from Dev's newest file. See [One landing zone](platform.md#one-landing-zone). |
 | Clean | Cleans, deduplicates and merges changed rows from another table. Incremental when the source has a `modified_at`-style column. |
 | Type 1 dimension | Overwrites changes, with integer surrogate keys that are never renumbered. |
 | Type 2 dimension | Keeps history with valid from and to dates. |
@@ -249,6 +250,8 @@ business_key = "customer_id"     # or ["source_code", "customer_id"]
 ### Keys in the platform
 
 With a [platform](platform.md) in Fabric, an environment's keys come from `SQL_Platform` instead, one key system for every team. A project that already issued keys in `LH_Keys` moves them with **Move keys** on this tab: every key keeps its number, each row is checked, and only then does the environment switch (`keys = "platform"` in `environments.toml`).
+
+In an environment whose keys are in the platform, the project doesn't make its own key tables. **Use a key table** picks one of the platform's (it still writes `metadata/keys/<name>.toml`, so the project says which keys it uses). Only platform admins add key tables: **Request a new one** sends a request to **Platform > Requests**, and the key table shows in the list once it's approved. A run that needs a key table the platform doesn't have stops and says to request it; **Sync** lists any that are missing.
 
 ## 9. Source systems and the variable library
 

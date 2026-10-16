@@ -54,7 +54,7 @@ With your own app, Fabric Desktop signs in with the browser (not Windows sign-in
 | API (as Entra shows it) | Permission | Needed for | Asked |
 | --- | --- | --- | --- |
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
-| Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle | At first sign-in |
+| Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and capacity size for the cost view | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |

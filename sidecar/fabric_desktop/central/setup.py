@@ -103,9 +103,15 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         return ("Created " if item.get("created") else "Updated ") + FUNCTIONS
 
     def schema() -> str:
-        out = FabricPlatform(execute_token, ws, cfg["functions_id"]).call("ensure_schema")
+        client = FabricPlatform(execute_token, ws, cfg["functions_id"])
+        out = client.call("ensure_schema")
         made = out.get("created", []) if isinstance(out, dict) else []
-        return f"Created {len(made)} tables" if made else "Tables were already there"
+        # Whoever sets the platform up is its first admin; a platform that has admins keeps them.
+        me = client.call("whoami")
+        if me.get("can_claim"):
+            client.call("claim_admin")
+        return (f"Created {len(made)} tables" if made else "Tables were already there") + (
+            ", you're its first admin" if me.get("can_claim") else "")
 
     def varlib() -> str:
         item = fabric.save_variable_library(ws, VARLIB, _varlib(cfg), "Where the platform's items are")

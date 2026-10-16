@@ -32,6 +32,9 @@ class LocalPlatform:
         self._lock = threading.Lock()
         with self._db() as db:
             core.ensure_schema(db)
+            # A platform on someone's own PC is theirs: they're its first admin.
+            if not core.list_admins(db) and self._user():
+                core.claim_admin(db, self._user())
 
     def _db(self) -> "_Open":
         return _Open(self.path)
@@ -98,20 +101,36 @@ class PlatformKeys:
 
     def __init__(self, client: LocalPlatform | FabricPlatform, env: str, batch: int = KEY_BATCH):
         self.client, self.env, self.batch = client, env, batch
+        self._known: set[str] = set()
 
     def issue(self, name: str, business_keys: list[str]) -> tuple[dict[str, int], int]:
         """Every business key's surrogate key, issuing new ones. Returns (keys, how many were new)."""
         keys: dict[str, int] = {}
         inserted = 0
         unique = sorted({b for b in business_keys if b is not None})
+        if name not in self._known:
+            # A key table that isn't there yet: a platform admin's run creates it; anyone else is
+            # told to request it.
+            if not self.exists(name):
+                try:
+                    self.ensure(name)
+                except core.PlatformError:
+                    raise core.PlatformError(
+                        f"keys.{name} isn't one of the platform's key tables yet. Ask a platform admin for it: "
+                        "Platform > Business keys > Request a key table") from None
+            self._known.add(name)
         for i in range(0, len(unique), self.batch):
             out = self.client.call("issue_keys", name=name, business_keys=unique[i:i + self.batch])
             keys.update({k: int(v) for k, v in out["keys"].items()})
             inserted += int(out.get("inserted", 0))
         return keys, inserted
 
-    def ensure(self, name: str) -> bool:
-        return bool(self.client.call("ensure_key_table", name=name))
+    def ensure(self, name: str, business_key: str = "", description: str = "") -> bool:
+        """Create a key table if it isn't there. Only platform admins may create one."""
+        return bool(self.client.call("ensure_key_table", name=name, business_key=business_key, description=description))
+
+    def exists(self, name: str) -> bool:
+        return bool(self.client.call("key_stats", name=name).get("created"))
 
     def stats(self, name: str) -> dict[str, Any]:
         return self.client.call("key_stats", name=name)

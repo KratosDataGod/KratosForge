@@ -19,7 +19,7 @@ from ..auth import EXECUTE_SCOPES
 from ..meta import keys as keys_mod
 from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
-from ..onelake import TableRef
+from ..onelake import FileStore, TableRef
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .migrate import migrate
@@ -124,6 +124,231 @@ class PlatformMixin:
     def platform_audit(self, limit: int = 100) -> list[dict[str, Any]]:
         return self._catalog().call("audit", limit=limit)
 
+    # ---- the Platform page: who's an admin, key tables, the landing zone, requests
+
+    def _distinct_platforms(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
+        """Each environment's platform once (two environments may share one)."""
+        seen, out = set(), []
+        for env in ENVIRONMENTS:
+            client = self._platform(env)
+            ident = getattr(client, "functions_id", None) or str(getattr(client, "path", env))
+            if ident not in seen:
+                seen.add(ident)
+                out.append((env, client))
+        return out
+
+    def platform_whoami(self) -> dict[str, Any]:
+        me = self._catalog().call("whoami")
+        return me | {"signed_in": bool(self._user()), "catalog_env": CATALOG_ENV}
+
+    def platform_admins(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_admins")
+
+    def _each_platform(self, op: str, **kwargs: Any) -> list[dict[str, Any]]:
+        """Run one change on every environment's platform (admins and key tables live in each).
+        The catalog's goes first, so a refusal there stops the rest."""
+        envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
+        done = []
+        for i, (env, client) in enumerate(envs):
+            try:
+                done.append({"env": env, "ok": True, "result": client.call(op, **kwargs)})
+            except Exception as exc:  # noqa: BLE001 - later environments still get the change
+                if i == 0:
+                    raise
+                done.append({"env": env, "ok": False, "message": str(exc)})
+        return done
+
+    def platform_claim_admin(self) -> dict[str, Any]:
+        self._each_platform("claim_admin")
+        return self.platform_whoami()
+
+    def platform_add_admin(self, user: str) -> list[dict[str, Any]]:
+        self._each_platform("add_admin", user=user)
+        return self.platform_admins()
+
+    def platform_remove_admin(self, user: str) -> list[dict[str, Any]]:
+        self._each_platform("remove_admin", user=user)
+        return self.platform_admins()
+
+    def platform_key_tables(self, env: str = "dev") -> dict[str, Any]:
+        tables = self._platform(env).call("list_key_tables")
+        waiting = [r for r in self._catalog().call("list_requests", status="waiting") if r["kind"] == "key_table"]
+        return {"env": env, "key_tables": tables, "requested": waiting}
+
+    def platform_create_key_table(self, name: str, business_key: str = "", description: str = "",
+                                  domain_id: str = "") -> dict[str, Any]:
+        """A new key table in every environment's platform at once, so Dev, Test and Prod match."""
+        name = name.strip().lower()
+        report = self._each_platform("ensure_key_table", name=name, business_key=business_key,
+                                     description=description, domain_id=domain_id)
+        return {"name": name, "environments": report}
+
+    def platform_sources(self) -> list[dict[str, Any]]:
+        return self._catalog().call("list_sources")
+
+    def platform_save_source(self, source: dict[str, Any]) -> list[dict[str, Any]]:
+        return self._catalog().call("save_source", source=source)
+
+    def platform_delete_source(self, name: str) -> list[dict[str, Any]]:
+        return self._catalog().call("delete_source", name=name)
+
+    def _landing_files(self, env: str) -> list[dict[str, Any]]:
+        """Every file in an environment's landing zone: {path under Files, size, modified}."""
+        cfg = self._platform_config().get(env, {})
+        if cfg.get("landing_id"):
+            store = FileStore(lambda: self.auth.storage_token())  # type: ignore[attr-defined]
+            return [{"path": e["path"][len("Files/"):], "size": e["size"], "modified": e.get("modified", "")}
+                    for e in store.list(cfg["workspace_id"], cfg["landing_id"], "Files", recursive=True)
+                    if not e["is_dir"] and e["path"].startswith("Files/")]
+        top = self._landing_dir(env) / "Files"  # type: ignore[attr-defined]
+        if not top.exists():
+            return []
+        out = []
+        for f in top.rglob("*"):
+            if f.is_file():
+                st = f.stat()
+                out.append({"path": f.relative_to(top).as_posix(), "size": st.st_size,
+                            "modified": dt.datetime.fromtimestamp(st.st_mtime, dt.timezone.utc).isoformat(timespec="seconds")})
+        return out
+
+    def platform_landing(self, env: str = "dev") -> dict[str, Any]:
+        """The landing zone of one environment: each source, its entities, newest arrival, and
+        whether it's late against the hours the central team expects it every."""
+        cfg = self._platform_config().get(env, {})
+        sources = {s["name"]: s for s in self._catalog().call("list_sources")}
+        problem = None
+        try:
+            files = self._landing_files(env)
+        except Exception as exc:  # noqa: BLE001 - the registered sources still show
+            files, problem = [], f"The landing zone couldn't be read: {exc}"
+        tree: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for f in files:
+            parts = f["path"].split("/")
+            if len(parts) < 2:
+                continue  # a file at the top of Files belongs to no source
+            entity = parts[1] if len(parts) > 2 else ""
+            tree.setdefault(parts[0], {}).setdefault(entity, []).append(f)
+        now = dt.datetime.now(dt.timezone.utc)
+        out = []
+        for name in sorted(set(sources) | set(tree)):
+            src = sources.get(name, {})
+            entities = []
+            for ent, fs in sorted(tree.get(name, {}).items()):
+                newest = max((f["modified"] for f in fs), default="")
+                entities.append({"name": ent, "files": len(fs), "size": sum(f["size"] for f in fs), "newest": newest})
+            newest = max((e["newest"] for e in entities), default="")
+            late = False
+            hours = src.get("expected_hours")
+            if hours and newest:
+                try:
+                    late = now - dt.datetime.fromisoformat(newest) > dt.timedelta(hours=float(hours) * 1.25)
+                except ValueError:
+                    late = False
+            elif hours and not newest:
+                late = True
+            out.append({"name": name, "registered": bool(src), "title": src.get("title", name),
+                        "description": src.get("description", ""), "owner": src.get("owner", ""),
+                        "expected_hours": hours or "", "readers": src.get("readers", []),
+                        "connections": src.get("connections", {}), "entities": entities, "newest": newest,
+                        "late": late})
+        return {"env": env, "kind": "fabric" if cfg.get("landing_id") else "local",
+                "where": cfg.get("workspace_name") or str(self._landing_dir(env) / "Files"),  # type: ignore[attr-defined]
+                "sources": out, "problem": problem}
+
+    def platform_landing_files(self, env: str, source: str, entity: str = "", limit: int = 200) -> list[dict[str, Any]]:
+        prefix = f"{source}/{entity}/" if entity else f"{source}/"
+        files = [f for f in self._landing_files(env) if f["path"].startswith(prefix)]
+        return sorted(files, key=lambda f: f["modified"], reverse=True)[:limit]
+
+    def platform_requests(self, status: str = "") -> list[dict[str, Any]]:
+        return self._catalog().call("list_requests", status=status)
+
+    def platform_request(self, kind: str, target: str, reason: str = "", detail: dict[str, Any] | None = None,
+                         project: str = "") -> dict[str, Any]:
+        if not project:
+            try:
+                project = mesh.project_name(self._project())  # type: ignore[attr-defined]
+            except LookupError:
+                project = ""
+        return self._catalog().call("request", kind=kind, target=target, project=project, reason=reason,
+                                    detail=detail or {})
+
+    def platform_decide(self, id: str, approve: bool, note: str = "") -> dict[str, Any]:
+        out = self._catalog().call("decide_request", id=id, approve=approve, note=note)
+        if approve and out.get("kind") == "key_table":
+            # The catalog's platform made it; the other environments get the same key table.
+            d = out.get("detail") or {}
+            for env, client in self._distinct_platforms():
+                if env == CATALOG_ENV:
+                    continue
+                try:
+                    client.call("ensure_key_table", name=out["target"], business_key=d.get("business_key", ""),
+                                description=d.get("description", "") or out.get("reason", ""))
+                except Exception as exc:  # noqa: BLE001
+                    out.setdefault("problems", []).append(f"{env.title()}: {exc}")
+        return out
+
+    def platform_withdraw(self, id: str) -> dict[str, Any]:
+        return self._catalog().call("withdraw_request", id=id)
+
+    def platform_revoke(self, product_id: str, project: str) -> list[dict[str, Any]]:
+        return self._catalog().call("revoke_grant", product_id=product_id, project=project)
+
+    def platform_overview(self, env: str = "dev") -> dict[str, Any]:
+        """The central team's home: counts, what needs a decision, the landing zone and each
+        environment's platform."""
+        catalog = self._catalog()
+        problems = []
+        me = self.platform_whoami()
+        domains = catalog.call("list_domains")
+        projects = catalog.call("list_projects")
+        products = catalog.call("list_products")
+        requests = catalog.call("list_requests", status="waiting")
+        try:
+            keys = self._platform(env).call("list_key_tables")
+        except Exception as exc:  # noqa: BLE001
+            keys, problems = [], problems + [str(exc)]
+        try:
+            landing = self.platform_landing(env)
+        except Exception as exc:  # noqa: BLE001
+            landing = {"sources": [], "problem": str(exc)}
+        status = self.platform_status()
+        return {"env": env, "me": me, "status": status,
+                "counts": {"domains": len([d for d in domains if not d.get("parent_id")]),
+                           "subdomains": len([d for d in domains if d.get("parent_id")]),
+                           "projects": len(projects), "teams": len({p.get("team") for p in projects if p.get("team")}),
+                           "key_tables": len(keys), "keys": sum(int(k.get("keys") or 0) for k in keys),
+                           "products": len(products), "published": len([p for p in products if p["status"] == "published"]),
+                           "requests": len(requests)},
+                "needs_you": [r for r in requests if r.get("can_decide")], "mine": [r for r in requests if r.get("mine")],
+                "landing": landing, "recent": catalog.call("audit", limit=8), "problems": problems}
+
+    def platform_products(self) -> dict[str, Any]:
+        """Every published data product, for the OneLake catalog: what the open project may link
+        to now, and what it must ask for."""
+        products = [p for p in self._catalog().call("list_products") if p["status"] != "draft"]
+        try:
+            project = self._project()  # type: ignore[attr-defined]
+            me = mesh.identity(project)
+        except LookupError:
+            me = None
+        waiting = {(r["target"], r["project"]) for r in self._catalog().call("list_requests", status="waiting")
+                   if r["kind"] == "access"}
+        for p in products:
+            if me is None:
+                p["can_link"], p["why"] = False, "Open a metadata project to link"
+            elif p["project"] == me["name"]:
+                p["can_link"], p["why"] = False, "Your own product"
+            elif p["access"] == "public" or me["name"] in p.get("granted", []):
+                p["can_link"], p["why"] = True, ""
+            elif p["access"] == "domain" and p.get("domain_id") and p.get("domain_id") == me.get("domain"):
+                p["can_link"], p["why"] = True, ""
+            else:
+                p["can_link"] = False
+                p["why"] = "requested" if (p["id"], me["name"]) in waiting else "request"
+            p["linked"] = bool(me) and any(c["consumer_project"] == me["name"] for c in p.get("consumers", []))
+        return {"project": me, "products": products}
+
     # ---- the open project in the mesh
 
     def _register_open_project(self) -> None:
@@ -132,7 +357,7 @@ class PlatformMixin:
         except LookupError:
             return
         if project.info:
-            i = mesh.identity(project)
+            i = mesh.identity(project) | {"landing": mesh.landing_readers(project)}
             self._catalog().call("register_project", project=i)
 
     def mesh_overview(self) -> dict[str, Any]:
@@ -168,7 +393,7 @@ class PlatformMixin:
             if fields.get("subdomain") and known.get(fields["subdomain"], {}).get("parent_id") != fields["domain"]:
                 raise GateError("save", [f"{fields['subdomain']} isn't a subdomain of {fields['domain']}"])
         mesh.write_project_file(project.root, fields)
-        catalog.call("register_project", project=fields)
+        catalog.call("register_project", project=fields | {"landing": mesh.landing_readers(project)})
         return self.mesh_overview()
 
     def mesh_save_product(self, product: dict[str, Any], original: str = "") -> dict[str, Any]:

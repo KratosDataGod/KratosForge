@@ -886,3 +886,11 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .port-row input[type="text"], .port-row input:not([type]) { width: 160px; }
 .steps-list { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 4px; }
 .list td.grow input { width: 100%; }
+
+/* Platform page */
+.plat-stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); margin-bottom: 14px; }
+.plat-stat { min-height: 92px; gap: 2px; }
+.plat-stat .plat-n { font-size: 24px; font-weight: 600; }
+.plat-two { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
+@media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }

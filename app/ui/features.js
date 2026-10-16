@@ -21,7 +21,8 @@ function registerFeature(f) {
 }
 
 function railFeatures(bottom = false) {
-  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom).sort((a, b) => a.rail.order - b.rail.order);
+  return features.list.filter((f) => f.rail && !!f.rail.bottom === bottom && (!f.preview || previewShown()))
+    .sort((a, b) => a.rail.order - b.rail.order);
 }
 
 function railItem(f) {

@@ -132,9 +132,9 @@ def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[s
         "name": lakehouse.get("name", ""), "schemas": bool(schemas_enabled)}}
 
 
-def _sql_cell(source: str) -> dict[str, Any]:
+def _sql_cell(source: str, source_cell_id: str | None = None) -> dict[str, Any]:
     query = source.lstrip()[len("%%sql"):].strip()
-    return {"type": "code", "source": f"lakehouse.sql({json.dumps(query)})"}
+    return {"type": "code", "source": f"lakehouse.sql({json.dumps(query)})", "cell_id": source_cell_id}
 
 
 _USES_SPARK = re.compile(r"(\bspark\s*\.|\b(from|import)\s+pyspark\b|^\s*%%pyspark\b|\bSparkSession\b)", re.M)
@@ -154,7 +154,7 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
         return to_ipynb(cells, lakehouse)
     if uses_spark(cells):
         return to_ipynb([shim_cell(lakehouse, schemas_enabled)] + cells, lakehouse)
-    body = [_sql_cell(c["source"]) if c.get("type") != "markdown" and c.get("source", "").lstrip().startswith("%%sql")
+    body = [_sql_cell(c["source"], c.get("cell_id")) if c.get("type") != "markdown" and c.get("source", "").lstrip().startswith("%%sql")
             else c for c in cells]
     nb = to_ipynb([shim_cell(lakehouse, schemas_enabled)] + body, lakehouse)
     nb["metadata"] = PYTHON_NOTEBOOK_METADATA | {k: v for k, v in nb["metadata"].items()

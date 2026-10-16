@@ -50,7 +50,10 @@ def test_ipynb_round_trip_keeps_cells_and_lakehouse():
     cells = [{"type": "markdown", "source": "# Sales\nby region"}, {"type": "code", "source": "x = 1\nx"}]
     nb = json.loads(json.dumps(to_ipynb(cells, LH)))
     assert nb["metadata"]["dependencies"]["lakehouse"]["default_lakehouse"] == "lh1"
-    assert from_ipynb(nb) == {"cells": cells, "lakehouse": LH, "compute": "default", "workspace": None}
+    back = from_ipynb(nb)
+    assert [c["cell_id"] for c in back["cells"]] == [c["id"] for c in nb["cells"]]
+    assert [{k: v for k, v in c.items() if k != "cell_id"} for c in back["cells"]] == cells
+    assert back | {"cells": None} == {"cells": None, "lakehouse": LH, "compute": "default", "workspace": None}
 
 
 def test_notebook_keeps_where_it_runs_until_changed(tmp_path):
@@ -329,3 +332,66 @@ def test_open_and_save_say_where_the_notebook_can_run(tmp_path):
     assert saved["check"]["local"]["ok"] is False
     opened = svc.open_notebook("Spark")
     assert opened["compute"] == "local" and opened["check"]["fabric"]["ok"]
+
+
+# ---- stable cell ids
+
+
+def test_cells_keep_their_ids_across_edits_and_saves(tmp_path):
+    store = NotebookStore(tmp_path)
+    first = store.save("nb", [{"type": "code", "source": "a = 1"}, {"type": "markdown", "source": "# x"}])["cell_ids"]
+    cells = store.load("nb")["cells"]
+    assert [c["cell_id"] for c in cells] == first and len(set(first)) == 2
+    # Edit the first cell, insert a new one at the top, move the markdown up: ids follow the cells.
+    cells[0]["source"] = "a = 2"
+    edited = [{"type": "code", "source": "import x"}, cells[1], cells[0]]
+    ids = store.save("nb", edited)["cell_ids"]
+    assert ids[1:] == [first[1], first[0]] and ids[0] not in first
+    assert [c["cell_id"] for c in store.load("nb")["cells"]] == ids
+    # On disk they are nbformat 4.5 ids.
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    assert raw["nbformat_minor"] == 5 and [c["id"] for c in raw["cells"]] == ids
+
+
+def test_a_pasted_copy_gets_its_own_id_and_bad_ids_are_replaced(tmp_path):
+    store = NotebookStore(tmp_path)
+    ids = store.save("nb", [{"type": "code", "source": "a", "cell_id": "keep-me"},
+                            {"type": "code", "source": "a", "cell_id": "keep-me"},
+                            {"type": "code", "source": "b", "cell_id": "has space"}])["cell_ids"]
+    assert ids[0] == "keep-me" and len(set(ids)) == 3 and ids[2] != "has space"
+
+
+def test_old_notebooks_without_ids_load_with_the_same_ids_until_saved(tmp_path):
+    nb = {"nbformat": 4, "nbformat_minor": 4, "metadata": {}, "cells": [
+        {"cell_type": "code", "metadata": {}, "source": ["x = 1"], "outputs": [], "execution_count": None}]}
+    (tmp_path / "old.ipynb").write_text(json.dumps(nb), encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    once, again = store.load("old")["cells"], store.load("old")["cells"]
+    assert once[0]["cell_id"] == again[0]["cell_id"]
+    store.save("old", once)
+    assert store.load("old")["cells"][0]["cell_id"] == once[0]["cell_id"]
+
+
+def test_saving_keeps_metadata_other_tools_wrote(tmp_path):
+    """A notebook from Fabric or Jupyter keeps its environment, widgets and cell metadata."""
+    nb = {"nbformat": 4, "nbformat_minor": 5, "metadata": {
+        "kernel_info": {"name": "synapse_pyspark"}, "widgets": {"state": {}},
+        "dependencies": {"environment": {"environmentId": "env-1", "workspaceId": "ws"}},
+        "fabric_desktop": {"compute": "local", "contract": {"outputs": ["dbo.x"]}}},
+        "cells": [{"cell_type": "code", "id": "c1", "source": ["x = 1"], "outputs": [], "execution_count": 3,
+                   "metadata": {"microsoft": {"language": "python"}, "tags": ["old"],
+                                "jupyter": {"source_hidden": True, "custom": 1}}}]}
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb), encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    cells = store.load("nb")["cells"]
+    cells[0]["meta"] = {"tags": ["parameters"]}  # tags changed, source shown again
+    store.save("nb", cells, LH)
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    md = raw["metadata"]
+    assert md["kernel_info"] == {"name": "synapse_pyspark"} and md["widgets"] == {"state": {}}
+    assert md["dependencies"]["environment"]["environmentId"] == "env-1"
+    assert md["dependencies"]["lakehouse"]["default_lakehouse"] == "lh1"
+    assert md["fabric_desktop"]["contract"] == {"outputs": ["dbo.x"]} and md["fabric_desktop"]["compute"] == "local"
+    cell = raw["cells"][0]
+    assert cell["id"] == "c1" and cell["metadata"] == {"microsoft": {"language": "python"}, "tags": ["parameters"],
+                                                        "jupyter": {"custom": 1}}

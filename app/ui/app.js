@@ -1536,8 +1536,14 @@ function formatSize(bytes) {
 
 // ---------- Notebook files ----------
 
+// A cell's stable id, saved in the notebook (nbformat 4.5): copies get a new one, the cell keeps
+// it through edits, moves and undoing a delete. `id` is only this screen's handle.
+function newCellId() {
+  return (crypto.randomUUID?.() || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`).replace(/-/g, "").slice(0, 12);
+}
+
 function cellFrom(c) {
-  return { id: nextCellId++, type: c.type, source: c.source || "", meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
+  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: c.source || "", meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
 }
 
 function loadIntoState(nb) {
@@ -1576,7 +1582,7 @@ async function newNotebook(lakehouse) {
 }
 
 function notebookPayload() {
-  return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta })),
+  return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta, cell_id: c.cell_id })),
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
 }
 

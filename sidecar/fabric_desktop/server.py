@@ -51,7 +51,8 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
            "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
-           "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks"}
+           "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
+           "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions"}
 
 
 def handle(service: Service, line: str) -> dict:

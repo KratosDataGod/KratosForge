@@ -652,11 +652,88 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
     return meta
 
 
+# Every cell has a stable id (nbformat 4.5): kept across saves and edits, so a run receipt, a
+# comparison or a review can point at a cell after the notebook changes around it.
+_CELL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def new_cell_id() -> str:
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+def assign_cell_ids(cells: list[dict[str, Any]], make: Callable[[int, dict[str, Any]], str] | None = None) -> list[str]:
+    """Give every cell a valid, unique ``cell_id`` (in place) and return them in order. A missing,
+    invalid or repeated id (a pasted copy) gets a new one; the first holder of an id keeps it."""
+    seen: set[str] = set()
+    ids = []
+    for i, c in enumerate(cells):
+        cid = c.get("cell_id")
+        if not isinstance(cid, str) or not _CELL_ID.match(cid) or cid in seen:
+            cid = (make or (lambda _i, _c: new_cell_id()))(i, c)
+            while cid in seen:
+                cid = new_cell_id()
+            c["cell_id"] = cid
+        seen.add(cid)
+        ids.append(cid)
+    return ids
+
+
+def _derived_id(i: int, c: dict[str, Any]) -> str:
+    """An id for a cell that was never saved (cells added for publishing): the same every time."""
+    import hashlib
+    return "fd-" + hashlib.sha1(f"{i}:{c.get('type')}:{c.get('source', '')}".encode()).hexdigest()[:12]
+
+
+# Notebook and cell metadata Fabric Desktop writes. Anything else in a notebook (written by
+# Jupyter, Fabric or another tool) is kept as it is when the notebook is saved here.
+_OWN_NOTEBOOK_KEYS = ("kernelspec", "language_info")
+_OWN_FD_KEYS = ("compute", "workspace", "lakehouse")
+
+
+def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
+    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable")}
+    if isinstance(keep.get("jupyter"), dict):
+        rest = {k: v for k, v in keep["jupyter"].items() if k not in ("source_hidden", "outputs_hidden")}
+        keep["jupyter"] = rest
+    if isinstance(keep.get("run_control"), dict):
+        keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
+    for k in ("jupyter", "run_control"):
+        if k in keep and not keep[k]:
+            del keep[k]
+    for k, v in ours.items():
+        keep[k] = keep[k] | v if isinstance(v, dict) and isinstance(keep.get(k), dict) else v
+    return keep
+
+
+def merge_saved(new: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
+    """``new`` (from to_ipynb) with the metadata Fabric Desktop doesn't own carried over from the
+    notebook as it was on disk: notebook-level keys, other tools' ``fabric_desktop`` keys and
+    ``dependencies`` such as a Fabric environment, and each cell's other metadata, by cell id."""
+    old_meta = before.get("metadata") if isinstance(before.get("metadata"), dict) else {}
+    meta = {k: v for k, v in old_meta.items() if k not in _OWN_NOTEBOOK_KEYS + ("fabric_desktop", "dependencies")}
+    old_fd = {k: v for k, v in (old_meta.get("fabric_desktop") or {}).items() if k not in _OWN_FD_KEYS}
+    old_deps = {k: v for k, v in (old_meta.get("dependencies") or {}).items() if k != "lakehouse"}
+    meta.update(new["metadata"])
+    fd = old_fd | new["metadata"].get("fabric_desktop", {})
+    if fd:
+        meta["fabric_desktop"] = fd
+    deps = old_deps | new["metadata"].get("dependencies", {})
+    if deps:
+        meta["dependencies"] = deps
+    old_cells = {c.get("id"): c.get("metadata") or {} for c in before.get("cells", []) if isinstance(c, dict) and c.get("id")}
+    for cell in new["cells"]:
+        if cell["id"] in old_cells:
+            cell["metadata"] = _merge_cell_metadata(cell["metadata"], old_cells[cell["id"]])
+    return new | {"metadata": meta}
+
+
 def to_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
              compute: str = "default", workspace: dict[str, Any] | None = None) -> dict[str, Any]:
     nb_cells = []
-    for c in cells:
-        cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code",
+    ids = assign_cell_ids([dict(c) for c in cells], _derived_id)
+    for c, cid in zip(cells, ids):
+        cell = {"cell_type": "markdown" if c.get("type") == "markdown" else "code", "id": cid,
                 "metadata": _cell_metadata(c.get("meta") or {}), "source": c.get("source", "").splitlines(keepends=True)}
         if cell["cell_type"] == "code":
             cell.update(execution_count=None, outputs=[])
@@ -688,10 +765,15 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
         source = c.get("source", "")
         cell = {"type": "markdown" if c.get("cell_type") == "markdown" else "code",
                 "source": "".join(source) if isinstance(source, list) else source}
+        if isinstance(c.get("id"), str):
+            cell["cell_id"] = c["id"]
         meta = _cell_meta(c.get("metadata") or {})
         if meta:
             cell["meta"] = meta
         cells.append(cell)
+    # Notebooks saved before cells had ids (or by tools that don't write them) get ids here, the
+    # same on every load until the next save writes them.
+    assign_cell_ids(cells, _derived_id)
     ours = nb.get("metadata", {}).get("fabric_desktop", {})
     compute = ours.get("compute") if ours.get("compute") in COMPUTE else "default"
     return {"cells": cells, "lakehouse": ours.get("lakehouse"), "compute": compute,
@@ -719,18 +801,33 @@ class NotebookStore:
              compute: str | None = None, workspace: dict[str, Any] | None = None) -> dict[str, Any]:
         """Save the notebook. ``compute`` is where Run all runs it: "local" (this PC), "fabric",
         or "default" (whatever the environment picked in the top bar runs on). ``workspace`` is
-        where it is published ({"workspace_id", "workspace_name"}; {} forgets it). None keeps the saved choice."""
+        where it is published ({"workspace_id", "workspace_name"}; {} forgets it). None keeps the saved choice.
+
+        Cells keep their ``cell_id``; a cell without one gets one, returned in ``cell_ids`` so the
+        app can keep it. Metadata other tools wrote into the file is kept."""
         path = self.path(name)
-        saved = self.load(name) if path.exists() and (compute is None or workspace is None) else {}
+        before: dict[str, Any] = {}
+        if path.exists():
+            try:
+                before = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                before = {}
+        saved = from_ipynb(before) if before and (compute is None or workspace is None) else {}
         if compute is None:
             compute = saved.get("compute", "default")
         if workspace is None:
             workspace = saved.get("workspace")
         if compute not in COMPUTE:
             raise ValueError(f"compute is one of {', '.join(COMPUTE)}")
+        cells = [dict(c) for c in cells]
+        ids = assign_cell_ids(cells)
+        nb = merge_saved(to_ipynb(cells, lakehouse, compute, workspace), before) if before else \
+            to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(to_ipynb(cells, lakehouse, compute, workspace), indent=1), encoding="utf-8")
-        return {"name": name}
+        tmp = path.with_suffix(".ipynb.tmp")
+        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+        return {"name": name, "cell_ids": ids}
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}

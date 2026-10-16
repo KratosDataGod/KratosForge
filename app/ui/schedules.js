@@ -162,7 +162,7 @@ function drawSchedules(box) {
       h("thead", {}, h("tr", {}, ["", "What", "When", "Next run", "Last run", ""].map((c) => h("th", {}, c)))),
       h("tbody", {}, pcScheduleRows(pc, redraw, { showWhat: true })))
       : h("p", { class: "muted-text" }, res.pc.length ? "No schedule on this PC matches the search."
-        : "None yet. Use Schedule on a notebook, or on Metadata, and pick This PC."),
+        : "None yet. Use Schedule on a notebook, or on Data mesh, and pick This PC."),
     h("div", { class: "schedule-head row" },
       h("h3", {}, "In Fabric"),
       h("div", { class: "row", role: "group", "aria-label": "Workspaces" },

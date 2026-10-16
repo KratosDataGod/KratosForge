@@ -11,11 +11,13 @@ Mesh: the open project's domain, data products, links and catalog text.
 from __future__ import annotations
 
 import datetime as dt
+import re
 from pathlib import Path
 from typing import Any
 
 from .. import app_settings
-from ..auth import EXECUTE_SCOPES
+from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES
+from ..fabric_api import FabricClient, FabricError
 from ..meta import keys as keys_mod
 from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
@@ -113,6 +115,68 @@ class PlatformMixin:
     def platform_delete_domain(self, id: str) -> list[dict[str, Any]]:
         self._catalog().call("delete_domain", did=id)
         return self.platform_domains()
+
+    # ---- domains from Fabric
+
+    def _fabric_admin(self) -> FabricClient:
+        """Fabric's admin API, as the signed-in user. Tenant.Read.All is asked for only here."""
+        return FabricClient(lambda: self.auth._token(TENANT_READ_SCOPES))  # type: ignore[attr-defined]
+
+    def platform_import_fabric_domains(self) -> dict[str, Any]:
+        """Bring Fabric's domains and subdomains into the catalog, so everyone sees their names.
+        Needs a Fabric administrator (Fabric's domain list is an admin API) who is also a platform admin."""
+        try:
+            fabric = self._fabric_admin().list_admin_domains()
+        except FabricError as exc:
+            if re.search(r"failed with 40[13]\b", str(exc)):
+                raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
+                                      "Platform > Domains and choose Import from Fabric; after that, everyone "
+                                      "sees the domains here.") from exc
+            raise
+        result = self._catalog().call("import_fabric_domains", domains=fabric)
+        return {"result": result, "fabric": len(fabric), "domains": self.platform_domains()}
+
+    def mesh_workspace_domains(self) -> dict[str, Any]:
+        """The Fabric domain of each workspace the open project writes to. Any workspace member can
+        read this (no admin needed); names come from the catalog once a Fabric admin has imported them."""
+        project = self._project()  # type: ignore[attr-defined]
+        domains = self._catalog().call("list_domains")
+        linked = {d["fabric_domain"]: d for d in domains if d.get("fabric_domain")}
+        rows, seen = [], set()
+        for env in ENVIRONMENTS:
+            cfg = project.environments.get(env, {})
+            spaces = [("", cfg.get("workspace_id"), cfg.get("workspace_name", ""))]
+            spaces += [(d, w.get("id"), w.get("name", "")) for d, w in (cfg.get("workspaces") or {}).items()]
+            for designation, wid, wname in spaces:
+                if not wid:
+                    continue
+                row = {"env": env, "designation": designation, "workspace_id": wid, "workspace_name": wname,
+                       "fabric_domain": "", "domain": None, "problem": ""}
+                if wid not in seen:
+                    try:
+                        ws = self.fabric.get_workspace(wid)  # type: ignore[attr-defined]
+                        row["workspace_name"] = ws.get("displayName") or wname
+                        row["fabric_domain"] = ws.get("domainId") or ""
+                    except Exception as exc:  # noqa: BLE001 - one unreadable workspace shouldn't hide the rest
+                        row["problem"] = str(exc)
+                    seen.add(wid)
+                else:
+                    row.update({k: v for k, v in next(r for r in rows if r["workspace_id"] == wid).items()
+                                if k in ("workspace_name", "fabric_domain", "problem")})
+                hit = linked.get(row["fabric_domain"])
+                row["domain"] = hit["id"] if hit else None
+                rows.append(row)
+        # the suggestion follows Prod first: that's where the products people use live
+        suggested = None
+        for env in reversed(ENVIRONMENTS):
+            hit = next((linked[r["fabric_domain"]] for r in rows if r["env"] == env and r["fabric_domain"] in linked), None)
+            if hit:
+                suggested = ({"domain": hit["parent_id"], "subdomain": hit["id"]} if hit.get("parent_id")
+                             else {"domain": hit["id"], "subdomain": ""})
+                break
+        return {"workspaces": rows, "suggested": suggested,
+                "unnamed": sorted({r["fabric_domain"] for r in rows if r["fabric_domain"] and not r["domain"]}),
+                "imported": any(d.get("fabric_domain") for d in domains)}
 
     def platform_glossary(self) -> list[dict[str, Any]]:
         return self._catalog().call("list_glossary")
@@ -322,6 +386,29 @@ class PlatformMixin:
                            "requests": len(requests)},
                 "needs_you": [r for r in requests if r.get("can_decide")], "mine": [r for r in requests if r.get("mine")],
                 "landing": landing, "recent": catalog.call("audit", limit=8), "problems": problems}
+
+    def mesh_map(self) -> dict[str, Any]:
+        """The whole mesh for Home's map: domains and subdomains, the projects in each, their
+        products and who links to them. Read from the catalog only, so it's quick and never writes."""
+        catalog = self._catalog()
+        try:
+            domains = catalog.call("list_domains")
+            projects = catalog.call("list_projects")
+            products = catalog.call("list_products")
+        except Exception as exc:  # noqa: BLE001 - Home still loads without the platform
+            return {"domains": [], "projects": [], "products": [], "links": [], "problem": str(exc), "me": ""}
+        try:
+            me = mesh.project_name(self._project())  # type: ignore[attr-defined]
+        except LookupError:
+            me = ""
+        links = [{"from": c["consumer_project"], "product": p["id"], "to": p["project"]}
+                 for p in products for c in p.get("consumers", [])]
+        return {"me": me, "problem": "",
+                "domains": [{k: d.get(k) for k in ("id", "name", "parent_id", "fabric_domain")} for d in domains],
+                "projects": [{k: p.get(k) for k in ("name", "domain_id", "subdomain_id", "team")} for p in projects],
+                "products": [{k: p.get(k) for k in ("id", "project", "name", "domain_id", "access", "status")}
+                             for p in products if p["status"] != "draft"],
+                "links": links}
 
     def platform_products(self) -> dict[str, Any]:
         """Every published data product, for the OneLake catalog: what the open project may link

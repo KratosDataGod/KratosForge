@@ -107,6 +107,13 @@ def delete_domain(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
+def import_fabric_domains(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, domains: list) -> dict:
+    return _run(sqlDB, "import_fabric_domains", ctx, domains=domains)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
 def register_project(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, project: dict) -> dict:
     return _run(sqlDB, "register_project", ctx, project=project)
 

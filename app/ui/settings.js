@@ -242,7 +242,7 @@ function getStarted(project, notebookCount) {
     [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
-    [false, "Set up Metadata", "Describe your medallion tables once and let Fabric Desktop build and run them.", () => go("metadata")],
+    [false, "Set up a metadata project", "Describe your medallion tables once and let Fabric Desktop build and run them.", () => go("metadata")],
   ];
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),

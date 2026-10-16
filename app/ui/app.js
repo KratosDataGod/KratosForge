@@ -292,6 +292,7 @@ async function renderHome() {
     h("div", { class: "home-two" },
       h("section", { class: "card pad" }, h("h2", {}, "Running now"), running),
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
+    meshMapCard(),
     envSection,
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       btn("New notebook", "notebook", newNotebook, "tool outline"),
@@ -339,7 +340,7 @@ async function renderHome() {
       ].slice(0, 6);
       const next = h("div", {}, items.length ? h("div", { class: "home-list" }, items.map((x) => h("div", { class: "home-item row" },
         h("span", { class: "grow" }, x.what, h("span", { class: "muted-text small" }, ` · ${x.where}`)), h("span", { class: "muted-text small" }, x.text))))
-        : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Metadata, on this PC or in Fabric."),
+        : h("p", { class: "muted-text" }, "Nothing scheduled. Use Schedule on a notebook or on Data mesh, on this PC or in Fabric."),
         btn("All schedules", "history", () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small"));
       upcoming.replaceWith(next);
       return next;
@@ -1658,7 +1659,7 @@ async function publishNotebook() {
 // ---------- Where a notebook runs: this PC or Fabric ----------
 
 // Each notebook has a "Runs on" choice: This PC, Fabric, or the default, which follows where the
-// environment last picked on the Metadata pages runs (Metadata > Environments). Run all goes there. Fabric
+// environment last picked on the Data mesh pages runs (Data mesh > Environments). Run all goes there. Fabric
 // runs the whole published notebook, so single cells only run on this PC.
 function nbWhere(nb) {
   const choice = nb?.compute || "default";

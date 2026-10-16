@@ -206,12 +206,16 @@ class FabricClient:
 
     def run_table_maintenance(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                               v_order: bool = True, z_order_by: list[str] | None = None,
-                              vacuum_retention: str | None = "7.01:00:00") -> str:
-        """OPTIMIZE (with V-Order) and VACUUM one table on Fabric capacity. Returns the job id."""
-        data: dict[str, Any] = {"tableName": table, "optimizeSettings": {"vOrder": "true" if v_order else "false"}}
+                              vacuum_retention: str | None = "7.01:00:00", optimize: bool = True) -> str:
+        """OPTIMIZE (with V-Order) and VACUUM one table on Fabric capacity. Returns the job id.
+
+        ``optimize=False`` runs VACUUM alone; ``vacuum_retention=None`` runs OPTIMIZE alone."""
+        data: dict[str, Any] = {"tableName": table}
+        if optimize:
+            data["optimizeSettings"] = {"vOrder": "true" if v_order else "false"}
         if schema:
             data["schemaName"] = schema
-        if z_order_by:
+        if z_order_by and optimize:
             data["optimizeSettings"]["zOrderBy"] = list(z_order_by)
         if vacuum_retention:
             data["vacuumSettings"] = {"retentionPeriod": vacuum_retention}

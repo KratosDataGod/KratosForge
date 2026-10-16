@@ -37,7 +37,7 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "all_schedules",
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_adopt_plan", "xray_adopt"}
+           "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt"}
 
 
 def handle(service: Service, line: str) -> dict:

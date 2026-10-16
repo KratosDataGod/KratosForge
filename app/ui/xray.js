@@ -5,7 +5,7 @@ const xrayPage = { data: null, timer: null, kind: "all", showAll: false, folded:
 
 const XRAY_KINDS = {
   small_files: "Small files", unidentified: "Unidentified", access: "Access", cost: "Cost",
-  stale: "Not changing", vacuum: "Never vacuumed", empty: "Empty lakehouses",
+  stale: "Not changing", vacuum: "Needs vacuum", empty: "Empty lakehouses",
 };
 
 function bytesText(n) {
@@ -19,7 +19,7 @@ function bytesText(n) {
 // Where each kind of finding is explained, with how to fix it by hand (docs/xray-fixes.md).
 const XRAY_DOCS = {
   small_files: "small-files", unidentified: "unidentified-tables", access: "access", cost: "cost",
-  stale: "not-changing", vacuum: "never-vacuumed", empty: "empty-lakehouses",
+  stale: "not-changing", vacuum: "needs-vacuum", empty: "empty-lakehouses",
 };
 
 function openXrayDoc(kind) {
@@ -119,7 +119,14 @@ function drawXray(box, res) {
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
     open.length ? h("div", { class: "xray-list" }, shown.slice(0, limit).map((f) => xrayFinding(f, box, res)))
       : h("p", { class: "muted-text" }, "Nothing needs attention. Every table is compact, readable and changing."),
-    shown.length > limit ? btn(`Show all ${shown.length}`, null, () => { xrayPage.showAll = true; drawXray(box, res); }, "tool link") : null,
+    h("div", { class: "row" },
+      shown.length > limit ? btn(`Show all ${shown.length}`, null, () => { xrayPage.showAll = true; drawXray(box, res); }, "tool link") : null,
+      xrayPage.showAll && shown.length > 6 ? btn("Show fewer", null, () => {
+        xrayPage.showAll = false;
+        drawXray(box, res);
+        box.scrollIntoView({ block: "start", behavior: "smooth" });
+      }, "tool link") : null,
+      xrayPage.kind === "vacuum" && shown.length > 1 ? btn(`Vacuum all ${shown.length}`, "delete", () => vacuumAll(shown, box, res), "tool link") : null),
     xrayLakehouses(result.lakehouse_rows || []));
 }
 
@@ -143,6 +150,7 @@ function xrayFinding(f, box, res) {
       if (r) { f.fixed = true; toast(`Optimizing ${f.table} in Fabric. Follow it in Monitor.`); drawXray(box, res); }
       else e.target.disabled = false;
     }, "tool primary"),
+    vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), "tool outline"),
     open: () => btn("Open in Fabric", "publish", lakehouseLink, "tool outline"),
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
     run_local: () => btn("Open notebook", "notebook", () => {
@@ -159,6 +167,60 @@ function xrayFinding(f, box, res) {
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); openXrayDoc(f.kind); } }, "How to fix this")),
       xrayWhere(f) ? h("div", { class: "muted-text small where" }, xrayWhere(f)) : null),
     action ? action() : null);
+}
+
+function vacuumArgs(f) {
+  return { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table, schema: f.schema,
+    lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id };
+}
+
+// Vacuum one table: a dry run first says what it would delete and how much history it keeps.
+async function vacuumDialog(f, box, res) {
+  const label = f.schema ? `${f.schema}.${f.table}` : f.table;
+  const body = h("div", {}, h("p", { class: "muted-text" }, `Checking what Vacuum would delete from ${label}...`));
+  const vacuumBtn = btn("Vacuum", "delete", async () => {
+    vacuumBtn.disabled = true;
+    const r = await attempt(() => rpc("xray_vacuum", vacuumArgs(f)), "Vacuum not started");
+    if (!r) { vacuumBtn.disabled = false; return; }
+    closeDialog();
+    f.fixed = true;
+    toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
+    drawXray(box, res);
+  }, "tool primary");
+  vacuumBtn.disabled = true;
+  showDialog(`Vacuum ${label}`, body, [btn("Cancel", null, closeDialog, "tool outline"), vacuumBtn]);
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name } = vacuumArgs(f);
+  const p = await attempt(() => rpc("xray_vacuum_preview", { workspace_id, lakehouse_id, table, schema, lakehouse_name }),
+    "Could not check the table");
+  if (!p) { closeDialog(); return; }
+  const what = p.files
+    ? `Vacuum deletes ${p.files.toLocaleString()} old file${p.files === 1 ? "" : "s"}${p.bytes != null ? ` (${bytesText(p.bytes)})` : ""} that no version in the last ${p.keep_days} days reads.`
+    : `Nothing to delete yet: every old file is still inside the ${p.keep_days} days of history this table keeps.`;
+  body.replaceChildren(
+    h("p", { class: "text" }, what),
+    h("p", { class: "muted-text small" }, `It keeps ${p.keep_days} days of history (${p.why}), so Restore and time travel still reach back that far. `,
+      "It runs in Fabric as table maintenance, VACUUM only, and does not compact files."),
+  );
+  vacuumBtn.disabled = !p.files;
+}
+
+// Every shown "Needs vacuum" finding, one Fabric job each, each keeping its own table's history.
+function vacuumAll(findings, box, res) {
+  const run = async () => {
+    closeDialog();
+    let started = 0;
+    const failed = [];
+    for (const f of findings) {
+      try { await rpc("xray_vacuum", vacuumArgs(f)); f.fixed = true; started++; } catch { failed.push(f.table); }
+    }
+    toast(failed.length ? `Started ${started} vacuums. Not started: ${failed.join(", ")}` : `Started ${started} vacuums in Fabric. Follow them in Monitor.`,
+      !!failed.length, { log: true });
+    drawXray(box, res);
+  };
+  showDialog(`Vacuum ${findings.length} tables`, h("p", { class: "text" },
+    "Each table is vacuumed in Fabric as its own table maintenance job. Each keeps the history it promises: at least 7 days, ",
+    "or its layer's Keep history days, or its own retention setting, whichever is longest."),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn(`Vacuum ${findings.length}`, "delete", run, "tool primary")]);
 }
 
 function xrayLakehouses(rows) {

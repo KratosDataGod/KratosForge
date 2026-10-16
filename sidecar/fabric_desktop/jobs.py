@@ -88,7 +88,7 @@ def run_local(job: Job) -> pa.Table:
     """Run the job on this machine and return the result as Arrow."""
     with _cwd(job.base_dir):
         if job.engine == "duckdb":
-            with duckdb.connect() as con:
+            with duckdb.connect(config={"TimeZone": "UTC"}) as con:  # UTC like Fabric, not this PC
                 rel = con.sql(job.sql)
                 # to_arrow_table replaced fetch_arrow_table in newer DuckDB releases.
                 return (getattr(rel, "to_arrow_table", None) or rel.fetch_arrow_table)()

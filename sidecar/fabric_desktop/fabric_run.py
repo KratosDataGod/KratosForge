@@ -93,7 +93,7 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas):
             subprocess.check_call([_sys.executable, "-m", "pip", "install", "-q", "sqlglot"])
             import sqlglot
             from sqlglot import exp
-        con, views, result = duckdb.connect(), {}, None
+        con, views, result = duckdb.connect(config={"TimeZone": "UTC"}), {}, None
         for st in [s for s in sqlglot.parse(query, read="spark") if s is not None]:
             ctes = {c.alias_or_name.lower() for c in st.find_all(exp.CTE)}
             for t in list(st.find_all(exp.Table)):

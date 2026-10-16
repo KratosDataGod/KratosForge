@@ -17,6 +17,7 @@ from . import access
 MAX_TABLES = 500          # a first look, not an inventory: the biggest estates are read in part
 STALE_DAYS = 30
 BIG_SMALL_FILES = 200     # this many small files is slow for every reader
+VACUUM_VERSIONS = 30      # this many versions since the last VACUUM (or ever) is worth one
 SEVERITY = {"high": 0, "medium": 1, "low": 2}
 
 
@@ -60,11 +61,15 @@ def table_findings(t: dict[str, Any], h: dict[str, Any], now: dt.datetime) -> li
                             "detail": "If something should still load it, that load has stopped. "
                                       "If nothing should, it may be safe to retire.",
                             "action": "open", "days": idle})
-    if not h.get("last_vacuum") and h.get("versions_since_vacuum", 0) >= 30:
-        out.append(where | {"kind": "vacuum", "severity": "low",
-                            "title": f"{name} has never been vacuumed ({h['versions_since_vacuum']} versions)",
-                            "detail": "Files from old versions are still stored and paid for. Optimize also vacuums.",
-                            "action": "optimize"})
+    behind = h.get("versions_since_vacuum", 0)
+    if behind >= VACUUM_VERSIONS:
+        never = not h.get("last_vacuum")
+        out.append(where | {"kind": "vacuum", "severity": "low", "versions": behind,
+                            "title": f"{name} has never been vacuumed ({behind} versions)" if never
+                                     else f"{name} has {behind} versions since its last vacuum",
+                            "detail": "Files from old versions are still stored and paid for. Vacuum deletes the ones "
+                                      "older than the history this table keeps, so restore still works inside it.",
+                            "action": "vacuum"})
     return out
 
 

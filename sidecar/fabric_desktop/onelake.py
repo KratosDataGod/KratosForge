@@ -81,10 +81,11 @@ class FileStore:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
 
-    def list(self, workspace_id: str, lakehouse_id: str, directory: str = "Files") -> list[dict[str, Any]]:
-        """Immediate children of ``directory`` as ``{"name", "path", "is_dir", "size"}``."""
+    def list(self, workspace_id: str, lakehouse_id: str, directory: str = "Files",
+             recursive: bool = False) -> list[dict[str, Any]]:
+        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size"}``."""
         url = f"https://{DFS_HOST}/{workspace_id}"
-        params = {"resource": "filesystem", "recursive": "false",
+        params = {"resource": "filesystem", "recursive": "true" if recursive else "false",
                   "directory": f"{lakehouse_id}/{directory.strip('/')}"}
         entries: list[dict[str, Any]] = []
         while True:

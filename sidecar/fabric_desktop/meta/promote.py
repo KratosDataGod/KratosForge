@@ -7,6 +7,7 @@ from typing import Any
 
 import polars as pl
 
+from . import release as release_mod
 from .project import GateError, Project, validate
 from .store import Store
 
@@ -35,7 +36,10 @@ def promote_checks(project: Project, source: Store, target_env: str, today: dt.d
     return errors
 
 
-def promote(project: Project, source: Store, target: Store, today: dt.date | None = None) -> dict[str, Any]:
+def promote(project: Project, source: Store, target: Store, today: dt.date | None = None,
+            release: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Copy the metadata to ``target`` and record the deployment, with ``release`` (a release
+    receipt from meta/release.py) when there is one."""
     errors = promote_checks(project, source, target.env, today)
     if errors:
         raise GateError("promote", errors)
@@ -43,6 +47,12 @@ def promote(project: Project, source: Store, target: Store, today: dt.date | Non
     target.meta_append("entities", [{"version": version, "name": e.name,
                                      "config": e.path.read_text(encoding="utf-8")}
                                     for e in project.entities.values()])
-    target.meta_append("deployments", [{"env": target.env, "version": version, "source_env": source.env,
-                                        "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}])
-    return {"env": target.env, "version": version, "entities": len(project.entities)}
+    row = {"env": target.env, "version": version, "source_env": source.env,
+           "at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+    if release is not None:
+        row |= release_mod.deployment_columns(release)
+    target.meta_append("deployments", [row])
+    out = {"env": target.env, "version": version, "entities": len(project.entities)}
+    if release is not None:
+        out["release"] = {k: row[k] for k in ("commit", "branch", "dirty", "pushed", "receipt_id")}
+    return out

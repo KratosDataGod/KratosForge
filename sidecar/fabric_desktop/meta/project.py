@@ -42,6 +42,9 @@ DRIFT_POLICIES = ("evolve", "ignore_new", "strict")
 REQUIRED_CHECKS = ("key_not_null", "key_unique")
 LOAD_MODES = ("full", "incremental", "scd1", "scd2")
 LOGIC_KEYS = ("source", "load", "contract", "clean", "derive", "check", "hooks", "step", "scd", "lookup", "keys")
+# Settings that change how a run reads its source, never the rows it writes: changing one isn't a
+# logic change, so it doesn't ask whether to rebuild.
+OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"))
 CUSTOM_RULES = ("owner", "custom_code_owner", "custom_code_test", "key_not_null", "key_unique",
                 "surrogate_keys")
 ENVIRONMENTS = ("dev", "test", "prod")
@@ -140,6 +143,9 @@ class Entity:
 
     def logic_hash(self) -> str:
         logic = {k: self.spec.get(k) for k in LOGIC_KEYS}
+        for section, key in OPERATIONAL_KEYS:  # how a run reads, not what it produces
+            if isinstance(logic.get(section), dict) and key in logic[section]:
+                logic[section] = {k: v for k, v in logic[section].items() if k != key}
         return hashlib.sha1(json.dumps(logic, sort_keys=True, default=str).encode()).hexdigest()[:8]
 
     def sources(self) -> list[str]:

@@ -15,4 +15,8 @@ How it works, what the result shows and what to expect: [docs/side-by-side.md](.
 
 These files are generated from `sidecar/fabric_desktop/benchmark.py`. After changing it, run `python -m fabric_desktop.benchmark ../examples/benchmark` from `sidecar/`; a test checks they match.
 
+## Large tables
+
+[large_tables.py](large_tables.py) measures an incremental metadata run on a large local Delta table, once with Delta MERGE writes and once the way runs worked before 0.20 (read the whole table and overwrite it), and checks both end with the same rows. Run it from `sidecar/`: `python ../examples/benchmark/large_tables.py --rows 5000000` (add `--kind scd2` for a Type 2 dimension). Results and what they mean: [Large tables](../../docs/metadata-guide.md#large-tables).
+
 These runs follow TPC-H's data and queries but are not audited TPC-H results. TPC-H is a trademark of the Transaction Processing Performance Council.

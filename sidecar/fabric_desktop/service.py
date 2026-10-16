@@ -30,6 +30,7 @@ from .xray_service import XRayMixin
 from .preview_service import PreviewMixin
 from .central.service import PlatformMixin
 from .shortcut_service import ShortcutMixin
+from .workload_service import WorkloadMixin
 from .notebook import Kernel, NotebookStore
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
@@ -40,7 +41,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
+class Service(WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -379,7 +380,9 @@ class Service(ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin,
                 | {"check": compute_check(cells, lakehouse_ref)})
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
-        return self.notebooks.rename(name, new_name)
+        out = self.notebooks.rename(name, new_name)
+        self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
+        return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
         self.notebooks.delete(name)

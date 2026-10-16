@@ -121,11 +121,44 @@ Every hook, custom check and custom step needs an `owner` and a `test`, or the s
 | Mode | `[load] mode` | What a run does |
 | --- | --- | --- |
 | Full reload | `full` | Replaces the table with what the source has now. |
-| Incremental | `incremental` | Reads only rows whose `watermark` column is past the last run's, and merges them on the key. |
+| Incremental | `incremental` | Reads only rows whose `watermark` column is past the last run's, and merges them on the key. Only the table's files that hold changed rows are rewritten (see [Large tables](#large-tables)). |
 | Type 1 dimension | `scd1` | Merges on the key, overwriting changes. Surrogate keys are issued once and never renumbered. An Unknown member is at -1. |
 | Type 2 dimension | `scd2` | A change in a `tracked` column closes the current row and adds a new version with `valid_from`, `valid_to` and `is_current`. Columns in `type1` are overwritten on every version. |
 
 Facts use `[[lookup]]` to take a dimension's surrogate key as it was on the fact's date. A fact row whose dimension member doesn't exist gets -1.
+
+### Large tables
+
+An incremental run is built to stay small when the table is big:
+
+- **It reads only what it needs.** The watermark filter goes into the read itself, so files whose rows are all older are skipped without being opened. A table that reads another entity reads only the columns it uses (plus any new ones, so drift is still noticed). The run's **read** step says so, for example *incremental, modified after 2026-10-01; read 3 columns of 4*.
+- **It rewrites only what changed.** New and changed rows go into the table with a Delta MERGE on the key: rows with a key already in the table are replaced, the rest are added, and Parquet files without any of those keys stay as they are. A table without keys gets a plain append. The **write** step says what happened, for example *merged 2000 rows on id: 1000 updated, 1000 new (Delta MERGE rewrote 1 file, added 1)*.
+- **It falls back to a rewrite when a MERGE would change the result.** If the new rows repeat a key (there's no `unique` check), or a column's type changed, the run reads the whole table and replaces it, as every run did before 0.20, and the write step says why.
+
+Replayed quarantine rows go in the same way.
+
+**Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
+
+Full loads and rebuilds still replace the whole table.
+
+**Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`; that isn't a logic change, so it doesn't ask whether to rebuild. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
+
+Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
+
+| Table | Changed rows | Write | Seconds | Peak memory | Files rewritten | Written |
+| --- | --- | --- | --: | --: | --: | --: |
+| 5 million rows, 20 files | in the latest file | MERGE (0.20) | 0.9 | 0.6 GB | 1 of 20 | 1.9 MB |
+| | | rewrite (before 0.20) | 8.7 | 2.7 GB | 20 of 20 | 31 MB |
+| 5 million rows, 20 files | spread over every file | MERGE (0.20) | 2.3 | 1.2 GB | 20 of 20 | 31 MB |
+| | | rewrite (before 0.20) | 7.5 | 2.6 GB | 20 of 20 | 31 MB |
+| 20 million rows, 40 files | in the latest file | MERGE (0.20) | 1.4 | 0.8 GB | 1 of 40 | 3.3 MB |
+| | | rewrite (before 0.20) | 28.5 | 9.3 GB | 40 of 40 | 124 MB |
+| Type 2 dimension, 5 million keys in 10 files, full snapshot source | in the latest file | MERGE (0.20) | 6.5 | 2.1 GB | 1 of 10 | 5.5 MB |
+| | | rewrite (before 0.20) | 24.1 | 3.7 GB | 10 of 10 | 52 MB |
+| Type 2 dimension, same | spread over every file | MERGE (0.20) | 7.2 | 2.2 GB | 10 of 10 | 52 MB |
+| | | rewrite (before 0.20) | 23.9 | 3.8 GB | 10 of 10 | 52 MB |
+
+Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
 
 **When a table's logic changes**, an incremental run stops and asks you to choose:
 
@@ -353,6 +386,7 @@ business_key = "order_id"
 | | `rename` | Source column names mapped to the contract's names |
 | `[load]` | `mode` | `full`, `incremental`, `scd1` or `scd2` |
 | | `watermark` | The column incremental loads move forward on |
+| | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |

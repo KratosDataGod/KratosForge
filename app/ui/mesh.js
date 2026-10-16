@@ -419,7 +419,7 @@ async function platformSection() {
       policy ? "policy" : null);
   };
   section.replaceChildren(h("h2", {}, "Platform ", previewTag()),
-    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: a SQL database (SQL_Platform) for surrogate keys and the catalog, User Data Functions (UDF_Platform) every app and notebook calls, LH_Meta for run history and VL_Platform with their ids. Create it once; every other PC joins it. ", learnMore("platform")),
+    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), one key system for every team (SQL_Platform, which also holds the catalog), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
     ...MESH_ENVS.map(row));
   return section;
 }
@@ -460,7 +460,7 @@ async function platformSetupDialog(env, s) {
 // ---------- surrogate keys in the platform ----------
 
 function keysPlatformCard(k, rerender) {
-  if (k.local && !k.platform) return null;
+  if (!k.platform && !k.platform_available) return null;
   if (k.platform) {
     return h("div", { class: "card pad" }, h("div", { class: "row" }, icon("database", 18),
       h("span", { class: "grow" }, h("b", {}, "Keys are in the platform's SQL database"),

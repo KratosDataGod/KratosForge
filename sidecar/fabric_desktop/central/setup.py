@@ -2,6 +2,7 @@
 
 For each environment, one Platform workspace (the central team's) holds:
 
+    LH_Landing     lakehouse: the one landing zone, raw files from every source; each team builds its own Bronze
     LH_Meta        lakehouse: run history from every project (meta.runs) and the catalog's home in OneLake
     SQL_Platform   SQL database: surrogate keys (keys.*), source systems (config.*), the catalog (catalog.*)
     UDF_Platform   User Data Functions: the platform's API, run against SQL_Platform
@@ -21,6 +22,7 @@ from .client import FabricPlatform
 
 ENVIRONMENTS = ("dev", "test", "prod")
 META = "LH_Meta"
+LANDING = "LH_Landing"
 SQL = "SQL_Platform"
 FUNCTIONS = udf.ITEM
 VARLIB = "VL_Platform"
@@ -35,6 +37,7 @@ def default_name(env: str) -> str:
 
 def _varlib(cfg: dict[str, Any]) -> dict[str, str]:
     rows = [("PLATFORM_WORKSPACE_ID", cfg.get("workspace_id", "")), ("PLATFORM_META_LAKEHOUSE_ID", cfg.get("meta_id", "")),
+            ("PLATFORM_LANDING_LAKEHOUSE_ID", cfg.get("landing_id", "")),
             ("PLATFORM_SQL_DATABASE_ID", cfg.get("sql_id", "")), ("PLATFORM_FUNCTIONS_ID", cfg.get("functions_id", ""))]
     schema = "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition"
     return {"variables.json": json.dumps({"$schema": f"{schema}/variables/1.0.0/schema.json", "variables": [
@@ -80,6 +83,14 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         cfg["meta_id"] = lh["id"]
         return ("Created " if created else "Kept ") + META
 
+    def landing() -> str:
+        lh = fabric.find_lakehouse(ws, LANDING)
+        created = lh is None
+        lh = lh or fabric.create_lakehouse(ws, LANDING, "The landing zone: raw files from every source system, "
+                                           "in Files/<source>/<entity>/")
+        cfg["landing_id"] = lh["id"]
+        return ("Created " if created else "Kept ") + LANDING
+
     def sql() -> str:
         item = fabric.save_item(ws, SQL_TYPE, SQL, description="Surrogate keys, source systems and the catalog")
         cfg["sql_id"] = item["id"]
@@ -102,6 +113,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         return ("Created " if item.get("created") else "Updated ") + VARLIB
 
     step(META, meta)
+    step(LANDING, landing)
     if step(SQL, sql) and step(FUNCTIONS, functions):
         if not step("Platform tables", schema):
             steps[-1]["detail"] += (f". If {FUNCTIONS} has no connection yet, open it in Fabric, choose Manage "
@@ -122,9 +134,9 @@ def join(fabric: Any, env: str, workspace_id: str) -> dict[str, Any]:
         return next((i["id"] for i in items if i.get("type") == item_type and i.get("displayName") == name), "")
 
     cfg = {"workspace_id": workspace_id, "workspace_name": ws.get("displayName", ""),
-           "meta_id": find("Lakehouse", META), "sql_id": find(SQL_TYPE, SQL), "functions_id": find(UDF_TYPE, FUNCTIONS),
+           "meta_id": find("Lakehouse", META), "landing_id": find("Lakehouse", LANDING), "sql_id": find(SQL_TYPE, SQL), "functions_id": find(UDF_TYPE, FUNCTIONS),
            "varlib_id": find("VariableLibrary", VARLIB)}
-    missing = [n for n, k in ((META, "meta_id"), (SQL, "sql_id"), (FUNCTIONS, "functions_id")) if not cfg[k]]
+    missing = [n for n, k in ((META, "meta_id"), (LANDING, "landing_id"), (SQL, "sql_id"), (FUNCTIONS, "functions_id")) if not cfg[k]]
     if missing:
         raise LookupError(f"{cfg['workspace_name'] or workspace_id} isn't a complete Platform workspace: "
                           f"{', '.join(missing)} {'is' if len(missing) == 1 else 'are'} missing. Ask your platform "

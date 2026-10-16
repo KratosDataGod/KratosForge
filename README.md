@@ -33,6 +33,8 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
+| [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
+| [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |

@@ -302,3 +302,38 @@ def test_keys_move_to_the_platform_with_their_numbers(svc):
     # Going back would reuse that number, so it's refused.
     with pytest.raises(GateError, match="reuse"):
         svc.meta_keys_to_lakehouse("dev")
+
+
+def test_teams_build_bronze_from_the_one_landing_zone(svc):
+    landing = svc._landing_dir("dev") / "Files" / "erp" / "customers"
+    landing.mkdir(parents=True)
+    (landing / "day1.csv").write_text("customer_id,name\n1,Ada\n2,Grace\n", encoding="utf-8")
+    root = svc._project().root
+    write(root, "metadata/entities/bronze.erp_customers.toml", """
+        name = "bronze.erp_customers"
+        owner = "Chris"
+        [source]
+        landing = "erp/customers/*.csv"
+        [contract]
+        keys = ["customer_id"]
+        [contract.columns]
+        customer_id = "int64"
+        name = "string"
+    """)
+    assert any(e["source"] == "landing erp/customers/*.csv" for e in svc.meta_project()["entities"])
+    [res] = svc.meta_run(["bronze.erp_customers"])
+    assert res["status"] == "ok", res
+    store = svc._store(svc._project(), "dev")
+    assert store.read("LH_Bronze", "dbo", "erp_customers").height == 2
+
+
+def test_one_key_system_once_the_platform_is_in_fabric(svc):
+    project = svc._project()
+    assert not svc._keys_in_platform(project, "test")
+    svc._save_settings(platform={"test": {"workspace_id": "ws", "functions_id": "fn"},
+                                 "dev": {"workspace_id": "ws", "functions_id": "fn"}})
+    # A new environment with no LH_Keys goes straight to the platform...
+    assert svc._keys_in_platform(project, "test")
+    assert not any("Keys workspace" in e for e in svc.meta_promote_check("dev", "test")["errors"])
+    # ...but one that already issued keys in LH_Keys keeps them until they're moved with their numbers.
+    assert not svc._keys_in_platform(project, "dev")

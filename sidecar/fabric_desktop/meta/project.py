@@ -185,7 +185,8 @@ class Entity:
         return {
             "name": self.name, "layer": self.layer, "schema": self.schema, "table": self.table,
             "owner": s.get("owner", ""), "mode": self.mode, "watermark": s.get("load", {}).get("watermark"),
-            "source": src.get("files") or src.get("from") or src.get("table")
+            "source": src.get("files") or (f"landing {src['landing']}" if src.get("landing") else "")
+            or src.get("from") or src.get("table")
             or (f"link {src['link']}" if src.get("link") else "")
             or ", ".join(self.sources()) or ("custom step" if s.get("step") else ""),
             "clean": len(s.get("clean", [])), "derive": len(s.get("derive", [])), "checks": len(s.get("check", [])),
@@ -400,7 +401,7 @@ def check_python(ref: str) -> str | None:
 
 def source_columns(project: Project, e: Entity) -> set[str]:
     src = e.spec.get("source", {})
-    if "files" in src or "table" in src:
+    if "files" in src or "landing" in src or "table" in src:
         return set(src.get("columns", e.columns))
     if "link" in src:
         link = project.links.get(src["link"])
@@ -450,7 +451,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                 errors.append(f"{e.name}: dimensions need a business key in [contract] keys")
             if e.mode == "scd2" and not s.get("scd", {}).get("tracked"):
                 errors.append(f"{e.name}: Type 2 dimensions need [scd] tracked columns")
-        files = s.get("source", {}).get("files", "")
+        files = s.get("source", {}).get("files", "") or s.get("source", {}).get("landing", "")
         if files and (Path(files).is_absolute() or re.match(r"^[A-Za-z]:", files)):
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")

@@ -21,6 +21,9 @@ from .. import delta_profile
 from ..onelake import FileStore, TableRef, storage_options
 
 META_LAKEHOUSE = "LH_Meta"
+# The organization's one landing zone: raw files from every source, in the platform's workspace.
+# Entities read it with [source] landing = "<folder>/<pattern>"; each team builds its own Bronze from it.
+LANDING_LAKEHOUSE = "LH_Landing"
 META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "run_log": {"run_id": pl.String, "batch_id": pl.String, "entity": pl.String, "env": pl.String,
                 "status": pl.String, "metadata": pl.String, "logic": pl.String, "load_date": pl.String,
@@ -146,14 +149,18 @@ class Store:
 class LocalStore(Store):
     """Delta tables on this PC, laid out like OneLake: <root>/<lakehouse>/Tables/<schema>/<table>."""
 
-    def __init__(self, root: Path, env: str = "dev"):
+    def __init__(self, root: Path, env: str = "dev", landing: Path | None = None):
         self.root = Path(root)
         self.env = env
+        # The PC's shared landing folder (every project on this PC reads the same one).
+        self.landing = Path(landing) if landing else None
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
 
     def files_dir(self, lakehouse: str) -> Path:
+        if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:
+            return self.landing / "Files"
         return self.root / lakehouse / "Files"
 
     def file_paths(self, lakehouse: str, pattern: str) -> list[Path]:

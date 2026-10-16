@@ -336,8 +336,7 @@ class PlatformMixin:
         """Copy this environment's keys from LH_Keys into the platform with the same numbers, check
         every row, and switch the environment to the platform's keys only if all of them match."""
         project = self._project()  # type: ignore[attr-defined]
-        cfg = project.environments.get(env, {})
-        if cfg.get("keys") == "platform":
+        if self._keys_in_platform(project, env):  # type: ignore[attr-defined]
             return {"env": env, "ok": True, "already": True, "tables": []}
         lakehouse_keys = self._keys_store(project, env)  # type: ignore[attr-defined]
         report = migrate(project, lakehouse_keys, self._platform_keys(env))
@@ -352,10 +351,10 @@ class PlatformMixin:
         """Go back to LH_Keys. Refused while the platform holds keys LH_Keys doesn't have: going back
         then would hand out those numbers again to other business keys."""
         project = self._project()  # type: ignore[attr-defined]
-        if project.environments.get(env, {}).get("keys") == "platform":
+        if self._keys_in_platform(project, env):  # type: ignore[attr-defined]
             platform = self._platform_keys(env)
             envs_now = {k: dict(v) for k, v in project.environments.items()}
-            envs_now[env].pop("keys", None)
+            envs_now.setdefault(env, {})["keys"] = "lakehouse"
             project.environments = envs_now
             try:
                 lakehouse_keys = self._keys_store(project, env)  # type: ignore[attr-defined]
@@ -372,7 +371,8 @@ class PlatformMixin:
                                          f"{', '.join(newer)}. Going back would reuse those numbers, so keys stay "
                                          "in the platform."])
         envs = {k: dict(v) for k, v in project.environments.items()}
-        envs.get(env, {}).pop("keys", None)
+        envs.setdefault(env, {})["keys"] = "lakehouse"
+        envs[env].pop("keys_moved_at", None)
         self._write_environments(project, envs)  # type: ignore[attr-defined]
         return {"env": env, "keys": "lakehouse"}
 

@@ -33,6 +33,7 @@ With Microsoft's sign-in, Fabric Desktop asks each Microsoft API for its default
 | OneLake shortcuts and data access roles, cloud connections | Fabric | Yes |
 | Giving someone a workspace role by email | Power BI | Yes. No directory permission is needed |
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
+| The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop on a live tenant yet.
@@ -57,8 +58,8 @@ With your own app, Fabric Desktop signs in with the browser (not Windows sign-in
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and capacity size for the cost view | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
-| Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric | On first use |
-| Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries; reading a notebook's cells for its preview | At first sign-in |
+| Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
+| Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 

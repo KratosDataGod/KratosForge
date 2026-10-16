@@ -18,7 +18,7 @@ from .meta.engine import RunResult
 from .onelake import storage_options
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
 from .meta.promote import promote_checks
-from .meta.store import META_LAKEHOUSE, Store
+from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 
 
@@ -122,7 +122,7 @@ class MetaMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
-            return LocalStore(project.local_data / env, env)
+            return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
@@ -140,9 +140,18 @@ class MetaMixin:
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
                         space, name, "Managed by Fabric Desktop's metadata framework")["id"]
+        # The organization's landing zone is the platform's, never created here.
+        platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
+        if platform.get("landing_id"):
+            existing[LANDING_LAKEHOUSE] = platform["landing_id"]
+            where[LANDING_LAKEHOUSE] = platform["workspace_id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache",
                             lakehouse_workspaces={n: w for n, w in where.items() if w != ws})
+
+    def _landing_dir(self, env: str) -> Path:
+        """This PC's landing zone for a local environment, shared by every project on the PC."""
+        return self.root / "platform" / f"landing-{env}"
 
     def _keys_store(self, project: Project, env: str, create: bool = False) -> Store:
         """Where an environment's surrogate keys are: the platform's SQL database once they've moved
@@ -150,7 +159,7 @@ class MetaMixin:
         if env not in ENVIRONMENTS:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         cfg = project.environments.get(env, {})
-        if cfg.get("keys") == "platform":
+        if self._keys_in_platform(project, env):
             return self._platform_keys(env)  # type: ignore[attr-defined,return-value]
         if cfg.get("target", "onelake" if env != "dev" else "local") == "local":
             return LocalStore(project.local_data / f"keys-{env}", env)
@@ -164,6 +173,19 @@ class MetaMixin:
                 ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
+
+    def _keys_in_platform(self, project: Project, env: str) -> bool:
+        """One key system for everything: once an environment's platform is in Fabric, its keys come
+        from SQL_Platform, unless the project already issues keys in LH_Keys (those move first, with
+        their numbers, from Surrogate keys > Move keys)."""
+        cfg = project.environments.get(env, {})
+        if cfg.get("keys") in ("platform", "lakehouse"):
+            return cfg["keys"] == "platform"
+        if not self._platform_config().get(env, {}).get("functions_id"):  # type: ignore[attr-defined]
+            return False
+        local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
+        has_lh_keys = (project.local_data / f"keys-{env}").exists() if local else bool(cfg.get("keys_workspace_id"))
+        return not has_lh_keys
 
     def _uses_keys(self, project: Project, names: list[str] | None = None) -> bool:
         return any(keys_mod.entity_keys(e) for n, e in project.entities.items() if names is None or n in names)
@@ -388,7 +410,7 @@ class MetaMixin:
         errors += test_errors
         cfg = project.environments.get(target, {})
         if (project.key_tables or project.source_systems) and cfg.get("target", "onelake") != "local" \
-                and not cfg.get("keys_workspace_id") and cfg.get("keys") != "platform":
+                and not cfg.get("keys_workspace_id") and not self._keys_in_platform(project, target):
             errors.append(f"Pick a Keys workspace for {target.title()} first (Metadata > Surrogate keys)")
         errors += self._product_gate(project)
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests}
@@ -452,8 +474,10 @@ class MetaMixin:
             problem = str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": "SQL_Platform" if cfg.get("keys") == "platform" else keys_mod.KEYS_LAKEHOUSE,
-                "platform": cfg.get("keys") == "platform", "moved_at": cfg.get("keys_moved_at", ""), "key_tables": tables,
+                "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
+                "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
+                "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
+                "key_tables": tables,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
                 "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]}

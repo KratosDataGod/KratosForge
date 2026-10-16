@@ -6,7 +6,7 @@ Fabric Desktop runs on each person's PC, but the work it produces is shared: met
 
 | Role | Typical person | Responsible for |
 | --- | --- | --- |
-| **Platform owner** | Data platform or BI lead | The policy file, the update channel, the Keys workspaces, and the [ideas forum](ideas.md) triage. |
+| **Platform owner** | Data platform or BI lead | The policy file, the update channel, the [platform](platform.md) (one key system and one landing zone), domains, and the [ideas forum](ideas.md) triage. |
 | **IT / Entra admin** | Identity team | Conditional Access, pushing `policy.json`, security groups, and an own app registration only if policy requires one. See [Configure Azure and Fabric](azure-setup.md). |
 | **Project owner** | Lead engineer of a domain (Sales, Finance) | One metadata project: its repository, its Dev/Test/Prod workspaces, reviews, and who may promote. |
 | **Data engineer** | Anyone building tables | Entities, transforms and tests in their branch; runs Dev on their own PC. |
@@ -71,6 +71,8 @@ Every table is a text file, so the normal software workflow applies.
 ## Shared keys and sources across teams
 
 Surrogate keys and source systems are often shared by more than one project: Sales and Finance both need `customer`.
+
+**With the [platform](platform.md) (recommended):** keys for every project come from one place, `SQL_Platform`, and raw data lands once in `LH_Landing`; each team builds its own Bronze from it. Domains, data products and links between teams are in [Data mesh](data-mesh.md). Without the platform, use a shared Keys workspace as below.
 
 - **One Keys workspace per environment for the whole organization** (or per data domain), owned by the platform owner. Every project points its environments at it (**Metadata > Surrogate keys > Pick Keys workspace**). Then Customer ABC gets the same key in every project's tables.
 - **Agree on key table definitions.** Each project has its own `metadata/keys/<name>.toml`. Projects that share a key table must define it the same way (same business key columns). The simplest way is a small shared repository of key and source system definitions that every project copies or includes as a Git submodule, changed by pull request with the platform owner as reviewer.

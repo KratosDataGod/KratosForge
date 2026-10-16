@@ -12,7 +12,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
-| Set it up for several teams | [Working across teams](teams.md) |
+| Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md) and [Data mesh](data-mesh.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
 | Suggest a feature or vote on one | [Submitting ideas](ideas.md) |
 
@@ -27,6 +27,8 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
+| [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; creating, joining, moving keys |
+| [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, catalog text |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [ideas.md](ideas.md) | Everyone | Posting ideas, voting, and how ideas are prioritized and shipped |
@@ -70,6 +72,8 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Tests | Metadata > Quality |
 | Estate X-ray | Home |
 | Item preview | Workspaces |
+| Platform | Settings, Metadata > Surrogate keys |
+| Data mesh (domains, products, links, glossary, About) | Metadata > Mesh, entity page |
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

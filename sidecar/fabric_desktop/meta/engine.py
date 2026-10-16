@@ -22,7 +22,7 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
-from .store import Store, read_table_uri
+from .store import LANDING_LAKEHOUSE, Store, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
 WRITE_ATTEMPTS = 3
@@ -301,10 +301,18 @@ class Engine:
         src = e.spec.get("source", {})
         if not src:
             df, detail = pl.DataFrame(), "no source: the custom step provides the rows"
-        elif "files" in src:
-            df, names = self.store.read_files(self.lakehouse(e), src["files"])
+        elif "files" in src or "landing" in src:
+            where = LANDING_LAKEHOUSE if "landing" in src else self.lakehouse(e)
+            pattern = src.get("landing") or src["files"]
+            try:
+                df, names = self.store.read_files(where, pattern)
+            except LookupError as exc:
+                if where != LANDING_LAKEHOUSE:
+                    raise
+                raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
+                                f"Settings > Platform ({exc})") from exc
             if df is None:
-                raise CheckStop(f"no files match {src['files']} in {self.lakehouse(e)}/Files")
+                raise CheckStop(f"no files match {pattern} in {where}/Files")
             detail = f"{len(names)} file{'s' if len(names) != 1 else ''}"
             if src.get("add_source_columns", True):
                 df = df.with_columns(pl.lit(self.load_date).alias("_load_date")) if "_load_date" in e.columns else df

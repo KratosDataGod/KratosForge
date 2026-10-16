@@ -251,3 +251,118 @@ def test_text_keys_with_quotes_merge(tmp_path):
     t = pl.from_arrow(DeltaTable(uri).to_pyarrow_table()).sort("code", nulls_last=True)
     assert t["v"].to_list() == [1, 8, 9, 3, 7]
     assert _key_bounds(pl.DataFrame({"k": [None, None]}, schema={"k": pl.Int64}), ["k"]) == []
+
+
+# ----------------------------------------------------------------------------- dimensions
+
+
+class Dims:
+    """A customer source table feeding a Type 1 and a Type 2 dimension."""
+
+    def __init__(self, tmp: Path, merge: bool):
+        self.root, self.src, self.merge = tmp / "project", tmp / "customers", merge
+        init_project(self.root, "3", "Chris", sample=False)
+        common = f"""
+            [source]
+            table = {json.dumps(self.src.as_posix())}
+            [contract]
+            keys = ["customer_id"]
+            [contract.columns]
+            cust_sk = "int64"
+            customer_id = "int64"
+            city = "string"
+            email = "string"
+        """
+        entity(self.root, "bronze.dim1", f"""
+            name = "bronze.dim1"
+            owner = "Chris"
+            [load]
+            mode = "scd1"
+            [scd]
+            surrogate_key = "cust_sk"
+            {common}""")
+        entity(self.root, "bronze.dim2", f"""
+            name = "bronze.dim2"
+            owner = "Chris"
+            [load]
+            mode = "scd2"
+            [scd]
+            surrogate_key = "cust_sk"
+            tracked = ["city"]
+            type1 = ["email"]
+            {common}""")
+        self.store = LocalStore(self.root / ".local" / "dev", "dev")
+
+    def load(self, rows_: list[tuple], day) -> list:
+        df = pl.DataFrame(rows_, schema={"customer_id": pl.Int64, "city": pl.String, "email": pl.String}, orient="row")
+        write_deltalake(str(self.src), df.to_arrow(), mode="overwrite")
+        out = []
+        for name in ("bronze.dim1", "bronze.dim2"):
+            res = Engine(Project(self.root), self.store, day, merge_writes=self.merge).run(name)
+            assert res.status == "ok", res.message
+            out.append(res)
+        return out
+
+    def table(self, name):
+        df = Engine(Project(self.root), self.store).read_entity(name).drop("_run_id")
+        return df.select(sorted(df.columns)).sort("cust_sk")
+
+
+def test_dimensions_merge_only_the_keys_that_arrive_and_match_a_full_rewrite(tmp_path):
+    new, old = Dims(tmp_path / "merge", True), Dims(tmp_path / "rewrite", False)
+    days = [
+        [(i, "Oslo", f"c{i}@x") for i in range(1, 201)],                      # first load
+        [(5, "Bergen", "c5@x"), (6, "Oslo", "new6@x"), (300, "Rome", None)],   # move, email fix, new
+        [(5, "Bergen", "c5@y"), (7, None, "c7@x"), (6, "Oslo", None)],         # type 1 on history, null city
+        [(5, "Oslo", "c5@y")],                                                  # moves back
+    ]
+    for i, rows_ in enumerate(days):
+        for d in (new, old):
+            res = d.load(rows_, DAY1 + dt.timedelta(days=i))
+            if d is new:
+                last = res
+    for name in ("bronze.dim1", "bronze.dim2"):
+        assert new.table(name).equals(old.table(name)), name
+    t2 = new.table("bronze.dim2")
+    assert t2.filter(pl.col("customer_id") == 5)["city"].to_list() == ["Oslo", "Bergen", "Oslo"]
+    write = [next(s.detail for s in r.steps if s.name == "write") for r in last]
+    assert "read 2 rows of the table for 1 business key" in write[0] and "Delta MERGE" in write[0]
+    assert "1 changed (new versions)" in write[1] and "for 1 business key" in write[1]
+
+
+def test_a_dimension_with_repeated_keys_still_rewrites_and_says_why(tmp_path):
+    d = Dims(tmp_path, True)
+    d.load([(1, "Oslo", "a"), (2, "Rome", "b")], DAY1)
+    write_deltalake(str(d.src), pl.DataFrame({"customer_id": [1, 1], "city": ["Oslo", "Bergen"], "email": ["a", "a"]})
+                    .to_arrow(), mode="overwrite")
+    res = Engine(Project(d.root), d.store, DAY2).run("bronze.dim1")
+    assert "new rows repeat a key (customer_id)" in next(s.detail for s in res.steps if s.name == "write")
+    # Type 2 can't version two rows of one key in one run; it stops, as it did before (add a unique check).
+    assert Engine(Project(d.root), d.store, DAY2).run("bronze.dim2").status == "failed"
+
+
+def test_a_full_snapshot_into_a_type2_dimension_touches_only_what_changed(tmp_path):
+    new, old = Dims(tmp_path / "merge", True), Dims(tmp_path / "rewrite", False)
+    base = {i: (i, "Oslo", f"c{i}@x") for i in range(1, 301)}
+    snapshots = [
+        dict(base),
+        base | {5: (5, "Bergen", None)},       # new version; its email is null, the old version keeps c5@x
+        base | {5: (5, "Bergen", None)},       # same snapshot again: nothing changes
+        base | {5: (5, "Bergen", "c5@x")},     # equal to the old version's email, not the current one's
+        base | {5: (5, "Bergen", "c5@x")} | {301: (301, "Rome", "n@x")},
+    ]
+    details = []
+    for i, snap in enumerate(snapshots):
+        for d in (new, old):
+            res = d.load(list(snap.values()), DAY1 + dt.timedelta(days=i))
+            if d is new:
+                details.append(next(s.detail for s in res[1].steps if s.name == "write"))
+    for name in ("bronze.dim1", "bronze.dim2"):
+        assert new.table(name).equals(old.table(name)), name
+    assert "299 rows unchanged" in details[1] and "for 1 business key" in details[1]
+    assert details[2].startswith("300 rows unchanged; nothing to write")
+    assert "Type 1 updates" in details[3] and "for 1 business key" in details[3]
+    assert "1 new" in details[4] and "for 1 business key" in details[4]
+    # Type 1 dimensions take every arriving row, so a full snapshot is rewritten, and says why.
+    assert "most of it changed" in next(s.detail for s in new.load(list(base.values()), DAY3)[0].steps
+                                        if s.name == "write")

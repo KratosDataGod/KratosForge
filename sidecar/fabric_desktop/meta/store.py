@@ -119,6 +119,12 @@ class Store:
     def exists(self, lakehouse: str, schema: str, table: str) -> bool:
         return DeltaTable.is_deltatable(self.uri(lakehouse, schema, table), storage_options=self.options())
 
+    def version(self, lakehouse: str, schema: str, table: str) -> int | None:
+        try:
+            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).version()
+        except TableNotFoundError:
+            return None
+
     def count(self, lakehouse: str, schema: str, table: str) -> int:
         """Rows in the table, from the Delta log's file statistics: no data is read."""
         try:
@@ -191,19 +197,20 @@ class Store:
         return dt_.version()
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
-               metadata: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
+               metadata: dict[str, str] | None = None, prune: list[str] | None = None) -> tuple[int, dict[str, Any]]:
         """Replace the rows whose ``on`` columns match and add the rest, as one Delta MERGE commit.
 
         Only the files holding matched rows are rewritten; the rest of the table is never read into
         memory. New columns in ``df`` are added to the table. Returns the new version and delta-rs's
         merge metrics (rows updated and inserted, files added and removed). Raises CommitFailedError
-        when another writer's commit conflicts, like any other write.
+        when another writer's commit conflicts, like any other write. ``prune`` names other columns
+        whose range in ``df`` bounds every matching target row (default: the ``on`` columns).
         """
         uri = self.uri(lakehouse, schema, table)
         target = DeltaTable(uri, storage_options=self.options())
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
-        predicate = " AND ".join(_key_bounds(df, on) + [f"t.`{c}` = s.`{c}`" for c in on])
+        predicate = " AND ".join(_key_bounds(df, prune or on) + [f"t.`{c}` = s.`{c}`" for c in on])
         metrics = target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t", merge_schema=True,
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()

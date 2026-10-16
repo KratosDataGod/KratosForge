@@ -182,6 +182,27 @@ def test_repeated_keys_or_changed_types_fall_back_to_a_rewrite_and_say_why(tmp_p
     assert new.table().equals(old.table())
 
 
+def test_a_rewrite_fallback_never_drops_rows_another_writer_committed_meanwhile(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+    s.source(pl.concat([rows([1], DAY2, amount=2), rows([1], DAY2, amount=3)]))  # repeated key: rewrite
+    real, sneaked = s.store.read_at, []
+
+    def read_then_someone_writes(lakehouse, schema, table):
+        out = real(lakehouse, schema, table)
+        if table == "events" and not sneaked:
+            sneaked.append(1)
+            extra = out[0].head(1).with_columns(pl.lit(99, dtype=pl.Int64).alias("id"))
+            s.store.write(lakehouse, schema, table, extra, mode="append")  # the app or a Fabric run
+        return out
+    monkeypatch.setattr(s.store, "read_at", read_then_someone_writes)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda _: None)
+    res = s.run(day=DAY2)
+    assert "rewrote the table because new rows repeat a key" in s.write_step(res)
+    assert 99 in s.table()["id"].to_list()
+
+
 def test_a_new_source_column_is_added_to_the_table(tmp_path):
     new, old = both(tmp_path)
     for s in (new, old):

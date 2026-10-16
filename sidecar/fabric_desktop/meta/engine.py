@@ -687,7 +687,9 @@ class Engine:
             res.rows_written, res.delta_version = df.height, version
             self._step(res, "write", t0, self.store.count(lh, e.schema, e.table), f"{info}; Delta version {version}")
             return
-        existing = self.read_entity(e.name)
+        # The version read is the one the commit is made against: if another writer (the app, an
+        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
+        existing, read_version = self.store.read_at(lh, e.schema, e.table)
         if e.mode == "scd1":
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
@@ -712,7 +714,8 @@ class Engine:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
         if why:
             info = f"{info}; {why}"
-        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata)
+        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
+                                   read_version=read_version)
         self._advance_watermark(e, df, backfill)
         res.rows_written, res.delta_version = df.height, version
         self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")

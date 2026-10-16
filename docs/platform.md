@@ -90,6 +90,7 @@ What only someone else may give is asked for, not taken:
 | **A key table** | Platform > Business keys, or Data mesh > Surrogate keys > Use a key table > Request a new one | A platform admin | Creates the key table in every environment |
 | **A source** in the landing zone | Platform > Landing zone or Requests | A platform admin | Registers the source; the central team then lands its files |
 | **Access to a data product** open only to its domain, or private | OneLake > Data products > Request access | The product's owner (or a platform admin) | Lets the project link to it. The owner still gives read access in OneLake (a data access role on the Product workspace) |
+| **A shortcut** | OneLake > Shortcuts > Request a shortcut | A platform admin, or the owner of the data product it points at | Makes the shortcut, as the person approving, then marks the request approved ([shortcuts.md](shortcuts.md#requests-and-shortcut-needs)) |
 
 Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
 

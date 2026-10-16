@@ -895,6 +895,32 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
 @media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }
 
+/* Shortcut command center (shortcuts.js). */
+.sc-views { padding: 10px 14px 0; }
+.sc-badge { margin-left: 6px; padding: 0 6px; border-radius: 8px; background: var(--danger); color: #fff; font-size: 11px; }
+.sc-pad { padding: 12px 14px; }
+.sc-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.sc-filters select { min-height: 32px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); padding: 0 6px; }
+.sc-table { overflow-x: auto; }
+.sc-detail { max-width: 260px; }
+.plat-stat.bad .plat-n { color: var(--danger); }
+.plat-stat.warn .plat-n { color: #8a5300; }
+.warn-text { color: #8a5300; }
+.warn-box { background: #fff8e6; border-color: #f3dca5; }
+.sc-two { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+.sc-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.sc-item { display: grid; grid-template-columns: 200px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.sc-need { grid-template-columns: minmax(0, 1fr) auto; }
+.sc-kv { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 4px 10px; font-size: 13px; }
+.sc-modes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sc-rule { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border-soft); font-size: 13px; }
+.sc-day { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.sc-change { display: grid; grid-template-columns: 54px 86px minmax(0, 1fr) 150px auto; gap: 10px; align-items: start; padding: 8px 0; border-top: 1px solid var(--border-soft); }
+.sc-change .pill-s { justify-self: start; }
+.sc-change s { color: var(--danger); }
+.sc-actions { padding: 10px 16px; border-top: 1px solid var(--border-soft); }
+.sc-notice:empty { display: none; }
+@media (max-width: 1100px) { .sc-two, .sc-modes { grid-template-columns: 1fr; } .sc-item, .sc-change { grid-template-columns: 1fr; } }
 /* Home's mesh map (meshmap.js) */
 .mesh-map { position: relative; overflow-x: auto; padding: 4px 0 8px; }
 .mesh-domains { display: flex; flex-wrap: wrap; gap: 24px 48px; align-items: flex-start; }

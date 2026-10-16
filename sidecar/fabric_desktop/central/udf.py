@@ -315,6 +315,51 @@ def set_classification(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCo
                        classification: str) -> str:
     _run(sqlDB, "save_enrichment", ctx, target=target, fields={"classification": classification})
     return f"{target} is now {classification}"
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def record_shortcuts(sqlDB: fn.FabricSqlConnection, lakehouses: list, shortcuts: list) -> dict:
+    return _run(sqlDB, "record_shortcuts", lakehouses=lakehouses, shortcuts=shortcuts)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def log_shortcut_change(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, shortcut: dict,
+                        before: dict = None, after: dict = None, note: str = "") -> dict:
+    return _run(sqlDB, "log_shortcut_change", ctx, kind=kind, shortcut=shortcut, before=before, after=after, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def record_shortcut_health(sqlDB: fn.FabricSqlConnection, results: list) -> list:
+    return _run(sqlDB, "record_shortcut_health", results=results)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_seen_shortcuts(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "list_seen_shortcuts")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def shortcut_changes(sqlDB: fn.FabricSqlConnection, days: int = 30, limit: int = 500, shortcut: str = "") -> list:
+    return _run(sqlDB, "shortcut_changes", days=days, limit=limit, shortcut=shortcut)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def shortcut_rules(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "shortcut_rules")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_shortcut_rules(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, rules: dict) -> dict:
+    return _run(sqlDB, "save_shortcut_rules", ctx, rules=rules)
+
 '''
 
 

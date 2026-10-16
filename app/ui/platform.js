@@ -7,7 +7,7 @@ const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
   ["glossary", "Glossary"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
-const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access" };
+const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
 const platformPage = { tab: "overview", env: "dev", requests: "waiting", source: null, me: null };
 
@@ -283,14 +283,16 @@ function requestTable(rows, rerender, compact = false) {
     }
     const res = await platformCall("platform_decide", { id: r.id, approve, note }, "Not decided");
     if (!res) return;
-    toast(`${approve ? "Approved" : "Declined"} ${r.target}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
+    toast(`${approve ? "Approved" : "Declined"} ${r.kind === "shortcut" ? `shortcut ${r.detail?.name}` : r.target}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`, !!res.problems?.length, { log: true });
     rerender();
   };
   return h("table", { class: "list" },
     h("thead", {}, h("tr", {}, ["Type", "Request", "From", compact ? "" : "Status", ""].map((x) => h("th", {}, x)))),
     h("tbody", {}, rows.map((r) => h("tr", {},
       h("td", {}, h("span", { class: "pill-s info" }, REQUEST_KIND[r.kind])),
-      h("td", {}, h("b", { class: "mono" }, r.target), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
+      h("td", {}, r.kind === "shortcut"
+        ? [h("b", {}, r.detail?.name), h("span", { class: "muted-text" }, ` in ${r.detail?.workspace_name || ""} / ${r.detail?.lakehouse_name || ""}`)]
+        : h("b", { class: "mono" }, r.target), r.project ? h("span", { class: "muted-text" }, ` for ${r.project}`) : null,
         r.reason ? h("div", { class: "muted-text small" }, r.reason) : null,
         r.note ? h("div", { class: "muted-text small" }, `Note: ${r.note}`) : null),
       h("td", {}, r.requested_by || h("span", { class: "muted-text" }, "someone"), h("div", { class: "muted-text small" }, when(r.requested_at))),

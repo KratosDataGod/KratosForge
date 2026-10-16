@@ -13,6 +13,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
 | Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md) and [Data mesh](data-mesh.md) |
+| Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
 | Suggest a feature or vote on one | [Submitting ideas](ideas.md) |
 
@@ -29,6 +30,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, catalog text |
+| [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [ideas.md](ideas.md) | Everyone | Posting ideas, voting, and how ideas are prioritized and shipped |

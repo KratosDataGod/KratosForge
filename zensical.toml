@@ -33,6 +33,7 @@ nav = [
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
     { "Data mesh" = "data-mesh.md" },
+    { "Shortcuts" = "shortcuts.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
   ] },

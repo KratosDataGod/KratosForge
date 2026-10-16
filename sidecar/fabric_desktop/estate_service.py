@@ -217,19 +217,33 @@ class EstateMixin:
         return {"pending": True, "items": {}, "errors": {}}
 
     def create_shortcut(self, workspace_id: str, item_id: str, where: str, name: str,
-                        source: dict[str, Any], lakehouse_name: str = "") -> list[dict[str, Any]]:
+                        source: dict[str, Any], lakehouse_name: str = "", workspace_name: str = "",
+                        target_workspace_name: str = "", note: str = "", via_request: bool = False) -> list[dict[str, Any]]:
+        """Make a shortcut, if the platform's shortcut rules allow it, and record who made it."""
+        where, name, target = shortcuts_mod.location(where), shortcuts_mod.check_name(name), shortcuts_mod.target(source)
+        self._sc_guard(workspace_id, source, workspace_name, target_workspace_name, via_request)  # type: ignore[attr-defined]
         api = self._scoped(ONELAKE_SCOPES)
-        api.create_shortcut(workspace_id, item_id, shortcuts_mod.location(where), shortcuts_mod.check_name(name),
-                            shortcuts_mod.target(source))
+        api.create_shortcut(workspace_id, item_id, where, name, target)
         self._all_shortcuts = None
+        self._sc_log("added", {"workspace_id": workspace_id, "lakehouse_id": item_id, "workspace_name": workspace_name,  # type: ignore[attr-defined]
+                               "lakehouse_name": lakehouse_name, "path": where, "name": name}, None,
+                     {"workspace_id": workspace_id, "lakehouse_id": item_id, "path": where, "name": name,
+                      "target": target}, note)
         return self._shortcut_rows(api, workspace_id, item_id, lakehouse_name)
 
     def delete_shortcut(self, workspace_id: str, item_id: str, path: str, name: str,
-                        lakehouse_name: str = "") -> list[dict[str, Any]]:
-        """Remove the shortcut only; the data it points at is not touched."""
+                        lakehouse_name: str = "", workspace_name: str = "", note: str = "") -> list[dict[str, Any]]:
+        """Remove the shortcut only; the data it points at is not touched. Its definition is kept in
+        the shortcut history, so it can be made again."""
         api = self._scoped(ONELAKE_SCOPES)
+        current = next((shortcuts_mod.describe(s) for s in api.list_shortcuts(workspace_id, item_id)
+                        if str(s.get("path") or "").strip("/") == path.strip("/") and s.get("name") == name), None)
         api.delete_shortcut(workspace_id, item_id, path, name)
         self._all_shortcuts = None
+        before = {"workspace_id": workspace_id, "lakehouse_id": item_id, "path": path.strip("/"), "name": name,
+                  "target": current["rest_target"]} if current else None
+        self._sc_log("removed", {"workspace_id": workspace_id, "lakehouse_id": item_id, "workspace_name": workspace_name,  # type: ignore[attr-defined]
+                                 "lakehouse_name": lakehouse_name, "path": path, "name": name}, before, None, note)
         return self._shortcut_rows(api, workspace_id, item_id, lakehouse_name)
 
     def shortcut_connections(self) -> list[dict[str, Any]]:

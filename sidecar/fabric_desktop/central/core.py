@@ -28,10 +28,13 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.reader       which project reads which landing zone source
     catalog.request      requests from domain teams: a key table, a source, or access to a product
     catalog.grant        projects let in to a domain or private product by its owner
+    catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
+    catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
+    catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
-    platform admins      domains, key tables, source systems, glossary, admins, and every request
+    platform admins      domains, key tables, source systems, glossary, admins, shortcut rules, and every request
     domain owners        glossary terms of their domain
     product owners       access requests to their product
     everyone             reading, issuing keys from existing key tables, catalog text, products, links, requests
@@ -45,14 +48,14 @@ import re
 import uuid
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 MAX_BK = 400
 ACCESS = ("public", "domain", "private")
 STATUS = ("draft", "published", "deprecated")
 CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
-REQUEST_KINDS = ("key_table", "source", "access")
+REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
@@ -150,6 +153,15 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
                 ("decided_by", "text"), ("decided_at", "text"), ("note", "long")],
     "grant": [("id", "key"), ("product_id", "text"), ("project", "text"), ("request_id", "text"),
               ("granted_by", "text"), ("granted_at", "text")],
+    "shortcut": [("id", "key"), ("workspace_id", "text"), ("workspace_name", "text"), ("lakehouse_id", "text"),
+                 ("lakehouse_name", "text"), ("path", "text"), ("name", "text"), ("target", "long"),
+                 ("health", "text"), ("health_detail", "long"), ("checked_at", "text"), ("first_seen", "text"),
+                 ("last_seen", "text")],
+    "shortcut_scope": [("lakehouse_id", "key"), ("first_scan", "text"), ("last_scan", "text")],
+    "shortcut_change": [("id", "key"), ("at", "text"), ("kind", "text"), ("shortcut_id", "text"),
+                        ("workspace_name", "text"), ("lakehouse_name", "text"), ("name", "text"),
+                        ("before_def", "long"), ("after_def", "long"), ("by_user", "text"), ("how", "text"),
+                        ("note", "long")],
 }
 
 
@@ -843,6 +855,13 @@ def request(db: Db, kind: str, target: str, project: str = "", reason: str = "",
         target = key_name(target)
         if _row(db, "source", "name", target):
             raise PlatformError(f"{target} is already a source in the landing zone")
+    elif kind == "shortcut":
+        for need in ("workspace_id", "item_id", "where", "name", "source"):
+            if not detail.get(need):
+                raise PlatformError("Say which lakehouse, where in it, the shortcut's name and what it points at")
+        target = shortcut_id(detail["item_id"], f"{str(detail['where']).strip('/')}/{detail['name']}")
+        if _row(db, "shortcut", "id", target):
+            raise PlatformError(f"There's already a shortcut {detail['name']} there")
     else:
         product = _row(db, "product", "id", target)
         if product is None:
@@ -874,6 +893,8 @@ def _deciders(db: Db, req: dict[str, Any]) -> set[str]:
     if req["kind"] == "access":
         product = _row(db, "product", "id", req["target"]) or {}
         return _product_owners(product)
+    if req["kind"] == "shortcut" and req["detail"].get("product_id"):
+        return _product_owners(_row(db, "product", "id", req["detail"]["product_id"]) or {})
     return set()
 
 
@@ -901,7 +922,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
         raise PlatformError(f"That request was already {req['status']}")
     req = _request_out(req)
     if not (is_admin(db, by) or _who(by) in _deciders(db, req)):
-        who = "the product's owner or a platform admin" if req["kind"] == "access" else "a platform admin"
+        who = ("the product's owner or a platform admin" if req["kind"] == "access" or _deciders(db, req)
+               else "a platform admin")
         raise PlatformError(f"Only {who} can decide this request")
     if approve:
         d = req["detail"]
@@ -913,6 +935,8 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
                                 d.get("domain_id", ""), _who(by))
         elif req["kind"] == "source":
             _upsert(db, "catalog", "source", "name", _source_row({"name": req["target"], **d}, _who(by)))
+        elif req["kind"] == "shortcut":
+            pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
         else:
             _upsert(db, "catalog", "grant", "id", {"id": f"{req['target']}|{req['project']}", "product_id": req["target"],
                                                    "project": req["project"], "request_id": req["id"],
@@ -954,6 +978,191 @@ def revoke_grant(db: Db, product_id: str, project: str, by: str = "") -> list[di
     return list_grants(db, product_id)
 
 
+# --------------------------------------------------------------------------- shortcuts
+# Fabric doesn't say who changes a shortcut. The app records its own changes as they happen
+# (log_shortcut_change), and every scan compares what it sees with what was seen last
+# (record_shortcuts), so changes made in Fabric show up too, as "seen at scan".
+
+SHORTCUT_CHANGES = ("added", "removed", "repointed", "broke", "fixed")
+HEALTH = ("healthy", "broken", "unreachable", "not_checked")
+RULE_MODES = ("off", "warn", "block")
+DEFAULT_SHORTCUT_RULES = {"cross_env": "block", "storage_role": "warn", "deprecated_product": "warn",
+                          "connections": "off", "allowed_connections": [], "who_creates": "anyone"}
+
+
+def shortcut_id(lakehouse_id: str, full_path: str) -> str:
+    return f"{lakehouse_id}|{str(full_path).strip('/')}"
+
+
+def _canon(target: Any) -> str:
+    return json.dumps(target or {}, sort_keys=True, default=str)
+
+
+def _shortcut_out(row: dict[str, Any]) -> dict[str, Any]:
+    return dict(row, target=json.loads(row.get("target") or "{}"),
+                health_detail=row.get("health_detail") or "")
+
+
+def _change(db: Db, kind: str, sid: str, ref: dict[str, Any], before: Any, after: Any, by: str, how: str,
+            note: str = "", at: str = "") -> dict[str, Any]:
+    # Microseconds, so changes made in the same second still list in the order they happened.
+    at = at or dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    row = {"id": uuid.uuid4().hex[:12], "at": at, "kind": kind, "shortcut_id": sid,
+           "workspace_name": str(ref.get("workspace_name") or ""), "lakehouse_name": str(ref.get("lakehouse_name") or ""),
+           "name": str(ref.get("name") or ""), "before_def": json.dumps(before) if before is not None else None,
+           "after_def": json.dumps(after) if after is not None else None, "by_user": _who(by), "how": how,
+           "note": str(note or "")}
+    _upsert(db, "catalog", "shortcut_change", "id", row)
+    return _change_out(row)
+
+
+def _change_out(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    out["before"] = json.loads(row["before_def"]) if row.get("before_def") else None
+    out["after"] = json.loads(row["after_def"]) if row.get("after_def") else None
+    out.pop("before_def", None)
+    out.pop("after_def", None)
+    return out
+
+
+def _definition(s: dict[str, Any]) -> dict[str, Any]:
+    """What it takes to make a shortcut again: where it is and the REST API's target."""
+    return {"workspace_id": s.get("workspace_id"), "lakehouse_id": s.get("lakehouse_id"),
+            "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": s.get("target") or {}}
+
+
+def record_shortcuts(db: Db, lakehouses: list[dict[str, Any]], shortcuts: list[dict[str, Any]]) -> dict[str, Any]:
+    """A scan of some lakehouses: ``lakehouses`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name}]
+    were all read, ``shortcuts`` [{lakehouse_id, workspace_id, workspace_name, lakehouse_name, path, name,
+    target}] is everything in them. Records what's new, gone or pointing somewhere else since the last
+    scan, and returns those changes. A lakehouse scanned for the first time only sets the baseline."""
+    now = _now()
+    scanned = {str(l["lakehouse_id"]): l for l in lakehouses if l.get("lakehouse_id")}
+    seen = {}
+    for s in shortcuts:
+        if str(s.get("lakehouse_id")) in scanned:
+            seen[shortcut_id(s["lakehouse_id"], f"{str(s.get('path') or '').strip('/')}/{s.get('name')}")] = s
+    stored = {}
+    for lh in scanned:
+        for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut')} WHERE lakehouse_id = ?", (lh,)):
+            stored[r["id"]] = r
+    first = {lh for lh in scanned if _row(db, "shortcut_scope", "lakehouse_id", lh) is None}
+    changes = []
+    for sid, s in seen.items():
+        before = stored.get(sid)
+        row = {"id": sid, "workspace_id": s.get("workspace_id"), "workspace_name": s.get("workspace_name"),
+               "lakehouse_id": s.get("lakehouse_id"), "lakehouse_name": s.get("lakehouse_name"),
+               "path": str(s.get("path") or "").strip("/"), "name": s.get("name"), "target": _canon(s.get("target")),
+               "last_seen": now}
+        if before is None:
+            row |= {"health": "not_checked", "health_detail": "", "checked_at": "", "first_seen": now}
+            if str(s["lakehouse_id"]) not in first:
+                changes.append(_change(db, "added", sid, s, None, _definition(s), "", "scan"))
+        elif _canon(json.loads(before.get("target") or "{}")) != row["target"]:
+            changes.append(_change(db, "repointed", sid, s, _definition(_shortcut_out(before)), _definition(s), "", "scan"))
+            row |= {"health": "not_checked", "health_detail": "", "checked_at": ""}
+        _upsert(db, "catalog", "shortcut", "id", row)
+    for sid, before in stored.items():
+        if sid not in seen:
+            changes.append(_change(db, "removed", sid, before, _definition(_shortcut_out(before)), None, "", "scan"))
+            db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
+    for lh in scanned:
+        _upsert(db, "catalog", "shortcut_scope", "lakehouse_id",
+                {"lakehouse_id": lh, "first_scan": (_row(db, "shortcut_scope", "lakehouse_id", lh) or {}).get("first_scan") or now,
+                 "last_scan": now})
+    db.commit()
+    return {"changes": changes, "baseline": sorted(first)}
+
+
+def log_shortcut_change(db: Db, kind: str, shortcut: dict[str, Any], before: dict[str, Any] | None = None,
+                        after: dict[str, Any] | None = None, note: str = "", by: str = "") -> dict[str, Any]:
+    """A change made from the app, recorded with who made it, and the inventory updated to match
+    so the next scan doesn't count it again."""
+    if kind not in ("added", "removed", "repointed"):
+        raise PlatformError("kind is added, removed or repointed")
+    sid = shortcut_id(shortcut["lakehouse_id"], f"{str(shortcut.get('path') or '').strip('/')}/{shortcut.get('name')}")
+    out = _change(db, kind, sid, shortcut, before, after, by, "app", note)
+    if kind == "removed":
+        db.run(f"DELETE FROM {db.t('catalog', 'shortcut')} WHERE id = ?", (sid,))
+    else:
+        now = _now()
+        prev = _row(db, "shortcut", "id", sid) or {}
+        _upsert(db, "catalog", "shortcut", "id", {
+            "id": sid, "workspace_id": shortcut.get("workspace_id"), "workspace_name": shortcut.get("workspace_name"),
+            "lakehouse_id": shortcut.get("lakehouse_id"), "lakehouse_name": shortcut.get("lakehouse_name"),
+            "path": str(shortcut.get("path") or "").strip("/"), "name": shortcut.get("name"),
+            "target": _canon((after or {}).get("target")), "health": "not_checked", "health_detail": "",
+            "checked_at": "", "first_seen": prev.get("first_seen") or now, "last_seen": now})
+    _audit(db, by, f"shortcut {kind}", sid, {"note": note} if note else None)
+    db.commit()
+    return out
+
+
+def record_shortcut_health(db: Db, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Health checks: [{id, health, detail}]. A shortcut that breaks or comes back is a change."""
+    now, changes = _now(), []
+    for r in results:
+        if r.get("health") not in HEALTH:
+            raise PlatformError(f"health is one of {', '.join(HEALTH)}")
+        row = _row(db, "shortcut", "id", str(r.get("id")))
+        if row is None:
+            continue
+        was = row.get("health") or "not_checked"
+        if r["health"] == "broken" and was != "broken":
+            changes.append(_change(db, "broke", row["id"], row, None, None, "", "check", r.get("detail", "")))
+        elif was == "broken" and r["health"] == "healthy":
+            changes.append(_change(db, "fixed", row["id"], row, None, None, "", "check"))
+        db.run(f"UPDATE {db.t('catalog', 'shortcut')} SET health = ?, health_detail = ?, checked_at = ? WHERE id = ?",
+               (r["health"], str(r.get("detail") or ""), now, row["id"]))
+    db.commit()
+    return changes
+
+
+def list_seen_shortcuts(db: Db) -> list[dict[str, Any]]:
+    return [_shortcut_out(r) for r in db.rows(f"SELECT * FROM {db.t('catalog', 'shortcut')}")]
+
+
+def shortcut_changes(db: Db, days: int = 30, limit: int = 500, shortcut: str = "") -> list[dict[str, Any]]:
+    since = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=int(days))).replace(microsecond=0).isoformat()
+    sql = f"SELECT * FROM {db.t('catalog', 'shortcut_change')} WHERE at >= ?"
+    params: list[Any] = [since]
+    if shortcut:
+        sql += " AND shortcut_id = ?"
+        params.append(shortcut)
+    rows = sorted(db.rows(sql, params), key=lambda r: r["at"], reverse=True)
+    return [_change_out(r) for r in rows[:int(limit)]]
+
+
+def shortcut_rules(db: Db) -> dict[str, Any]:
+    saved = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", ("shortcut_rules",))
+    rules = dict(DEFAULT_SHORTCUT_RULES)
+    if saved and saved[0].get("value"):
+        rules.update(json.loads(saved[0]["value"]))
+    return rules
+
+
+def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str, Any]:
+    require_admin(db, by, "change the shortcut rules")
+    out = dict(DEFAULT_SHORTCUT_RULES)
+    for k, v in (rules or {}).items():
+        if k not in DEFAULT_SHORTCUT_RULES:
+            raise PlatformError(f"{k} isn't a shortcut rule")
+        if k == "allowed_connections":
+            out[k] = [str(x) for x in (v or [])]
+        elif k == "who_creates":
+            if v not in ("anyone", "admins"):
+                raise PlatformError("who_creates is anyone or admins")
+            out[k] = v
+        elif v not in RULE_MODES:
+            raise PlatformError(f"{k} is one of {', '.join(RULE_MODES)}")
+        else:
+            out[k] = v
+    _upsert(db, "config", "setting", "name", {"name": "shortcut_rules", "value": json.dumps(out)})
+    _audit(db, by, "save shortcut rules", "shortcut_rules", out)
+    db.commit()
+    return out
+
+
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
@@ -968,5 +1177,7 @@ OPERATIONS = {
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
     "save_source": save_source, "delete_source": delete_source, "request": request, "list_requests": list_requests,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
-    "revoke_grant": revoke_grant,
+    "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
+    "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,
+    "shortcut_changes": shortcut_changes, "shortcut_rules": shortcut_rules, "save_shortcut_rules": save_shortcut_rules,
 }

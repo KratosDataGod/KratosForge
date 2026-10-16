@@ -11,6 +11,7 @@ from pathlib import Path
 
 import polars as pl
 from deltalake import DeltaTable, write_deltalake
+from deltalake.exceptions import CommitFailedError
 
 from fabric_desktop import delta_profile
 from fabric_desktop.meta import Engine, LocalStore, Project
@@ -180,6 +181,27 @@ def test_repeated_keys_or_changed_types_fall_back_to_a_rewrite_and_say_why(tmp_p
         first = res if s is new else first
     assert "rewrote the table because new rows repeat a key (id)" in new.write_step(first)
     assert new.table().equals(old.table())
+
+
+def test_a_rewrite_fallback_never_drops_rows_another_writer_committed_meanwhile(tmp_path, monkeypatch):
+    s = Setup(tmp_path, True)
+    s.source(rows(range(3), DAY1))
+    s.run()
+    s.source(pl.concat([rows([1], DAY2, amount=2), rows([1], DAY2, amount=3)]))  # repeated key: rewrite
+    real, sneaked = s.store.read_at, []
+
+    def read_then_someone_writes(lakehouse, schema, table):
+        out = real(lakehouse, schema, table)
+        if table == "events" and not sneaked:
+            sneaked.append(1)
+            extra = out[0].head(1).with_columns(pl.lit(99, dtype=pl.Int64).alias("id"))
+            s.store.write(lakehouse, schema, table, extra, mode="append")  # the app or a Fabric run
+        return out
+    monkeypatch.setattr(s.store, "read_at", read_then_someone_writes)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda _: None)
+    res = s.run(day=DAY2)
+    assert "rewrote the table because new rows repeat a key" in s.write_step(res)
+    assert 99 in s.table()["id"].to_list()
 
 
 def test_a_new_source_column_is_added_to_the_table(tmp_path):
@@ -366,3 +388,31 @@ def test_a_full_snapshot_into_a_type2_dimension_touches_only_what_changed(tmp_pa
     # Type 1 dimensions take every arriving row, so a full snapshot is rewritten, and says why.
     assert "most of it changed" in next(s.detail for s in new.load(list(base.values()), DAY3)[0].steps
                                         if s.name == "write")
+
+
+def test_a_dimension_merge_never_reuses_a_key_another_writer_handed_out_meanwhile(tmp_path, monkeypatch):
+    d = Dims(tmp_path, True)
+    d.load([(i, "Oslo", f"c{i}@x") for i in range(1, 51)], DAY1)
+    real, sneaked = d.store.upsert, []
+
+    def someone_adds_a_member_first(lakehouse, schema, table, df, on, *args, **kwargs):
+        if table == "dim1" and not sneaked:
+            sneaked.append(1)
+            now = d.table("bronze.dim1")
+            theirs = now.filter(pl.col("customer_id") == 1).with_columns(
+                pl.lit(400, dtype=pl.Int64).alias("customer_id"),
+                pl.lit(int(now["cust_sk"].max()) + 1, dtype=pl.Int64).alias("cust_sk"))
+            d.store.write(lakehouse, schema, table, theirs, mode="append")  # another run added customer 400
+        try:
+            return real(lakehouse, schema, table, df, on, *args, **kwargs)
+        except CommitFailedError:
+            conflicts.append(table)
+            raise
+    conflicts: list = []
+    monkeypatch.setattr(d.store, "upsert", someone_adds_a_member_first)
+    monkeypatch.setattr("fabric_desktop.meta.engine.time.sleep", lambda _: None)
+    d.load([(300, "Rome", "c300@x")], DAY2)
+    t = d.table("bronze.dim1")
+    assert {300, 400} <= set(t["customer_id"].to_list())
+    assert not t["cust_sk"].is_duplicated().any()
+    assert conflicts == ["dim1"]  # the MERGE saw the other writer's key, failed, and ran again

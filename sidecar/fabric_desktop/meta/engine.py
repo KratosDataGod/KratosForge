@@ -712,7 +712,10 @@ class Engine:
         touches only what changed. Returns (version, detail, rows in the table), or the reason the
         whole table is read and rewritten instead ("" for no reason worth showing)."""
         lh, sk, bk = self.lakehouse(e), e.surrogate_key, e.keys
-        lf = self.store.scan(lh, e.schema, e.table)
+        # Everything below is worked out from one version, and the MERGE commits against it: a
+        # writer that adds keys in between makes the commit fail, and _write runs it again.
+        read_version = self.store.version(lh, e.schema, e.table)
+        lf = self.store.scan(lh, e.schema, e.table, read_version)
         if lf is None or not sk or not bk:
             return ""
         have = lf.collect_schema()
@@ -756,7 +759,8 @@ class Engine:
                 info += f", {plural(unchanged, 'row')} unchanged"
         # The Unknown member never changes here, so it stays out of the MERGE.
         out = out.filter(pl.col(sk) != -1)
-        version, m = self.store.upsert(lh, e.schema, e.table, out, [sk], metadata, prune=bk)
+        version, m = self.store.upsert(lh, e.schema, e.table, out, [sk], metadata, prune=bk,
+                                       read_version=read_version, new_from=(sk, next_key))
         removed, added = m.get("num_target_files_removed", 0), m.get("num_target_files_added", 0)
         detail = (f"{info}; read {plural(subset.height, 'row')} of the table for "
                   f"{plural(keys.height, 'business key')} (Delta MERGE rewrote {plural(removed, 'file')}, added {added})")
@@ -788,7 +792,9 @@ class Engine:
                 self._step(res, "write", t0, rows, f"{info}; Delta version {version}")
                 return
             why = done
-        existing = self.read_entity(e.name)
+        # The version read is the one the commit is made against: if another writer (the app, an
+        # agent, a run in Fabric) commits in between, the commit fails and _write merges again.
+        existing, read_version = self.store.read_at(lh, e.schema, e.table)
         if e.mode == "scd1":
             out, info = scd1_merge(existing, df, e)
         elif e.mode == "scd2":
@@ -813,7 +819,8 @@ class Engine:
             out, info = df, f"replaced with {plural(df.height, 'row')}"
         if why:
             info = f"{info}; {why}"
-        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata)
+        version = self.store.write(lh, e.schema, e.table, out, mode="overwrite", metadata=metadata,
+                                   read_version=read_version)
         self._advance_watermark(e, df, backfill)
         res.rows_written, res.delta_version = df.height, version
         self._step(res, "write", t0, out.height, f"{info}; Delta version {version}")

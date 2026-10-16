@@ -10,6 +10,7 @@ Last updated: 2026-10-16.
 | --- | --- | --- | --- |
 | 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Open for review |
 | 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
+| 2 Proofs engine | `claude/prove-stage2-proofs` | STAGE2 | Open for review; stacked on #59 and #55 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -20,11 +21,12 @@ None yet.
 ## In progress
 
 - Stage 1 is in review (#59): stable cell ids, `receipts.py`, `envprofile.py`.
-- Stage 2: isolated proof runs and verification (engine).
+- Stage 2 is in review (STAGE2): `proof_runtime.py`, `proof.py`, `verify.py`, `measure.py`, `scorecard.py`, `prove_*` requests in `prove_service.py`; guide in [how-proofs-work.md](how-proofs-work.md).
+- Stage 3: Prove panel, wizard, diff grid, scorecard view. Mockup first; the PR stays a draft until Chris reacts.
 
 ## Decisions and assumptions
 
-- Proof sandboxes live in the attached lakehouse under `Files/_fabric_desktop/proofs/<id>/<side>/`, so a proof creates no Fabric items or lakehouses (no cloud resources without Chris's OK).
+- Proof sandboxes live in the attached lakehouse under `Files/_fabric_desktop/proofs/<id>/<side>/`, so a proof creates no lakehouses or tables. The Fabric run publishes one notebook item, `<notebook>_proof`, in the notebook's workspace (as Run in Fabric does), so the user's own notebook and its schedules are never changed.
 - Inputs are pinned to the Delta version of every table at proof start; files are verified by SHA-256 on both sides rather than copied.
 - First-release proofs support notebooks whose writes go through `fabric_desktop.lakehouse` (Python notebooks in Fabric). Spark writes in Fabric block a proof with a reason.
 - No AI features until Chris decides on the AI service and data policy (backlog 11, 13, 16, 18, 20, 50).
@@ -37,6 +39,7 @@ None yet.
 
 - main at af11938: engine tests 322 passed, 2 skipped (Linux, Python 3.13).
 - #59: 337 passed, 2 skipped; UI tests pass.
+- Stage 2: 353 passed, 2 skipped; UI tests pass; docs build strict. The Fabric side was exercised by running the exact published notebook in a subprocess with a fake `notebookutils`, not on a tenant.
 
 ## Blockers
 
@@ -45,4 +48,4 @@ None yet.
 
 ## Next action
 
-Build stage 2 on `claude/prove-stage2-proofs`, stacked on #59 (it needs cell ids and receipts).
+Mock up the Prove panel (wizard, result diff grid, scorecard, receipt export) as a design canvas artifact for Chris, then build stage 3 on `claude/prove-stage3-ui`, stacked on stage 2. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

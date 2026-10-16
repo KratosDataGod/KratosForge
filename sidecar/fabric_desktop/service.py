@@ -272,6 +272,8 @@ class Service(ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin,
     # interrupt_cell stops it without clearing variables.
     def start_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None,
                    notebook: str | None = None) -> dict[str, Any]:
+        if self.proof_busy():
+            raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._attach(lakehouse_ref)
         self.kernel.notebook_name = notebook or ""
         return self.kernel.start(code)

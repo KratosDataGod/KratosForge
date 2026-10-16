@@ -13,7 +13,7 @@ Last updated: 2026-10-16.
 | 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
 | 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Open for review; stacked on #65 |
-| 5 Notebook state | `claude/prove-stage5-state` | see PR list | Draft until Chris reacts to the mockup board 6; stacked on #67 |
+| 5 Notebook state | `claude/prove-stage5-state` | #68 | Draft until Chris reacts to the mockup board 6; stacked on #67 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 

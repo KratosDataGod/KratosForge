@@ -98,6 +98,8 @@ from pyspark.sql import functions as F
 
 Printed output shows while a cell runs. Code stuck inside a library call can't always be interrupted; the app then offers **Restart kernel**.
 
+**Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process, a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
+
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.

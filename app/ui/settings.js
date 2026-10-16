@@ -200,7 +200,13 @@ async function renderSettings() {
       `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.values(PREVIEW_FEATURES).join(", ")}.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
-      s.show_preview.source === "policy" ? "policy" : null));
+      s.show_preview.source === "policy" ? "policy" : null),
+    s.kernel_process ? settingRow("Run notebooks in their own process (Preview)",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
+        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
+      h("span", {}, s.kernel_process.value ? "On" : "Off")),
+      s.kernel_process.source === "policy" ? "policy" : null) : null);
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),

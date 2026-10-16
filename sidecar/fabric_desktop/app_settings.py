@@ -20,6 +20,8 @@ Keys:
                      organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
+    kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
+                     and crashes end only that process (default false while in preview)
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -37,8 +39,8 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}}
-USER_KEYS = ("client_id", "channel", "show_preview")  # support_url is for IT only
+                            "platform": {}, "kernel_process": False}
+USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
 
@@ -122,7 +124,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key == "show_preview":
+        if key in ("show_preview", "kernel_process"):
             new = bool(new)
         if new in (None, ""):
             user.pop(key, None)

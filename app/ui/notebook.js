@@ -1171,9 +1171,22 @@ async function cancelRun() {
   }
 }
 
+// With notebooks in their own process (Settings), Stop ends only that process. Otherwise the
+// kernel is inside the engine, and the shell ends the engine.
+function kernelInOwnProcess() {
+  return state.settings?.kernel_process?.value === true;
+}
+
 async function stopKernel() {
   stopRequested = true;
   cancelRequested = true;
+  if (kernelInOwnProcess()) {
+    const out = await attempt(() => rpc("stop_kernel_process"), "Could not stop the kernel");
+    if (out && !out.in_engine) {  // stopped, or nothing was running
+      state.notebook?.cells.forEach((c) => { if (c.status === "queued") c.status = null; });
+      return;
+    }
+  }
   await attempt(() => invoke("stop_kernel"), "Could not stop the kernel");
   state.notebook?.cells.forEach((c) => { if (c.status === "queued") c.status = null; });
 }

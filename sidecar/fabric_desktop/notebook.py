@@ -469,6 +469,29 @@ class Kernel:
                 namespace.update(arguments)
         return None
 
+    # ---- proofs (prove_service): the proof runtime is bound where the cells run
+
+    def bind_proof(self, config: dict[str, Any], side: str, root: str, options: Callable[[], dict[str, str]]) -> None:
+        from . import lakehouse
+        from .proof_runtime import ProofRuntime
+        self._proof = ProofRuntime(config, side).bind(root, options)
+        lakehouse.proof = self._proof
+
+    def unbind_proof(self) -> None:
+        from . import lakehouse
+        lakehouse.proof = None
+        if getattr(self, "_proof", None) is not None:
+            self._proof.restore()
+
+    def finish_proof(self, modules: list[str]) -> dict[str, Any]:
+        log = self._proof.finish(modules)
+        self._proof = None
+        return log
+
+    def stop(self) -> dict[str, Any]:
+        """This kernel runs inside the engine: only ending the engine stops a cell stuck in native code."""
+        return {"stopped": False, "in_engine": True}
+
     # ---- what the Variables pane and autocomplete show
 
     def variables(self) -> list[dict[str, Any]]:

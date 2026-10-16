@@ -4,7 +4,8 @@ Two notebooks, the same on this PC and in Fabric:
 
 * **TPC-H data** generates the eight TPC-H tables at a scale factor you pick (1 is about 1 GB
   and 6 million order lines, 10 is about 10 GB) with DuckDB's tpch extension, and writes them
-  to the attached lakehouse as Delta tables in the ``tpch`` schema. Run it once, anywhere.
+  to the attached lakehouse as Delta tables in the ``tpch`` schema (``tpch_region`` and so on
+  in a lakehouse created without schemas). Run it once, anywhere.
 * **TPC-H benchmark** loads those tables, runs the 22 TPC-H queries and writes each answer to
   ``bench.q01`` ... ``bench.q22``. Turn on Side by side and Run all: it runs here and in
   Fabric, and the answers are checked against each other.
@@ -723,6 +724,10 @@ load_tpch(con)
 started = time.perf_counter()
 con.execute(f"CALL dbgen(sf={scale_factor})")
 print(f"Generated scale factor {scale_factor} in {time.perf_counter() - started:.1f} s")
+
+def table_name(schema, table):
+    """schema.table, or schema_table in a lakehouse created without schemas."""
+    return f"{schema}.{table}" if lakehouse.has_schemas() else f"{schema}_{table}"
 '''
 
 _WRITE = '''
@@ -743,9 +748,9 @@ for table in TABLES:
     result = con.execute(f"SELECT * FROM {table}")
     reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)  # newer, older DuckDB
     for part in slices(reader):
-        lakehouse.write_table(part, f"{schema}.{table}", mode)
+        lakehouse.write_table(part, table_name(schema, table), mode)
         rows, mode = rows + part.num_rows, "append"
-    print(f"{schema}.{table}: {rows:,} rows in {time.perf_counter() - started:.1f} s")
+    print(f"{table_name(schema, table)}: {rows:,} rows in {time.perf_counter() - started:.1f} s")
 con.close()
 '''
 
@@ -761,11 +766,15 @@ def timed(step, started):
     timings.append({"step": step, "seconds": round(seconds, 3)})
     return seconds
 
+def table_name(schema, table):
+    """schema.table, or schema_table in a lakehouse created without schemas."""
+    return f"{schema}.{table}" if lakehouse.has_schemas() else f"{schema}_{table}"
+
 # Read every table from the lakehouse once, so the queries time compute, not downloads.
 con = duckdb.connect()
 started = time.perf_counter()
 for table in TABLES:
-    con.register(f"_src_{table}", lakehouse.open_table(f"{schema}.{table}").to_pyarrow_dataset())
+    con.register(f"_src_{table}", lakehouse.open_table(table_name(schema, table)).to_pyarrow_dataset())
     con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM _src_{table}")
     con.unregister(f"_src_{table}")
 rows = con.execute("SELECT count(*) FROM lineitem").fetchone()[0]
@@ -786,7 +795,7 @@ _SAVE = '''
 # Each answer becomes a table, so Side by side can check this PC's and Fabric's answers match.
 started = time.perf_counter()
 for n, answer in answers.items():
-    lakehouse.write_table(answer, f"{output_schema}.q{n:02d}")
+    lakehouse.write_table(answer, table_name(output_schema, f"q{n:02d}"))
 timed("write answers", started)
 display(pl.DataFrame(timings))
 '''
@@ -799,7 +808,8 @@ def notebooks() -> dict[str, list[dict[str, Any]]]:
         _md("""
 # TPC-H data
 Generates the TPC-H tables with DuckDB's tpch extension and writes them to the attached lakehouse as Delta
-tables in the `tpch` schema. Run it once, on this PC or in Fabric; **TPC-H benchmark** reads them.
+tables in the `tpch` schema (named `tpch_region` and so on in a lakehouse without schemas). Run it once, on this PC
+or in Fabric; **TPC-H benchmark** reads them.
 
 | scale_factor | order lines | size (about) |
 |---|---|---|
@@ -822,7 +832,7 @@ batch_rows = 2_000_000
         _md("""
 # TPC-H benchmark
 Loads the `tpch` tables (from **TPC-H data**), runs the 22 TPC-H queries with DuckDB and writes each answer to
-`bench.q01` ... `bench.q22`.
+`bench.q01` ... `bench.q22` (`bench_q01` ... in a lakehouse without schemas).
 
 To compare this PC with Fabric, turn on **Side by side** in the ribbon and choose **Run all**. The notebook runs here,
 then in Fabric, and Fabric Desktop checks that both wrote the same answers. The timings table at the end shows each

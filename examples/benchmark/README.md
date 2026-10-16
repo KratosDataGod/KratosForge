@@ -4,8 +4,8 @@ Two notebooks for testing a load on your PC and in Fabric with a standard worklo
 
 | Notebook | What it does |
 | --- | --- |
-| [tpch_data.ipynb](tpch_data.ipynb) | Generates the eight TPC-H tables at the scale factor you pick (1 is about 1 GB) with DuckDB's tpch extension and writes them to the attached lakehouse in the `tpch` schema. Run it once. |
-| [tpch_benchmark.ipynb](tpch_benchmark.ipynb) | Loads those tables, runs the 22 TPC-H queries, times each step and writes each answer to `bench.q01` ... `bench.q22`. |
+| [tpch_data.ipynb](tpch_data.ipynb) | Generates the eight TPC-H tables at the scale factor you pick (1 is about 1 GB) with DuckDB's tpch extension and writes them to the attached lakehouse in the `tpch` schema (as `tpch_region` and so on in a lakehouse without schemas). Run it once. |
+| [tpch_benchmark.ipynb](tpch_benchmark.ipynb) | Loads those tables, runs the 22 TPC-H queries, times each step and writes each answer to `bench.q01` ... `bench.q22` (`bench_q01` ... without schemas). |
 
 No data is stored here: it is generated when you run the first notebook, at any scale.
 

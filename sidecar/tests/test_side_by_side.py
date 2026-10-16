@@ -361,9 +361,12 @@ def _tpch_available() -> bool:
 
 
 @pytest.mark.skipif(not _tpch_available(), reason="DuckDB's tpch extension can't be installed here")
-def test_benchmark_notebooks_run_end_to_end(svc, tables):
+@pytest.mark.parametrize("schemas", [True, False])
+def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
     """Generate scale factor 0.01, run the 22 queries, and check the answers against DuckDB's own."""
     import duckdb
+    svc._schema_cache[LAKEHOUSE["lakehouse_id"]] = schemas
+    tname = (lambda s, t: f"{s}.{t}") if schemas else (lambda s, t: f"{s}_{t}")  # noqa: E731
     for name, params in ((benchmark.DATA_NOTEBOOK, "scale_factor = 0.01"), (benchmark.BENCHMARK_NOTEBOOK, None)):
         cells = benchmark.notebooks()[name]
         svc._attach(LAKEHOUSE)
@@ -373,11 +376,11 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables):
                 continue
             out = svc.kernel.run(c["source"] + (f"\n{params}" if params and "parameters" in c.get("meta", {}).get("tags", []) else ""))
             assert out["status"] == "ok", out["outputs"]
-    assert DeltaTable(str(tables.path("tpch.lineitem"))).to_pyarrow_table().num_rows > 50_000
+    assert DeltaTable(str(tables.path(tname("tpch", "lineitem")))).to_pyarrow_table().num_rows > 50_000
     con = duckdb.connect()
     for t in benchmark.TABLES:
-        con.register(t, DeltaTable(str(tables.path(f"tpch.{t}"))).to_pyarrow_dataset())
+        con.register(t, DeltaTable(str(tables.path(tname("tpch", t)))).to_pyarrow_dataset())
     for n in (1, 6, 13, 18):
         expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
-        got = tables.fingerprint(f"bench.q{n:02d}", DeltaTable(str(tables.path(f"bench.q{n:02d}"))).version())
+        got = tables.fingerprint(tname("bench", f"q{n:02d}"), DeltaTable(str(tables.path(tname("bench", f"q{n:02d}")))).version())
         assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]

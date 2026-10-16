@@ -72,7 +72,7 @@ Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or 
 
 ### 1. Make the data: TPC-H data
 
-Generates the TPC-H tables with DuckDB's tpch extension and writes them to the attached lakehouse as Delta tables in the `tpch` schema. Set `scale_factor` in the first cell:
+Generates the TPC-H tables with DuckDB's tpch extension and writes them to the attached lakehouse as Delta tables in the `tpch` schema (in a lakehouse created without schemas, tables named `tpch_region`, `tpch_nation` and so on). Set `scale_factor` in the first cell:
 
 | scale_factor | Order lines | Size (about) | Good for |
 | --- | --- | --- | --- |
@@ -87,7 +87,7 @@ The extension comes from DuckDB's extension site; if your network blocks it, the
 
 ### 2. Run the benchmark: TPC-H benchmark
 
-Loads the eight tables, runs the 22 queries and writes each answer to `bench.q01` ... `bench.q22`. Turn on **Side by side** and select **Run all**.
+Loads the eight tables, runs the 22 queries and writes each answer to `bench.q01` ... `bench.q22` (`bench_q01` ... in a lakehouse without schemas). Turn on **Side by side** and select **Run all**.
 
 The notebook times each step and shows a table at the end:
 

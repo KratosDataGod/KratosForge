@@ -82,14 +82,27 @@ def name() -> str | None:
     return _attached.name if _attached else None
 
 
+def has_schemas() -> bool:
+    """False when the attached lakehouse was created without schemas (tables are just ``table``)."""
+    return _current().schemas_enabled()
+
+
 def table_ref(table: str) -> TableRef:
-    schema, _, name_ = table.rpartition(".")
+    """``table``, ``schema.table``, or either with the lakehouse name in front, as Spark in Fabric allows."""
     lh = _current()
+    parts = table.split(".")
+    # lakehouse.schema.table, or lakehouse.table when the lakehouse has no schemas.
+    if parts[0].lower() == lh.name.lower() and (len(parts) == 3 or len(parts) == 2 and not lh.schemas_enabled()):
+        parts = parts[1:]
+    if len(parts) > 2:
+        raise ValueError(f"{table}: name tables as table or schema.table in the attached lakehouse ({lh.name}).")
+    schema, name_ = (parts[0], parts[1]) if len(parts) == 2 else ("", parts[0])
     if lh.schemas_enabled():
         return TableRef(lh.workspace_id, lh.lakehouse_id, schema or "dbo", name_)
-    if schema not in ("", "dbo"):
-        raise ValueError(f"{lh.name} was created without schemas, so tables have no schema. "
-                         f"Use {name_!r} or 'dbo.{name_}'.")
+    if schema.lower() not in ("", "dbo"):
+        raise ValueError(f"{lh.name} was created without schemas, so a table can't go in {schema!r}. "
+                         f"Use {name_!r}, or put the schema in the name: '{schema}_{name_}'. "
+                         f"lakehouse.has_schemas() tells a notebook which kind it has.")
     return TableRef(lh.workspace_id, lh.lakehouse_id, "dbo", name_, flat=True)
 
 

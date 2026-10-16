@@ -8,7 +8,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)) and 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56): in review |
+| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)), 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61)) and 1.3 preflight ([#69](https://github.com/KratosDataGod/fabric-desktop/pull/69)), stacked in that order: in review |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
@@ -117,6 +117,8 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.3 Preflight estimate and memory guard.** Effort M, risk low. Before a run, estimate files, bytes and rows to read from the Delta log (add-action sizes, row counts and min/max statistics against the watermark), compare with the PC's free memory, and warn or stop with a plain explanation; record rows and bytes read in the run's steps. UI goes in the existing entity run dialog, after a mockup. Depends on 1.1.
 
+*Engine part built in [PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)*, stacked on #61. Delta sources only; file sources wait for 1.4. The guard stops a read when three times the estimate exceeds free memory: on a 5M-row first load the peak was 2.5 times the estimate. `[load] memory_guard = false` opts out, and `meta_preflight` serves the run dialog. The dialog itself waits for a mockup.
+
 **1.4 Read only new landing files.** Effort M, risk low. A per-entity manifest in `meta` of files already loaded (path, size, modified time), so a landing or file source reads only new or changed files; idempotent on retry because the manifest is written after the table commit. Shared with ingestion (4.x). Migration: the first run after upgrade records every file already present as loaded only if the entity has run before, so nothing loads twice.
 
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
@@ -170,7 +172,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 ## Delivery sequence
 
 1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review) and **9.3** run correlation ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58), in review).
-2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight.
+2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69), stacked on #61).
 3. **7.1** pipeline job contract ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and **7.2** agent status records ([PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)), built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
 4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
 5. **1.4** landing manifest, then **4.1** once D2 is answered.
@@ -185,7 +187,7 @@ Large tables come first because every later stage runs through the same write pa
 
 ## Dependencies outside this plan
 
-- Concurrent writes from the desktop app and Fabric runs are made safe by version-checked commits in [PR #54](https://github.com/KratosDataGod/fabric-desktop/pull/54) (review thread). Stage 1.1 keeps the agent's lease and the commit retry; its MERGE is itself a conflict-checked commit, and its rewrite fallback adopts #54's version check when both are merged.
+- Concurrent writes from the desktop app and Fabric runs are made safe by version-checked commits in [PR #54](https://github.com/KratosDataGod/fabric-desktop/pull/54) (merged). #56 and #61 now carry it. The rewrite fallback commits against the version it read. A dimension MERGE loads the table at the version it read and also reads rows from the first new surrogate key up, so another writer's new keys make it conflict and run again, instead of handing out a key twice (found by a test while merging #54).
 - Code signing and a tenant smoke test gate every move from Preview to tested.
 
 ## Live verification for stage 1.1
@@ -202,6 +204,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 1.3 engine part built ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)). #54 merged into #56 and #61; fixed a surrogate-key race in #61's dimension MERGE. |
 | 2026-10-16 | Stages 7.1 and 7.2 built ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64), [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)). |
 | 2026-10-16 | Stage 1.2 built and measured ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61)). |
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)). |

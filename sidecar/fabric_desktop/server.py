@@ -28,7 +28,7 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
-           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_runs", "meta_runs_all", "meta_run_detail",
+           "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
            "meta_preview", "meta_promote_check", "meta_promote", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",

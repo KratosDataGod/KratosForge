@@ -360,6 +360,14 @@ class MetaMixin:
             return self._run_in_fabric(project, env, store, names, backfill, cascade)  # type: ignore[attr-defined]
         return self._run_here(project, env, names, backfill, cascade)
 
+    def meta_preflight(self, name: str, env: str = "dev", backfill: str | None = None) -> dict[str, Any]:
+        """What running ``name`` on this PC would read and whether it fits in memory, from the Delta
+        log only: for the run dialog."""
+        project = self._project()
+        engine = Engine(project, self._store(project, env), source_options=self._source_options,
+                        link_table=self._link_table(project, env))  # type: ignore[attr-defined]
+        return engine.preflight(name, backfill)
+
     def _run_here(self, project: Project, env: str, names: list[str] | None = None, backfill: str | None = None,
                   cascade: bool = False) -> list[dict[str, Any]]:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""

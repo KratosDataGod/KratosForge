@@ -141,6 +141,8 @@ Replayed quarantine rows go in the same way.
 
 Full loads and rebuilds still replace the whole table.
 
+**Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
+
 Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
 
 | Table | Changed rows | Write | Seconds | Peak memory | Files rewritten | Written |
@@ -384,6 +386,7 @@ business_key = "order_id"
 | | `rename` | Source column names mapped to the contract's names |
 | `[load]` | `mode` | `full`, `incremental`, `scd1` or `scd2` |
 | | `watermark` | The column incremental loads move forward on |
+| | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |

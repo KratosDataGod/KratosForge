@@ -159,6 +159,7 @@ Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremen
 | | | rewrite (before 0.20) | 23.9 | 3.8 GB | 10 of 10 | 52 MB |
 
 Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
+
 ### Loads from files read only new files
 
 An incremental or dimension load from files (`files` or `landing`) remembers each file it loaded: its path, size and modified time, in `LH_Meta`'s `meta.loaded_files`. Each run then reads only files that are new or have changed since, instead of every file in the folder. The **read** step says so, for example *1 new file of 30*.

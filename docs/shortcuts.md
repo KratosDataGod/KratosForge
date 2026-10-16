@@ -1,0 +1,121 @@
+# Shortcut command center
+
+**OneLake > Shortcuts** is where you manage every OneLake shortcut you can see, in every workspace and lakehouse, in one place. It shows whether each one works, who can read it, what changed and who changed it, and the requests for new ones.
+
+It's a preview feature: it hasn't been tried on a live Fabric tenant yet.
+
+## What's on it
+
+The tab has five views, picked with the buttons under the title.
+
+| View | What it shows |
+| --- | --- |
+| **All shortcuts** | Counts at the top (shortcuts, broken, read with a connection, changed in the last 7 days, requests waiting on you), then one row per shortcut: where it lives, what it points at, its health, the managed tables that read it, and its last change. Broken shortcuts are listed first. Select a row to open its panel. |
+| **Health** | Broken shortcuts grouped by cause, and shortcuts that work but are worth a look, each with a fix |
+| **Access** | Shortcuts whose readers and target don't match, and the platform's shortcut rules |
+| **Changes** | Every shortcut added, repointed, removed, broken or fixed, with Undo and Recreate |
+| **Requests** | Shortcut requests waiting on you and the ones you sent, and **shortcut needs**: shortcuts that need changing |
+
+**New shortcut** makes one in any lakehouse you can write to. **Refresh** reads every lakehouse again. **Check all now** checks every shortcut's health.
+
+## One shortcut's panel
+
+Select a shortcut to see:
+
+- **Overview:** what it points at (lakehouse and path, or the storage location and connection), the data product it points at if any, its environment, when it was first seen, and the managed tables that read it.
+- **Who can read:** everyone who can read the shortcut, and whether the target lets each of them in.
+- **History:** every change to this shortcut.
+
+From the panel you can **Check now**, **Repoint** it, **Open in Fabric** (its lakehouse) or **Remove** it. Removing a shortcut never touches the data it points at, and you can recreate it from **Changes**.
+
+## Health
+
+A health check lists one entry of the shortcut's folder through OneLake, with your own sign-in. If the listing works, the target is there and Fabric can reach it. Nothing else is read, and nothing is written.
+
+| Health | Means | What to do |
+| --- | --- | --- |
+| **Healthy** | The check listed the target | Nothing |
+| **Broken**, target isn't there | The table or folder it points at was removed, renamed or moved | **Repoint** it at the new place, or remove it |
+| **Broken**, storage refused the connection | An ADLS Gen2, S3 or other storage shortcut whose connection was refused: an expired key or secret, or the account lost its rights | The connection's owner updates it in Fabric (**Settings > Manage connections and gateways**), then **Check now** |
+| **Unreachable** | You have no access to a OneLake target, so the check can't tell whether it works for others | Ask for access to the target, or ask someone who has it to check |
+| **Not checked** | Not checked yet, or you can't read the lakehouse it's in | **Check all now** |
+
+Every shortcut is checked when the page opens. To stop that, untick **Check every shortcut when this page opens** on the Health view.
+
+Results are saved to the [platform](platform.md), so everyone sees the same health. A shortcut that breaks, or works again, shows on **Changes**.
+
+The Health view also lists shortcuts that work but are **worth a look**:
+
+- **Crossing environments:** a shortcut in a Dev or Test workspace that points at Prod (a Dev run reads live data), or one in Prod that points at Dev or Test (Prod depends on data that isn't released). The environment comes from the metadata project's environment workspaces and the platform's workspaces, else from a word in the workspace name (dev, test, uat, qa, prod, production).
+- **Duplicates:** two shortcuts in one workspace that point at the same place.
+
+## Who can read a shortcut
+
+Shortcuts decide who reads them in one of two ways:
+
+- **OneLake shortcuts:** each reader needs access in both places, the lakehouse with the shortcut and the target. Nobody reads more than the target allows. Someone with access to the shortcut's lakehouse but not the target sees it empty.
+- **Storage shortcuts** (ADLS Gen2, Amazon S3, Azure Blob and others): Fabric reads the storage with the connection's key or account. Anyone who can read the lakehouse reads the storage, even if the storage itself would refuse them. To limit who reads it, add a OneLake data access role on the shortcut's folder (**Add data access role** opens the Access tab).
+
+The **Access** view lists every shortcut where readers and target don't match. Readers come from workspace roles and OneLake data access roles, as on the [Access tab](user-guide.md#access-preview). Workspace Viewers read tables only through data access roles.
+
+## Shortcut rules
+
+Platform admins set rules for shortcuts on the Access view. Each rule is **Off**, **Warn** (the person sees a warning and can go on) or **Block** (Fabric Desktop won't make it).
+
+| Rule | Default |
+| --- | --- |
+| A shortcut may not point at another environment | Block |
+| A storage shortcut should have a data access role on its folder | Warn |
+| A shortcut should not point at a deprecated data product | Warn |
+| Storage shortcuts use only the allowed connections (a list of connection IDs) | Off |
+| Who may create shortcuts from Fabric Desktop: anyone with the workspace role, or only platform admins (everyone else sends a request) | Anyone |
+
+The rules apply to what Fabric Desktop makes: **New shortcut**, **Repoint**, Undo and Recreate, and approving a request. Fabric itself still lets any workspace Contributor make a shortcut in Fabric; anything made there that breaks a rule shows on **Health**.
+
+New shortcut and Repoint check the rules as you fill in the dialog. When a rule blocks a new shortcut, the button becomes **Send as a request instead**.
+
+## Changes
+
+**Changes** lists every change in the last 7, 30 or 90 days, or the last year, newest first:
+
+- **Added**, **Repointed** and **Removed**, with what it pointed at before and after.
+- **Broke** and **Fixed**, from health checks.
+
+A change made in Fabric Desktop says who made it, and why when it came from a request. Fabric doesn't record who changes a shortcut, so Fabric Desktop compares what it sees with what it saw last time each time it reads the shortcuts. Changes made in Fabric, or by other tools, show as **Seen at scan**. The first time a lakehouse is read sets the starting point, so shortcuts already there aren't listed as added.
+
+Every change keeps the shortcut's full definition:
+
+- **Undo** on a repointed shortcut points it back; on an added one, removes it.
+- **Recreate** on a removed shortcut makes it again, with the same name, place and target.
+
+Both ask first, follow the shortcut rules, and never touch the data the shortcut points at. The history is kept by the platform, so the whole team shares one history.
+
+## Repointing
+
+Fabric can't change where a shortcut points, so **Repoint** removes the shortcut and makes it again with the same name and place, pointing at the new target. Whatever reads it carries on reading it by the same name. If making the new one fails, the old one is put back. If even that fails, the change history has its definition and **Recreate** makes it again. Runs that read the shortcut in the moment between may fail.
+
+## Requests and shortcut needs
+
+**Request a shortcut** asks for a shortcut you can't make yourself, for example into a lakehouse where you have no role, or when the rules say only platform admins make shortcuts. Say which lakehouse, where in it, its name, what it points at, and why.
+
+Shortcut requests are the [platform's requests](platform.md#requests), next to key tables, sources and access to data products. They show on **Shortcuts > Requests** and **Platform > Requests**.
+
+- A **platform admin** decides any shortcut request. When the shortcut points at a data product, its **owner** can decide it too.
+- **Approve** makes the shortcut first, as the person approving, then marks the request approved. If making it fails (no role on that workspace, or a rule blocks it), the request stays waiting and the error says why.
+- The person who sent it can withdraw it while it waits.
+
+**Shortcut needs** lists shortcuts that need changing:
+
+- Broken shortcuts that a managed table in the open metadata project reads (its runs fail until it's fixed).
+- Shortcuts pointing at a deprecated data product.
+- Shortcuts crossing environments.
+
+## Permissions
+
+Nothing new. The command center uses what the Shortcuts and Access tabs already used: listing, creating and removing shortcuts and data access roles (Fabric), and listing folders through OneLake for health checks. See [Permissions](permissions.md).
+
+## What isn't there yet
+
+- Health is checked when the page opens or when you ask. There is no scheduled check, and no Teams alert when a shortcut breaks.
+- An approved request makes the shortcut in one lakehouse, not in each environment.
+- Not tried on a live Fabric tenant yet. In particular, the error codes OneLake returns for a broken target or a refused connection haven't been seen on a real tenant, so a broken shortcut may show the wrong cause.

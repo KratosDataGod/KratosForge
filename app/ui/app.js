@@ -2043,7 +2043,10 @@ registerFeature({
   id: "onelake", rail: { label: "OneLake", icon: "onelake", order: 40 }, views: { onelake: renderOneLake },
   commands: [
     { label: "OneLake catalog", icon: "onelake", keywords: "find tables items", run: () => { catalogPage.tab = "catalog"; go("onelake"); } },
-    { label: "OneLake shortcuts", icon: "copyArrowRight", keywords: "link", preview: true, run: () => { catalogPage.tab = "shortcuts"; go("onelake"); } },
+    { label: "OneLake shortcuts", icon: "copyArrowRight", keywords: "link command center", preview: true, run: () => { catalogPage.tab = "shortcuts"; scPage.view = "all"; go("onelake"); } },
+    { label: "Broken shortcuts", icon: "warning", keywords: "shortcut health check", preview: true, run: () => { catalogPage.tab = "shortcuts"; scPage.view = "health"; go("onelake"); } },
+    { label: "Shortcut changes", icon: "history", keywords: "shortcut history audit undo recreate", preview: true, run: () => { catalogPage.tab = "shortcuts"; scPage.view = "changes"; go("onelake"); } },
+    { label: "Request a shortcut", icon: "databaseLink", keywords: "shortcut request ask", preview: true, run: () => { catalogPage.tab = "shortcuts"; scPage.view = "requests"; go("onelake"); shortcutDialog("request"); } },
     { label: "OneLake access", icon: "shield", keywords: "permissions roles security", preview: true, run: () => { catalogPage.tab = "access"; go("onelake"); } },
   ],
 });

@@ -30,7 +30,8 @@ def describe(s: dict[str, Any]) -> dict[str, Any]:
     path = (s.get("path") or "").strip("/")
     return {"name": s.get("name"), "path": path, "full_path": f"{path}/{s.get('name')}",
             "kind": "table" if path.startswith("Tables") else "folder",
-            "target_type": TARGETS.get(key or "", target.get("type") or "Other"), "target": where, **detail}
+            "target_type": TARGETS.get(key or "", target.get("type") or "Other"), "target": where,
+            "rest_target": {key: t} if key else {}, **detail}
 
 
 def location(where: str) -> str:

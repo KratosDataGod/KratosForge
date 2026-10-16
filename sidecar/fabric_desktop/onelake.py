@@ -113,6 +113,26 @@ class FileStore:
             params["continuation"] = token
         return sorted(entries, key=lambda e: (not e["is_dir"], e["name"].lower()))
 
+    def probe(self, workspace_id: str, lakehouse_id: str, directory: str) -> tuple[int | None, str]:
+        """List at most one entry of ``directory``: (HTTP status, message). Reads nothing else and
+        writes nothing; through a shortcut it proves Fabric can reach the target. Status None: the
+        request didn't get an answer."""
+        url = f"https://{DFS_HOST}/{workspace_id}"
+        params = {"resource": "filesystem", "recursive": "false", "maxResults": "1",
+                  "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+        try:
+            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+        except requests.RequestException as exc:
+            return None, str(exc)
+        if resp.status_code < 400:
+            return resp.status_code, ""
+        try:
+            err = resp.json().get("error") or {}
+            message = f"{err.get('code', '')} {err.get('message', '')}".strip()
+        except ValueError:
+            message = resp.text[:300]
+        return resp.status_code, message
+
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path) -> Path:
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
         with self._http.get(url, headers=self._headers(), stream=True, timeout=300) as resp:

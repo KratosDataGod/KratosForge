@@ -161,16 +161,16 @@ Every team's published [data products](data-mesh.md#data-products), from the pla
 
 ### Shortcuts (Preview)
 
-Shortcuts are tables or folders in a lakehouse that point at data somewhere else, without copying it.
+Shortcuts are tables or folders in a lakehouse that point at data somewhere else, without copying it. This tab is the **shortcut command center**: every shortcut in every lakehouse you can see, in one list.
 
-- Pick **Every lakehouse** or one lakehouse on the left to list its shortcuts: name, where it lives (`Tables/<schema>` or `Files/...`), and what it points at.
-- **New shortcut** (pick a lakehouse first): choose **Put it in** (a table under a schema, or a folder under Files), a **Name**, and what it **Points at**:
-  - **OneLake:** another lakehouse's table, or a folder in it.
-  - **ADLS Gen2** or **Amazon S3:** a Fabric cloud connection, the location URL and a subpath. Connections are made in Fabric (**Settings > Manage connections and gateways**).
-- **Remove** deletes the shortcut, not the data it points at.
-- When a metadata entity reads files that come through a shortcut, the entity's lineage shows "via shortcut".
+- **All shortcuts:** where each one lives, what it points at, whether it works, which managed tables read it, and its last change. Select one to see who can read it and its history, and to **Check now**, **Repoint** or **Remove** it.
+- **Health:** broken shortcuts by cause, and ones crossing environments or duplicated, each with a fix.
+- **Access:** shortcuts whose readers and target don't match, and the platform's shortcut rules (platform admins set them).
+- **Changes:** what was added, repointed, removed, broke or got fixed, and by whom, with **Undo** and **Recreate**.
+- **Requests:** shortcut requests, and shortcuts that need changing.
+- **New shortcut** puts a table under a schema or a folder under Files, pointing at another lakehouse (OneLake), or at ADLS Gen2 or Amazon S3 through a Fabric cloud connection. **Remove** deletes the shortcut, not the data it points at.
 
-Needs `OneLake.ReadWrite.All`, and `Connection.Read.All` for ADLS and S3 ([permissions](permissions.md)).
+The full guide is [Shortcut command center](shortcuts.md). Needs `OneLake.ReadWrite.All`, and `Connection.Read.All` for ADLS and S3 ([permissions](permissions.md)).
 
 ### Access (Preview)
 

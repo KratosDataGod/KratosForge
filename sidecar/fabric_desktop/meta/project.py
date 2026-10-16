@@ -29,6 +29,7 @@ from typing import Any
 import polars as pl
 
 from . import freshness as freshness_mod
+from . import objectives as objectives_mod
 from . import keys as keys_mod
 from . import mesh as mesh_mod
 
@@ -199,6 +200,8 @@ class Entity:
             "custom": [kind for kind, _, _ in self.python_refs()],
             "keys": self.keys, "columns": self.columns, "surrogate_keys": keys_mod.entity_keys(self), "derived": self.derived, "hook_adds": self.hook_adds,
             "reads": self.reads(), "path": str(self.path), "freshness": freshness_mod.promise(s),
+            "objective": objectives_mod.objective(s), "criticality": (s.get("objectives") or {}).get("criticality")
+            if isinstance(s.get("objectives"), dict) else None,
             "link": src.get("link"), "description": mesh_mod.entity_catalog(self)["description"],
         }
 
@@ -462,6 +465,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
             errors.append(f"{e.name}: source path {files} only exists on this PC; put the files in the "
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)
+        errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")

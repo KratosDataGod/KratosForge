@@ -78,12 +78,22 @@ class LocalBackend:
     def create(self, key: str, data: bytes) -> str | None:
         path = self._path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Written aside and linked into place, so nobody ever reads the file half written.
+        tmp = path.with_suffix(f".{uuid.uuid4().hex}.tmp")
+        tmp.write_bytes(data)
         try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.link(tmp, path)
         except FileExistsError:
             return None
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
+        except OSError:  # a file system without hard links: create in place
+            try:
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                return None
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+        finally:
+            tmp.unlink(missing_ok=True)
         return self._etag(data)
 
     def read(self, key: str) -> Stored | None:

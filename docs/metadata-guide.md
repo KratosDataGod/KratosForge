@@ -221,6 +221,20 @@ envs = ["prod"]
 
 Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). Each late or failed table is posted once. The app checks at startup and every 10 minutes while it's open.
 
+### Reliability objectives (Preview)
+
+An objective says how often a table's runs must succeed:
+
+```toml
+[objectives]
+criticality = "high"   # critical, high, standard or low
+success_rate = 95      # percent of the last `runs` runs; from criticality when left out
+runs = 20              # how many recent runs count (at least 5)
+envs = ["prod"]        # Test and Prod when left out
+```
+
+Criticality sets the rate when `success_rate` is left out: critical 99 %, high 95 %, standard 90 %, low none. Skipped runs and runs still going don't count, and fewer than five finished runs say nothing. A table under its objective opens an "Objective missed" incident wherever incidents are evaluated (the [agent](agent.md#incidents-preview), for now). A completion time is the freshness promise's `by`.
+
 ### Tests (Preview)
 
 **Data mesh > Quality > Tests** runs the `test_*.py` files in the project's `tests` folder. A test is a function named `test_something` that uses `assert`, as in pytest; it can take `tmp_path` for a scratch folder. Each run imports `transforms/` and `tests/` fresh, so it tests what you just saved. Promote runs them first and won't promote while one fails.
@@ -404,6 +418,7 @@ business_key = "order_id"
 | `[step]` | `custom`, `reads`, `owner`, `test` | Your Python replaces the transform |
 | `[params]` | any | Values your code reads from `ctx.params` |
 | `[freshness]` | `within_hours`, `by`, `envs` | When a successful run is due |
+| `[objectives]` | `criticality`, `success_rate`, `runs`, `envs` | How often runs must succeed (Preview) |
 
 Every written row also gets `_run_id` and `_loaded_at`.
 

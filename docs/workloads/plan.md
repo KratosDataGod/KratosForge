@@ -56,17 +56,17 @@ Each record type this program introduces, with the rules from the brief.
 
 | | Workload | Deployment | Observation (runs, health inputs) | Assignment (owner, criticality, tags) | Action record | Incident (stage 2) |
 | --- | --- | --- | --- | --- | --- | --- |
-| **Authority** | The native definition (entity TOML in Git, `.ipynb` on this PC, Fabric item) | `environments.toml`, notebook metadata, Fabric item, `agent.toml` | The native run store: `meta.run_log`, Fabric job instances, `schedule_runs.jsonl`, agent queue | Declared: Git files. Assigned: `workloads.sqlite` (this PC), later the platform catalog | `workloads.sqlite` action log; outcome from the run store | `meta.incidents` in the environment's LH_Meta (shared by app and agents) |
+| **Authority** | The native definition (entity TOML in Git, `.ipynb` on this PC, Fabric item) | `environments.toml`, notebook metadata, Fabric item, `agent.toml` | The native run store: `meta.run_log`, Fabric job instances, `schedule_runs.jsonl`, agent queue | Declared: Git files. Assigned: `workloads.sqlite` (this PC), later the platform catalog | `workloads.sqlite` action log; outcome from the run store | `incidents/incidents.json` in the environment's LH_Meta control area (shared by app and agents; W2 revised) |
 | **Identity** | Stable id from native identity (decision 2) | Workload id + environment + location | Native run id, with source | Workload id + field | Generated id; workload id, action, target | Dedup key: workload, environment, kind |
 | **Collection** | Read on request; Fabric items on refresh, scoped | Same | Existing reads (`meta_runs_all`, `fabric_runs`, `pc_schedule_runs`, schedule scan) | Local read | Written by the action; outcome reconciled on read | Agent timer and app, same rules |
 | **Freshness** | Fabric listing: collection time, stale after 24 h | Same | Per source: collection time; stale after 1 h for runs | Always current (local) | Current | Last evaluated time; heartbeat |
 | **Permissions** | Fabric: Workspace.Read.All (existing); local files | Same | Existing scopes; nothing new | None (local file) | Whatever the invoked service needs | Storage access to LH_Meta (existing) |
 | **Offline** | Local kinds listed; Fabric from cache, marked cached/stale | Same | Cached rows marked; "offline" state | Works | Actions needing Fabric are disabled with the reason | App shows cached incidents; agent queues alerts |
 | **Failure / partial** | Per-workspace errors kept; listing marked `partial` | Same | Per-source state; never turned into a workload failure | n/a | Failure recorded with the service's message | Missed evaluation is its own incident |
-| **Retention / privacy** | No data copied; names and ids only | Same | Up to the native store; cache keeps last collection only | Kept until changed; history of changes kept | 1 year or 10,000 rows, whichever is first | Kept 400 days |
+| **Retention / privacy** | No data copied; names and ids only | Same | Up to the native store; cache keeps last collection only | Kept until changed; history of changes kept | 1 year or 10,000 rows, whichever is first | Open incidents and the last 200 resolved |
 | **Actions** | Assign, tag, classify, link, open | Run, schedule, cancel where supported | n/a | Change (with who/when) | n/a | Acknowledge, assign, resolve |
 | **Audit** | n/a | n/a | n/a | Every change keeps who, when, before, after | Is the audit | State changes with who/when |
-| **Compatibility** | New, versioned (`schema_version` in the file); old app versions ignore it | Reads existing files unchanged | Reads existing stores unchanged | New file; migration to platform catalog in 2B | New | New table; imports open entries of `freshness_alerts.json` once |
+| **Compatibility** | New, versioned (`schema_version` in the file); old app versions ignore it | Reads existing files unchanged | Reads existing stores unchanged | New file; migration to platform catalog in 2B | New | New file, contract 1; `freshness_alerts.json` not imported (late incidents are derived again) |
 
 ## 4. Stages
 
@@ -151,6 +151,7 @@ Defaults are being built; Chris can change them.
 
 - **W1. Where shared ownership lives once a platform exists.** Default: the platform catalog (`catalog.workload`), so it sits beside domains, products and requests and every team sees the same owner. Needs a UDF_Platform redeploy with new functions, which the platform has no update path for yet; stage 2B adds one. Alternative: a file in LH_Meta per project (no UDF change, but per project and harder to query across teams).
 - **W2. Where incidents live.** Default: `meta.incidents` in each environment's LH_Meta, because the agent already has storage access there and needs no UDF. Alternative: the platform catalog, which would centralize them but makes the agent depend on UDF_Platform.
+  *Revised 2026-10-16 while building 2.1:* still per environment in LH_Meta, but as one JSON document (`incidents/incidents.json` in the control area) changed only with etag-conditional writes, instead of a Delta table. A small document with If-Match makes "open once" exact across any number of evaluators without a merge step, and sits beside the agent status records and the pipeline mailbox the agent already writes.
 
 ## 6. Backlog
 
@@ -333,13 +334,13 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: Monitor merges four sources but normalizes only the pill. Enhancement: per-workload runs normalized with native status, native link and source kept; uses `ran_on`/`job_id` from PR #58 when present. Validation: U. PR: —
 
 **43. Reliability objectives** · Enhance · Stage 2.2
-- Today: freshness promises. Enhancement: success rate and completion-time objectives with documented evaluation. Validation: U. PR: —
+- Today: freshness promises. Enhancement: success rate and completion-time objectives with documented evaluation. Validation: U. PR: stage 2 incidents PR (success rate; completion time is freshness `by`)
 
 **44. Always-on health evaluation** · Missing · Stage 2.1
-- Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: —
+- Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: stage 2 incidents PR (agent timer, opt-in; app on request)
 
 **45. Incident lifecycle** · Missing · Stage 2.1, 2.3
-- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in `meta.incidents`. Depends: W2. Validation: U, M. PR: —
+- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: stage 2 incidents PR (engine and RPCs; screens in 2.3)
 
 **46. Alert correlation** · Missing · Stage 2.3, Stage 6
 - Enhancement: group symptoms by shared upstream, environment or location, saying "likely" and listing evidence. Validation: U. PR: —
@@ -481,3 +482,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | Date | Change |
 | --- | --- |
 | 2026-10-16 | Plan written from `main` at `af11938`; ownership with the roadmap and Prove programs recorded; monitoring and incidents moved here. |
+| 2026-10-16 | Stage 2.1/2.2 built: W2 revised to a conditional-write JSON document per environment; agent evaluation opt-in; `freshness_alerts.json` import dropped. |

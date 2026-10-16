@@ -1,0 +1,88 @@
+name: Codex review routing
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Open pull request number to review
+        required: true
+        type: string
+
+# Trusted base code only: never check out, import, or execute the PR head.
+permissions: {}
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      number: ${{ steps.prepare.outputs.number }}
+      head: ${{ steps.prepare.outputs.head }}
+      base: ${{ steps.prepare.outputs.base }}
+      complete: ${{ steps.prepare.outputs.complete }}
+      report: ${{ steps.codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Test routing policy
+        run: node --test .github/codex/policy.test.cjs
+      - name: Prepare read-only review input
+        id: prepare
+        uses: actions/github-script@v7
+        env:
+          HAS_API_KEY: ${{ secrets.OPENAI_API_KEY != '' }}
+        with:
+          script: |
+            const {prepare} = require('./.github/codex/review.cjs');
+            await prepare({github, context, core});
+      # Keep Codex last. The write-capable publisher runs on a fresh runner.
+      - name: Review with Codex
+        id: codex
+        if: steps.prepare.outputs.run == 'true'
+        uses: openai/codex-action@bdf19a4a223ec2549a3e2274a0cf61556bc07675 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: .github/codex/review.md
+          output-schema-file: .github/codex/review.schema.json
+          sandbox: read-only
+          safety-strategy: drop-sudo
+
+  publish:
+    if: always() && needs.review.result != 'skipped' && needs.review.result != 'cancelled'
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      checks: read
+      statuses: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Publish recommendation and route manual cases
+        uses: actions/github-script@v7
+        env:
+          REVIEW_HEAD: ${{ needs.review.outputs.head }}
+          REVIEW_BASE: ${{ needs.review.outputs.base }}
+          REVIEW_COMPLETE: ${{ needs.review.outputs.complete }}
+          CODEX_REVIEW: ${{ needs.review.outputs.report }}
+        with:
+          script: |
+            const {publish} = require('./.github/codex/review.cjs');
+            await publish({github, context, core});

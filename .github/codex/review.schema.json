@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewed_head_sha", "review_complete", "recommendation", "summary", "findings"],
+  "properties": {
+    "reviewed_head_sha": {"type": "string"},
+    "review_complete": {"type": "boolean"},
+    "recommendation": {"type": "string", "enum": ["approve", "manual_review"]},
+    "summary": {"type": "string"},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["priority", "path", "line", "title", "body"],
+        "properties": {
+          "priority": {"type": "string", "enum": ["P0", "P1", "P2", "P3"]},
+          "path": {"type": "string"},
+          "line": {"type": "integer"},
+          "title": {"type": "string"},
+          "body": {"type": "string"}
+        }
+      }
+    }
+  }
+}

@@ -62,6 +62,7 @@ A policy file that sets everything an organization usually wants:
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
+| `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).

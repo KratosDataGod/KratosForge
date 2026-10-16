@@ -32,6 +32,7 @@ from .central.service import PlatformMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
+from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
@@ -48,8 +49,7 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
-        self.kernel = Kernel(token=self._token_for, load_notebook=lambda name: self.notebooks.load(name)["cells"],
-                             variable_libraries=self._notebook_variables)
+        self.kernel = self._new_kernel()
         self.notebooks = NotebookStore(self.root / "notebooks")
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
@@ -87,11 +87,45 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
             pass
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
+    def _new_kernel(self, process: bool | None = None) -> Any:
+        """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
+        inside the engine."""
+        if process is None:
+            process = bool(app_settings.value("kernel_process"))
+        load = lambda name: self.notebooks.load(name)["cells"]  # noqa: E731
+        if process:
+            return ProcessKernel(token=self._token_for, load_notebook=load, variable_libraries=self._notebook_variables)
+        return Kernel(token=self._token_for, load_notebook=load, variable_libraries=self._notebook_variables)
+
+    def _kernel_busy(self) -> bool:
+        snap = self.kernel.poll()
+        return snap.get("status") == "running" or self.proof_busy()
+
+    def kernel_info(self) -> dict[str, Any]:
+        """Where notebook cells run: in the engine, or in a process of their own (and its id)."""
+        process = isinstance(self.kernel, ProcessKernel)
+        return {"process": process, "pid": self.kernel.pid if process else os.getpid()}
+
+    def stop_kernel_process(self) -> dict[str, Any]:
+        """Stop: end the kernel's own process (variables are cleared). With the kernel inside the
+        engine this does nothing, and the app ends the engine instead."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is using the kernel. Cancel the proof first.")
+        return self.kernel.stop()
+
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path())}
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
-        app_settings.save(changes)
+        if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
+            if self._kernel_busy():
+                raise RuntimeError("A cell or proof is running. Change this when it has finished.")
+            app_settings.save(changes)
+            old, self.kernel = self.kernel, self._new_kernel(bool(changes["kernel_process"]))
+            if isinstance(old, ProcessKernel):
+                old.close()
+        else:
+            app_settings.save(changes)
         return self.app_settings()
 
     def sign_out(self) -> dict[str, Any]:

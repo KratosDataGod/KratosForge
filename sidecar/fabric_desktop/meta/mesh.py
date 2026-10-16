@@ -343,3 +343,48 @@ def publish_problems(project: Project, saved: dict[str, dict[str, Any]]) -> list
                 errors.append(f"{e.name}: port {p.name}.{port.get('name')} needs a description on "
                               f"{len(missing)} column{'s' if len(missing) != 1 else ''} ({', '.join(missing[:5])})")
     return errors
+
+
+# Type changes every reader can still read without a change on their side.
+WIDENING = {("int16", "int32"), ("int16", "int64"), ("int32", "int64"), ("float32", "float64"), ("int32", "float64")}
+
+
+def breaking_changes(project: Project, published: list[dict[str, Any]], env: str) -> tuple[list[str], list[str]]:
+    """Promote's rule for products other teams read: a port may not drop or change the type of a
+    column it published in ``env`` while another project reads that environment, unless the
+    product's ``version`` goes up. ``published`` is the catalog's list_products.
+
+    Returns (errors, notes): an error blocks the promote; a note says what a new version breaks."""
+    me = project_name(project)
+    errors, notes = [], []
+    by_id = {p["id"]: p for p in published}
+    for p in project.products.values():
+        if p.status == "draft":
+            continue
+        current = by_id.get(f"{me}/{p.name}")
+        if current is None:
+            continue  # never published: nobody can read it yet
+        readers = sorted({c["consumer_project"] for c in current.get("consumers", [])
+                          if env in (c.get("reads") or {}).values() and c["consumer_project"] != me})
+        if not readers:
+            continue
+        for port in p.ports:
+            e = project.entities.get(port.get("entity", ""))
+            was = next((x for x in current.get("ports", []) if x["port"] == port.get("name") and x["env"] == env), None)
+            if e is None or was is None:
+                continue
+            old, new = dict(was.get("columns") or {}), e.columns
+            changes = [f"drops {c}" for c in old if c not in new]
+            changes += [f"changes {c} from {old[c]} to {new[c]}" for c in old
+                        if c in new and new[c] != old[c] and (old[c], new[c]) not in WIDENING]
+            if not changes:
+                continue
+            what = (f"products/{p.name}: port {port.get('name')} {', '.join(changes)}, and "
+                    f"{len(readers)} other project{'s' if len(readers) != 1 else ''} read{'s' if len(readers) == 1 else ''} "
+                    f"it in {env} ({', '.join(readers)})")
+            if str(p.spec.get("version", 1)) != str(current.get("version") or "1"):
+                notes.append(f"{what}; publishing it as version {p.spec.get('version')}")
+            else:
+                errors.append(f"{what}. Keep the column{'s' if len(changes) != 1 else ''}, or raise version in "
+                              f"products/{p.name}.toml to publish a breaking version")
+    return errors, notes

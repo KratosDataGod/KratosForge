@@ -4,10 +4,13 @@
     python ../examples/benchmark/large_tables.py --rows 5000000 --changed 1000 --new 1000 --spread recent
 
 It builds a throwaway metadata project in a temporary folder with one entity, bronze.events, loaded
-incrementally (keys = id, watermark = modified) from a Delta source table of --rows rows in --files
-daily files. After the first load, the source gets --changed updated and --new new rows, and the
-incremental run is timed twice in fresh processes: once as the engine runs now (merge_writes=True)
-and once the way it ran before 0.20 (read the whole table, merge in memory, overwrite it).
+from a Delta source table of --rows rows built up over --files loads. With --kind incremental (the
+default) it is loaded incrementally (keys = id, watermark = modified) and the source then gets
+--changed updated and --new new rows. With --kind scd2 it is a Type 2 dimension (tracked = status,
+Type 1 = note) fed a full snapshot of the source every run, and the last snapshot has --changed rows
+with a new status and --new new keys. The last run is timed twice in fresh processes: once as the
+engine runs now (merge_writes=True) and once the way it ran before 0.20 (read the whole table, merge
+in memory, overwrite it).
 
 Reported per mode: seconds for the run, the process's peak memory (on Windows, peak working set),
 files the write added and removed, the bytes it added to the table folder, and whether the two
@@ -65,8 +68,8 @@ def source_rows(start: int, stop: int, day: dt.date, amount: float):
                          "modified": [day] * len(ids)})
 
 
-def build(root: Path, rows: int, files: int) -> None:
-    """The project, the source table and the first full load."""
+def build(root: Path, rows: int, files: int, kind: str = "incremental") -> None:
+    """The project, the source table and the loads that build the table."""
     from deltalake import write_deltalake
 
     from fabric_desktop.meta import Engine, LocalStore, Project
@@ -79,9 +82,7 @@ def build(root: Path, rows: int, files: int) -> None:
         owner = "benchmark"
         [source]
         table = {json.dumps(src.as_posix())}
-        [load]
-        mode = "incremental"
-        watermark = "modified"
+        {LOAD[kind]}
         [contract]
         keys = ["id"]
         [contract.columns]
@@ -92,17 +93,28 @@ def build(root: Path, rows: int, files: int) -> None:
         note = "string"
         modified = "date"
         """), encoding="utf-8")
+    if kind == "scd2":
+        text = (root / "metadata" / "entities" / "bronze.events.toml").read_text(encoding="utf-8")
+        text = text.replace('[contract.columns]\n', '[contract.columns]\nevent_sk = "int64"\n')
+        (root / "metadata" / "entities" / "bronze.events.toml").write_text(text, encoding="utf-8")
     store = LocalStore(root / ".local" / "dev", "dev")
     per = rows // files
     for i in range(files):
-        # One file a day, as a daily load builds a table; then one load per day keeps it in files.
+        # One load a day, each adding a slice: the table ends up in several files, as tables do.
+        # An incremental source gets the new slice; a dimension's source is the whole snapshot so far.
         write_deltalake(str(src), source_rows(i * per, (i + 1) * per, DAY0 + dt.timedelta(days=i), 1.0).to_arrow(),
                         mode="append")
         res = Engine(Project(root), store, DAY0 + dt.timedelta(days=i)).run("bronze.events")
         assert res.status == "ok", res.message
 
 
-def change(root: Path, rows: int, files: int, changed: int, new: int, spread: str) -> None:
+LOAD = {
+    "incremental": '[load]\nmode = "incremental"\nwatermark = "modified"',
+    "scd2": '[load]\nmode = "scd2"\n[scd]\nsurrogate_key = "event_sk"\ntracked = ["status"]\ntype1 = ["note"]',
+}
+
+
+def change(root: Path, rows: int, files: int, changed: int, new: int, spread: str, kind: str = "incremental") -> None:
     """Updated rows plus brand-new ones, all with a later modified date. The updates hit the most
     recent day's rows (spread="recent", the usual case: late changes to recent orders) or rows spread
     evenly over every file (spread="all", the worst case for MERGE)."""
@@ -115,6 +127,12 @@ def change(root: Path, rows: int, files: int, changed: int, new: int, spread: st
     step = max(pool // max(changed, 1), 1)
     upd = source_rows(first, rows, day, 2.0).filter(pl.Series(np.arange(pool) % step == 0)).head(changed)
     add = source_rows(rows, rows + new, day, 2.0)
+    if kind == "scd2":
+        # The next full snapshot: every row as it was, except the changed ones (a new status), plus new keys.
+        upd = upd.with_columns(pl.lit("returned").alias("status"))
+        snap = source_rows(0, rows, DAY0, 1.0).join(upd.select("id"), on="id", how="anti")
+        write_deltalake(str(root.parent / "source"), pl.concat([snap, upd, add]).to_arrow(), mode="overwrite")
+        return
     write_deltalake(str(root.parent / "source"), pl.concat([upd, add]).to_arrow(), mode="append")
 
 
@@ -155,6 +173,8 @@ def main() -> None:
     ap.add_argument("--new", type=int, default=1000)
     ap.add_argument("--spread", choices=["recent", "all"], default="recent",
                     help="updates hit the latest day's rows (recent) or rows in every file (all)")
+    ap.add_argument("--kind", choices=["incremental", "scd2"], default="incremental",
+                    help="an incremental fact table, or a Type 2 dimension fed full snapshots")
     ap.add_argument("--work", help="folder to build in (default: a temporary folder)")
     ap.add_argument("--_measure", help=argparse.SUPPRESS)
     ap.add_argument("--_merge", type=int, help=argparse.SUPPRESS)
@@ -171,8 +191,8 @@ def main() -> None:
     work = Path(a.work or tempfile.mkdtemp(prefix="fd-large-"))
     base = work / "base" / "project"
     t0 = time.perf_counter()
-    build(base, a.rows, a.files)
-    change(base, a.rows, a.files, a.changed, a.new, a.spread)
+    build(base, a.rows, a.files, a.kind)
+    change(base, a.rows, a.files, a.changed, a.new, a.spread, a.kind)
     print(f"built {a.rows:,} rows in {a.files} files in {time.perf_counter() - t0:.0f} s", file=sys.stderr)
     out = []
     for merge in (True, False):
@@ -185,7 +205,8 @@ def main() -> None:
         r["checksum"] = subprocess.run([sys.executable, __file__, "--_checksum", str(copy / "project")], check=True,
                                        capture_output=True, text=True).stdout.strip()
         out.append(r)
-    print(f"\n{a.rows:,} rows, {a.files} files; incremental run with {a.changed:,} changed "
+    what = "Type 2 dimension, full snapshot" if a.kind == "scd2" else "incremental run"
+    print(f"\n{a.rows:,} rows, {a.files} files; {what} with {a.changed:,} changed "
           f"({'in every file' if a.spread == 'all' else 'recent'}) and {a.new:,} new rows\n")
     print("| Write | Seconds | Peak memory (MB) | Rows read | Files added / removed | Files in table | MB written |")
     print("| --- | --: | --: | --: | --: | --: | --: |")

@@ -135,7 +135,11 @@ An incremental run is built to stay small when the table is big:
 - **It rewrites only what changed.** New and changed rows go into the table with a Delta MERGE on the key: rows with a key already in the table are replaced, the rest are added, and Parquet files without any of those keys stay as they are. A table without keys gets a plain append. The **write** step says what happened, for example *merged 2000 rows on id: 1000 updated, 1000 new (Delta MERGE rewrote 1 file, added 1)*.
 - **It falls back to a rewrite when a MERGE would change the result.** If the new rows repeat a key (there's no `unique` check), or a column's type changed, the run reads the whole table and replaces it, as every run did before 0.20, and the write step says why.
 
-Replayed quarantine rows go in the same way. Full loads, rebuilds and Type 1 and Type 2 dimensions still read and replace the whole table; making dimensions incremental too is planned.
+Replayed quarantine rows go in the same way.
+
+**Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
+
+Full loads and rebuilds still replace the whole table.
 
 Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
 
@@ -147,8 +151,12 @@ Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremen
 | | | rewrite (before 0.20) | 7.5 | 2.6 GB | 20 of 20 | 31 MB |
 | 20 million rows, 40 files | in the latest file | MERGE (0.20) | 1.4 | 0.8 GB | 1 of 40 | 3.3 MB |
 | | | rewrite (before 0.20) | 28.5 | 9.3 GB | 40 of 40 | 124 MB |
+| Type 2 dimension, 5 million keys in 10 files, full snapshot source | in the latest file | MERGE (0.20) | 6.5 | 2.1 GB | 1 of 10 | 5.5 MB |
+| | | rewrite (before 0.20) | 24.1 | 3.7 GB | 10 of 10 | 52 MB |
+| Type 2 dimension, same | spread over every file | MERGE (0.20) | 7.2 | 2.2 GB | 10 of 10 | 52 MB |
+| | | rewrite (before 0.20) | 23.9 | 3.8 GB | 10 of 10 | 52 MB |
 
-Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. These are local Delta tables; OneLake adds network time to both.
+Both ways end with the same rows. When the changed rows are spread over every file, a MERGE has to rewrite every file too, and the gain is mostly memory. Most of a dimension's remaining time and memory is reading its 5-million-row source snapshot, which both ways do. These are local Delta tables; OneLake adds network time to both.
 
 **When a table's logic changes**, an incremental run stops and asks you to choose:
 

@@ -155,6 +155,71 @@ def test_merge_keys_never_gives_a_business_key_two_keys(tmp_path):
     assert dict(df.select("customer_bk", "customer_sk").iter_rows()) == {"UNKNOWN": -1, "A": 1, "B": 2, "C": 3}
 
 
+def test_runs_at_once_never_give_two_business_keys_one_key(tmp_path):
+    """Two entities sharing a key table, run at the same time: each key goes to one business key."""
+    import threading
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    K.merge_keys(store, kt, pl.Series(["A"]))
+    errors, start = [], threading.Barrier(6)
+
+    def run(i):
+        start.wait()
+        try:
+            K.merge_keys(store, kt, pl.Series([f"r{i}-{n}" for n in range(5)]))
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    df = K.read_keys(store, kt)
+    assert not df["customer_sk"].is_duplicated().any() and not df["customer_bk"].is_duplicated().any()
+    assert not errors and df.height == 1 + 1 + 6 * 5  # Unknown, A, and every run's keys
+
+
+def test_a_key_computed_from_an_old_version_is_never_committed(tmp_path, monkeypatch):
+    """The gap that let duplicates through: another run commits between reading the table and the MERGE."""
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    K.merge_keys(store, kt, pl.Series(["A"]))
+    real, calls = store.read_at, []
+
+    def read_then_someone_else_commits(*a):
+        out = real(*a)
+        calls.append(1)
+        if len(calls) == 2:  # the first read is the key table check; the second is the one keys come from
+            K.merge_keys(store, kt, pl.Series(["B"]))  # takes key 2 after we read
+        return out
+
+    monkeypatch.setattr(store, "read_at", read_then_someone_else_commits)
+    out = K.merge_keys(store, kt, pl.Series(["C"]))
+    assert out["attempts"] == 2
+    keys = dict(K.read_keys(store, kt).select("customer_bk", "customer_sk").iter_rows())
+    assert keys == {"UNKNOWN": -1, "A": 1, "B": 2, "C": 3}
+
+
+def test_creating_a_key_table_never_wipes_one_already_filled(tmp_path):
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    assert K.ensure_key_table(store, kt)
+    K.merge_keys(store, kt, pl.Series(["A", "B"]))
+    assert not K.ensure_key_table(store, kt)  # a second run, or promote, leaves the keys alone
+    assert K.read_keys(store, kt).height == 3
+
+
+def test_a_key_table_with_a_duplicate_stops_the_run(tmp_path):
+    store = LocalStore(tmp_path, "dev")
+    kt = K.KeyTable("customer", {}, tmp_path / "customer.toml")
+    K.merge_keys(store, kt, pl.Series(["A"]))
+    dup = pl.DataFrame({"customer_sk": [1], "customer_bk": ["Z"], "create_date": [None]}, schema=kt.schema())
+    store.write(K.KEYS_LAKEHOUSE, K.KEY_SCHEMA, kt.table, dup, mode="append")
+    with pytest.raises(RuntimeError, match="twice"):
+        K.merge_keys(store, kt, pl.Series(["A"]))  # nothing new to add: still checked
+
+
 def test_type1_dimension_uses_the_central_key(proj):
     p, store = proj
     write(p.root, "metadata/entities/gold.dim_customer1.toml", """

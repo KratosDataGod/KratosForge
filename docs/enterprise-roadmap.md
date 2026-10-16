@@ -56,7 +56,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/` or `.git
 | 1 | Headless agent | Partial | `run-schedule` and `Service(headless=True)` | A long-running process; UI-free runtime; per-machine state | Built |
 | 2 | Service principal and managed identity | Missing | Delegated MSAL only, but every consumer takes a token callable | Certificate, managed identity, workload identity; tenant setting; workspace roles | Certificate, secret and managed identity built; workload identity not yet |
 | 3 | Durable scheduling, queues, retries, recovery | Partial | Task Scheduler; lock files; run logs | Crash-safe queue; retry policy; recovery; Linux scheduling | Built |
-| 4 | Safe concurrent Delta writes | Partial | Atomic commits; LH_Keys MERGE retry | Leases for read-merge-overwrite; commit retry; meta-table compaction | Leases and commit retry built; compaction not yet |
+| 4 | Safe concurrent Delta writes | Partial | Atomic commits; LH_Keys MERGE retry | Leases for read-merge-overwrite; commit retry; meta-table compaction | Leases, version-checked commits on every write path and commit retry built; compaction not yet |
 | 5 | Centralized logging and history | Partial | `run_log` and friends in LH_Meta | Structured logs; worker and host on runs; export; heartbeat | JSON logs and run fields built; export is M4 |
 | 6 | Fabric pipeline integration | Missing | Can trigger existing pipelines | Inbound trigger and status contract | M4 |
 | 7 | Multiple workers, Windows and Linux | Missing | Engine runs on Linux | Worker registry, job claims, Linux CI, packaging | Linux CI and packaging built; multi-worker is M3 |

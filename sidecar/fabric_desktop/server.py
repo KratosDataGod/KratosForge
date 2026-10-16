@@ -52,6 +52,8 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
+           "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
+           "workload_preflight", "workload_act", "workload_actions",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions"}
 
 

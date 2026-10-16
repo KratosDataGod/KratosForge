@@ -5,8 +5,9 @@
     fabric-desktop agent enqueue prod [entity ...] [--backfill full]
     fabric-desktop agent status   # queue counts and the latest jobs
 
-One loop does three things every ``poll_seconds``: puts back jobs whose worker died, enqueues
-the schedules that are due, and starts queued jobs up to ``concurrency``. Each running job renews
+One loop does four things every ``poll_seconds``: puts back jobs whose worker died, enqueues
+the schedules that are due, reads the pipeline mailbox (every ``pipeline.poll_seconds``, when
+``[pipeline]`` is enabled), and starts queued jobs up to ``concurrency``. Each running job renews
 its lease in the queue; each table it writes is held under a write lease in OneLake. Stopping
 the service (SIGTERM, Ctrl+C, service stop) stops taking new jobs and waits for running ones;
 anything cut off is picked up again by the next start.
@@ -27,6 +28,7 @@ from .dataops_service import post_teams
 from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
+from .mailbox import Mailbox
 from .runtime import Runtime
 
 KIND_META = "meta"
@@ -49,6 +51,12 @@ class Agent:
         self.stopping = threading.Event()
         self._running: dict[str, Future[None]] = {}
         self._pool = ThreadPoolExecutor(max_workers=config.concurrency, thread_name_prefix="job")
+        self.mailbox: Mailbox | None = None
+        self._mailbox_at = 0.0
+        if config.pipeline.enabled:
+            p = config.pipeline
+            self.mailbox = Mailbox(self, self.runtime.control_backend, p.environments, p.entities, p.allow_backfill,
+                                   p.retention_days, known_entities=self.runtime.entity_names)
 
     # ---- adding work
 
@@ -170,6 +178,9 @@ class Agent:
         for job_id in self.queue.recover():
             self.log.warning("job put back in the queue: its worker stopped", extra=fields(job_id=job_id))
         self.tick_schedules()
+        if self.mailbox and self.clock() - self._mailbox_at >= self.config.pipeline.poll_seconds:
+            self._mailbox_at = self.clock()
+            self.mailbox.poll()
         self._running = {k: f for k, f in self._running.items() if not f.done()}
         while not self.stopping.is_set() and len(self._running) < self.config.concurrency:
             job = self.queue.claim(self.config.name, self.config.job_lease_seconds)
@@ -178,10 +189,18 @@ class Agent:
             self._running[job["id"]] = self._pool.submit(self._guarded, job)
 
     def _guarded(self, job: dict[str, Any]) -> None:
+        if self.mailbox:
+            if self.mailbox.cancel_requested(job):
+                self.queue.cancel(job["id"], "the pipeline cancelled it", owner=self.config.name)
+                self.mailbox.job_changed(self.queue.get(job["id"]) or job)
+                return
+            self.mailbox.job_changed(job)
         try:
             self.run_job(job)
         except Exception:  # never let one job take the agent down
             self.log.exception("job crashed", extra=fields(job_id=job["id"]))
+        if self.mailbox:
+            self.mailbox.job_changed(self.queue.get(job["id"]) or job)
 
     def run_forever(self, install_signals: bool = True) -> None:
         if install_signals:

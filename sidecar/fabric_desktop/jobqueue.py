@@ -6,7 +6,7 @@ killed service), its lease runs out and :meth:`JobQueue.recover` puts the job ba
 so it runs again rather than staying "running" forever. A job that fails with an error worth
 retrying waits ``backoff * 2^(attempt-1)`` (capped) and runs again until ``max_attempts``; after
 that it is ``dead`` and needs a person. A job whose tables failed their checks is ``failed``:
-running it again would fail the same way.
+running it again would fail the same way. A queued job can be ``cancelled`` instead.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-STATES = ("queued", "running", "succeeded", "failed", "dead")
+STATES = ("queued", "running", "succeeded", "failed", "dead", "cancelled")
 ACTIVE = ("queued", "running")
 
 _SCHEMA = """
@@ -175,6 +175,15 @@ class JobQueue:
                 self._requeue(db, job, f"{job['owner']} stopped while running it", now)
             return [j["id"] for j in stale]
 
+    def cancel(self, job_id: str, reason: str, owner: str | None = None) -> bool:
+        """Stop a queued job (waiting to start or to retry) from running. With ``owner``, also a job
+        that worker has just claimed and not yet started; a job that is writing is never stopped."""
+        with self._tx() as db:
+            cur = db.execute("update jobs set state = 'cancelled', finished_at = ?, lease_until = null, error = ?"
+                             " where id = ? and (state = 'queued' or (state = 'running' and owner = ?))",
+                             (self.clock(), reason, job_id, owner))
+            return cur.rowcount == 1
+
     def set_payload(self, job_id: str, payload: dict[str, Any]) -> bool:
         """Change what a queued job will do (a retry narrowed to the tables that didn't finish)."""
         with self._tx() as db:
@@ -185,6 +194,11 @@ class JobQueue:
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         return self._row(self._db().execute("select * from jobs where id = ?", (job_id,)).fetchone())
+
+    def find(self, dedupe_key: str) -> dict[str, Any] | None:
+        """The newest job with ``dedupe_key``, in any state."""
+        return self._row(self._db().execute("select * from jobs where dedupe_key = ? order by created_at desc limit 1",
+                                            (dedupe_key,)).fetchone())
 
     def list(self, limit: int = 50, state: str | None = None) -> list[dict[str, Any]]:
         sql, args = "select * from jobs", ()

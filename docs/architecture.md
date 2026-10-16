@@ -31,6 +31,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 | **Auth** (`auth.py`) | MSAL public-client sign-in as you (delegated, no service principal). Tokens for Fabric, Azure Storage and, when consented, the Power BI admin API. The token cache is on the PC. |
 | **OneLake I/O** (`onelake.py`, `publish.py`, `delta_profile.py`) | Builds OneLake paths, lists files and tables, and reads and writes Delta with delta-rs. |
 | **Fabric REST client** (`fabric_api.py`) | Workspaces, items, lakehouses, notebook publish, job instances and schedules, table maintenance, semantic models, SQL endpoint metadata refresh, and the admin workspace scan used for endorsement. |
+| **Workloads** (`workloads/`, `workload_service.py`) | One inventory of what runs where: metadata entities per environment, notebooks on this PC and their Fabric items, and pipelines, notebooks and Spark jobs in the workspaces the app works in. Reads existing records only (run logs, `fabric_runs.jsonl`, PC and Fabric schedules) and says how fresh each reading is. Ownership, links and actions taken from the app are kept in `workloads.sqlite`. |
 
 ### On this PC
 
@@ -38,6 +39,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - notebooks (`notebooks\*.ipynb`)
 - the MSAL token cache
 - run history, and the jobs this app started in Fabric (`fabric_runs.jsonl`)
+- workload owners, links to Fabric items and actions taken from the app (`workloads.sqlite`)
 - local staging copies of each write
 - catalog favorites
 - the Fabric view's profile and its saved, encrypted sign-in

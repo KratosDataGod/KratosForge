@@ -88,6 +88,18 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
             return LocalBackend(store.root / "_leases")
         raise TypeError(f"no lease backend for {type(store).__name__}")
 
+    def control_backend(self, env: str) -> Any:
+        """Where pipelines leave run requests for ``env``: its LH_Meta, or a local folder (mailbox.py)."""
+        from .mailbox import control_backend_for
+        project = self._project()
+        self.check_allowed(project, env)
+        store = self._store(project, env)
+        meta_id = store.lakehouse_ids.get(META_LAKEHOUSE) if isinstance(store, OneLakeStore) else None
+        return control_backend_for(store, meta_id, self.auth.storage_token)
+
+    def entity_names(self) -> set[str]:
+        return set(self._project().entities)
+
     # ---- running
 
     def run_environment(self, env: str, entities: list[str] | None = None, backfill: str | None = None,

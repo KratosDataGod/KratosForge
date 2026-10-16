@@ -11,7 +11,7 @@ Last updated: 2026-10-16.
 | 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Open for review |
 | 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
 | 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
-| 3 First-release UI | `claude/prove-stage3-ui` | STAGE3 | Draft until Chris reacts to the mockup; stacked on #62 |
+| 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -23,7 +23,7 @@ None yet.
 
 - Stage 1 is in review (#59): stable cell ids, `receipts.py`, `envprofile.py`.
 - Stage 2 is in review (#62): `proof_runtime.py`, `proof.py`, `verify.py`, `measure.py`, `scorecard.py`, `prove_*` requests in `prove_service.py`; guide in [how-proofs-work.md](how-proofs-work.md).
-- Stage 3 is a draft (STAGE3): `app/ui/prove.js` (panel, diff grid, scorecard, receipt export), `app/ui/wizard.js` and `sidecar/fabric_desktop/wizard.py` (three fixed templates, proof contract in notebook metadata `fabric_desktop.proof`). Mockup: https://claude.ai/artifact/Jqhxo9LVmqocGYgmT2ok7W (private to Chris's account).
+- Stage 3 is a draft (#65): `app/ui/prove.js` (panel, diff grid, scorecard, receipt export), `app/ui/wizard.js` and `sidecar/fabric_desktop/wizard.py` (three fixed templates, proof contract in notebook metadata `fabric_desktop.proof`). Mockup: https://claude.ai/artifact/Jqhxo9LVmqocGYgmT2ok7W (private to Chris's account).
 
 ## Decisions and assumptions
 

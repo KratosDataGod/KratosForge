@@ -8,7 +8,8 @@ Last updated: 2026-10-16.
 
 | Stage | Branch | PR | State |
 | --- | --- | --- | --- |
-| 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | (this PR) | Open for review |
+| 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Open for review |
+| 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -18,7 +19,8 @@ None yet.
 
 ## In progress
 
-- Stage 1: stable cell IDs, run receipts, environment profiles.
+- Stage 1 is in review (#59): stable cell ids, `receipts.py`, `envprofile.py`.
+- Stage 2: isolated proof runs and verification (engine).
 
 ## Decisions and assumptions
 
@@ -28,11 +30,13 @@ None yet.
 - No AI features until Chris decides on the AI service and data policy (backlog 11, 13, 16, 18, 20, 50).
 - Side by side stays as it is; Prove is added next to it, so nothing that works today changes.
 - Ownership split with the sister plan (decided by the project coordinator, 2026-10-16): this plan owns environment profiles (33, 34, 36), isolated comparisons (51–60), compatibility analysis (32), process-isolated kernels and debugging (41–50) and the run receipt schema (81). The sister plan owns large-table execution, guided ingestion, Git and release workflow (82, 86 build on it), pipeline handoff, remote agent control, lineage (97 builds on it) and monitoring.
+- The workload management program (thread "Workload management workspace") reuses this plan's receipt schema, run planner (31), placement recommendation (35) and scorecards and cost model (71–80). Keep them as engine modules returning plain dicts. Cost settings stay in the existing store (`costs.py`, `Service._cost_settings`).
 - Not ours to change: the concurrent-writes work (PR #54) and `meta/keys.py`, `meta/store.py`, `xray_service.py`.
 
 ## Validation results
 
 - main at af11938: engine tests 322 passed, 2 skipped (Linux, Python 3.13).
+- #59: 337 passed, 2 skipped; UI tests pass.
 
 ## Blockers
 
@@ -41,4 +45,4 @@ None yet.
 
 ## Next action
 
-Build stage 1 on a new branch from main and open its PR.
+Build stage 2 on `claude/prove-stage2-proofs`, stacked on #59 (it needs cell ids and receipts).

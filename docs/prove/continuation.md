@@ -10,7 +10,7 @@ Last updated: 2026-10-16.
 | --- | --- | --- | --- |
 | 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Open for review |
 | 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
-| 2 Proofs engine | `claude/prove-stage2-proofs` | STAGE2 | Open for review; stacked on #59 and #55 |
+| 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -21,7 +21,7 @@ None yet.
 ## In progress
 
 - Stage 1 is in review (#59): stable cell ids, `receipts.py`, `envprofile.py`.
-- Stage 2 is in review (STAGE2): `proof_runtime.py`, `proof.py`, `verify.py`, `measure.py`, `scorecard.py`, `prove_*` requests in `prove_service.py`; guide in [how-proofs-work.md](how-proofs-work.md).
+- Stage 2 is in review (#62): `proof_runtime.py`, `proof.py`, `verify.py`, `measure.py`, `scorecard.py`, `prove_*` requests in `prove_service.py`; guide in [how-proofs-work.md](how-proofs-work.md).
 - Stage 3: Prove panel, wizard, diff grid, scorecard view. Mockup first; the PR stays a draft until Chris reacts.
 
 ## Decisions and assumptions

@@ -61,7 +61,9 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
 def run(query: str) -> pa.Table:
     """Run every statement in ``query`` and return the last one's result."""
     # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
-    con = duckdb.connect(config={"TimeZone": "UTC"})
+    # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
     views: dict[str, str] = {}
     result = None
     for statement in parse(query):

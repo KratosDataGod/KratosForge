@@ -1986,8 +1986,9 @@ function detachLakehouse() {
 
 // ---------- Markdown ----------
 
+// Quotes too: inlineMd puts link targets in an attribute, and notebooks come from other people.
 function esc(s) {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 function inlineMd(text) {

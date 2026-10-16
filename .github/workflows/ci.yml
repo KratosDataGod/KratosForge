@@ -30,6 +30,16 @@ jobs:
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
 
+  ui:
+    # The UI has no build step, so a syntax error would otherwise ship as a blank page.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test app/tests/ui.test.cjs
+
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
     runs-on: ubuntu-latest
@@ -138,7 +148,7 @@ jobs:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
     # exe. People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, engine, shell]
+    needs: [sidecar, ui, engine, shell]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -109,6 +109,15 @@ entity = "gold.dim_customer"
 
 **The product gate.** A product open to anyone or to the domain can't be published, and its project can't be promoted, until it has a description and an owner and every port has a table description and a description on every column. The entity's **About** card shows what's missing.
 
+**Breaking changes.** On promote, Fabric Desktop compares each port's columns with what the catalog holds for that port in the target environment.
+
+- **What blocks the promote.** A column dropped, or a type changed (other than widening, such as `int32` to `int64` or `float32` to `float64`), while another project reads that environment. The message names the projects, for example *port customers drops email, and 1 other project reads it in test (finance)*.
+- **What doesn't.** Added columns pass. So does anything nobody else reads yet.
+- **How to make a breaking change on purpose.** Raise `version` in the product's file. The promote then goes through and says what the new version breaks.
+- **If the platform can't be reached.** The check says so and doesn't block.
+
+The check knows which projects read a port, not which columns each one uses, so dropping any published column counts as breaking.
+
 ## Links
 
 **OneLake > Data products > Link**, **Data products > Other teams' products > Link**, or **Links > New link.** Pick a product and port, a name for it, and which of their environments each of yours reads. Dev usually reads their Prod, so you build against real data without copying it. The catalog refuses a link to a draft, to a private product, or to a domain product from another domain, unless the product's owner let your project in: **OneLake > Data products > Request access** sends them a request, and once they approve it on **Platform > Requests**, **Link** works. Approving lets the link be made; the owner still gives read access in OneLake (a data access role on their Product workspace).

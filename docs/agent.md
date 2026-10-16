@@ -16,12 +16,13 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
                           └─ JSON logs, run_log rows with worker, host, attempt and job id
 ```
 
-- **Same engine as the app.** A job runs an environment's entities through `fabric_desktop.meta.Engine`, in dependency order, with the same checks, quarantine, SCD, surrogate keys and run log. Runs show in the app's Monitor with batch ids starting `agent-`.
+- **Same engine as the app.** A job runs an environment's entities through `fabric_desktop.meta.Engine`, in dependency order, with the same checks, quarantine, SCD, surrogate keys and run log. Runs show in the app's Monitor as *Agent \<name\> on \<host\>*, with the job id and try in their details.
 - **No one at the keyboard.** The agent signs in as an app identity. Nothing ever opens a sign-in window.
 - **Durable queue.** Jobs are kept in `queue.sqlite3` in the agent's home folder. A job is `queued`, then `running`, then `succeeded`, `failed` or `dead`. A running job holds a lease that its worker renews; if the worker dies (crash, reboot, killed service), the lease runs out and the job is put back in the queue on the next start.
 - **Retries that make sense.** Network errors, throttling (HTTP 429 and 5xx), a lost Delta commit race and a table busy with another writer are retried, waiting `backoff_seconds`, then twice that, up to `max_backoff_seconds`, for `max_attempts` tries in all. A retry runs only the tables that didn't finish. A job that still fails is `dead` and posts to Teams. A table that fails its checks is `failed` straight away, since running it again would fail the same way.
 - **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
 - **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes, daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
+- **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
 - **Logs.** One JSON object per line on stdout (journald, `docker logs`) and in `<home>/logs/agent.log` (20 MB, 10 files kept). Every line has the worker and host; job lines add `job_id`, `env`, `attempt` and `source`. Every `run_log` row the agent writes has `worker`, `host`, `attempt` and `job_id`.
 
@@ -81,6 +82,12 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `retry.backoff_seconds` | 60 | First wait; doubles each try |
 | `retry.max_backoff_seconds` | 1800 | Longest wait |
 | `alerts.teams_webhook_env` | none | Variable holding a Teams Workflows webhook address |
+| `pipeline.enabled` | false | Take run requests from Fabric pipelines ([below](#run-from-a-fabric-pipeline)) |
+| `pipeline.environments` | `agent.environments` | Whose `LH_Meta` mailbox to read |
+| `pipeline.entities` | any | Entity names or patterns (`silver.*`) a pipeline may run |
+| `pipeline.allow_backfill` | false | Let pipelines ask for full rebuilds and cascades |
+| `pipeline.poll_seconds` | 30 | How often to look for new requests |
+| `pipeline.retention_days` | 14 | When finished requests are removed |
 
 Then check it. This validates the file and the project and gets a token for Fabric and for OneLake:
 
@@ -151,6 +158,78 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 | `succeeded` | Every table ran | Nothing |
 | `failed` | A table failed its checks, its config, or permissions | Read `error`, fix, enqueue again |
 | `dead` | Retryable errors on every try | Read `error`; usually network, throttling or a table held by another writer |
+| `cancelled` | A pipeline cancelled it, or its deadline passed, before it started | Nothing |
+
+## Run from a Fabric pipeline
+
+> **Preview.** Built and tested against local folders and a mocked OneLake. It has not yet run on a live tenant; see step 5 of [Verify on your tenant](#verify-on-your-tenant).
+
+A Fabric pipeline can ask the agent to run an environment and wait for the result, so the agent's runs fit into pipelines you already orchestrate in Fabric (after a Copy job lands files, before a semantic model refresh). The pipeline and the agent talk through files in the environment's `LH_Meta` lakehouse. Nothing listens on a network port, and the agent needs no inbound firewall rule.
+
+```
+pipeline ── writes ──> LH_Meta/Files/_fabric_desktop/requests/<id>.json
+agent    ── claims, queues and runs it, then writes ──> status/<id>.json
+pipeline ── reads status/<id>.json until it is final; writes cancel/<id>.json to cancel
+```
+
+**Turn it on** in `agent.toml`:
+
+```toml
+[pipeline]
+enabled = true
+entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
+```
+
+**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
+
+| Parameter | Example | Meaning |
+| --- | --- | --- |
+| `env` | `prod` | The environment. It must be the one whose `LH_Meta` the notebook writes to |
+| `entities` | `silver.orders,gold.fact_sales` | Comma-separated; empty runs every entity |
+| `request_id` | `@pipeline().RunId` | Makes a retried activity wait for the same run instead of asking twice |
+| `submitted_by` | `@concat(pipeline().Pipeline, ' ', pipeline().RunId)` | Recorded in the status, as given |
+| `start_within_minutes` | `60` | The request expires if no agent has started it by then |
+| `timeout_minutes` | `240` | Stop waiting, cancel the request if it hasn't started, and fail |
+
+The activity succeeds when the run succeeds and fails otherwise, with the reason in its error. Its output (`notebookutils.notebook.exit`) is the final status, so later activities can read the run ids and row counts.
+
+### The contract (version 1)
+
+A **request** is a JSON object in `requests/<id>.json`. The id is 1 to 64 letters, digits, `.`, `_` or `-`. Write the file under another name first and rename it, as the sample does; the agent gives a file it can't read 60 seconds before rejecting it.
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `contract` | no (1) | The contract version. An agent refuses a version it doesn't speak |
+| `env` | yes | The environment to run. It must match the mailbox it is written to |
+| `entities` | no | Entity names; empty or missing runs every entity in dependency order |
+| `backfill` | no | `""` or `"full"`. Needs `pipeline.allow_backfill` |
+| `cascade` | no | `true` rebuilds one entity and everything downstream of it. Needs `pipeline.allow_backfill` |
+| `deadline` | no | ISO 8601 time with a zone (`2026-10-17T03:00:00Z`): the latest time the run may start |
+| `submitted_by` | no | Free text up to 200 characters, recorded in the status |
+
+The agent answers in **`status/<id>.json`**:
+
+| Field | Meaning |
+| --- | --- |
+| `state` | `accepted`, `running`, then one final state: `succeeded`, `failed`, `cancelled`, `expired` or `rejected` |
+| `reason` | Why it was rejected, cancelled or expired |
+| `error` | Why the run failed (`last_error` while a retry waits) |
+| `agent`, `host` | Which agent took it |
+| `job_id`, `attempts` | The agent's job; `job_id` is also on every `run_log` row the run writes |
+| `received_at`, `started_at`, `finished_at`, `updated_at` | UTC times |
+| `result` | `tables`, `ok`, `failed`, `rows_written` and `run_ids` |
+| `cancel` | Set when a cancel arrived while the run was going |
+| `contract`, `request_id`, `env`, `entities`, `backfill`, `cascade`, `deadline`, `submitted_by` | As requested |
+
+A final status never changes again. Fields may be added within version 1; readers should ignore fields they don't know.
+
+**How it stays safe:**
+
+- **Each request runs once.** The agent claims a request by creating its status file with `If-None-Match: *`, so when several agents read one mailbox only one takes it. The request id is the job's dedupe key in the agent's queue, so an agent that crashes after claiming queues it when it starts again, and never twice.
+- **Only the environment's own people can ask.** A request runs the environment whose `LH_Meta` it is written to, and only identities that can write that lakehouse can write it. A Test pipeline can't run Prod. The agent also checks `pipeline.environments`, `pipeline.entities` and `pipeline.allow_backfill`, and that each entity exists in the project.
+- **Cancelling.** Write any file to `cancel/<id>.json`. A request that hasn't started is `cancelled`. A run already going finishes its tables (stopping mid-write could leave a table half done) and isn't retried if it fails.
+- **Deadlines.** A request not started by its `deadline`, including one waiting for a retry, is `expired` and its job is cancelled.
+- **Housekeeping.** Finished requests and their status and cancel files are removed after `pipeline.retention_days`.
 
 ## Verify on your tenant
 
@@ -160,9 +239,11 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 2. `fabric-desktop agent enqueue dev` writes the Dev tables, and they show in the lakehouse after a refresh.
 3. A lease file appears in `LH_Meta/Files/_fabric_desktop/leases/` while a table runs and is gone after. OneLake's support for `If-None-Match` and `If-Match` on these requests is the key thing to confirm.
 4. Two agents, or the agent and the app, running the same table at once: one waits for the other and no rows are lost.
+5. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
 
 ## Limits in this version
 
+- Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
 - One agent per queue. Two agents on different machines each keep their own queue; table leases still stop them from writing the same table at once, but nothing stops both from running the same schedule. Give each environment's schedules to one agent. A shared queue is roadmap M3.
 - The desktop app and runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn.
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.

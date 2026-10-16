@@ -160,6 +160,8 @@ class CloudMixin:
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == name), item)
+        if item.get("id") and hasattr(self, "_record_notebook_item"):  # the workload keeps the item by id
+            self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
         return {"name": name, "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"],
                 "id": item.get("id"),
                 "url": f"{FABRIC_APP}/groups/{ws['workspace_id']}/synapsenotebooks/{item.get('id')}"

@@ -156,6 +156,10 @@ The note has a button to switch when the other place would work.
 
 For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > Schedules**.
 
+## Side by side (Preview)
+
+Turn on **Side by side** in the ribbon and **Run all** runs the notebook on this PC, then in Fabric, and shows the time of each and whether both wrote the same tables (rows, columns and a checksum of every row). The TPC-H benchmark notebooks test it at scale. See [Side by side: this PC vs Fabric](side-by-side.md).
+
 ## SQL query
 
 The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse in **OneLake** or **Workspaces**, or **New SQL query** on a lakehouse page.

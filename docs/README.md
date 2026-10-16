@@ -10,6 +10,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
+| Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
 | Set it up for several teams | [Working across teams](teams.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
@@ -24,6 +25,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Metadata, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
+| [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
@@ -58,6 +60,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | --- | --- |
 | Run in Fabric (notebooks and environments) | Notebook ribbon, Metadata environments |
 | Schedules (on this PC and in Fabric) | Notebook ribbon, Metadata, Monitor |
+| Side by side (this PC vs Fabric) and the TPC-H benchmark | Notebook ribbon |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |

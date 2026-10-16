@@ -1,0 +1,383 @@
+"""Side by side: the same notebook on this PC and in Fabric, compared by time and results."""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import time
+from decimal import Decimal
+from pathlib import Path
+
+import pyarrow as pa
+import pytest
+from deltalake import DeltaTable, write_deltalake
+
+from fabric_desktop import benchmark, lakehouse
+from fabric_desktop import side_by_side as sbs
+from fabric_desktop import side_by_side_service
+from fabric_desktop.server import handle
+from fabric_desktop.service import Service
+
+LAKEHOUSE = {"workspace_id": "ws", "workspace_name": "Data", "lakehouse_id": "lh", "name": "LH_Bench"}
+
+
+class LocalTables(sbs.Tables):
+    """A lakehouse's Tables/ folder on disk: <root>/<schema>/<table>."""
+
+    def __init__(self, root: Path):
+        self.root = root
+
+    def path(self, table: str) -> Path:
+        schema, _, name = table.rpartition(".")
+        return self.root / (schema or "dbo") / name
+
+    def versions(self):
+        out = {}
+        for d in self.root.glob("*/*"):
+            if (d / "_delta_log").exists():
+                out[f"{d.parent.name}.{d.name}"] = DeltaTable(str(d)).version()
+        return out
+
+    def history(self, table):
+        return DeltaTable(str(self.path(table))).history()
+
+    def dataset(self, table, version):
+        return DeltaTable(str(self.path(table)), version=version).to_pyarrow_dataset()
+
+    def write(self, data, table, mode="overwrite"):
+        if not isinstance(data, pa.Table):
+            data = lakehouse._to_arrow(data)
+        write_deltalake(str(self.path(table)), data, mode=mode,
+                        schema_mode="overwrite" if mode == "overwrite" else None)
+
+
+@pytest.fixture
+def tables(tmp_path):
+    return LocalTables(tmp_path / "Tables")
+
+
+# ---- the checksum
+
+def test_checksum_ignores_row_order():
+    a = pa.table({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    b = pa.table({"id": [3, 1, 2], "name": ["c", "a", "b"]})
+    assert sbs.fingerprint(a) == sbs.fingerprint(b)
+
+
+def test_checksum_sees_one_changed_value():
+    a = pa.table({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+    b = pa.table({"id": [1, 2, 3], "name": ["a", "b", "x"]})
+    assert sbs.fingerprint(a)["checksum"] != sbs.fingerprint(b)["checksum"]
+
+
+def test_checksum_ignores_column_order_and_integer_width():
+    a = pa.table({"id": pa.array([1, 2], pa.int32()), "v": ["x", "y"]})
+    b = pa.table({"v": ["x", "y"], "id": pa.array([1, 2], pa.int64())})
+    assert sbs.fingerprint(a)["checksum"] == sbs.fingerprint(b)["checksum"]
+
+
+def test_decimal_and_double_with_tiny_rounding_noise_match():
+    # Spark's avg of a decimal is a decimal; DuckDB's is a double that can differ in the last bits.
+    a = pa.table({"avg": pa.array([Decimal("25.5100000000"), Decimal("38273.1297346212")], pa.decimal128(20, 10))})
+    b = pa.table({"avg": [25.510000000000002, 38273.12973462121]})
+    assert sbs.fingerprint(a)["checksum"] == sbs.fingerprint(b)["checksum"]
+    assert sbs.fingerprint(a)["columns"] == sbs.fingerprint(b)["columns"] == [["avg", "number"]]
+
+
+def test_timestamps_with_and_without_time_zone_match():
+    t = dt.datetime(2026, 10, 16, 12, 30)
+    a = pa.table({"at": pa.array([t], pa.timestamp("us"))})
+    b = pa.table({"at": pa.array([t.replace(tzinfo=dt.timezone.utc)], pa.timestamp("us", tz="UTC"))})
+    assert sbs.fingerprint(a)["checksum"] == sbs.fingerprint(b)["checksum"]
+
+
+# ---- what each run wrote, and whether it matches
+
+def test_overwrite_in_both_runs_matches(tables):
+    tables.write(pa.table({"id": [1]}), "dbo.old")  # there before, written by neither run
+    before = tables.versions()
+    tables.write(pa.table({"id": [1, 2]}), "bench.q01")
+    after_local = tables.versions()
+    tables.write(pa.table({"id": [2, 1]}), "bench.q01")
+    after_fabric = tables.versions()
+    rows = sbs.compare(tables, before, after_local, after_fabric)
+    assert [r["table"] for r in rows] == ["bench.q01"]
+    assert rows[0]["result"] == "match" and rows[0]["columns"] == "same"
+    assert rows[0]["local"]["version"] == 0 and rows[0]["fabric"]["version"] == 1
+    assert sbs.verdict(rows, "ok", "ok") == {"same": True, "text": "Same results in both places (1 table)."}
+
+
+def test_different_answer_is_flagged(tables):
+    before = tables.versions()
+    tables.write(pa.table({"id": [1, 2]}), "bench.q01")
+    after_local = tables.versions()
+    tables.write(pa.table({"id": [1, 3]}), "bench.q01")
+    rows = sbs.compare(tables, before, after_local, tables.versions())
+    assert rows[0]["result"] == "differs"
+    assert sbs.verdict(rows, "ok", "ok")["same"] is False
+
+
+def test_appends_compare_the_rows_each_run_added(tables):
+    tables.write(pa.table({"id": [0]}), "dbo.events")
+    before = tables.versions()
+    tables.write(pa.table({"id": [1, 2]}), "dbo.events", "append")
+    after_local = tables.versions()
+    tables.write(pa.table({"id": [2, 1]}), "dbo.events", "append")
+    rows = sbs.compare(tables, before, after_local, tables.versions())
+    assert rows[0]["result"] == "match"
+    assert rows[0]["local"]["rows"] == rows[0]["fabric"]["rows"] == 2
+    assert rows[0]["fabric"]["table_rows"] == 5
+    assert "added" in rows[0]["note"]
+
+
+def test_table_only_one_side_wrote(tables):
+    before = tables.versions()
+    tables.write(pa.table({"id": [1]}), "dbo.here")
+    after_local = tables.versions()
+    tables.write(pa.table({"id": [1]}), "dbo.there")
+    rows = {r["table"]: r for r in sbs.compare(tables, before, after_local, tables.versions())}
+    assert rows["dbo.here"]["result"] == "only_local"
+    assert rows["dbo.there"]["result"] == "only_fabric"
+
+
+def test_column_differences_are_named(tables):
+    before = tables.versions()
+    tables.write(pa.table({"id": [1], "a": ["x"]}), "dbo.t")
+    after_local = tables.versions()
+    tables.write(pa.table({"id": ["1"], "b": ["x"]}), "dbo.t")
+    rows = sbs.compare(tables, before, after_local, tables.versions())
+    assert rows[0]["result"] == "differs"
+    assert "only on this PC: a" in rows[0]["columns"] and "only in Fabric: b" in rows[0]["columns"]
+    assert "id (integer vs string)" in rows[0]["columns"]
+
+
+def test_write_mode_from_commits():
+    assert sbs.write_mode([{"operation": "WRITE", "operationParameters": {"mode": "Overwrite"}}]) == "overwrite"
+    assert sbs.write_mode([{"operation": "CREATE OR REPLACE TABLE AS SELECT"}]) == "overwrite"
+    assert sbs.write_mode([{"operation": "WRITE", "operationParameters": {"mode": "Append"}}] * 2) == "append"
+    assert sbs.write_mode([{"operation": "MERGE"}]) == "in place"
+
+
+def test_verdict_and_speed():
+    assert "failed on this PC" in sbs.verdict([], "failed", "ok")["text"]
+    assert sbs.verdict([], "ok", "ok")["same"] is None
+    s = sbs.speed(10, 40, 20)
+    assert s["end_to_end"] == "This PC was 4.0x faster end to end"
+    assert s["run"].startswith("This PC was 2.0x faster on run time alone")
+    assert sbs.speed(40, 10, None) == {"end_to_end": "Fabric was 4.0x faster end to end", "run": ""}
+
+
+def test_timing_cells_write_where_the_app_reads():
+    first, last = sbs.timing_cells("abc")
+    ns = {}
+    exec(first["source"], ns)
+    assert "_fd_started" in ns
+    assert f"/lakehouse/default/{sbs.TIMING_DIR}" in last["source"] and "abc.json" in last["source"]
+    assert sbs.parse_timing(b'{"seconds": 12.5}') == 12.5 and sbs.parse_timing(None) is None
+
+
+# ---- the whole run, called the way the app calls it
+
+class FakeAuth:
+    def storage_token(self):
+        return "t"
+
+    def fabric_token(self):
+        return "t"
+
+
+class FakeFabric:
+    """Publishes, and 'runs' the notebook by doing what Fabric would: write the tables."""
+
+    def __init__(self, tables, fabric_writes):
+        self.tables, self.fabric_writes = tables, fabric_writes
+        self.saved = []
+        self.timing = None
+
+    def save_notebook(self, ws, name, ipynb):
+        self.saved.append(json.loads(ipynb))
+        return {"id": "nb1", "displayName": name}
+
+    def get_lakehouse(self, ws, lh):
+        return {"properties": {"defaultSchema": "dbo"}}
+
+    def run_item_job(self, ws, item, job):
+        self.fabric_writes(self.tables)
+        return "job1"
+
+    def job_instance(self, ws, item, job):
+        return {"status": "Completed", "startTimeUtc": "2026-10-16T10:00:00Z", "endTimeUtc": "2026-10-16T10:01:30Z"}
+
+    def cancel_job(self, ws, item, job):
+        pass
+
+
+class FakeFiles:
+    def __init__(self, token):
+        pass
+
+    def read_bytes(self, ws, lh, path):
+        return b'{"seconds": 60}'
+
+    def delete(self, ws, lh, path):
+        pass
+
+
+class SbsService(Service):
+    fake = None
+    fake_tables = None
+
+    @property
+    def auth(self):
+        return FakeAuth()
+
+    @property
+    def fabric(self):
+        return self.fake
+
+    @property
+    def fabric_jobs(self):
+        return self.fake
+
+    def _sbs_tables(self, lakehouse_ref):
+        return self.fake_tables
+
+
+@pytest.fixture
+def svc(tmp_path, tables, monkeypatch):
+    monkeypatch.setattr(side_by_side_service, "POLL_SECONDS", 0)
+    monkeypatch.setattr(side_by_side_service, "FileStore", FakeFiles)
+    monkeypatch.setattr(lakehouse, "write_table", tables.write)
+    monkeypatch.setattr(lakehouse, "open_table", lambda t: DeltaTable(str(tables.path(t))))
+    s = SbsService(root=tmp_path / "app")
+    s.fake_tables = tables
+    return s
+
+
+def call(svc, method, **params):
+    out = handle(svc, json.dumps({"id": 1, "method": method, "params": params}))
+    assert "error" not in out, out["error"]
+    return out["result"]
+
+
+def wait(svc, run_id):
+    for _ in range(600):
+        status = call(svc, "side_by_side_status", id=run_id)
+        if status["state"] not in ("local", "fabric", "checking"):
+            return status
+        time.sleep(0.05)
+    raise AssertionError("side by side didn't finish")
+
+
+CELLS = [{"type": "markdown", "source": "# Test", "meta": {}},
+         {"type": "code", "source": "from fabric_desktop import lakehouse\nimport pyarrow as pa\nx = 2", "meta": {}},
+         {"type": "code", "source": "lakehouse.write_table(pa.table({'id': [1, x]}), 'bench.q01')\nprint('wrote')", "meta": {}}]
+
+
+def payload(cells=CELLS):
+    # Exactly what the notebook screen sends (notebookPayload in app.js).
+    return {"name": "NB", "cells": cells, "lakehouse_ref": LAKEHOUSE, "compute": "default", "workspace": None}
+
+
+def test_side_by_side_end_to_end_same_results(svc, tables):
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    started = call(svc, "side_by_side_start", **payload())
+    out = wait(svc, started["id"])
+    assert out["state"] == "done", out["message"]
+    assert out["local"]["status"] == "ok" and out["local"]["seconds"] is not None
+    assert out["local"]["cells"]["2"]["outputs"][0]["text"].startswith("wrote")
+    f = out["fabric"]
+    assert f["status"] == "ok" and f["job_seconds"] == 90 and f["run_seconds"] == 60 and f["start_seconds"] == 30
+    assert f["cu_seconds"] == 90.0 and f["engine"] == "python"
+    assert out["verdict"]["same"] is True
+    assert [r["result"] for r in out["tables"]] == ["match"]
+    # Fabric got the timing cells; the notebook on this PC didn't.
+    published = ["".join(c["source"]) for c in svc.fake.saved[-1]["cells"]]
+    assert any("start the clock" in s for s in published) and any(out["id"] in s for s in published)
+    assert not any("start the clock" in c["source"] for c in svc.notebooks.load("NB")["cells"])
+    # Kept for later, without the cell outputs; shows in Monitor's Fabric runs.
+    listed = call(svc, "side_by_side_list", name="NB")
+    assert listed[0]["id"] == out["id"] and "cells" not in listed[0]["local"]
+    assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
+
+
+def test_side_by_side_reports_a_different_answer(svc, tables):
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 3]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
+    assert out["verdict"] == {"same": False, "text": "Results differ in 1 of 1 table."}
+
+
+def test_a_failure_on_this_pc_still_runs_in_fabric(svc, tables):
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 2]}), "bench.q01"))
+    cells = CELLS[:2] + [{"type": "code", "source": "raise ValueError('only on my laptop')", "meta": {}}]
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    assert out["local"]["status"] == "failed" and out["local"]["failed_cell"] == 3
+    assert out["fabric"]["status"] == "ok"
+    assert "failed on this PC" in out["verdict"]["text"]
+    assert out["tables"][0]["result"] == "only_fabric"
+
+
+def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):
+    svc.fake = FakeFabric(tables, lambda t: None)
+    out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(
+        [{"type": "code", "source": "x = open('C:\\\\data\\\\a.csv')", "meta": {}}])}))
+    assert "can't run in Fabric" in out["error"]
+    out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload() | {"lakehouse_ref": None}}))
+    assert "Attach a lakehouse" in out["error"]
+
+
+# ---- the TPC-H benchmark notebooks
+
+def test_examples_in_the_repository_are_the_generated_notebooks(tmp_path):
+    repo = Path(__file__).resolve().parents[2] / "examples" / "benchmark"
+    for path in benchmark.write(tmp_path):
+        assert (repo / path.name).read_text(encoding="utf-8") == path.read_text(encoding="utf-8"), \
+            f"Run: python -m fabric_desktop.benchmark examples/benchmark (from sidecar/, path ../examples/benchmark)"
+
+
+def test_benchmark_notebooks_are_added_and_kept(svc):
+    out = call(svc, "benchmark_notebooks", lakehouse_ref=LAKEHOUSE)
+    assert out["added"] == [benchmark.DATA_NOTEBOOK, benchmark.BENCHMARK_NOTEBOOK]
+    nb = call(svc, "open_notebook", name=benchmark.BENCHMARK_NOTEBOOK)
+    assert nb["lakehouse"] == LAKEHOUSE
+    assert nb["check"]["local"]["ok"] and nb["check"]["fabric"]["ok"]
+    assert call(svc, "benchmark_notebooks")["added"] == []
+    assert len(benchmark.QUERIES) == 22
+
+
+def _tpch_available() -> bool:
+    import duckdb
+    con = duckdb.connect()
+    try:
+        con.execute("INSTALL tpch")
+        con.execute("LOAD tpch")
+        return True
+    except Exception:
+        try:
+            import duckdb_extension_tpch  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
+
+@pytest.mark.skipif(not _tpch_available(), reason="DuckDB's tpch extension can't be installed here")
+def test_benchmark_notebooks_run_end_to_end(svc, tables):
+    """Generate scale factor 0.01, run the 22 queries, and check the answers against DuckDB's own."""
+    import duckdb
+    for name, params in ((benchmark.DATA_NOTEBOOK, "scale_factor = 0.01"), (benchmark.BENCHMARK_NOTEBOOK, None)):
+        cells = benchmark.notebooks()[name]
+        svc._attach(LAKEHOUSE)
+        svc.kernel.restart()
+        for c in cells:
+            if c["type"] != "code":
+                continue
+            out = svc.kernel.run(c["source"] + (f"\n{params}" if params and "parameters" in c.get("meta", {}).get("tags", []) else ""))
+            assert out["status"] == "ok", out["outputs"]
+    assert DeltaTable(str(tables.path("tpch.lineitem"))).to_pyarrow_table().num_rows > 50_000
+    con = duckdb.connect()
+    for t in benchmark.TABLES:
+        con.register(t, DeltaTable(str(tables.path(f"tpch.{t}"))).to_pyarrow_dataset())
+    for n in (1, 6, 13, 18):
+        expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
+        got = tables.fingerprint(f"bench.q{n:02d}", DeltaTable(str(tables.path(f"bench.q{n:02d}"))).version())
+        assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]

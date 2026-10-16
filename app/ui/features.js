@@ -36,6 +36,7 @@ function railItem(f) {
 const PREVIEW_FEATURES = {
   fabricRun: "Run in Fabric",
   schedules: "Schedules",
+  sideBySide: "Side by side",
   cost: "Cost",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",

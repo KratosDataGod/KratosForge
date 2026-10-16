@@ -78,7 +78,7 @@ function renderNotebook() {
     btn(label, iconName, onClick, `tool${on ? " toggled" : ""}`, { "aria-pressed": String(!!on), ...attrs });
 
   const toolbars = {
-    home: [runAllBtn, cancelBtn, computeBtn, h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
+    home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), btn("Save", "save", saveNotebook),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
@@ -96,7 +96,7 @@ function renderNotebook() {
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, h("div", { class: "sep" }),
+      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
@@ -116,7 +116,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, computeNote(nb), nb.cells.map(renderCell),
+  h("div", { class: "cells-inner" }, sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -1128,7 +1128,10 @@ async function runCells(cells) {
   setKernel(stopRequested ? "stopped" : "idle");
 }
 
-function runAll() { return nbWhere(state.notebook).fabric ? runInFabric() : runCells(state.notebook.cells); }
+function runAll() {
+  if (sbsOn(state.notebook)) return runSideBySide();  // sidebyside.js
+  return nbWhere(state.notebook).fabric ? runInFabric() : runCells(state.notebook.cells);
+}
 
 function runAbove() {
   const cells = state.notebook.cells;
@@ -1153,6 +1156,7 @@ function setKernel(status) {
 // Cancel stops the running cell and keeps variables. Code stuck inside a native library can't be
 // stopped that way; then restarting the kernel is the way out, and it clears variables.
 async function cancelRun() {
+  if (sbsRunning(state.notebook)) return cancelSideBySide(state.notebook);
   cancelRequested = true;
   state.notebook?.cells.forEach((c) => { if (c.status === "queued") { c.status = null; updateResults(c); } });
   const res = await attempt(() => rpc("interrupt_cell"), "Could not cancel");

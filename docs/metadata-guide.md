@@ -239,7 +239,7 @@ Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicate
 - The list shows each key table's key count, next key, and which tables use it. Select one to **look up a business key**, see its attributes, and copy the block that makes an entity use it.
 - **Sync to LH_Keys** creates any missing key tables and writes the source system configuration.
 
-An entity takes keys with a `[[keys]]` block. The first step of every run MERGEs business keys it hasn't seen into the key table (continuing from the highest key, never reusing one), then adds `<name>_sk` to every row. Rows with no business key get -1 (the Unknown member). A composite key is a list, stored as `"a||b"`.
+An entity takes keys with a `[[keys]]` block. The first step of every run MERGEs business keys it hasn't seen into the key table (continuing from the highest key, never reusing one), then adds `<name>_sk` to every row. Rows with no business key get -1 (the Unknown member). A composite key is a list, stored as `"a||b"`. Entities that share a key table can run at the same time, on one PC or several: each MERGE is committed against the version of the key table its new keys were worked out from, and is redone if another run committed first, so no key goes to two business keys. A run checks the key table for a key or business key that appears twice and stops, writing nothing, if it finds one.
 
 ```toml
 [[keys]]

@@ -2,6 +2,7 @@
 
 import datetime as dt
 import json
+import types
 
 import polars as pl
 import pytest
@@ -210,6 +211,36 @@ def test_access_review_uses_the_environment_workspaces(svc, monkeypatch):
     out = svc.access_review()
     assert [w["key"] for w in out["workspaces"]] == ["test", "test-keys"]
     assert out["people"][0]["roles"]["test-keys"]["role"] == "Admin"
+
+
+def test_access_by_email_needs_no_directory_permission(svc, monkeypatch):
+    from fabric_desktop import estate_service
+
+    class Auth:
+        asked = []
+
+        def _token(self, scopes):
+            self.asked.append(scopes)
+            if "graph.microsoft.com" in scopes[0]:
+                raise RuntimeError("AADSTS65001: consent_required")
+            return "tok"
+
+    class Fake:
+        def list_role_assignments(self, ws):
+            return [{"id": "a1", "role": "Viewer", "principal": {"id": "oid-ana", "displayName": "Ana", "type": "User",
+                                                                  "userDetails": {"userPrincipalName": "ana@contoso.com"}}}]
+    posted = []
+    monkeypatch.setattr(estate_service.requests, "post",
+                        lambda url, json, headers, timeout: posted.append((url, json)) or types.SimpleNamespace(status_code=200, ok=True))
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: Fake()))
+    svc._auth = Auth()
+
+    svc.access_set_role("ws1", role="Contributor", email="bo@contoso.com")
+    assert posted == [("https://api.powerbi.com/v1.0/myorg/groups/ws1/users",
+                       {"emailAddress": "bo@contoso.com", "groupUserAccessRight": "Contributor", "principalType": "User"})]
+    assert svc.access_find_person("ANA@contoso.com", workspace_id="ws1")["id"] == "oid-ana"
+    with pytest.raises(LookupError, match="object ID"):
+        svc.access_find_person("bo@contoso.com", workspace_id="ws1")
 
 
 # ---- tests that gate promote

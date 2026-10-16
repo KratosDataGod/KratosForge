@@ -18,11 +18,10 @@ import os
 import threading
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlsplit
 
 import msal
 
-from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES
+from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES, default_scope, resource_of  # noqa: F401  (re-exported)
 
 
 class Credential(Protocol):
@@ -32,26 +31,6 @@ class Credential(Protocol):
     def silent_token(self, scopes: list[str]) -> str | None: ...
     def signed_in_user(self) -> str | None: ...
     def signed_in_tenant(self) -> str | None: ...
-
-
-def resource_of(scope: str) -> str:
-    """The resource a delegated scope belongs to: ``https://api.fabric.microsoft.com/Item.ReadWrite.All``
-    is ``https://api.fabric.microsoft.com``; ``https://analysis.windows.net/powerbi/api/Tenant.Read.All``
-    is ``https://analysis.windows.net/powerbi/api``."""
-    parts = urlsplit(scope)
-    if not parts.scheme or not parts.netloc:
-        raise ValueError(f"{scope!r} isn't a scope URL")
-    path = parts.path.rstrip("/")
-    head, _, last = path.rpartition("/")
-    path = head if last else path
-    return f"{parts.scheme}://{parts.netloc}{path}"
-
-
-def default_scope(scopes: list[str]) -> str:
-    resources = {resource_of(s) for s in scopes}
-    if len(resources) != 1:
-        raise ValueError(f"One token can't cover several resources: {sorted(resources)}")
-    return resources.pop() + "/.default"
 
 
 class _AppCredential:

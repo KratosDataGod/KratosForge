@@ -23,7 +23,7 @@ from deltalake.exceptions import TableNotFoundError
 from . import access as access_mod
 from . import costs as costs_mod
 from . import shortcuts as shortcuts_mod
-from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES
+from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
 from .fabric_api import FabricClient
 from .meta import impact
 from .meta import restore as restore_mod
@@ -295,8 +295,9 @@ class EstateMixin:
         return access_mod.review(targets) | {"roles": list(access_mod.ROLES)}
 
     def access_set_role(self, workspace_id: str, role: str = "", assignment_id: str = "", principal_id: str = "",
-                        principal_type: str = "User") -> dict[str, Any]:
-        """Give someone a workspace role, change it, or (role "") take it away."""
+                        principal_type: str = "User", email: str = "") -> dict[str, Any]:
+        """Give someone a workspace role, change it, or (role "") take it away. A person can be
+        given by email: Power BI's workspace API takes one, so no directory permission is needed."""
         if role and role not in access_mod.ROLES:
             raise ValueError(f"role must be one of {', '.join(access_mod.ROLES)}")
         fabric = self.fabric  # type: ignore[attr-defined]
@@ -306,18 +307,50 @@ class EstateMixin:
             fabric.delete_role_assignment(workspace_id, assignment_id)
         elif principal_id and role:
             fabric.add_role_assignment(workspace_id, principal_id, principal_type or "User", role)
+        elif email and role:
+            self._add_user_by_email(workspace_id, email.strip(), role)
         else:
             raise ValueError("Pick a person and a role.")
         return {"ok": True}
 
-    def access_find_person(self, text: str) -> dict[str, Any]:
-        """A person by email (Microsoft Graph), or a group or app by its object ID."""
+    def _add_user_by_email(self, workspace_id: str, email: str, role: str) -> None:
+        if "@" not in email:
+            raise ValueError("Type a person's email, or a group's or app's object ID.")
+        token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
+        r = requests.post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
+                          json={"emailAddress": email, "groupUserAccessRight": role, "principalType": "User"},
+                          headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        if r.status_code == 404:
+            raise LookupError(f"No one with the email {email} in your organization, or the workspace is gone.")
+        if not r.ok:
+            raise RuntimeError(f"Fabric didn't add {email} ({r.status_code}): {r.text[:200]}")
+
+    def access_find_person(self, text: str, workspace_id: str = "") -> dict[str, Any]:
+        """A person by email, or a group or app by its object ID.
+
+        An email is looked up first among the people who already have a role in the workspace
+        (Fabric lists them with their IDs), and only then in the directory (Microsoft Graph),
+        which needs a permission Microsoft's sign-in app may not have."""
         text = (text or "").strip()
         if _GUID.match(text):
             return {"id": text, "name": text, "email": "", "type": "Group"}
         if "@" not in text:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
-        token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
+        if workspace_id:
+            try:
+                assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - e.g. a Viewer can't list roles; try the directory
+                assignments = []
+            for a in assignments:
+                p = access_mod.principal(a.get("principal") or {})
+                if p["email"].lower() == text.lower():
+                    return {"id": p["id"], "name": p["name"], "email": p["email"], "type": p["type"] or "User"}
+        try:
+            token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001
+            raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop can't look people up "
+                              "in your directory. Give them a workspace role first, or paste their object ID "
+                              "(Microsoft Entra admin center > Users).") from exc
         r = requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
                          params={"$select": "id,displayName,userPrincipalName,mail"},
                          headers={"Authorization": f"Bearer {token}"}, timeout=30)

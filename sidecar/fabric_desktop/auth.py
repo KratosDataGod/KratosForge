@@ -1,18 +1,30 @@
-"""Delegated sign-in with MSAL.
+"""Delegated sign-in with MSAL: the app only ever acts as the person who signed in.
 
 One interactive sign-in yields two tokens: one for the Fabric REST API and
 one for the Storage audience, which OneLake requires. The MSAL token cache is
 persisted per user so later runs refresh silently.
+
+By default nobody registers an app: Fabric Desktop signs in through Microsoft's own Fabric
+sign-in app (the one Fabric CLI's ``fab auth login`` uses), which every tenant already trusts
+for Fabric and OneLake. It asks for each resource's ``/.default``, since that app's access is
+set by Microsoft, and signs in through Windows (the Web Account Manager) when it can.
+An organization can still name its own app registration (policy file, environment, Settings);
+then the app asks for the narrow scopes below, each the first time a feature needs it.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
+import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import msal
 
 AUTHORITY = "https://login.microsoftonline.com/organizations"
+# Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
+MICROSOFT_CLIENT_ID = "5814bfb4-2705-4994-b8d6-39aabeb5eaeb"
 
 FABRIC_SCOPES = [
     "https://api.fabric.microsoft.com/Workspace.ReadWrite.All",
@@ -29,9 +41,43 @@ CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
 CAPACITY_SCOPES = ["https://api.fabric.microsoft.com/Capacity.Read.All"]
-# Fabric admin read access, used only to show endorsement. Never asked for interactively:
-# it works when the app registration has consent for it and the user is a Fabric admin.
-ADMIN_SCOPES = ["https://analysis.windows.net/powerbi/api/Tenant.Read.All"]
+# Adding someone to a workspace by email (Power BI's API, the same Power BI Service permission
+# as Workspace.ReadWrite.All above), so no directory permission is needed for it.
+POWERBI_WORKSPACE_SCOPES = ["https://analysis.windows.net/powerbi/api/Workspace.ReadWrite.All"]
+
+
+def resource_of(scope: str) -> str:
+    """The resource a delegated scope belongs to: ``https://api.fabric.microsoft.com/Item.ReadWrite.All``
+    is ``https://api.fabric.microsoft.com``; ``https://analysis.windows.net/powerbi/api/Tenant.Read.All``
+    is ``https://analysis.windows.net/powerbi/api``."""
+    parts = urlsplit(scope)
+    if not parts.scheme or not parts.netloc:
+        raise ValueError(f"{scope!r} isn't a scope URL")
+    path = parts.path.rstrip("/")
+    head, _, last = path.rpartition("/")
+    path = head if last else path
+    return f"{parts.scheme}://{parts.netloc}{path}"
+
+
+def default_scope(scopes: list[str]) -> str:
+    resources = {resource_of(s) for s in scopes}
+    if len(resources) != 1:
+        raise ValueError(f"One token can't cover several resources: {sorted(resources)}")
+    return resources.pop() + "/.default"
+
+
+def _broker_available() -> bool:
+    return sys.platform == "win32" and importlib.util.find_spec("pymsalruntime") is not None
+
+
+def _window_handle() -> int | object:
+    """The window sign-in opens over: Fabric Desktop's, which is in front when someone clicks Sign in."""
+    if sys.platform == "win32":
+        import ctypes
+        handle = ctypes.windll.user32.GetForegroundWindow()  # type: ignore[attr-defined]
+        if handle:
+            return int(handle)
+    return msal.PublicClientApplication.CONSOLE_WINDOW_HANDLE
 
 
 def default_cache_path() -> Path:
@@ -40,17 +86,32 @@ def default_cache_path() -> Path:
 
 
 class Authenticator:
-    def __init__(self, client_id: str, cache_path: Path | None = None, interactive: bool = True):
-        if not client_id:
-            raise ValueError("Fabric Desktop doesn't know which app to sign in with yet. Open Settings > Account "
-                             "and paste the app (client) ID your Fabric admin gave you.")
-        self.client_id = client_id
+    def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
+        self.client_id = client_id or MICROSOFT_CLIENT_ID
+        self.microsoft = self.client_id == MICROSOFT_CLIENT_ID  # no app registration
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
         self.cache = msal.SerializableTokenCache()
         if self.cache_path.exists():
             self.cache.deserialize(self.cache_path.read_text())
-        self.app = msal.PublicClientApplication(client_id, authority=AUTHORITY, token_cache=self.cache)
+        # Windows sign-in (WAM) for Microsoft's app, whose broker redirect Microsoft registered.
+        # It uses the Windows work account, so there's often no prompt, and it passes
+        # "compliant device" Conditional Access. Elsewhere, or if it can't start, the browser.
+        self.broker = False
+        if self.microsoft and _broker_available():
+            try:
+                self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
+                                                        enable_broker_on_windows=True)
+                self.broker = True
+            except Exception:  # noqa: BLE001  # the broker's runtime failed to load: sign in with the browser
+                pass
+        if not self.broker:
+            self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache)
+
+    def scopes_for(self, scopes: list[str]) -> list[str]:
+        """What to ask for: the narrow scopes for an organization's own app; for Microsoft's app,
+        whose access Microsoft sets, the resource's /.default."""
+        return [default_scope(scopes)] if self.microsoft else scopes
 
     def _save(self) -> None:
         if self.cache.has_state_changed:
@@ -58,6 +119,7 @@ class Authenticator:
             self.cache_path.write_text(self.cache.serialize())
 
     def _token(self, scopes: list[str]) -> str:
+        scopes = self.scopes_for(scopes)
         result = None
         accounts = self.app.get_accounts()
         if accounts:
@@ -66,7 +128,10 @@ class Authenticator:
             raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop and sign in, "
                                "and scheduled runs will work again.")
         if not result:
-            result = self.app.acquire_token_interactive(scopes)
+            if self.broker:
+                result = self.app.acquire_token_interactive(scopes, parent_window_handle=_window_handle())
+            else:
+                result = self.app.acquire_token_interactive(scopes)
         self._save()
         if "access_token" not in result:
             raise RuntimeError(f"Sign-in failed: {result.get('error')}: {result.get('error_description')}")
@@ -75,7 +140,7 @@ class Authenticator:
     def silent_token(self, scopes: list[str]) -> str | None:
         """A token for scopes the user has already consented to, without any prompt; None otherwise."""
         accounts = self.app.get_accounts()
-        result = self.app.acquire_token_silent(scopes, account=accounts[0]) if accounts else None
+        result = self.app.acquire_token_silent(self.scopes_for(scopes), account=accounts[0]) if accounts else None
         self._save()
         return result.get("access_token") if result else None
 

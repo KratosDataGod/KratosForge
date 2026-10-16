@@ -6,8 +6,8 @@ Fabric Desktop runs on each person's PC, but the work it produces is shared: met
 
 | Role | Typical person | Responsible for |
 | --- | --- | --- |
-| **Platform owner** | Data platform or BI lead | The app registration, the policy file, the update channel, the Keys workspaces, and the [ideas forum](ideas.md) triage. |
-| **IT / Entra admin** | Identity team | Consent for the app registration, pushing `policy.json`, security groups. See [Configure Azure and Fabric](azure-setup.md). |
+| **Platform owner** | Data platform or BI lead | The policy file, the update channel, the Keys workspaces, and the [ideas forum](ideas.md) triage. |
+| **IT / Entra admin** | Identity team | Conditional Access, pushing `policy.json`, security groups, and an own app registration only if policy requires one. See [Configure Azure and Fabric](azure-setup.md). |
 | **Project owner** | Lead engineer of a domain (Sales, Finance) | One metadata project: its repository, its Dev/Test/Prod workspaces, reviews, and who may promote. |
 | **Data engineer** | Anyone building tables | Entities, transforms and tests in their branch; runs Dev on their own PC. |
 | **Analyst** | Report builders, data scientists | Notebooks and SQL queries against lakehouses; the semantic model built on Gold. |
@@ -16,8 +16,8 @@ One person can hold several roles. The point is that each shared thing has one o
 
 ## One app for everyone
 
-- **One app registration** for the whole organization (or one per tenant, if you serve several). Every team uses the same app ID. Don't let teams register their own; it multiplies consent requests and makes support harder.
-- **Push the settings** with `%ProgramData%\FabricDesktop\policy.json` so nobody types an app ID ([Rolling out to your organization](permissions.md#rolling-out-to-your-organization)). Set `support_url` to your team's Teams channel or ticket form so **Report a problem** goes to you first, not to GitHub.
+- **No app registration by default.** Everyone signs in through Microsoft's Fabric sign-in. If your policy requires your own registration, keep it to one for the whole organization and push its ID; don't let teams register their own, which multiplies consent requests and makes support harder.
+- **Push the settings** with `%ProgramData%\FabricDesktop\policy.json` ([Rolling out to your organization](permissions.md#rolling-out-to-your-organization)). Set `support_url` to your team's Teams channel or ticket form so **Report a problem** goes to you first, not to GitHub.
 - **Update channels.** Keep most people on **Stable**. Put a small pilot group on **Preview** (Settings, or a separate policy file for that group) so new builds are tried by a few people before everyone gets them. A maintainer promotes to Stable after the pilot has used a build.
 - **Preview features.** Consider `"show_preview": false` for most people until each feature has been tried on your tenant, and let the pilot group report what works.
 

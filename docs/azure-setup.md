@@ -1,15 +1,15 @@
 # Configure Azure and Fabric
 
-Fabric Desktop needs three things set up in your Microsoft cloud before people can use it: an app registration in Microsoft Entra ID, a few Fabric settings, and workspaces with capacity. This page walks through all of it in order. It is written for whoever administers Entra and Fabric in your organization. Most of it is done once.
+Fabric Desktop needs no app registration: it signs people in as themselves through Microsoft's own Fabric sign-in, the same one Fabric CLI uses. What's left to set up is a few Fabric settings, and workspaces with capacity. This page walks through it in order. It is written for whoever administers Fabric in your organization. Most of it is done once.
 
-The exact list of API permissions, in alphabetical order, lives in one place: **[permissions.md](permissions.md)**. This page tells you when to use it and what else to set up around it.
+Everything about sign-in and permissions, including how to use your own app registration if your organization requires one, is in **[permissions.md](permissions.md)**.
 
 | Step | Who does it | Once or per person |
 | --- | --- | --- |
 | [1. Check your Fabric tenant settings](#1-check-your-fabric-tenant-settings) | Fabric administrator | Once |
-| [2. Register the app in Entra](#2-register-the-app-in-entra) | Entra Application Administrator or Cloud Application Administrator | Once |
-| [3. Add the permissions and grant consent](#3-add-the-permissions-and-grant-consent) | Entra Global Administrator, Privileged Role Administrator or Cloud Application Administrator | Once |
-| [4. Give the app ID to everyone](#4-give-the-app-id-to-everyone) | IT, or the repository owner | Once |
+| [2. Check sign-in policies](#2-check-sign-in-policies) | Entra or Conditional Access administrator | Once |
+| [3. Only if required: your own app registration](#3-only-if-required-your-own-app-registration) | Entra Application Administrator | Once, and usually not at all |
+| [4. Push settings to everyone](#4-push-settings-to-everyone) | IT | Once, optional |
 | [5. Plan workspaces and capacity](#5-plan-workspaces-and-capacity) | Fabric or workspace admins | Once per project |
 | [6. Give people access](#6-give-people-access) | Workspace admins | Per person or group |
 | [7. Optional extras](#7-optional-extras) | Varies | As needed |
@@ -28,52 +28,29 @@ In the **Fabric admin portal** (`app.fabric.microsoft.com` > gear > **Admin port
 
 Settings can be on for the whole organization or for named security groups. If you limit them to groups, make sure Fabric Desktop's users are in them.
 
-## 2. Register the app in Entra
+## 2. Check sign-in policies
 
-Fabric Desktop signs people in as themselves (delegated sign-in). It does that through one app registration that you own. You don't need a client secret: it is a public client.
+There is no app to register and no consent to grant. People sign in with their work account; on Windows that usually happens through Windows itself, with no prompt.
 
-1. Open the [Microsoft Entra admin center](https://entra.microsoft.com) > **Identity > Applications > App registrations > New registration**.
-2. **Name:** anything people will recognize on the consent screen, for example `Fabric Desktop`.
-3. **Supported account types:**
-   - **Accounts in this organizational directory only** if only your organization uses it.
-   - **Accounts in any organizational directory** if people from more than one organization will use the same app ID, such as partners or customers. Each of those organizations then approves it once ([permissions.md: People from more than one organization](permissions.md#rolling-out-to-your-organization)).
-4. **Redirect URI:** choose **Public client/native (mobile & desktop)** and enter `http://localhost`.
-5. Select **Register**.
-6. On the app's **Overview** page, copy the **Application (client) ID**. That is the "app ID" people paste into Fabric Desktop.
-7. Under **Authentication**, check that `http://localhost` is listed under **Mobile and desktop applications**.
+Two Conditional Access policies can still get in the way:
 
-## 3. Add the permissions and grant consent
+- **"Require a compliant or managed device"**: works on PCs your organization manages, because Windows sign-in proves the device. Unmanaged PCs are refused, as they are for Fabric in the browser.
+- **Policies that block Microsoft's developer tools** (Azure CLI, Fabric CLI) for some users: Fabric Desktop signs in through the Fabric CLI app, so those users are refused too. Exclude the Fabric CLI app for Fabric Desktop's users, or use step 3.
 
-Follow **[permissions.md](permissions.md)** from **Step by step** onward. In short:
+[permissions.md](permissions.md#microsofts-fabric-sign-in-what-it-may-need-to-check) has the details and which features each Microsoft API covers.
 
-1. Make sure your tenant has a service principal for each Microsoft API you will add (Azure Storage, Microsoft Graph, Power BI Service, and any optional ones). On new tenants this is the step that usually fails, with "Could not grant admin consent ... does not have a subscription (or service principal)". The fix is one `az ad sp create` line per API, listed on that page.
-2. On **API permissions**, add the **delegated** permissions in the table, top to bottom. They're in alphabetical order so you visit each API once.
-3. Select **Grant admin consent for <your tenant>**.
+## 3. Only if required: your own app registration
 
-What you can leave out:
+Skip this unless your organization requires every app to use a registration in your own tenant, or wants to pick the exact permissions. Then follow [permissions.md: Using your own app registration](permissions.md#using-your-own-app-registration): register a public client with the redirect URI `http://localhost`, add the delegated permissions in its table, and give its ID to everyone with step 4. None of those permissions needs admin consent, unless your tenant stops users consenting to apps.
 
-- Permissions marked **Planned** aren't used yet. Adding them now saves another consent round later; leaving them out is fine.
-- Permissions marked **Optional** or **Required for <a feature>** only matter if people use that feature. Without them the feature says which permission it needs; everything else works.
-- **Azure Key Vault** and **Azure Service Management** need their service principals to exist in your tenant. If you don't want them yet, leave them off rather than letting them block consent for the rest.
+## 4. Push settings to everyone
 
-If you skip admin consent, each person is asked to consent the first time they sign in, if your tenant lets users consent to apps. Many organizations don't, which is why admin consent is recommended.
-
-## 4. Give the app ID to everyone
-
-Nobody should have to type the app ID or run a command. Pick one way; the first one found wins, in this order:
-
-| Way | How | Best for |
-| --- | --- | --- |
-| **Policy file** | Push `%ProgramData%\FabricDesktop\policy.json` with Intune or Group Policy | IT-managed PCs. People see "Set by your organization" and can't change it. |
-| **Environment variable** | `FABRIC_DESKTOP_CLIENT_ID` for the Windows user | Existing installs set up by script. |
-| **Settings** | Each person pastes it in **Settings > Account**, or in the box at first sign-in | One person or a small pilot. |
-| **Built in** | Set the repository variable `FABRIC_CLIENT_ID` (**Settings > Secrets and variables > Actions > Variables**). Every build after that carries it. | Everyone who downloads the app from this repository. |
+Nothing here is required. A policy file at `%ProgramData%\FabricDesktop\policy.json`, pushed with Intune or Group Policy, can fix the update channel, hide Preview features, point **Report a problem** at your own support channel, and name your own app registration (step 3). People see "Set by your organization" and can't change those settings.
 
 A policy file that sets everything an organization usually wants:
 
 ```json
 {
-  "client_id": "00000000-0000-0000-0000-000000000000",
   "channel": "stable",
   "show_preview": false,
   "support_url": "https://teams.microsoft.com/l/channel/..."
@@ -82,7 +59,7 @@ A policy file that sets everything an organization usually wants:
 
 | Key | Values | Effect |
 | --- | --- | --- |
-| `client_id` | The Application (client) ID | The app people sign in through |
+| `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
@@ -105,7 +82,7 @@ Things to know:
 - **Dev can stay on the PC.** A new project's Dev keeps its tables in a `.local` folder on the developer's PC. It needs no workspace until someone assigns one in **Metadata > Environments and promote**.
 - **Test and Prod lakehouses are created by the app** on the first promote. You don't create them by hand.
 - **Capacity.** Lakehouses need a workspace on a Fabric capacity (F SKU, or a trial). Runs on a PC use none of it. Features that deliberately run in Fabric do: Run in Fabric, Fabric schedules, environments set to **Runs on: Fabric**, Optimize (Fabric's table maintenance job), and semantic models. The Monitor **Cost** panel estimates how much.
-- **Workspaces can be created from the app** (**Metadata > Environments and promote > Assign workspace > Create a new workspace**) if people are allowed to create workspaces and the app has `Capacity.Read.All`.
+- **Workspaces can be created from the app** (**Metadata > Environments and promote > Assign workspace > Create a new workspace**) if people are allowed to create workspaces.
 
 ## 6. Give people access
 
@@ -117,7 +94,6 @@ Fabric Desktop never gets more access than the person using it. It uses their ow
 | A data engineer building a metadata project | **Contributor** or higher | Each environment workspace they run, and the Keys workspace |
 | Someone who promotes to Test or Prod | **Contributor** or higher | The target environment's workspace and the Keys workspace |
 | Someone who manages access from the app's **OneLake > Access** tab | **Admin** | The workspace |
-| Someone who turns on endorsement in the catalog | **Fabric administrator** | The tenant (also needs `Tenant.Read.All`) |
 
 Using security groups for these roles makes [working across teams](teams.md) much easier than adding people one by one.
 
@@ -125,11 +101,11 @@ Using security groups for these roles makes [working across teams](teams.md) muc
 
 | Extra | What to set up | Used by |
 | --- | --- | --- |
-| **Secrets in notebooks** | An Azure Key Vault; give people the **Key Vault Secrets User** role on it; add the Azure Key Vault permission to the app | `notebookutils.credentials.getSecret` on the PC |
+| **Secrets in notebooks** | An Azure Key Vault; give people the **Key Vault Secrets User** role on it; may need your own app registration with the Azure Key Vault permission ([permissions.md](permissions.md#what-each-feature-uses)) | `notebookutils.credentials.getSecret` on the PC |
 | **Teams alerts** | In a Teams channel, add the **Workflows** template "Post to a channel when a webhook request is received" and copy its address | **Settings > Notifications** or Freshness on an entity: late and failed tables are posted to the channel |
 | **OneLake shortcuts to ADLS Gen2 or Amazon S3** | A cloud connection in Fabric (**Settings > Manage connections and gateways**) | **OneLake > Shortcuts > New shortcut** |
 | **OneLake security (data access roles)** | Turn on OneLake security on the lakehouse in Fabric | **OneLake > Access** table-level roles |
-| **A headless agent on a server** | A separate app registration with a certificate, or a managed identity; the **Service principals can use Fabric APIs** tenant setting; Contributor on the workspaces | [agent.md](agent.md) |
+| **A headless agent on a server** | A managed identity (no app registration), or an app registration with a certificate; the **Service principals can use Fabric APIs** tenant setting; Contributor on the workspaces | [agent.md](agent.md) |
 
 ## 8. Check it works
 

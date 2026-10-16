@@ -18,9 +18,9 @@ When something goes wrong, Fabric Desktop says what happened in a sentence and k
 
 | What you see | What it means | What to do |
 | --- | --- | --- |
-| **Set up sign-in** asks for an App (client) ID | Nobody has given this PC the app ID yet. | Paste the ID your admin gave you, or **Send the guide to my admin**. Admins can set it for everyone ([azure-setup.md](azure-setup.md#4-give-the-app-id-to-everyone)). |
-| "Your organization hasn't approved Fabric Desktop yet" | No admin consent for the app registration, and users can't consent themselves. | Copy the link in **Settings > Account > Admin approval** and send it to a Microsoft Entra admin. |
-| "Your organization hasn't approved the permission this needs" | The feature needs a permission the app registration doesn't have, or that hasn't been consented. | **Details** names the permission. An admin adds it ([permissions.md](permissions.md)), grants consent, and you sign in again. |
+| "Your organization's sign-in rules (Conditional Access) blocked this sign-in" | A Conditional Access policy: often "require a managed device", or one that blocks Microsoft's developer tools such as Fabric CLI. | Use a PC your organization manages, or ask IT to allow the Fabric CLI app for you ([permissions.md](permissions.md#microsofts-fabric-sign-in-what-it-may-need-to-check)). |
+| "Your organization hasn't allowed this sign-in yet" | Your organization uses its own app registration and hasn't approved it, and users can't consent themselves. | Copy the link in **Settings > Account > Admin approval** and send it to a Microsoft Entra admin. |
+| "Your sign-in doesn't carry the permission this feature needs" | Microsoft's sign-in doesn't cover that feature (Key Vault secrets, or finding someone in the directory), or your organization's own app lacks the permission. | **Details** names it. [permissions.md](permissions.md#what-each-feature-uses) says what IT can change. |
 | "Could not grant admin consent ... does not have a subscription (or service principal)" (admin, in Entra) | The tenant has no service principal for one of the APIs. | Create it with `az ad sp create --id <id>` ([permissions.md](permissions.md#could-not-grant-admin-consent-your-organization-does-not-have-a-subscription-or-service-principal)). |
 | "Your sign-in expired" | The saved token couldn't be renewed. | Sign in again. If it repeats, close the app, delete `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin`, and start again. |
 | A new permission still isn't working after consent | Your saved token was issued before the permission was added. | Close the app, delete `msal_cache.bin`, start again and sign in. Or wait up to an hour. |
@@ -37,8 +37,8 @@ When something goes wrong, Fabric Desktop says what happened in a sentence and k
 | "The workspace's Fabric capacity is paused or full" | Creating items, or anything that runs in Fabric, needs an active capacity. | Resume or scale the capacity, or wait. Work on your PC isn't affected. |
 | "Fabric is busy and asked the app to slow down" | Fabric throttled the requests. | Wait a minute and retry. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
-| Endorsed items is greyed out | Endorsement needs a Fabric administrator account and the `Tenant.Read.All` permission. | Nothing to fix unless you're an admin. |
-| **Couldn't list capacities** when creating a workspace | The app registration lacks `Capacity.Read.All`. | An admin adds it ([permissions.md](permissions.md)). |
+| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which Fabric Desktop doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
+| **Couldn't list capacities** when creating a workspace | Your sign-in lacks `Capacity.Read.All` (your organization's own app registration doesn't have it). | Create the workspace in Fabric, or an admin adds it ([permissions.md](permissions.md#using-your-own-app-registration)). |
 
 ## Notebooks and SQL
 
@@ -63,7 +63,7 @@ When something goes wrong, Fabric Desktop says what happened in a sentence and k
 | Promote says "things to do first" | The promote gate isn't met. | Each line says what: a failing test, a table whose last run isn't green on this version, or a save gate problem. |
 | "Assign a workspace before Test can run" | The environment has no workspace. | **Environments and promote > Assign workspace**. |
 | A Fabric run "stopped before it saved any results" | The runner notebook failed in Fabric. | Open it from **Monitor** to see the notebook's output in Fabric. |
-| Fabric schedule or Run in Fabric fails with 403 | The app registration lacks `Item.Execute.All`, or you aren't Contributor on the workspace. | Add the permission and sign in again ([permissions.md](permissions.md)). |
+| Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
 | A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > Schedules shows each run and why it was skipped. |
 
 ## Still stuck

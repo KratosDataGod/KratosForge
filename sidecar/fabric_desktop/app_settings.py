@@ -9,11 +9,15 @@ Three places, strongest first:
     built in  engine.json next to the engine's python.exe (written by CI), or
               FABRIC_DESKTOP_BUILTIN_CLIENT_ID for builds that run a Python of their own.
 
+With none of them, the app signs in through Microsoft's own Fabric sign-in app
+(auth.MICROSOFT_CLIENT_ID), so nobody has to register an app.
+
 The FABRIC_DESKTOP_CLIENT_ID environment variable still works, between policy and user, so
 installs set up with setx keep signing in as before.
 
 Keys:
-    client_id        the Microsoft Entra app (client) ID the app signs in with
+    client_id        the Microsoft Entra app (client) ID the app signs in with; only for an
+                     organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
     support_url      where "Report a problem" goes: an https link or a mailto: address
@@ -27,8 +31,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .auth import MICROSOFT_CLIENT_ID
+
 CHANNELS = ("stable", "preview")
-DEFAULTS: dict[str, Any] = {"client_id": "", "channel": "stable", "show_preview": True, "support_url": ""}
+DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": ""}
 USER_KEYS = ("client_id", "channel", "show_preview")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 

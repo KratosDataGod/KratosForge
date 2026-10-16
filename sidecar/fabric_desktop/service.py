@@ -14,7 +14,7 @@ from typing import Any
 
 import pyarrow.csv as pa_csv
 
-from .auth import ADMIN_SCOPES, CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
+from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql
 from .jobs import Job, run_local
@@ -47,8 +47,6 @@ class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, X
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
-        self._endorse: dict[str, Any] | None = None
-        self._endorse_lock = threading.Lock()
 
     @property
     def auth(self) -> Authenticator:
@@ -91,12 +89,8 @@ class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, X
 
     def sign_out(self) -> dict[str, Any]:
         """Forgets this PC's sign-in. Scheduled runs on this PC stop until someone signs in again."""
-        try:
-            self.auth.sign_out()
-        except ValueError:  # no app ID, so nobody was signed in
-            pass
+        self.auth.sign_out()
         self._tables = None
-        self._endorse = None
         return {"user": None}
 
     def sign_in(self) -> dict[str, Any]:
@@ -117,8 +111,8 @@ class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, X
         except Exception as exc:
             if "InsufficientScopes" in str(exc) or "AADSTS65001" in str(exc):
                 raise PermissionError(
-                    "Listing capacities needs the Capacity.Read.All permission (Power BI Service, delegated) on the app's "
-                    "Entra registration. Add it, grant consent, and sign in again; docs/permissions.md has the steps.") from exc
+                    "Your sign-in can't list capacities (Capacity.Read.All), so pick the workspace's capacity in Fabric "
+                    "instead. docs/permissions.md explains why and what IT can change.") from exc
             raise
         return sorted(caps, key=lambda c: (c.get("state") != "Active", c.get("displayName", "").lower()))
 
@@ -184,37 +178,11 @@ class Service(MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, X
         threading.Thread(target=run, daemon=True).start()
         return {"pending": True, "items": {}}
 
-    def endorsements(self, workspace_ids: list[str]) -> dict[str, Any]:
-        """Endorsement per lakehouse id, when the account can read Fabric's admin scan.
-
-        The scan takes a while, so it runs in the background and this returns {"pending": True}
-        until it is done; the RPC loop stays free for other calls meanwhile."""
-        with self._endorse_lock:
-            if self._endorse is not None:
-                return dict(self._endorse)
-        token = None
-        try:
-            token = self.auth.silent_token(ADMIN_SCOPES)  # here, not in the thread: MSAL stays single-threaded
-        except Exception:
-            pass
-        if not token:
-            self._endorse = {"pending": False, "available": False, "items": {},
-                             "reason": "Endorsement needs Fabric admin rights and the Tenant.Read.All permission "
-                                       "on the app registration."}
-            return dict(self._endorse)
-        self._endorse = {"pending": True, "available": False, "items": {}, "reason": ""}
-        threading.Thread(target=self._scan_endorsements, args=(token, list(workspace_ids)), daemon=True).start()
-        return dict(self._endorse)
-
-    def _scan_endorsements(self, token: str, workspace_ids: list[str]) -> None:
-        try:
-            result = {"pending": False, "available": True, "reason": "",
-                      "items": FabricClient(lambda: token).scan_endorsements(workspace_ids)}
-        except Exception as e:
-            result = {"pending": False, "available": False, "items": {},
-                      "reason": f"Fabric's admin scan is not available to this account ({e})."}
-        with self._endorse_lock:
-            self._endorse = result
+    def endorsements(self, workspace_ids: list[str]) -> dict[str, Any]:  # noqa: ARG002
+        """Endorsement needs Fabric's admin scan and an admin-only permission, which Fabric Desktop
+        doesn't ask for; Fabric's own catalog, embedded on the same page, shows it."""
+        return {"pending": False, "available": False, "items": {},
+                "reason": "Endorsement shows in Fabric's catalog below. Fabric Desktop doesn't ask for admin permissions."}
 
     @property
     def favorites_file(self) -> Path:

@@ -530,15 +530,15 @@ async function grantDialog() {
   showDialog("Give access", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Who", who), h("label", { class: "field" }, "Kind (for an object ID)", typeSel),
       h("label", { class: "field" }, "Workspace", wsSel), h("label", { class: "field" }, "Role", roleSel)),
-    h("p", { class: "muted-text small" }, "Viewer reads; Contributor also writes items; Member also shares; Admin manages access. Finding someone by email asks you once to let the app read your directory's names.")),
+    h("p", { class: "muted-text small" }, "Viewer reads; Contributor also writes items; Member also shares; Admin manages access.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Give access", "person", async () => {
-    const person = await attempt(() => rpc("access_find_person", { text: who.value }), "Couldn't find them");
-    if (!person) return;
-    const type = person.type === "User" ? "User" : typeSel.value;
-    const ok = await attempt(() => rpc("access_set_role", { workspace_id: wsSel.value, role: roleSel.value, principal_id: person.id, principal_type: type }), "Access not given");
+    // An email goes to Fabric as is; only an object ID needs its kind.
+    const text = who.value.trim();
+    const args = text.includes("@") ? { email: text } : { principal_id: text, principal_type: typeSel.value };
+    const ok = await attempt(() => rpc("access_set_role", { workspace_id: wsSel.value, role: roleSel.value, ...args }), "Access not given");
     if (!ok) return;
     closeDialog();
-    toast(`${person.name} is now ${roleSel.value}`, false, { log: true });
+    toast(`${text} is now ${roleSel.value}`, false, { log: true });
     accessPage.data = null;
     render();
   }, "tool primary")]);
@@ -621,7 +621,7 @@ function roleDialog(a, lh, role, redraw) {
       a.tables.map((t) => box(t, pathLabel(t), chosen))),
     h("b", {}, "Members"), peopleList,
     h("div", { class: "row" }, h("label", { class: "field grow" }, "Someone else", add), btn("Add", "add", async () => {
-      const p = await attempt(() => rpc("access_find_person", { text: add.value }), "Couldn't find them");
+      const p = await attempt(() => rpc("access_find_person", { text: add.value, workspace_id: lh.workspace_id }), "Couldn't find them");
       if (!p) return;
       extra.push(p); members.add(p.id); add.value = ""; drawPeople();
     }, "tool outline small")),

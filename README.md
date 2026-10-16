@@ -26,8 +26,8 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | Document | What it covers |
 | --- | --- |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
-| [docs/azure-setup.md](docs/azure-setup.md) | Configuring Azure and Fabric for an organization: tenant settings, the Entra app registration, consent, rolling out the app ID, workspaces, capacity and access |
-| [docs/permissions.md](docs/permissions.md) | Every Entra permission the app uses, in alphabetical order; setup steps; fixing admin consent errors; what the agent needs instead |
+| [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
+| [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
@@ -55,18 +55,11 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | `deploy/` | Headless agent packaging: example `agent.toml`, systemd unit and Dockerfile (`linux/`), and the Windows install script (`windows/`) |
 | `examples/` | Sample jobs (`sales_by_region.toml` for DuckDB, `top_products.toml` for Polars) and sample data |
 
-## One-time setup: Entra app registration
+## Sign-in: no app registration
 
-The desktop app signs in as you through your own Entra app registration. Every permission it needs, in alphabetical order, with step-by-step setup and the fix for "Could not grant admin consent ... does not have a subscription (or service principal)", is in **[docs/permissions.md](docs/permissions.md)**.
+The desktop app signs in as you, and can only do what your own Fabric access allows. It uses Microsoft's own Fabric sign-in (the app Fabric CLI uses), so nobody registers an Entra app, grants consent or types an app ID. On Windows it signs in through Windows itself (Web Account Manager).
 
-In short:
-
-1. Register an app with the redirect URI `http://localhost` (Mobile and desktop applications).
-2. Make sure your tenant has a service principal for each API (Azure Storage, Microsoft Graph, Power BI Service, and any optional ones).
-3. Add the delegated permissions from the table and grant admin consent.
-4. Give the app's id to Fabric Desktop: paste it in **Settings > Account**, or for everyone set the repository variable `FABRIC_CLIENT_ID` or push a policy file ([Rolling out to your organization](docs/permissions.md#rolling-out-to-your-organization)).
-
-The headless agent needs no API permissions; it needs a Fabric tenant setting and workspace roles, listed on the same page.
+Organizations that require their own app registration can still use one; the steps and the permissions, in alphabetical order, are in **[docs/permissions.md](docs/permissions.md)**. The headless agent signs in as a managed identity (no app registration) or a service principal, and needs only a Fabric tenant setting and workspace roles, listed on the same page.
 
 ## Run it
 
@@ -122,7 +115,7 @@ The top bar holds the **Environment** picker (Dev, Test or Prod), which every pa
 
 The app looks and works like the Fabric service: the same left rail (Home, Create, Workspaces, OneLake, Metadata, Monitor), and Python notebooks with a ribbon, an Explorer pane and **Add data items** to attach a lakehouse. Cells run in a Python kernel on this PC, so no Fabric capacity is used.
 
-**Add data items** opens a OneLake catalog: every lakehouse in every workspace you can open, in one list you can filter, with each lakehouse's tables and files shown before you attach it. The left side filters by Favorites, Endorsed or one workspace. Favorites are the stars you click in the list. They are saved on this PC, because Fabric has no public API for its own favorites. Endorsed (Certified or Promoted) comes from Fabric's admin workspace scan, so it works only when your account is a Fabric administrator and the app registration has the Power BI `Tenant.Read.All` delegated permission with consent. Otherwise the filter is greyed out with the reason.
+**Add data items** opens a OneLake catalog: every lakehouse in every workspace you can open, in one list you can filter, with each lakehouse's tables and files shown before you attach it. The left side filters by Favorites, Endorsed or one workspace. Favorites are the stars you click in the list. They are saved on this PC, because Fabric has no public API for its own favorites. Endorsed (Certified or Promoted) needs an admin-only permission that Fabric Desktop doesn't ask for, so that filter is greyed out; the Fabric catalog embedded below the list shows endorsement.
 
 ```python
 import polars as pl

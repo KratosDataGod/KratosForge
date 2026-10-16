@@ -13,7 +13,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
-| 5 | Integrated Git and release workflow | Partial: release records built | This plan | 5.1 engine in review; its status view after a mockup; then 5.2 |
+| 5 | Integrated Git and release workflow | Partial: release records and meaningful diffs built | This plan | 5.1 and 5.2 engine in review; their views after a mockup; then 5.3 |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
 | 8 | Cross-project lineage and product compatibility | Partial: 8.1 merged | This plan | 8.3, then 8.2 |
@@ -156,6 +156,8 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **5.2 Meaningful diffs.** Effort M, risk low. Entity TOML diffs by meaning (contract columns added, removed or retyped, checks and keys changed) and notebook diffs by cell source with outputs stripped, shown in promote impact and before commit.
 
+*Engine part built in this PR*, stacked on 5.1. `meta/diff.py` compares parsed TOML. It reports contract columns, contract keys, list items (cleaning, derived columns, checks, surrogate keys, lookups), which it matches by identity so an edit reads as "changed", and any other setting by path. Each change says whether it changes the table's logic. `meta_diff` compares against the last commit or the version promoted to an environment. Promote impact lists each changed table's changes under it. `notebook_diff` compares cells by id, on source only, against another notebook or the notebook's last commit when the notebooks folder is in Git. The before-commit view is new UI and waits for a mockup with 5.1's status view.
+
 **5.3 Branches, pull requests and rollback.** Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
 
 ### Capability 8: lineage and compatibility
@@ -209,6 +211,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |
 | 2026-10-16 | Stage 5.1 engine part built: Git status, release records in `meta.deployments`, `require_commit`. |
 | 2026-10-16 | Stage 1.4 built ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)). |
 | 2026-10-16 | Stage 1.3 engine part built ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)). #54 merged into #56 and #61; fixed a surrogate-key race in #61's dimension MERGE. |

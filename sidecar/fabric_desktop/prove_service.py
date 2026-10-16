@@ -317,17 +317,20 @@ class ProveMixin:
             record["state"] = "verifying"
             after = tables.versions()
             self._proof_verify(record, pins, after, pc_log, fabric_log, root, options)
-            record["state"] = "done"
+            final = "done"
         except _Cancelled:
-            record["state"], record["message"] = "cancelled", "Cancelled. Nothing was written to the lakehouse's tables."
+            final, record["message"] = "cancelled", "Cancelled. Nothing was written to the lakehouse's tables."
         except Exception as exc:  # noqa: BLE001 - reported on the panel
-            record["state"], record["message"] = "failed", f"{type(exc).__name__}: {exc}"
+            final, record["message"] = "failed", f"{type(exc).__name__}: {exc}"
         record["finished_at"] = _now()
+        # The record and receipt say how it ended; the state changes last, so whoever sees a
+        # finished proof also sees its scorecard and receipt.
         try:
             record["scorecard"] = scorecard.build(record, self._cost_settings())  # type: ignore[attr-defined]
-            record["receipt_id"] = self.receipts.put(self._proof_receipt(record))
+            record["receipt_id"] = self.receipts.put(self._proof_receipt(record | {"state": final}))
         except Exception as exc:  # noqa: BLE001 - the record still says what happened
             record["message"] = (record["message"] + f" The receipt couldn't be saved: {exc}").strip()
+        record["state"] = final
         self._proof_save(record)
 
     def _proof_pc(self, record: dict[str, Any], cells: list[dict[str, Any]], code: list[int],

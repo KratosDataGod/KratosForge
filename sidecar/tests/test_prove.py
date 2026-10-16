@@ -204,6 +204,8 @@ def wait(svc, pid):
     for _ in range(1200):
         status = call(svc, "prove_status", id=pid)
         if status["state"] not in prove_service.RUNNING:
+            # A finished proof already has its scorecard and receipt: the state changes last.
+            assert status["receipt_id"] and status["scorecard"], status
             return status
         time.sleep(0.05)
     raise AssertionError("the proof didn't finish")

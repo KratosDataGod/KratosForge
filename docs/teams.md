@@ -29,7 +29,7 @@ Every table is a text file, so the normal software workflow applies.
 
 **Day to day:**
 
-1. Clone the project's repository. In Fabric Desktop, **Metadata > Or open an existing project** and pick the folder.
+1. Clone the project's repository. In Fabric Desktop, **Data mesh > Or open an existing project** and pick the folder.
 2. Create a branch for your change.
 3. Edit entities in the app (or in any editor). Each save runs the save gate, so you see problems before anyone reviews.
 4. Run **Dev on your own PC**. A new project's Dev keeps tables in the project's `.local` folder, which is in `.gitignore`, so every engineer has their own Dev and nobody's runs collide.
@@ -74,7 +74,7 @@ Surrogate keys and source systems are often shared by more than one project: Sal
 
 **With the [platform](platform.md) (recommended):** keys for every project come from one place, `SQL_Platform`, and raw data lands once in `LH_Landing`; each team builds its own Bronze from it. Domains, data products and links between teams are in [Data mesh](data-mesh.md). Without the platform, use a shared Keys workspace as below.
 
-- **One Keys workspace per environment for the whole organization** (or per data domain), owned by the platform owner. Every project points its environments at it (**Metadata > Surrogate keys > Pick Keys workspace**). Then Customer ABC gets the same key in every project's tables.
+- **One Keys workspace per environment for the whole organization** (or per data domain), owned by the platform owner. Every project points its environments at it (**Data mesh > Surrogate keys > Pick Keys workspace**). Then Customer ABC gets the same key in every project's tables.
 - **Agree on key table definitions.** Each project has its own `metadata/keys/<name>.toml`. Projects that share a key table must define it the same way (same business key columns). The simplest way is a small shared repository of key and source system definitions that every project copies or includes as a Git submodule, changed by pull request with the platform owner as reviewer.
 - **Keys are never renumbered or deleted.** Deleting a key table definition removes the file only; the table stays in `LH_Keys`, so no key is lost. Each environment issues its own keys; promote never copies keys between environments.
 - **Source systems** have a fixed id and code that never change. Treat a new source system as a shared change and review it the same way.

@@ -246,7 +246,7 @@ async function adoptDialog(r) {
   if (!project?.path) {
     showDialog("Adopt needs a metadata project", h("p", { class: "text" },
       "Adopting turns each table into a metadata entity that loads from it. Create or open a metadata project first."),
-    [btn("Cancel", null, closeDialog, "tool outline"), btn("Open Metadata", null, () => { closeDialog(); go("meta"); }, "tool primary")]);
+    [btn("Cancel", null, closeDialog, "tool outline"), btn("Open Data mesh", null, () => { closeDialog(); go("metadata"); }, "tool primary")]);
     return;
   }
   const body = h("div", { class: "scroll" }, h("p", { class: "muted-text" }, `Reading the tables in ${r.lakehouse_name}...`));
@@ -262,7 +262,7 @@ async function adoptDialog(r) {
     if (!res) return;
     closeDialog();
     if (res.problems.length) toast(`Adopted ${res.adopted.length}. Skipped: ${res.problems.join("; ")}`, true);
-    else toast(`Adopted ${res.adopted.length} table${res.adopted.length === 1 ? "" : "s"} into ${res.layer}. Run them from Metadata.`, false, { log: true });
+    else toast(`Adopted ${res.adopted.length} table${res.adopted.length === 1 ? "" : "s"} into ${res.layer}. Run them from Data mesh.`, false, { log: true });
     state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
     render();
   };

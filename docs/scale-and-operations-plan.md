@@ -14,7 +14,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
 | 5 | Integrated Git and release workflow | Partial (promote gates), Git missing | This plan | Stage 5.1 |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
-| 7 | Fabric pipeline handoff and remote agent control | Partial (agent built, no mailbox) | This plan | Stage 7.1 |
+| 7 | Fabric pipeline handoff and remote agent control | Partial | This plan | 7.1 pipeline job contract ([#64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and 7.2 agent status records ([#66](https://github.com/KratosDataGod/fabric-desktop/pull/66), stacked on #64): in review |
 | 8 | Cross-project lineage and product compatibility | Partial (products, links, consumers) | This plan | Stage 8.1 |
 | 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3): [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
@@ -135,7 +135,11 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **7.1 Request mailbox and status contract (FD-13).** Effort L, risk medium (needs FD-2 live). A Fabric pipeline writes `requests/<id>.json` to `LH_Meta/Files/_fabric_desktop/` (a notebook or Copy activity); the agent claims it with a conditional create, enqueues it with the request id as the dedupe key, writes `status/<id>.json` (accepted, running, succeeded, failed, cancelled, rejected with reason), honours `cancel/<id>` markers, and expires requests past their deadline. Authorization: who can write the folder is governed by OneLake permissions on LH_Meta; the agent also checks an allowlist of environments and entities in `agent.toml` and records the submitter (from the file's owner property, if OneLake returns it: to verify). No inbound port. A sample pipeline (Until loop over a Lookup of the status file) ships in `examples/`. Acceptance: tests for duplicate, malformed, expired, cancelled and crashed-mid-run requests; documented contract version.
 
+*Built in [PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64).* The claim is the conditional create of the status file itself, so no separate claim file is needed. A request runs only the environment whose `LH_Meta` it is written to, so OneLake permissions on that lakehouse decide who may submit. Off unless `[pipeline] enabled = true`, with an entity allowlist and a backfill opt-in. `deadline` is the latest start time. A cancel stops a request before it starts or before a retry, and a run already writing finishes. Instead of an Until/Lookup pipeline, the sample is one Python notebook (`examples/pipeline/run_on_agent.ipynb`) for a Notebook activity: it submits, waits, and fails the activity unless the run succeeded. Two things changed from this plan. The submitter is the pipeline's `submitted_by` text, because reading the file's writer from OneLake is unverified. Writing through the `/lakehouse/default` mount also needs a live check. 34 tests; 356 passed in all.
+
 **7.2 Agent status records.** Effort S, risk low. Each agent writes `agents/<name>.json` in the control area on every loop (version, host, last heartbeat, jobs running, queued, dead), in a documented, versioned shape. The desktop panels that show it belong to the Workload management program. Depends on 7.1.
+
+*Built in [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)*, stacked on #64. Contract 1 records go to `agents/<name>.json` every `agent.status_seconds`. Each record has `stale_after` (three beats) for offline detection and `running`/`stopping`/`stopped`, and it covers only its own environment's jobs, so one workspace's readers never see another's work. 6 tests; 362 passed in all.
 
 **7.3 Multiple workers (FD-12).** Deferred until 7.1 has run on a tenant.
 
@@ -167,7 +171,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review) and **9.3** run correlation ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58), in review).
 2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight.
-3. **7.1** pipeline job contract and **7.2** agent status records, built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
+3. **7.1** pipeline job contract ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and **7.2** agent status records ([PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)), built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
 4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
 5. **1.4** landing manifest, then **4.1** once D2 is answered.
 6. **1.5**, **5.3**, **8.2**, **8.3**, **4.2**, **4.3**, **7.3**.
@@ -198,6 +202,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stages 7.1 and 7.2 built ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64), [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)). |
 | 2026-10-16 | Stage 1.2 built and measured ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61)). |
 | 2026-10-16 | Capability 9 and the agent, queue and release views moved to the Workload management program; 9.3 built ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)). |
 | 2026-10-16 | Plan written; capabilities 2, 3, 6, 10 assigned to the notebook program; stage 1.1 built and measured ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56)). |

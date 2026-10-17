@@ -74,7 +74,7 @@ except ImportError:  # pragma: no cover - depends on merge order
     def secret_key(name: object) -> bool:
         key = str(name).lower().replace("-", "").replace("_", "")
         return any(part in key for part in ("password", "passwd", "secret", "token", "apikey", "connectionstring",
-                                            "authorization", "sas"))
+                                            "authorization")) or key.startswith("sas") or key.endswith("sas")
 
     _SECRET_PATTERNS = [
         (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), "[removed]"),

@@ -18,10 +18,11 @@ Document, contract 1::
         "opened_at", "last_seen_at", "occurrences", "opened_by",
         "owner", "acknowledged_by", "acknowledged_at",
         "resolved_at", "resolved_by", "resolution": "recovered" | "resolved" | "cleared",
-        "notes": [{"at", "by", "text"}]}]}
+        "team", "criticality", "classification": {"category", "label", "hint", "retry_helps"},
+        "escalated_at", "escalated_to", "notes": [{"at", "by", "text"}]}]}
 
-Kinds: ``run_failed``, ``needs_decision``, ``late``, ``objective`` (a workload problem), and
-``cant_evaluate`` (the evaluator couldn't read the environment: a telemetry problem, never a
+Kinds: ``run_failed``, ``needs_decision``, ``late``, ``objective`` (a workload problem),
+``agent_offline`` (an agent that serves the environment stopped reporting), and ``cant_evaluate`` (the evaluator couldn't read the environment: a telemetry problem, never a
 workload one). An open incident whose signal is gone is resolved as ``recovered``, but only
 after an evaluation that could read the environment. A person can resolve an incident by hand;
 it opens again only on new evidence (a different failed run), never on the same one.
@@ -38,9 +39,9 @@ from typing import Any, Callable
 
 KEY = "incidents/incidents.json"
 CONTRACT = 1
-KINDS = ("run_failed", "needs_decision", "late", "objective", "cant_evaluate")
+KINDS = ("run_failed", "needs_decision", "late", "objective", "agent_offline", "cant_evaluate")
 KIND_LABELS = {"run_failed": "Run failed", "needs_decision": "Needs a decision", "late": "Late",
-               "objective": "Objective missed", "cant_evaluate": "Can't evaluate"}
+               "objective": "Objective missed", "agent_offline": "Agent offline", "cant_evaluate": "Can't evaluate"}
 ACTIVE = ("open", "acknowledged")
 KEEP_RESOLVED = 200
 ATTEMPTS = 8
@@ -118,14 +119,17 @@ class IncidentLog:
             time.sleep(min(0.05 * (attempt + 1), 0.5))
         raise Conflict("The incident list kept changing while it was being updated; try again.")
 
-    def sync(self, signals: list[dict[str, Any]], *, evaluated: bool, by: str) -> list[dict[str, Any]]:
+    def sync(self, signals: list[dict[str, Any]], *, evaluated: bool | set[str] | frozenset[str],
+             by: str) -> list[dict[str, Any]]:
         """Bring the document in line with what an evaluation saw.
 
         ``signals`` are the problems seen now ({kind, workload, name, title, text, evidence,
         evidence_id}). ``evaluated`` says whether the environment could be read: when it couldn't,
-        nothing is resolved as recovered. Returns the changes this write made, each
+        nothing is resolved as recovered. It can also be the set of kinds that were evaluated, so a
+        source that couldn't be read (the agent records, say) doesn't recover its incidents. Returns the changes this write made, each
         {"change": "opened" | "reopened" | "recovered", "incident": ...}, for notifying."""
         now = _iso(self.clock())
+        checked = (lambda kind: evaluated) if isinstance(evaluated, bool) else (lambda kind: kind in evaluated)
 
         def apply(doc: dict[str, Any]) -> list[dict[str, Any]] | None:
             changes: list[dict[str, Any]] = []
@@ -144,7 +148,7 @@ class IncidentLog:
                     if evidence_id and evidence_id != cur.get("evidence_id"):
                         cur["occurrences"] = int(cur.get("occurrences") or 1) + 1
                         cur.update(evidence_id=evidence_id, evidence=s.get("evidence") or {}, text=s.get("text", ""),
-                                   title=s.get("title", cur["title"]))
+                                   title=s.get("title", cur["title"]), classification=s.get("classification"))
                         touched = True
                     # Seen again: noted at most every few minutes, so a quiet evaluation writes nothing.
                     if self.clock() - _epoch(cur.get("last_seen_at")) >= SEEN_EVERY:
@@ -158,7 +162,10 @@ class IncidentLog:
                        "text": s.get("text", ""), "evidence": s.get("evidence") or {}, "evidence_id": evidence_id,
                        "state": "open", "opened_at": now, "last_seen_at": now, "occurrences": 1, "opened_by": by,
                        "owner": s.get("owner") or "", "acknowledged_by": None, "acknowledged_at": None,
-                       "resolved_at": None, "resolved_by": None, "resolution": None, "notes": []}
+                       "resolved_at": None, "resolved_by": None, "resolution": None,
+                       "team": s.get("team") or "", "criticality": s.get("criticality") or "",
+                       "classification": s.get("classification"), "escalated_at": None, "escalated_to": None,
+                       "notes": []}
                 doc["incidents"].append(inc)
                 by_key[key] = inc
                 changes.append({"change": "reopened" if cur else "opened", "incident": inc})
@@ -167,13 +174,35 @@ class IncidentLog:
                     continue
                 # A telemetry incident clears once the environment reads again; a workload one
                 # recovers only after an evaluation that could read the environment.
-                if inc["kind"] == "cant_evaluate" or evaluated:
+                if inc["kind"] == "cant_evaluate" or checked(inc["kind"]):
                     inc.update(state="resolved", resolved_at=now, resolved_by=by,
                                resolution="cleared" if inc["kind"] == "cant_evaluate" else "recovered")
                     changes.append({"change": "recovered", "incident": inc})
             if not changes and not touched:
                 return None
             return changes
+
+        return self._change(apply) or []
+
+    def escalate(self, after_seconds: float, to: str, by: str,
+                 applies: Callable[[dict[str, Any]], bool] = lambda inc: True) -> list[dict[str, Any]]:
+        """Mark every open incident nobody acknowledged within ``after_seconds`` as escalated to
+        ``to``, once. Only the write that lands reports it, so two evaluators escalate once."""
+        now_t = self.clock()
+        now = _iso(now_t)
+
+        def apply(doc: dict[str, Any]) -> list[dict[str, Any]] | None:
+            changes = []
+            for inc in doc["incidents"]:
+                if inc["state"] != "open" or inc.get("escalated_at") or inc["kind"] == "cant_evaluate":
+                    continue
+                if now_t - _epoch(inc.get("opened_at")) < after_seconds or not applies(inc):
+                    continue
+                inc.update(escalated_at=now, escalated_to=to)
+                inc.setdefault("notes", []).append(
+                    {"at": now, "by": by, "text": f"Escalated to {to}: not acknowledged in {after_seconds / 60:g} min"})
+                changes.append({"change": "escalated", "incident": inc})
+            return changes or None
 
         return self._change(apply) or []
 

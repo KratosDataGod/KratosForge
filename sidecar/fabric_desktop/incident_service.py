@@ -17,7 +17,8 @@ from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
-from .workloads.notify import Outbox, send
+from .workloads.agents import read_status
+from .workloads.notify import Outbox, send, single
 
 
 class IncidentMixin:
@@ -56,22 +57,30 @@ class IncidentMixin:
         crit = {a_id.split(":", 2)[2]: a["criticality"]["value"]
                 for a_id, a in self.workload_store.assignments().items()  # type: ignore[attr-defined]
                 if a_id.startswith(f"meta:{mesh_mod.project_name(project)}:") and a.get("criticality")}
+        evaluated: set[str] = set()
         try:
             runs = self.meta_runs(env, 2000)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - can't read it: that is the finding
             state, message = model.classify_error(exc)
-            signals, evaluated = [evaluate.cant_evaluate(env, state, message)], False
+            signals = [evaluate.cant_evaluate(env, state, message)]
         else:
             specs = {n: e.spec for n, e in project.entities.items()}
-            signals, evaluated = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, criticality=crit), True
+            signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, criticality=crit,
+                                       team=mesh_mod.identity(project)["team"])
+            evaluated |= evaluate.WORKLOAD_KINDS
+        try:
+            signals += evaluate.agent_signals(read_status(log.backend), env)
+            evaluated.add("agent_offline")
+        except Exception:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
+            pass
         changes = log.sync(signals, evaluated=evaluated, by=f"Fabric Desktop by KratosBI ({self._incident_user()})")
-        out: dict[str, Any] = {"env": env, "evaluated": evaluated, "signals": len(signals),
+        out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
-            out["notified"] = send(changes, url, outbox, "Fabric Desktop by KratosBI", post_teams)
+            out["notified"] = send(changes, single(url), outbox, "Fabric Desktop by KratosBI", post_teams)
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 

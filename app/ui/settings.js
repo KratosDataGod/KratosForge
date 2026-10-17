@@ -81,25 +81,43 @@ function channelLabel() {
 
 // ---------- Report a problem ----------
 
+// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses, the
+// Windows user name in paths, and tenant, workspace and item ids. The same rules as the engine's
+// redact.py; both are tested against app/tests/redact-cases.json.
+function redactReport(text, level = "support") {
+  const slash = "(?:\\\\\\\\|\\\\|/)+";
+  const out = String(text)
+    .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
+    .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
+    .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+  if (level !== "support") return out;
+  return out
+    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
+    .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");
+}
+
 function diagnostics() {
   const errors = activity.items.filter((i) => i.status === "error" || i.status === "failed").slice(0, 10);
   return [
     `Fabric Desktop by KratosBI build: ${state.build || "unknown"} (${channelLabel()})`,
     `Engine Python: ${state.python || "unknown"}`,
-    `Tenant: ${state.tenant || "not signed in"}`,
+    `Signed in: ${state.tenant ? "yes" : "no"}`,
     `Page: ${state.view}`,
     `Windows: ${navigator.userAgent}`,
     "",
     errors.length ? "Recent problems (newest first):" : "No recent problems in Activity.",
     ...errors.map((i) => `- ${new Date(i.at).toISOString()} ${i.title}${i.text ? `: ${i.text}` : ""}${i.details ? `\n    ${String(i.details).slice(0, 400).replace(/\n/g, "\n    ")}` : ""}`),
-  ].join("\n");
+  ].map((line) => redactReport(line)).join("\n");
 }
 
 function reportProblem() {
   const what = h("textarea", { rows: 3, placeholder: "What were you doing, and what went wrong?" });
   const info = h("textarea", { rows: 9, class: "mono", readonly: true }, diagnostics());
   const support = state.settings?.support_url?.value || "";
-  const report = () => `${what.value.trim() || "(no description)"}\n\n${info.value}`;
+  const report = () => redactReport(`${what.value.trim() || "(no description)"}\n\n${info.value}`);
   const send = async () => {
     const text = report();
     if (support.startsWith("mailto:")) {
@@ -114,7 +132,7 @@ function reportProblem() {
   };
   showDialog("Report a problem", h("div", { class: "setup" },
     h("label", { class: "field" }, "What happened", what),
-    h("label", { class: "field" }, "Sent with it (no data, file contents or passwords)", info),
+    h("label", { class: "field" }, "Sent with it (no data, file contents, passwords, email addresses or ids)", info),
     h("p", { class: "muted-text small" }, support
       ? "Send copies all of this and opens your organization's support contact. Paste it there if it isn't filled in."
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),
@@ -186,7 +204,9 @@ async function renderSettings() {
       onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time Fabric Desktop by KratosBI starts`); render(); } } }),
     h("span", {}, h("b", {}, label), h("span", { class: "muted-text small" }, help)));
   const updates = h("section", { class: "card pad" }, h("h2", {}, "Updates"),
-    h("p", { class: "muted-text small" }, "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
+    h("p", { class: "muted-text small" }, s.auto_update?.value === false
+      ? "Your organization rolls out new builds, so Fabric Desktop by KratosBI doesn't update itself. "
+      : "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
       `This is build ${state.build || "unknown"}. `, learnMore("updates")),
     h("div", { class: "choices" },
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
@@ -222,7 +242,13 @@ async function renderSettings() {
     h("dl", { class: "about" },
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
       h("dt", {}, "Engine Python"), h("dd", {}, state.python || "unknown"),
-      h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file)));
+      h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
+      s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
+        h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
+        h("dd", {}, "Only your organization's own work accounts")] : null,
+      s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
+        h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
@@ -231,6 +257,107 @@ async function renderSettings() {
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);
+}
+
+// ---------- Ready to work (Home): can this PC do real work yet? ----------
+
+const READY_MARK = { ok: ["ok", "Ready"], fail: ["error", "Needs attention"], warn: ["warning", "Worth a look"],
+  wait: ["info", "Not checked yet"] };
+
+function readinessFix(row, rerun) {
+  const fixes = {
+    sign_in: ["Sign in", async () => { if (await signIn()) render(); }],
+    retry: ["Check again", rerun],
+    workspaces: ["Open Workspaces", () => go("workspaces")],
+    capacity: ["How to get capacity", () => invoke("open_doc", { page: row.doc }).catch(() => {})],
+    settings: ["Open Settings", () => go("settings")],
+  };
+  const fix = fixes[row.fix];
+  return fix ? btn(fix[0], null, fix[1], row.status === "fail" ? "tool primary small" : "tool outline small") : null;
+}
+
+function readinessRow(row, rerun, extra = null) {
+  const [mark, label] = READY_MARK[row.status] || READY_MARK.wait;
+  return h("li", { class: `ready-row ${row.status}` },
+    h("span", { class: "ready-mark", role: "img", "aria-label": label }, icon(mark, 18)),
+    h("div", { class: "grow" }, h("b", {}, row.title), h("div", { class: "muted-text small" }, row.text),
+      row.status !== "ok" && row.status !== "wait" ? h("div", { class: "row" }, readinessFix(row, rerun)) : null),
+    extra);
+}
+
+function writeTestDialog(done) {
+  const wsSelect = h("select", {}, h("option", { value: "" }, "Loading workspaces..."));
+  const lhSelect = h("select", { disabled: true }, h("option", { value: "" }, "Pick a workspace first"));
+  const why = h("div", { class: "muted-text small" });
+  const start = btn("Write and delete the test file", null, async () => {
+    const ws = wsSelect.selectedOptions[0];
+    start.disabled = true;
+    const result = await attempt(() => rpc("readiness_write_test",
+      { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace_name: ws.textContent }), "Write test");
+    closeDialog();
+    if (result) done(result);
+  }, "tool primary", { disabled: true });
+  const canGo = () => { start.disabled = !(wsSelect.value && lhSelect.value); };
+  wsSelect.addEventListener("change", async () => {
+    lhSelect.disabled = true;
+    lhSelect.replaceChildren(h("option", { value: "" }, "Loading lakehouses..."));
+    const lakehouses = await attempt(() => rpc("list_lakehouses", { workspace_id: wsSelect.value }), "Lakehouses") || [];
+    lhSelect.replaceChildren(...(lakehouses.length ? lakehouses.map((l) => h("option", { value: l.id }, l.displayName))
+      : [h("option", { value: "" }, "No lakehouses in this workspace")]));
+    lhSelect.disabled = !lakehouses.length;
+    canGo();
+  });
+  lhSelect.addEventListener("change", canGo);
+  showDialog("Test a write to OneLake", h("div", { class: "stack" },
+    h("p", {}, "This writes one small file to the lakehouse you pick, reads it back and deletes it. No table is touched."),
+    h("label", { class: "field" }, "Workspace", wsSelect),
+    h("label", { class: "field" }, "Lakehouse", lhSelect),
+    h("div", { class: "callout small" }, "Writes Files/_fabric_desktop_check/write-test.txt, then deletes that folder. ",
+      "Workspaces whose name says Prod aren't offered."), why),
+    [btn("Cancel", null, closeDialog, "tool outline"), start]);
+  rpc("list_workspaces").then((spaces) => {
+    const usable = spaces.filter((w) => w.capacityId && !/(^|[^a-z])(prod|prd|production)([^a-z]|$)/i.test(w.displayName));
+    wsSelect.replaceChildren(h("option", { value: "" }, usable.length ? "Pick a workspace" : "No Dev or Test workspace on a capacity"),
+      ...usable.map((w) => h("option", { value: w.id }, w.displayName)));
+  }).catch((err) => { why.textContent = friendlyError(err).text; });
+}
+
+function readinessCard() {
+  let hidden = false;
+  try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
+  if (hidden) return null;
+  const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
+  let writeRow = null;
+  const draw = (rows, checkedAt) => {
+    const all = writeRow ? [...rows, writeRow] : rows;
+    const good = all.filter((r) => r.status === "ok").length;
+    const head = h("div", { class: "row" }, h("h2", { class: "grow", id: "ready-title" }, "Ready to work"),
+      h("span", { class: "muted-text small" }, `${good} of ${rows.length + 1} ready`),
+      btn("Check again", null, run, "tool outline small"),
+      btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
+    if (rows.every((r) => r.status === "ok") && writeRow?.status === "ok") {
+      box.replaceChildren(h("div", { class: "row" }, icon("ok", 18), h("b", { class: "grow" }, "Ready to work."),
+        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small")));
+      return;
+    }
+    const capacityOk = rows.find((r) => r.key === "capacity")?.status === "ok";
+    const write = writeRow || { key: "write", title: "Writing to OneLake", status: "wait",
+      text: capacityOk ? "Not checked. It writes a small test file, so it waits until you ask."
+        : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
+    const tester = btn("Test a write", null, () => writeTestDialog((r) => { writeRow = r; draw(rows, "just now"); }),
+      "tool outline small", { disabled: capacityOk ? null : true });
+    box.replaceChildren(head,
+      h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
+      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, write.status === "ok" ? null : tester)),
+      h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
+  };
+  async function run() {
+    box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));
+    const rows = await attempt(() => rpc("readiness_check"), "Ready to work");
+    if (rows) draw(rows, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  }
+  run();
+  return box;
 }
 
 // ---------- Get started (Home, until there's a metadata project) ----------

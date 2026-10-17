@@ -6,31 +6,26 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Field | Value |
 | --- | --- |
-| Last updated | 2026-10-16 |
-| Base | `main` at `f456edd` |
-| Stage | 0 (plan) merged (#60); stage 1 engine merged (#63); stage 1 UI draft #72 (waiting on Chris's mockup reaction); stage 2.1/2.2 engine open (incidents and objectives) |
+| Last updated | 2026-10-17 |
+| Base | `main` at `07e21c8` |
+| Stage | 0 plan (#60), stage 1 engine (#63) and UI (#72), stage 2.1/2.2 incidents and objectives (#74) merged. Stage 2.3A engine open. Stage 2.3B screens wait on Chris's reaction to mockup boards 5 and 6. |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | #60 | This plan and note | Merged |
-| `claude/workload-inventory-4su03b` | #63 | Stage 1 PR 1A: engine, RPCs, tests | Merged |
-| `claude/workload-ui-4su03b` | #72 | Stage 1 PR 1B: Monitor > Workloads, workload page, Home card, guide | Draft |
-| `claude/workload-incidents-4su03b` | #74 | Stage 2.1/2.2: incident log, evaluation on the agent and in the app, Teams outbox, objectives | Open |
-
-The incidents PR and #72 touch different files except this note and plan.md; whichever merges second takes both sets of rows.
+| `claude/workload-incident-ops-4su03b` | 2.3A | Agent-offline incidents, likely failure category, routes, quiet hours, escalation | Open |
 
 ## Completed backlog items
 
-None fully yet. In part: 43 (objectives: success rate; completion time is the freshness `by`), 44 (agent evaluates on a timer; the app evaluates on request, no screens yet), 45 (detect, acknowledge, assign, note, resolve, recover; no UI), 47 (dedup across evaluators, digest, delayed delivery; no per-team routes).
+44 (agent evaluates on a timer; the app evaluates on request). In part: 38 (agent-offline incident; version and capability views in stage 5), 43 (objectives: success rate; completion time is the freshness `by`), 45 (whole lifecycle in the engine; no screens), 47 (dedup, digest, delayed delivery, routes, quiet hours, escalation; routes are per agent, not shared).
 
 ## Work in progress
 
-- Stage 1 UI is draft #72. Open product question there: Home has both "Needs your attention" and "Your workloads"; whether the new card replaces the old list is Chris's call.
-- How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, an injected failed Test run and a fake Fabric, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
-- Mockup: https://claude.ai/artifact/MYaQsSXDJ9iAmpo6nYePJf (waiting on Chris).
-- Stage 2 engine: `workloads/incidents.py` (log), `workloads/evaluate.py` (signals), `workloads/notify.py` (Teams outbox), `meta/objectives.py`, `incident_service.py` (RPCs), `Agent.evaluate_incidents` (`[incidents]`, opt-in).
+- Stage 2.3B: Monitor > Incidents segment (Preview), incident detail, incidents on the workload page, the app's freshness alerts moved onto incidents. Mockup https://claude.ai/artifact/MYaQsSXDJ9iAmpo6nYePJf boards 5 and 6, waiting on Chris. Build it as a draft PR from fresh main after 2.3A merges.
+- Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
+- How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
+- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py` (likely category), `workloads/agents.py` (reads `agents/*.json`), `workloads/notify.py` (routes, quiet hours, outbox), `meta/objectives.py`, `incident_service.py` (RPCs), `Agent.evaluate_incidents`.
 
 ## Assumptions and decisions
 
@@ -42,12 +37,19 @@ None fully yet. In part: 43 (objectives: success rate; completion time is the fr
 - The local control backend's `create` now writes aside and hard-links into place (falls back to create-in-place without hard links): readers could see a half-written file and win a race. Its lock is per process, so two processes on one PC racing on a local environment is still weaker than OneLake's If-Match (pre-existing).
 - Ownership coordination (from the project's coordinator, 2026-10-16): the roadmap thread owns agent status records, the pipeline job contract, release records, run correlation (`ran_on`, PR #58); Prove owns receipts, the planner, placement and the cost model. This program owns the desktop UI over them and always-on monitoring and incidents. Shared files to coordinate before changing: Monitor and Home in `app/ui/app.js`, Data mesh and Platform pages, `agent.py`, `jobqueue.py`. The coordinator was told about the `Agent.step` evaluation before it was written.
 
+- Recovery is scoped by kind (stage 2.3A): `sync(evaluated=...)` takes the set of kinds that were actually read, so unreadable agent records never recover agent-offline incidents and an unreadable run log never recovers workload incidents.
+- Routes live in each agent's `agent.toml`, with webhooks only in environment variables. The app keeps its single Teams webhook setting. Sharing routes across agents waits for stage 2B's platform catalog.
+- Escalation is a Teams post to a named route, once per incident, only while nobody acknowledged it. No paging service.
+- Ownership (from the coordinator, 2026-10-17): the Git-native program owns Source Control, Fabric Git sync, deployment workflow and validation, and later environment profiles; coordinate before release/deploy screens or environment config UI. The enterprise program assigned FD-122 (agent operations dashboard), FD-123 (incidents), FD-124 (multi-worker) and governance views here; it owns FD-129 (exceptions) and FD-130 (multi-team permissions). Name in docs and UI: "Fabric Desktop by KratosBI"; identifiers unchanged.
+
 ## Validation evidence
 
 - 2026-10-16: `python -m pytest -q` in `sidecar/` on `af11938`: 322 passed, 2 skipped (Linux, Python 3.13, pinned constraints).
 - 2026-10-16, #63: 348 passed, 2 skipped. 10,000 synthetic workloads: build and assess 0.9 s, each list query 70 to 240 ms (a quadratic join at 4.1 s was fixed first).
 - 2026-10-16, #72 after merging main: 456 passed, 2 skipped; UI tests 6 passed.
 - 2026-10-16, stage 2: `tests/test_incidents.py` 20 passed, five runs in a row (8 evaluators racing on one backend open one incident). Full suite after merging main at `f456edd`: 505 passed, 2 skipped.
+
+- 2026-10-17, stage 2.3A: `tests/test_incidents.py` 39 passed. Full suite on `6919e40`: 543 passed, 2 skipped; UI tests pass.
 
 ## External dependencies and blockers
 
@@ -56,7 +58,7 @@ None fully yet. In part: 43 (objectives: success rate; completion time is the fr
 
 ## Next action
 
-Keep #72 and the incidents PR green and mergeable. When Chris reacts to the mockup, apply his changes and mark #72 ready. Then stage 2.3 on a new branch from main once both are in: incident screens in Monitor and the workload page (mockup first), the app's freshness alerts moved onto incidents, per-team routes, quiet periods, escalation, and a missing-heartbeat incident from `agents/<name>.json`.
+Keep 2.3A green. When Chris reacts to boards 5 and 6, build 2.3B (draft). Then FD-122 agent operations dashboard (stage 5, mockup first; coordinate with the roadmap thread, which owns agent status records), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first.
 
 ## Resume prompt
 

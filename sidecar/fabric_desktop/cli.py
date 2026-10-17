@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ...`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore`."""
 
 from __future__ import annotations
 
@@ -33,6 +33,30 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = sub.add_parser("backup", help="save this PC's settings, notebooks, schedules and history to a zip "
+                                      "(never sign-in tokens)")
+    p.add_argument("--out", default=".", help="folder to save it in (default: here)")
+    p.add_argument("--agent-home", help="also back up this agent's queue and alerts (its FABRIC_DESKTOP_HOME)")
+    p = sub.add_parser("restore", help="check a backup and show what it would restore; --yes restores it")
+    p.add_argument("backup")
+    p.add_argument("--agent-home", help="also restore the agent's queue and alerts into this folder")
+    p.add_argument("--yes", action="store_true", help="restore it (close the app first)")
+    live = sub.add_parser("live-test", help="check sign-in, the Fabric API, OneLake and Delta against a test workspace")
+    live.add_argument("--workspace", help="the test workspace's id; its description must contain fabric-desktop-live-test")
+    live.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
+    live.add_argument("--yes", action="store_true", help="run without asking first")
+    live.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
+    live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
+    live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
+    bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
+                                                   "with secrets and personal details taken out")
+    bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
+    bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
+    trail = sub.add_parser("audit", help="show this PC's audit trail, or check that no line was changed or removed")
+    trail.add_argument("--verify", action="store_true", help="check the hash chain and exit 1 if it is broken")
+    trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
+    trail.add_argument("--action", default="", help="only this action, such as meta_promote")
+    trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -40,6 +64,18 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "agent":
         raise SystemExit(_agent(args))
+    if args.command == "live-test":
+        raise SystemExit(_live_test(args))
+    if args.command == "support-bundle":
+        from pathlib import Path
+
+        from .support_bundle import create
+        print(create(Path(args.out), agent_home=Path(args.agent_home) if args.agent_home else None))
+        return
+    if args.command == "audit":
+        raise SystemExit(_audit(args))
+    if args.command in ("backup", "restore"):
+        raise SystemExit(_backup(args))
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
         return
@@ -77,9 +113,91 @@ def _agent(args: argparse.Namespace) -> int:
     agent = Agent(config)
     if args.agent_command == "enqueue":
         result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        agent.audit.record(
+            "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
+                                         "cascade": args.cascade, "agent": config.name})
     else:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
+def _backup(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import backup
+    from .service import data_dir
+
+    home = Path(args.agent_home) if args.agent_home else None
+    if args.command == "backup":
+        result = backup.create(Path(args.out), data_dir(), home)
+        print(f"Saved {result['files']} files to {result['path']}")
+        for item in result["cleaned"]:
+            print(f"  {item['path']}: {item['removed']} left out")
+        return 0
+    try:
+        print(backup.describe(backup.restore(Path(args.backup), data_dir(), home, apply=args.yes)), end="")
+    except backup.BackupError as exc:
+        print(exc)
+        return 1
+    return 0
+
+
+def _live_test(args: argparse.Namespace) -> int:
+    """0 every check passed, 1 a check failed, 2 refused or not started."""
+    from pathlib import Path
+
+    from . import livetest
+    from .fabric_api import FabricClient
+    from .onelake import FileStore
+
+    if not args.workspace and not args.cleanup:
+        print("Name the test workspace with --workspace <id>.")
+        return 2
+    if args.dry_run:
+        print("The live test will:")
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object()).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, created or written.")
+        return 0
+    if args.agent_config:
+        from . import agent_config, credentials
+        credential = credentials.from_config(agent_config.load(args.agent_config).auth)
+    else:
+        from . import app_settings
+        from .auth import Authenticator
+        credential = Authenticator(app_settings.value("client_id"))
+    fabric = FabricClient(credential.fabric_token)
+    if args.cleanup:
+        result = livetest.cleanup_from_ledger(Path(args.cleanup), fabric, credential)
+        print(json.dumps(result, indent=2))
+        return 1 if result["left_behind"] else 0
+    test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
+                             protected_ids=livetest.policy_workspace_ids())
+    print("The live test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(livetest.summary(result))
+    print("\n".join(result["files"]))
+    return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
+def _audit(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .audit import AuditLog
+    from .service import data_dir
+    log = AuditLog(Path(args.folder) if args.folder else data_dir() / "audit")
+    if args.verify:
+        result = log.verify()
+        print(json.dumps(result, indent=2))
+        return 0 if result["ok"] else 1
+    for entry in log.recent(args.limit, args.action):
+        print(json.dumps(entry, default=str))
     return 0
 
 
@@ -90,7 +208,17 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):
         sys.stdout = sys.stderr = _log_file()
-    result = Service(headless=True).run_schedule(schedule_id, trigger)
+    import time
+    service = Service(headless=True)
+    started = time.monotonic()
+    result = service.run_schedule(schedule_id, trigger)
+    try:
+        service.audit.record("run_schedule", "error" if result.get("status") == "failed" else "ok",
+                             time.monotonic() - started, {"schedule_id": schedule_id, "trigger": trigger},
+                             who=(service._auth.signed_in_user() or "") if service._auth else "",
+                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "")
+    except Exception as exc:  # noqa: BLE001 - the run's own result matters more than its audit line
+        print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))
     raise SystemExit(0 if result["status"] != "failed" else 1)
 

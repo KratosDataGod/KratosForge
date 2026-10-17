@@ -64,6 +64,9 @@ A policy file that sets everything an organization usually wants:
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
+| `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
+| `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
+| `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 

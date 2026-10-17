@@ -49,7 +49,7 @@ def register_core(reg: Registry) -> None:
                                             "description": "Also list what you can't use now, with the reason."}}),
             schema({"version": STR, "permissions": {"type": "array"}, "capabilities": {"type": "array"}},
                    ["capabilities"], extra=True),
-            "READ_METADATA", list_capabilities, timeout=15, needs_service=False),
+            "READ_METADATA", list_capabilities, timeout=15, needs_service=False, public=True),
         Capability(
             "fabric_desktop_list_projects", "List projects",
             "The work kept on this PC: the notebooks folder, and the metadata (medallion) project if one is open.",

@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | support-bundle`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle`."""
 
 from __future__ import annotations
 
@@ -33,6 +33,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    live = sub.add_parser("live-test", help="check sign-in, the Fabric API, OneLake and Delta against a test workspace")
+    live.add_argument("--workspace", help="the test workspace's id; its description must contain fabric-desktop-live-test")
+    live.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
+    live.add_argument("--yes", action="store_true", help="run without asking first")
+    live.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
+    live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
+    live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
     bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -44,6 +51,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "agent":
         raise SystemExit(_agent(args))
+    if args.command == "live-test":
+        raise SystemExit(_live_test(args))
     if args.command == "support-bundle":
         from pathlib import Path
 
@@ -91,6 +100,49 @@ def _agent(args: argparse.Namespace) -> int:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))
     return 0
+
+
+def _live_test(args: argparse.Namespace) -> int:
+    """0 every check passed, 1 a check failed, 2 refused or not started."""
+    from pathlib import Path
+
+    from . import livetest
+    from .fabric_api import FabricClient
+    from .onelake import FileStore
+
+    if not args.workspace and not args.cleanup:
+        print("Name the test workspace with --workspace <id>.")
+        return 2
+    if args.dry_run:
+        print("The live test will:")
+        for step in livetest.LiveTest(args.workspace, None, None, None, Path(args.out), bad_token_files=object()).plan():
+            print(f"  - {step}")
+        print("Dry run: nothing was signed in to, created or written.")
+        return 0
+    if args.agent_config:
+        from . import agent_config, credentials
+        credential = credentials.from_config(agent_config.load(args.agent_config).auth)
+    else:
+        from . import app_settings
+        from .auth import Authenticator
+        credential = Authenticator(app_settings.value("client_id"))
+    fabric = FabricClient(credential.fabric_token)
+    if args.cleanup:
+        result = livetest.cleanup_from_ledger(Path(args.cleanup), fabric, credential)
+        print(json.dumps(result, indent=2))
+        return 1 if result["left_behind"] else 0
+    test = livetest.LiveTest(args.workspace, fabric, FileStore(credential.storage_token), credential, Path(args.out),
+                             protected_ids=livetest.policy_workspace_ids())
+    print("The live test will:")
+    for step in test.plan():
+        print(f"  - {step}")
+    if not args.yes and input("Run it? [y/N] ").strip().lower() not in ("y", "yes"):
+        print("Not run.")
+        return 2
+    result = test.run()
+    print(livetest.summary(result))
+    print("\n".join(result["files"]))
+    return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
 
 
 def _run_schedule(schedule_id: str, trigger: str) -> None:

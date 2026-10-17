@@ -31,6 +31,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, rollback, failed updates, network access |
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
+| [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |

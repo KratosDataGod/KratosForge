@@ -31,6 +31,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [enterprise-install.md](enterprise-install.md) | Admins | Deploying with Intune or Configuration Manager, managed updates, rollback, failed updates, network access |
 | [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
+| [telemetry.md](telemetry.md) | Everyone, admins | Opt-in usage data: every field sent, what is never sent, where it goes, the policy keys |
 | [security.md](security.md) | Admins, security reviewers | The threat model: what is protected, trust boundaries, how updates are checked, and what is still open |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
@@ -96,6 +97,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | New notebook from a template | Create |
 | Run notebooks in their own process | Settings > Preview features |
 | Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
+| Variable history, watches and hidden-state warnings | Notebook Variables pane (View tab) |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Cost | Monitor |
 | Capacity status | Monitor > Cost, Data mesh > Environments |

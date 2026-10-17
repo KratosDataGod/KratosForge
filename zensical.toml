@@ -50,6 +50,10 @@ nav = [
     { "Prove: continuation note" = "prove/continuation.md" },
     { "Workload operations plan" = "workloads/plan.md" },
     { "Workloads: continuation note" = "workloads/continuation.md" },
+    { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
+    { "Enterprise backlog" = "product/enterprise-backlog.md" },
+    { "Enterprise decisions" = "product/implementation-decisions.md" },
+    { "Release readiness" = "product/release-readiness.md" },
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },

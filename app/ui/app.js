@@ -89,9 +89,51 @@ function closeDialog() {
   document.getElementById("dialog-root").replaceChildren();
 }
 
+// Keyboard use of dialogs: focus starts inside, Tab stays inside, Escape closes one that a click
+// outside would close, and focus goes back to whatever opened it.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+const dialogFocus = { opener: null, lastOutside: null };
+document.addEventListener("focusin", (e) => {
+  if (!document.getElementById("dialog-root")?.contains(e.target)) dialogFocus.lastOutside = e.target;
+});
+
+function trapFocus(e, root) {
+  const items = [...root.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+  if (!items.length) { e.preventDefault(); return; }
+  const first = items[0], last = items[items.length - 1];
+  if (!root.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+document.addEventListener("keydown", (e) => {
+  const root = document.getElementById("dialog-root");
+  if (!root?.childElementCount) return;
+  if (e.key === "Tab") trapFocus(e, root);
+  else if (e.key === "Escape" && root.querySelector(".overlay[data-dismiss]")) {
+    closeDialog();
+    e.stopImmediatePropagation();  // one Escape closes one thing, not the activity tray behind it too
+  }
+});
+
+new MutationObserver(() => {
+  const root = document.getElementById("dialog-root");
+  if (root.childElementCount) {
+    // showDialog may already have focused a field, so remember where focus was before it.
+    if (!dialogFocus.opener) dialogFocus.opener = dialogFocus.lastOutside;
+    // Start inside the dialog unless the code that opened it already chose a field.
+    if (!root.contains(document.activeElement)) root.querySelector(FOCUSABLE)?.focus();
+  } else {
+    const opener = dialogFocus.opener;
+    dialogFocus.opener = null;
+    if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+  }
+}).observe(document.getElementById("dialog-root"), { childList: true });
+
 function showDialog(title, body, actions = []) {
-  const overlay = h("div", { class: "overlay", onmousedown: (e) => { if (e.target === overlay) closeDialog(); } },
-    h("div", { class: "dialog", role: "dialog", "aria-label": title },
+  const overlay = h("div", { class: "overlay", "data-dismiss": true, onmousedown: (e) => { if (e.target === overlay) closeDialog(); } },
+    h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
       h("div", { class: "dialog-head" }, title,
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
@@ -193,6 +235,7 @@ function renderChrome() {
   account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
   account.title = state.user ? `Signed in as ${state.user}` : "Sign in";
+  account.setAttribute("aria-label", account.title);
 
   document.getElementById("rail-main").replaceChildren(...railFeatures().map(railItem));
   document.getElementById("rail-bottom").replaceChildren(...railFeatures(true).map(railItem));
@@ -2183,7 +2226,7 @@ async function checkComponents(afterInstall = false) {
   // Shown only when something is updating or wrong, or the check takes more than a moment;
   // a normal start goes straight to Home.
   const dialog = h("div", { class: "overlay" },
-    h("div", { class: "dialog", role: "dialog", "aria-label": "Checking components" },
+    h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
       h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));

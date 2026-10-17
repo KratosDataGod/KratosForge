@@ -156,6 +156,47 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2]), "2");
 });
 
+// Accessibility (FD-139): checks that need no browser.
+test("every icon-only button has a name a screen reader can say", () => {
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const line = (i) => `${name}:${src.slice(0, i).split("\n").length}`;
+    for (const m of src.matchAll(/h\("button",\s*\{([^{}]*)\},\s*icon\([^()]*\)\s*\)/g)) {
+      if (!/aria-label|title/.test(m[1])) missing.push(line(m.index));
+    }
+    for (const m of src.matchAll(/\bbtn\((?:null|""|''),\s*"[^"]+",[^;]*/g)) {
+      if (!/aria-label|title/.test(m[0])) missing.push(line(m.index));
+    }
+  }
+  assert.deepStrictEqual(missing, []);
+});
+
+test("the page has a skip link and labelled controls", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<a class="skip-link" href="#view">/);
+  assert.match(html, /<main id="view"[^>]*tabindex="-1"/);
+  for (const m of html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)) {
+    const text = m[2].replace(/<[^>]+>/g, "").trim();
+    assert.ok(/aria-label="[^"]+"/.test(m[1]) || /\w{2,}/.test(text), `unnamed button: ${m[0]}`);
+  }
+  for (const m of html.matchAll(/<input\b[^>]*>/g)) {
+    const before = html.slice(0, m.index);
+    const inLabel = before.lastIndexOf("<label") > before.lastIndexOf("</label>");
+    assert.ok(inLabel || /aria-label=/.test(m[0]), `unlabelled input: ${m[0]}`);
+  }
+});
+
+test("dialogs are modal for keyboard users and focus shows", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  for (const m of app.matchAll(/role: "dialog"[^)]*/g)) assert.match(m[0], /"aria-modal": "true"/);
+  assert.match(app, /function trapFocus\(/);
+  assert.match(app, /dialogFocus\.opener/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /^:focus-visible \{ outline: 2px/m);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*, \*::before, \*::after/);
+});
+
 test("a lakehouse name Fabric would refuse is caught before it's sent", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const ctx = {};

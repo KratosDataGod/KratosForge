@@ -9,12 +9,15 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
 from typing import IO
 
+from . import audit
 from .redact import secrets
 from .service import Service
 
-METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
+METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
            "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "list_notebooks", "new_notebook", "open_notebook",
@@ -67,7 +70,13 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info"}
+           "git_path_info", "git_notebook_info", "audit_log"}
+
+
+# Settings > Integrations: only the app reaches these (integrations/app_service.py).
+from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E402
+
+METHODS |= INTEGRATION_METHODS
 
 
 def handle(service: Service, line: str) -> dict:
@@ -78,13 +87,35 @@ def handle(service: Service, line: str) -> dict:
     req_id, method = req.get("id"), req.get("method")
     if method not in METHODS:
         return {"id": req_id, "error": f"unknown method {method!r}"}
+    params = req.get("params", {})
+    started = time.monotonic()
     try:
-        return {"id": req_id, "result": getattr(service, method)(**req.get("params", {}))}
+        reply = {"id": req_id, "result": getattr(service, method)(**params)}
     except Exception as exc:  # report every failure to the UI rather than dying
         # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            return {"id": req_id, "error": secrets(str(exc))}
-        return {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
+            reply = {"id": req_id, "error": secrets(str(exc))}
+        else:
+            reply = {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
+    if audit.audited(method):
+        _audit(service, method, params, reply, time.monotonic() - started)
+    return reply
+
+
+def _audit(service: Service, method: str, params: dict, reply: dict, seconds: float) -> None:
+    """One audit line per call that changes or runs something. Never fails the call itself."""
+    try:
+        log = getattr(service, "audit", None)
+        if log is None:
+            return
+        auth = getattr(service, "_auth", None)  # only an account already signed in; never sign in here
+        who = tenant = ""
+        if auth is not None:
+            who, tenant = auth.signed_in_user() or "", auth.signed_in_tenant() or ""
+        log.record(method, "error" if "error" in reply else "ok", seconds, params if isinstance(params, dict) else {},
+                   who=who, tenant=tenant, error=str(reply.get("error") or ""))
+    except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
+        print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
@@ -112,7 +143,29 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
-    serve(stdin=sys.stdin, stdout=rpc_out)
+    _refresh_integration_launcher()
+    service = Service()
+    threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
+    serve(service, stdin=sys.stdin, stdout=rpc_out)
+
+
+def _start_integration_http(service: Service) -> None:
+    """If the person switched the local API on, start it with the engine (it stops with it)."""
+    try:
+        service.integrations_sync_http()
+    except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
+        print(f"integrations: local API not started: {exc}", file=sys.stderr)
+
+
+def _refresh_integration_launcher() -> None:
+    """After an update the engine is in a new folder: point the AI tools' launcher at it."""
+    try:
+        from .integrations.config import launcher_path, write_launcher
+        from .service import data_dir
+        if launcher_path(data_dir()).exists():
+            write_launcher(data_dir())
+    except Exception as exc:  # noqa: BLE001 - never stop the engine over this
+        print(f"integrations: could not update the launcher: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

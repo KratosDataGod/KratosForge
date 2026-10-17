@@ -18,7 +18,7 @@ This page is the architecture. The backlog and status of each pull request are i
 | Execution boundaries | Notebook cells run in the engine or in a process of their own (`kernel_proc.py`, Preview), with interrupt and stop. SQL runs in an in-memory DuckDB with each named table registered as an Arrow dataset. Prove runs in a fresh kernel with outputs redirected. | |
 | Local network APIs | **None.** The engine is stdio only and the headless agent has no HTTP endpoint (`agent.py`, `agent_status.py` write files). | |
 | MCP | **None.** No MCP code, experiment or dependency anywhere in the repository. | |
-| Extension mechanism | **None yet.** Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
+| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
 | Audit, redaction, IT policy | In review, owned by the enterprise readiness program: hash-chained audit trail (PR #89, `audit.py`), secret redaction (PR #84, `redact.py`), policy keys `auto_update`, `allow_fabric_runs`, `allowed_tenants` (PR #90). The policy file itself (`%ProgramData%\FabricDesktop\policy.json`) already exists in `app_settings.py`. | |
 | Tests | About 40 pytest modules in `sidecar/tests`, all run without Fabric; UI tests in `app/tests/ui.test.cjs`. | |
 
@@ -38,7 +38,7 @@ External tools: Claude, Codex, Copilot, Cursor, any MCP client, any HTTP client
               - invoke(): validate -> authorize -> approve -> run -> shape result
               - permissions and approvals (integrations.sqlite, decided in the app)
               - executions: ids, status, cancel, timeouts, output limits
-              - audit: one line per external call (extends audit.py)
+              - audit: one line per external call (integrations/audit.py)
                                 |
               Existing application services (Service and its mixins)
               workspaces, items, lakehouses, OneLake, notebooks, kernel, SQL,
@@ -62,6 +62,34 @@ Rules that keep this an adapter and not a second application:
 Why separate processes and not the app's own engine: the app's engine is owned by the shell over stdio and runs the person's notebook kernel. An external caller in the same process would share that kernel and block the UI. A separate process gives each external client its own kernel and queue, and a crash or a runaway query there can't take the app down. Both use the same code, data folder and sign-in.
 
 The MCP server is built on the official MCP Python SDK (`mcp`, pinned in `constraints.txt`) using its low-level `Server`, because the tool list is generated from the registry at run time. It serves both protocol eras the SDK supports: the handshake era (2025-06-18 and 2025-11-25, which current desktop clients speak) and 2026-07-28.
+
+### Trying the MCP server from source
+
+Until **Settings > Integrations** writes the configuration for you, a developer with the engine installed from source (`pip install -e sidecar`) can point any MCP client at:
+
+```
+fabric-desktop mcp --client my-laptop
+```
+
+`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing Fabric Desktop sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
+
+### The local HTTP API
+
+Off by default. When it is switched on (engine RPC `integrations_set_http`, the Integrations page's switch), the engine runs `fabric-desktop integrations serve --port 47615 --parent-pid <engine>` as a child process; it stops when the engine does. A tool connected with transport `http` gets a bearer token once (`fdt_…`, stored only as a hash) and calls:
+
+| Endpoint | What |
+| --- | --- |
+| `GET /api/v1/health` | Open: is it up |
+| `GET /api/v1/openapi.json` | Open: the OpenAPI 3.1 document, one operation per capability |
+| `GET /api/v1/capabilities` | Capabilities with their availability for this token |
+| `POST /api/v1/capabilities/{id}/invoke` | Body `{"arguments": {...}}`; result `{"ok": true, "result": ...}` or `{"ok": false, "error": {...}}` |
+| `/mcp` | MCP over Streamable HTTP, the same tools as stdio |
+
+```
+curl -H "Authorization: Bearer fdt_..." -X POST http://127.0.0.1:47615/api/v1/capabilities/fabric_desktop_list_projects/invoke
+```
+
+A call that needs the person's approval answers `428` with `details.approval_id`; call again after they approve it in the app. A client that hangs up cancels its call.
 
 ## 4. The capability registry
 
@@ -120,17 +148,72 @@ External execution reuses the engine's own paths:
 | `fabric_desktop_execute_python` | `ProcessKernel` (`kernel_proc.py`) | Always in a process of its own; timeout, interrupt then stop; output capped; approval every call |
 | `fabric_desktop_run_notebook` | Same kernel, cell by cell, as **Run all** does | Same as above; Fabric runs are not offered yet |
 
-Every execution gets a stable id, a state (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `timed_out`), logs, a capped result and timings. Calls wait a short time and otherwise return the id, so long work never blocks a client or the app. Cancellation works by id or by MCP's own cancel notification. Per-cell time and memory limits are being built by the Prove program; external executions will call them once merged.
+Every execution gets a stable id (`ex_...`), a state (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `timed_out`), logs, a capped result and timings, kept in `<data>/integrations/executions/` (the last 200). A call waits up to `wait_seconds` (default 30) and otherwise returns the id; `fabric_desktop_get_execution_status` follows it and can wait for it. Past `timeout_seconds` an execution is interrupted, then its process is ended; `fabric_desktop_cancel_execution` and MCP's own cancel notification do the same. An execution is visible only to the tool that started it.
+
+Code an external tool runs is limited on purpose (`integrations/executions.py`):
+
+- It runs in a process kernel started for that execution and ended after it, never in the app's kernel. Nothing is kept between runs.
+- The kernel gets a storage token for the attached lakehouse and no other token; `notebookutils.credentials.getToken` for anything else is refused.
+- Writing lakehouse tables through the engine is refused, because OneLake writes aren't offered to external tools yet. A notebook that writes tables stops at that cell.
+- Output is capped at 100,000 characters, tables at 100 rows, images and HTML are left out, and every string has secrets removed.
+- A tool limited to some workspaces can't run code at all, because code runs with the person's sign-in, which reaches every workspace they can open.
+
+Prove this notebook's actions are registered with the permission they really need. Verifying a table again and exporting a receipt need `READ_DATA` and ask. Cancelling a proof needs `EXECUTE_LOCAL_CODE` and always asks. Starting a proof publishes a copy to Fabric (`MODIFY_FABRIC_ARTIFACTS`) and deleting a proof's outputs deletes OneLake files (`WRITE_ONELAKE`); neither category is offered in this release, so both are listed as unavailable with that reason. Receipt exports leave out the parts IT lists in `receipt_redactions`.
 
 ## 7. Resources and prompts
 
-MCP resources give context without moving data: `fabric-desktop://status`, `fabric-desktop://capabilities`, `fabric-desktop://notebooks/{name}`, `fabric-desktop://workspaces/{id}/items`, `fabric-desktop://lakehouses/{workspace}/{lakehouse}/tables/{table}/schema` and the metadata project. Resources are paged and size-limited, carry schemas only (rows need `READ_DATA` and go through a tool), and pass through the same `invoke`. MCP prompts carry the reusable workflow templates from the agent instructions (PR-AI-009).
+MCP resources give context without moving data. A read-only capability that doesn't ask for approval can also be a resource: its registry entry carries a `fabric-desktop://` URI template, and reading the URI is the same `invoke` as calling the tool, with the same permission check. Paging and options go in the query, for example `fabric-desktop://notebooks?offset=100&limit=50`. Resources with no placeholders are listed by `resources/list`; the others by `resources/templates/list`. Over the local API they are at `GET /api/v1/resources` and `GET /api/v1/resources/read?uri=...`.
+
+| URI | What |
+| --- | --- |
+| `fabric-desktop://status` | Version, sign-in, how this client is connected |
+| `fabric-desktop://capabilities` | Every capability with schemas and availability |
+| `fabric-desktop://projects`, `.../projects/{id}`, `.../projects/metadata/validation` | Notebooks folder and metadata project |
+| `fabric-desktop://workspaces`, `.../workspaces/{workspace_id}/items`, `.../items/{item_id}` | Fabric workspaces and items |
+| `fabric-desktop://workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables`, `.../tables/{table}/schema` | Tables and their columns |
+| `fabric-desktop://notebooks`, `.../notebooks/{name}` | Notebooks and their cells (secrets removed, no outputs) |
+| `fabric-desktop://notebooks/{name}/validation`, `/dependencies`, `/environment`, `/proof-plan` | Checks that run no code |
+| `fabric-desktop://proofs`, `.../proofs/{id}`, `fabric-desktop://receipts`, `.../receipts/{id}`, `fabric-desktop://side-by-side`, `.../side-by-side/{id}` | Prove this notebook, without cell outputs or example rows |
+
+Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go through a tool. Results are size-limited (1 MB) and every string in every result passes through secret redaction. MCP prompts carry the reusable workflow templates ([workflows](../ai/workflows.md), PR-AI-009): text only, each step a tool call with the usual checks.
+
+## 7a. Audit
+
+Every call through `Registry.invoke` gets one audit line, whatever happened to it, and so does every request the HTTP server refuses before it reaches `invoke` (no token, a browser `Origin`, a bad `Host`, rate limited). Refusals are written at most once per reason and caller every 10 seconds, with a count of the ones in between, so a flood can't fill the disk.
+
+| Field | What it holds |
+| --- | --- |
+| `at`, `seconds` | When the call arrived (UTC) and how long it took, including any wait for approval |
+| `channel`, `client_id`, `client` | `mcp-stdio`, `mcp-http` or `api`, and the tool as added in Settings |
+| `capability`, `permission` | What was asked for (`http_request` for a refused HTTP request) |
+| `decision` | `allowed`, `approved`, `denied`, `approval_denied`, `approval_pending` (nobody answered in time) or `invalid` |
+| `outcome`, `error` | `ok` or the error code, and the message with secrets removed |
+| `execution_id` | For calls that start or read an execution |
+| `arguments` | Ids, names and numbers. Code, SQL and long text show as `(given)`; anything credential-shaped is removed |
+| `host`, `os_user`, `version`, `prev`, `hash` | Where it ran, and a SHA-256 chain linking each line to the one before |
+
+Lines go to `%LOCALAPPDATA%\FabricDesktop\integrations\audit\audit-YYYY-MM.jsonl` (for log shippers) and to `integrations.sqlite` (the newest 50,000, for **Recent activity**). One MCP server runs per connected tool and the HTTP server is another process, so each line is written inside a store transaction: one writer at a time, and the chain stays whole. The format and chain are the same as the app's audit trail (PR #89), so `fabric-desktop audit --folder "%LOCALAPPDATA%\FabricDesktop\integrations\audit" --verify` checks it once that merges; Settings > Integrations > **Check the trail** does the same today. An audit failure (a full disk) never fails the call; it is reported on the engine's error output.
 
 ## 8. Extensions
 
-Extensions register capabilities with `registry.register(capability, source="<extension id>")` and remove them with `unregister_source()`. The registry validates schemas and requires an explicit permission category; an extension can't register a capability in a category the person can't grant, can't replace a core capability, and every call still passes through `invoke`. Listing changes are sent to connected MCP clients as `tools/list_changed`.
+An extension is a named, versioned set of capabilities with the permission categories it declares (`integrations/extensions.py`). `ExtensionHost` is the only way one reaches the registry, so its capabilities appear in MCP, the local API and Settings like core ones, and every call still passes through `invoke` with the same permissions, approvals, limits and audit line.
 
-The extension framework itself (manifest, signing, own process) belongs to the Git-native program's Phase 4. This program supplies the registration interface and a sample built-in extension; the manifest loader will call it.
+| Rule, checked when an extension is added and again when it is turned on | Why |
+| --- | --- |
+| Its id is a valid extension id, not `core`, and doesn't start with `fabric_desktop` | Core capabilities can't be replaced or imitated |
+| Its capability ids start with its own prefix (`notebook-outline` gives `notebook_outline_...`) | Two extensions can't collide, and a tool can see where a capability comes from |
+| Each capability's permission is one the extension declared, and its `source` is the extension | What the person sees before turning it on is what it can ask for |
+| A resource is under `fabric-desktop://ext/<extension id>/` | It can't stand in for a core resource |
+| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval) | No second, weaker path |
+| All of its capabilities register, or none do | A half-loaded extension never shows up |
+
+Extensions are off until the person turns each on in **Settings > Integrations > Extensions**. The policy key `integrations_extensions` (a list of ids) limits which ones can be turned on; `[]` or an unreadable value allows none, and one already on is taken away at the next sync. The switches live in the integration store, and each server process's `ExtensionHost.sync()` runs every 2 seconds, so a change reaches every MCP and HTTP server without a restart.
+
+When capabilities change, connected clients are told: `notifications/tools/list_changed` and `notifications/resources/list_changed` on the connection for clients on the 2025-11-25 protocol (advertised as `listChanged` at initialize), and the same events on `subscriptions/listen` streams for clients on 2026-07-28. Prompts don't change at run time.
+
+The built-in **Notebook outline** extension is the sample: one read-only capability, `notebook_outline_get`, which returns a notebook's headings and the functions and classes each cell defines, never its code, using the notebook service the app already has.
+
+What this program leaves to the Git-native program's Phase 4: the manifest, where extensions are installed from, signing, and running an extension in its own process. Its loader calls `ExtensionHost.add(extension)`; until then only built-in extensions exist, and an extension runs inside the engine with the engine's rights, so only code shipped with the app can be one.
 
 ## 9. Security boundaries
 
@@ -151,9 +234,9 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 
 | Need | Owner | Status |
 | --- | --- | --- |
-| Audit trail to extend | Enterprise readiness (PR #89) | In review; PR-AI-010 builds on it |
+| Audit trail format | Enterprise readiness (PR #89) | In review; PR-AI-010 writes its own files in the same line format and hash chain, so `fabric-desktop audit --verify` reads both once #89 merges |
 | Secret redaction | Enterprise readiness (PR #84) | In review; the integration layer has a small redaction of its own until it merges |
 | Policy file keys | Enterprise readiness (PR #90) | In review; integration keys use the same file |
 | Per-cell timeouts and resource limits | Prove this notebook | In progress; PR-AI-007 uses timeouts and interrupt today |
-| Extension manifest and loader | Git-native development, Phase 4 | Not started; PR-AI-012 supplies the interface |
+| Extension manifest and loader | Git-native development, Phase 4 | Not started; PR-AI-012 supplies `ExtensionHost.add`, the checks, the switch and list-change notices |
 | Artifact capability registry | Git-native development | Not started; would feed `artifact_types` |

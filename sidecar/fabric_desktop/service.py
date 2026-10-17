@@ -14,6 +14,7 @@ from typing import Any
 
 import pyarrow.csv as pa_csv
 
+from .audit import AuditLog
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql, sql_dialects, sql_format
@@ -35,6 +36,7 @@ from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
 from .git_service import GitMixin
+from .integrations.app_service import IntegrationsMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore
 from .onelake import FileStore, TableCatalog
@@ -46,7 +48,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
+class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -67,6 +69,17 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         return self._auth
 
     @property
+    def audit(self) -> AuditLog:
+        """This PC's audit trail (audit.py): one line per call that changes or runs something."""
+        if getattr(self, "_audit_log", None) is None:
+            self._audit_log = AuditLog(self.root / "audit", app="agent" if self.headless else "desktop")
+        return self._audit_log
+
+    def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
+        """The newest audit lines, newest first, and whether the chain is intact."""
+        return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}
+
+    @property
     def fabric(self) -> FabricClient:
         return FabricClient(self.auth.fabric_token)
 
@@ -82,6 +95,7 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
     # Each public method is one UI action.
 
     def environment(self) -> dict[str, Any]:
+        self._start_retention_sweep()
         user = tenant = None
         try:
             user = self.auth.signed_in_user()
@@ -89,6 +103,27 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         except Exception:  # no client ID yet, or offline: the UI offers sign-in
             pass
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
+
+    def _start_retention_sweep(self) -> None:
+        """Once per engine start, in the background: delete local copies of lakehouse data unused for
+        longer than the organization allows (retention.py)."""
+        if getattr(self, "_swept", False):
+            return
+        self._swept = True
+
+        def run() -> None:
+            import logging
+
+            from . import retention
+            try:
+                result = retention.sweep(self.root, app_settings.value("local_retention_days"))
+                if result["removed"]:
+                    logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
+                                                     len(result["removed"]), result["bytes"], result["days"])
+            except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
+                logging.getLogger(__name__).exception("Local copy cleanup failed")
+
+        threading.Thread(target=run, name="retention-sweep", daemon=True).start()
 
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
@@ -142,6 +177,31 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
+
+    def readiness_check(self) -> list[dict[str, Any]]:
+        """Home's Ready to work list. Reads only, and never opens a sign-in window."""
+        from . import readiness
+        try:
+            user = self.auth.signed_in_user()
+        except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
+            user = None
+        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        if user and fabric is None:
+            user = None  # the saved sign-in has expired: the row offers Sign in
+
+        def capacities() -> list[dict[str, Any]]:
+            token = self.auth.silent_token(CAPACITY_SCOPES)
+            if not token:
+                raise PermissionError("not consented")
+            return FabricClient(lambda: token).list_capacities()
+
+        return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings())
+
+    def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
+        """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
+        from . import readiness
+        from .onelake import FileStore
+        return readiness.write_test(FileStore(self.auth.storage_token), workspace_id, lakehouse_id, workspace_name)
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self.fabric.list_workspaces()
@@ -358,10 +418,11 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
 
-    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark") -> dict[str, Any]:
+    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark",
+                sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query, dialect)
+        result = sql.run(query, dialect, sandbox=sandbox)
         columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],

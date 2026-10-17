@@ -345,6 +345,7 @@ async function renderHome() {
   setView(h("div", { class: "page home" },
     h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
     summary,
+    readinessCard(),
     signInCallout(),
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),

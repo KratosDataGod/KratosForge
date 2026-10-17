@@ -90,7 +90,7 @@ Notebooks are files on each person's PC until they're published.
 ## Knowing what's going on
 
 - **Monitor** shows runs from every environment, filtered by environment and by where they ran. **Home** puts failures and late tables first.
-- **Freshness promises** on important tables, with **Teams alerts**, tell the whole team when a table is late or failed, without anyone watching the app ([freshness](metadata-guide.md#freshness-promises)).
+- **Freshness promises** on important tables, with **Teams alerts**, tell the whole team when a table is late or failed, as an [incident](user-guide.md#incidents-preview) everyone sees, without anyone watching the app ([freshness](metadata-guide.md#freshness-promises)).
 - **Fabric's Monitoring hub** (bottom of Monitor) shows everything else in your workspaces.
 - **`LH_Meta`** in each environment holds the run log, check results and deployments as Delta tables, so you can build a team dashboard on them in Fabric.
 

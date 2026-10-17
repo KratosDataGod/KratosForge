@@ -8,13 +8,14 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | --- | --- |
 | Last updated | 2026-10-17 |
 | Base | `main` at `f16ba6a` |
-| Stage | Stages 0, 1, 2.1/2.2 and 2.3A (#79) merged. Stage 2.3B (incident screens) open as a draft. |
+| Stage | Stages 0, 1, 2.1/2.2 and 2.3A (#79) merged. Stage 2.3B (incident screens, #125) ready for review; 2.3C (the app's freshness alerts as incidents) open after it. |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-incident-screens-4su03b` | 2.3B | Monitor > Incidents, incident page, workload page card, agent incident settings in status records | Draft |
+| `claude/workload-incident-screens-4su03b` | #125 (2.3B) | Monitor > Incidents, incident page, workload page card, agent incident settings in status records | Ready for review |
+| `claude/workload-freshness-incidents-4su03b` | 2.3C | The app checks incidents every 10 minutes for environments no running agent checks; bell and Teams alerts come from incidents | Open, merge after #125 |
 
 ## Completed backlog items
 
@@ -22,7 +23,8 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- 2.3B draft, waiting on Chris. 2.3C next: move the app's own freshness alerts (Home and Teams) onto incidents so a late table isn't reported twice.
+- 2.3B (#125) ready for review; merge main into it once #122 lands. 2.3C built on top of it: `incidents_watch` checks each environment in one of three modes (agent: a live agent with incidents on checks it, the app only reads; app: the app evaluates and posts to Teams; unreadable). With Preview features hidden the old per-table freshness alerts stay as they were.
+- Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
 - Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
@@ -49,6 +51,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - 2026-10-16, #72 after merging main: 456 passed, 2 skipped; UI tests 6 passed.
 - 2026-10-16, stage 2: `tests/test_incidents.py` 20 passed, five runs in a row (8 evaluators racing on one backend open one incident). Full suite after merging main at `f456edd`: 505 passed, 2 skipped.
 
+- 2026-10-17, stage 2.3C: 982 passed, 2 skipped; UI tests 31 passed; incident tests 42. Harness bell showed one item per open incident and modes dev app, test agent, prod app.
 - 2026-10-17, stage 2.3B on `cedcc56`: 982 passed, 2 skipped; UI tests 31 passed. Screens checked in the harness (list, detail, acknowledge, resolve dialog, workload card, empty Dev). Times show "Invalid Date" until #122 (the AI integration thread's fix for a duplicate global `when()`) is merged.
 - 2026-10-17, stage 2.3A: `tests/test_incidents.py` 39 passed. Full suite on `6919e40`: 543 passed, 2 skipped; UI tests pass.
 
@@ -59,7 +62,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Next action
 
-Keep 2.3B green; when Chris reacts, mark it ready. Then 2.3C (freshness alerts onto incidents), then FD-122 agent operations dashboard (stage 5, mockup first; the roadmap thread owns agent status records), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
+Keep #125 and 2.3C green and merge main into them once #122 lands. Then FD-122 agent operations dashboard (stage 5, mockup first; the roadmap thread owns agent status records), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
 
 ## Resume prompt
 

@@ -113,7 +113,7 @@ Using security groups for these roles makes [working across teams](teams.md) muc
 | Extra | What to set up | Used by |
 | --- | --- | --- |
 | **Secrets in notebooks** | An Azure Key Vault; give people the **Key Vault Secrets User** role on it; may need your own app registration with the Azure Key Vault permission ([permissions.md](permissions.md#what-each-feature-uses)) | `notebookutils.credentials.getSecret` on the PC |
-| **Teams alerts** | In a Teams channel, add the **Workflows** template "Post to a channel when a webhook request is received" and copy its address | **Settings > Notifications** or Freshness on an entity: late and failed tables are posted to the channel |
+| **Teams alerts** | In a Teams channel, add the **Workflows** template "Post to a channel when a webhook request is received" and copy its address | **Settings > Notifications** or Freshness on an entity: new incidents (late and failed tables) are posted to the channel |
 | **OneLake shortcuts to ADLS Gen2 or Amazon S3** | A cloud connection in Fabric (**Settings > Manage connections and gateways**) | **OneLake > Shortcuts > New shortcut** |
 | **OneLake security (data access roles)** | Turn on OneLake security on the lakehouse in Fabric | **OneLake > Access** table-level roles |
 | **A headless agent on a server** | A managed identity (no app registration), or an app registration with a certificate; the **Service principals can use Fabric APIs** tenant setting; Contributor on the workspaces | [agent.md](agent.md) |

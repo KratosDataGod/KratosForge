@@ -126,6 +126,38 @@ class IncidentMixin:
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 
+    def incidents_watch(self, notify: bool = False) -> dict[str, Any]:
+        """The app's own check while it is open (every few minutes, from the UI): each environment
+        that a running agent already checks is only read; any other is evaluated here, and with
+        ``notify`` its changes go to this PC's Teams webhook. So a team with an agent hears about a
+        problem once, from the agent, and a team without one still hears about it from the app.
+        An environment that isn't set up or can't be read is reported, never evaluated."""
+        envs = []
+        for env in ENVIRONMENTS:
+            try:
+                log = self._incident_log(env)
+            except Exception as exc:  # noqa: BLE001
+                state, message = model.classify_error(exc)
+                envs.append({"env": env, "mode": "unreadable", "state": state, "detail": message, "incidents": []})
+                continue
+            agents = self._incident_agents(env)
+            checking = [a["agent"] for a in agents["agents"] if a["state"] == "live" and (a["incidents"] or {}).get("enabled")]
+            row: dict[str, Any] = {"env": env, "mode": "agent" if checking else "app", "agents": checking}
+            try:
+                if not checking:
+                    res = self.incidents_evaluate(env, notify=notify)
+                    row["changes"] = res["changes"]
+                    if "notified" in res:
+                        row["notified"] = res["notified"]
+                for i in (items := log.active()):
+                    i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
+                row["incidents"] = items
+            except Exception as exc:  # noqa: BLE001
+                state, message = model.classify_error(exc)
+                row.update(mode="unreadable", state=state, detail=message, incidents=[])
+            envs.append(row)
+        return {"envs": envs, "alerts": bool(self._settings().get("teams_webhook"))}  # type: ignore[attr-defined]
+
     def incident_acknowledge(self, env: str, id: str, note: str = "") -> dict[str, Any]:
         return self._incident_log(env).acknowledge(id, self._incident_user(), note)
 

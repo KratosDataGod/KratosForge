@@ -571,3 +571,31 @@ def test_the_agent_status_record_says_how_it_checks_incidents_without_webhooks(a
     assert out["enabled"] and out["escalate_to"] == "sales" and out["routes"] == [
         {"name": "sales", "teams": ["sales"], "owners": [], "criticality": [], "kinds": [], "envs": []}]
     assert "SALES_HOOK" not in json.dumps(out)
+
+
+def test_the_app_checks_only_environments_no_running_agent_checks(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")])
+    posted = []
+    monkeypatch.setattr("fabric_desktop.incident_service.post_teams", lambda url, title, lines: posted.append(title))
+    settings = svc._settings
+    svc._settings = lambda: {**settings(), "teams_webhook": "https://hook"}
+    out = {e["env"]: e for e in svc.incidents_watch(notify=True)["envs"]}
+    assert out["dev"]["mode"] == "app", out["dev"]
+    assert [c["change"] for c in out["dev"]["changes"]] == ["opened"]
+    assert out["test"]["mode"] == "unreadable" and out["test"]["state"] == "not_set_up"
+    assert len(posted) == 1 and posted[0].startswith("New: ")
+    assert svc.incidents_watch(notify=True)["envs"][0]["changes"] == [] and len(posted) == 1  # once each
+    # a running agent checks Dev now: the app only reads it, and says nothing to Teams
+    fresh = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=3)).isoformat()
+    svc._incident_log("dev").backend.create("agents/etl-01.json", json.dumps(
+        {**status("etl-01", "now", fresh), "incidents": {"enabled": True, "seconds": 300}}).encode())
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "ok", "r2")])
+    dev = svc.incidents_watch(notify=True)["envs"][0]
+    assert dev["mode"] == "agent" and dev["agents"] == ["etl-01"] and "changes" not in dev
+    assert [i["kind"] for i in dev["incidents"]] == ["run_failed"]  # recovery is the agent's to record
+    assert len(posted) == 1

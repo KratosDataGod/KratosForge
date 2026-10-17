@@ -311,7 +311,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 **The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
 
-**Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: incidents then change only when someone clicks **Check *environment* now**. A check here never sends Teams messages; agents do that, to the routes their admin set ([agent guide](agent.md#incidents-preview)).
+**Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
 
 **Likely** is a hint matched from the error text (Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized) with whether a retry alone usually helps. The run's own error is the evidence.
 
@@ -335,7 +335,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide every feature tagged Preview. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
-| **Notifications** | **Teams alerts**: post late and failed tables to a Teams channel. See [Freshness promises](metadata-guide.md#freshness-promises). |
+| **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 
 Anything your organization has set shows "Set by your organization" and can't be changed there.

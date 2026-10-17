@@ -117,8 +117,8 @@ function incWatchers(list, env) {
   }
   if (a && !a.readable) bits.push(h("span", {}, h("span", { class: "pill-s wrn" }, "Unknown"), ` Couldn't read the agent records: ${a.detail}`));
   else if (!checking.some((x) => x.state === "live")) {
-    bits.push(h("span", {}, h("span", { class: "pill-s neu" }, "Not checked on a timer"),
-      ` No running agent checks ${envName(env)}'s incidents. Problems show here only when someone checks.`));
+    bits.push(h("span", {}, h("span", { class: "pill-s neu" }, "Only while the app is open"),
+      ` No running agent checks ${envName(env)}'s incidents, so Fabric Desktop by KratosBI checks every 10 minutes while it's open. When no one has it open, nothing does.`));
   }
   const old = (a?.agents || []).filter((x) => !x.incidents);
   if (old.length) bits.push(h("span", { class: "muted-text small" }, `${old.map((x) => x.agent).join(", ")} ${old.length === 1 ? "doesn't" : "don't"} say whether ${old.length === 1 ? "it checks" : "they check"} incidents (an older version).`));

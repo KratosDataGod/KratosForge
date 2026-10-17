@@ -30,11 +30,11 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 
 | Id | Priority | Capability | Status | Owner | PR |
 | --- | --- | --- | --- | --- | --- |
-| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | |
-| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | |
-| FD-103 | P0 | Supply chain security | PARTIAL | This program | |
-| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | |
-| FD-105 | P0 | Configuration policies | PARTIAL | This program | |
+| FD-101 | P0 | Live Fabric integration test harness | MISSING | This program | [#80](https://github.com/KratosDataGod/fabric-desktop/pull/80) |
+| FD-102 | P0 | Threat model and hardening | PARTIAL | This program | [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82) (102a) |
+| FD-103 | P0 | Supply chain security | PARTIAL | This program | [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88), [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86) |
+| FD-104 | P0 | Enterprise installation and updates | PARTIAL (signing BLOCKED) | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) (guide) |
+| FD-105 | P0 | Configuration policies | PARTIAL | This program | [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90) |
 | FD-109 | P0 | Reproducible environments | DUPLICATE | [Prove](../prove/plan.md) | |
 | FD-110 | P0 | Notebook execution isolation | DUPLICATE | [Prove](../prove/plan.md) | #67 |
 | FD-111 | P0 | Compatibility analyzer | DUPLICATE | [Prove](../prove/plan.md) | |
@@ -51,13 +51,13 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-122 | P1 | Agent dashboard | DUPLICATE | [Workloads](../workloads/plan.md) | |
 | FD-123 | P1 | Incident management | DUPLICATE | [Workloads](../workloads/plan.md) | #74 |
 | FD-124 | P1 | Multi-worker execution | DUPLICATE | [Workloads](../workloads/plan.md) | |
-| FD-125 | P0 | Execution auditing | PARTIAL | This program | |
+| FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
 | FD-126 | P1 | Backup and disaster recovery | MISSING | This program | |
 | FD-127 | P1 | Data contracts | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | |
 | FD-128 | P1 | Lineage and impact | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | #76 (open) |
 | FD-129 | P1 | Governance exceptions | PARTIAL | This program | |
 | FD-130 | P1 | Multi-team permissions | PARTIAL | This program | |
-| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | |
+| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) (131a) |
 | FD-132 | P2 | Extension SDK | DUPLICATE | Git-native | |
 | FD-133 | P2 | Custom commands | DUPLICATE | Git-native | |
 | FD-134 | P2 | Project templates | DUPLICATE | Git-native | |
@@ -103,11 +103,13 @@ Split in two so each change is reviewable on its own.
 
 ### FD-104 Enterprise installation and updates (P0)
 
-- **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback (the previous exe kept as `fabric-desktop.exe.old`) and recovery from a failed engine install; uninstall steps that list every folder.
+- **Acceptance criteria:** a documented per-machine and silent deployment path (copy the exe and policy file with Intune or Group Policy); policy settings to turn automatic updates off or pin a version; documented rollback and recovery from a failed engine install; uninstall steps that list every folder.
+- **Remaining after #90:** releases keep only the newest build per channel and the engine always comes from the channel's current release, so pinning a build and real rollback need per-build release assets (a release workflow change for maintainer review). The app deletes `fabric-desktop.exe.old` at startup, so it is not a rollback path.
 - **Blocked part:** an MSI or MSIX package and a quiet Smart App Control experience need code signing (PR #28).
 
 ### FD-105 Configuration policies (P0)
 
+- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` (waits on D-C1).
 - **Acceptance criteria:** new policy keys, each with a test: `auto_update` (on/off), `allowed_compute` (this PC, Fabric or both), `allowed_hosts` (endpoints the app may call beyond Microsoft's), `local_retention_days`, `telemetry` (off by default, FD-137). A malformed policy file or unknown key is reported in Settings instead of silently ignored. Documented in [azure-setup.md](../azure-setup.md).
 - **Existing code:** `app_settings.py`.
 

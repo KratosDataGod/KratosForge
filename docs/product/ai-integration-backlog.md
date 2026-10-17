@@ -20,7 +20,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
-| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | | Planned |
+| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | (this PR) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
 | 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
 
 ## Items
@@ -94,6 +94,9 @@ Built in the requested order, with one change: the capability registry (003) com
 ### PR-AI-011: Compatibility and conformance testing
 
 - **Plan.** Protocol tests through the SDK client over stdio, in-memory and Streamable HTTP (initialize, negotiation, discovery, schemas, auth, approvals, cancellation, errors, restart, disconnect, large responses, invalid input, concurrency); REST tests against the OpenAPI document; a manual test checklist per client. Uses the MCP conformance suite if it can run offline in CI.
+- **Built.** `tests/test_integrations_conformance.py`: one set of checks (initialize and negotiation, schemas, annotations, resources, templates, prompts, output schemas, error shape, concurrency) through the in-memory server, the real stdio process and the real Streamable HTTP server, on both protocol eras; restart and revocation across stdio processes; REST against its own OpenAPI document. The [AI tool test checklist](ai-integration-client-checklist.md) is the manual test for each AI tool, with a coverage table of what is automated. The MCP project's conformance suite 0.1.16 was run by hand; `tests/mcp_conformance_server.py` starts the server for it.
+- **Not in CI.** The MCP conformance suite needs Node and a download, and most of its scenarios need its own reference tools, so it isn't run on every build; the results are recorded in the checklist.
+- **Limitations.** No AI tool has been through the checklist yet, so every tool stays **Untested**.
 
 ### PR-AI-012: Extension integration
 

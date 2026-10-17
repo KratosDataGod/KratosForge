@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links | glossary
+  tab: "entities",     // entities | layers | keys | sources | runs | health | tests | exceptions | model | environments | domains | products | links | glossary
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -73,7 +73,7 @@ async function loadMetaProject() {
 const META_TAB_GROUPS = [
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
-  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
+  ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"], ["exceptions", "Exceptions"]]],
   ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
     ["glossary", "Glossary", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
@@ -119,6 +119,7 @@ async function renderMetadata() {
         btn(inFabric(p, m.env) ? "Run all in Fabric" : "Run all", "play", () => runEntities(null), "tool primary",
           { disabled: p.errors.length ? true : null }))),
     problemsBanner(p.errors),
+    exceptionBanner(p),
     h("div", { class: "subtabs meta-groups" }, META_TAB_GROUPS.filter(([, , tabs]) => visible(tabs).length).map(([id, label, tabs]) =>
       h("button", { class: `tab${group[0] === id ? " active" : ""}`, onclick: () => goMeta(visible(tabs)[0][0]) }, label))),
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
@@ -126,7 +127,9 @@ async function renderMetadata() {
     body));
   const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab }[m.tab];
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab,
+    exceptions: renderExceptionsTab }[m.tab];
+  raiseExceptionNotices(p);
   await render(body, p);
 }
 
@@ -142,6 +145,75 @@ function problemsBanner(errors) {
       h("b", {}, `${errors.length} problem${errors.length === 1 ? "" : "s"} to fix`),
       h("span", { class: "muted-text" }, "Runs and promote stay blocked until the project passes the save gate.")),
     gateList(errors));
+}
+
+const RULE_LABEL = {
+  owner: "Needs an owner", custom_code_owner: "Custom code needs an owner",
+  custom_code_test: "Custom code needs a test", key_not_null: "Key can't be empty",
+  key_unique: "Key must be unique", surrogate_keys: "Surrogate keys",
+};
+const EXCEPTION_STATUS = {
+  active: ["pass", "In force"], permanent: ["neu", "No end date"], expiring: ["wrn", "About to end"],
+  expired: ["fail", "Ended"], invalid: ["fail", "Check the date"],
+};
+
+// One activity item when an exception is about to end, has ended, or its date doesn't parse.
+// The id includes the day, so the bell shows it once a day rather than on every refresh.
+function exceptionNotice(row, day) {
+  if (!row || (row.status !== "expiring" && row.status !== "expired" && row.status !== "invalid")) return null;
+  const expiring = row.status === "expiring";
+  return {
+    id: `exception:${row.entity}:${row.rule}:${row.expires}:${day}`,
+    status: expiring ? "info" : "failed",
+    notice: expiring,
+    title: expiring ? "An approved exception is about to end" : "An approved exception needs attention",
+    text: row.notice,
+  };
+}
+
+function raiseExceptionNotices(p) {
+  const day = new Date().toISOString().slice(0, 10);
+  for (const row of p.exception_notices || []) {
+    const item = exceptionNotice(row, day);
+    if (item) logActivity(item);
+  }
+}
+
+function exceptionBanner(p) {
+  const rows = (p.exception_notices || []).filter((r) => r.status === "expiring");
+  if (!rows.length) return null;
+  return h("div", { class: "problems" },
+    h("div", { class: "row" }, icon("warning", 18),
+      h("b", {}, `${rows.length} approved exception${rows.length === 1 ? " is" : "s are"} about to end`),
+      h("span", { class: "spacer" }),
+      btn("Review", null, () => goMeta("exceptions"), "tool outline")),
+    h("ul", { class: "gate-list" }, rows.map((r) => h("li", {}, r.notice))));
+}
+
+function renderExceptionsTab(body, p) {
+  const rows = p.exception_notices || [];
+  if (!rows.length) {
+    body.replaceChildren(h("div", { class: "empty" },
+      h("span", { class: "title" }, "No approved exceptions"),
+      h("span", { class: "text" }, "When a rule genuinely doesn't fit, add it to exceptions.toml with the table, the rule, why, who approved it and when it ends. One that is about to end shows here and in the bell. ",
+        learnMore("approved-exceptions"))));
+    return;
+  }
+  body.replaceChildren(
+    h("p", { class: "muted-text" }, "Approved exceptions to a save-gate rule. The owner is the table's owner. ", learnMore("approved-exceptions")),
+    h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, ["Table", "Rule", "Owner", "Reason", "Approver", "Ends", ""].map((c) => h("th", {}, c)))),
+      h("tbody", {}, rows.map((r) => {
+        const [cls, label] = EXCEPTION_STATUS[r.status] || ["neu", r.status];
+        return h("tr", {},
+          h("td", {}, h("span", { class: "mono" }, r.entity || "—")),
+          h("td", {}, RULE_LABEL[r.rule] || r.rule || "—"),
+          h("td", {}, r.owner || h("span", { class: "muted-text" }, "No owner")),
+          h("td", {}, r.reason || h("span", { class: "muted-text" }, "No reason")),
+          h("td", {}, r.approver || h("span", { class: "muted-text" }, "No approver")),
+          h("td", {}, r.expires === "permanent" ? "No end date" : r.expires),
+          h("td", {}, h("span", { class: `pill-s ${cls}` }, label)));
+      }))));
 }
 
 function renderMetaSetup(p) {

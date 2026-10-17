@@ -207,6 +207,32 @@ class Store:
         delta_profile.check_table(dt_)
         return dt_.version()
 
+    def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
+                     metadata: dict[str, str] | None = None, read_version: int | None = None) -> int:
+        """Replace the table with ``rows`` (a pyarrow RecordBatchReader), written as they come, in
+        one commit. As with write(), the commit is made against ``read_version`` (None: there was
+        no table), so another writer committing meanwhile makes it fail instead of being lost."""
+        from deltalake.exceptions import CommitFailedError
+        uri = self.uri(lakehouse, schema, table)
+        if isinstance(self, LocalStore):
+            Path(uri).mkdir(parents=True, exist_ok=True)
+        target: Any = uri
+        extra: dict[str, Any] = {"mode": "error"}
+        if read_version is not None:
+            target = DeltaTable(uri, storage_options=self.options(), version=int(read_version))
+            extra = {"mode": "overwrite", "predicate": "true"}
+        try:
+            write_deltalake(target, rows, **extra, storage_options=self.options(),
+                            schema_mode="overwrite" if read_version is not None else None,
+                            commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
+        except Exception as exc:
+            if read_version is None and "already exists" in str(exc):
+                raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
+            raise
+        dt_ = DeltaTable(uri, storage_options=self.options())
+        delta_profile.check_table(dt_)
+        return dt_.version()
+
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
         """The table and the Delta version it was read at (None, None when there's no table), so a
         write computed from it can commit against that same version."""

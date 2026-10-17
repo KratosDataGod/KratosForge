@@ -8,15 +8,14 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 2026-10-16 | #56, #58, #61, #64, #66, #69, #70 and #71 merged; stage 8.1 built ([PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71)). |
-| 1 | Large-table execution within machine limits | Partial: 1.1 to 1.4 merged | This plan | 1.3's run dialog (after a mockup), then 1.5 |
+| 1 | Large-table execution within machine limits | Partial: 1.1 to 1.4 merged, 1.5 built | This plan | 1.5 in review; 1.3's run dialog after a mockup |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
-| 5 | Integrated Git and release workflow | Partial: release records built | This plan | 5.1 engine in review; its status view after a mockup; then 5.2 |
+| 5 | Integrated Git and release workflow | Partial: release records and meaningful diffs merged | This plan, with the Git-native program | Promote rollback (5.3); Git and Source Control screens are the Git-native program's |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
-| 8 | Cross-project lineage and product compatibility | Partial: 8.1 merged | This plan | 8.3, then 8.2 |
+| 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 engine merged | This plan | Lineage view after a mockup; 8.2 (platform owner decision) |
 | 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3) merged ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
@@ -126,6 +125,24 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
 
+*Built* (narrower than planned; the differences are listed below). `[load] batch_by = "<column>"` reads a Delta source in batches of that column's values: consecutive values, sorted, with as many rows in a batch as fit in half the free memory after the 3x headroom of 1.3 (`meta/batches.py`); when everything fits in one batch the ordinary single read runs instead. Every step runs per batch on a worker thread, and the batches stream into `write_deltalake` through a one-slot queue, so the table is replaced in **one Delta commit** and a load that stops changes nothing. Applies to full loads and to an incremental entity's first load or full rebuild (which keeps rows whose keys the source lost, as before). The memory guard checks the largest batch. `unique` checks compare with earlier batches' values. Not done, with reasons:
+- No `partition_by` and no physical partitioning: the target table's layout is left alone, because changing a table's partitioning means rewriting all of it. Batching is a read strategy only.
+- No per-partition replace predicate: one streamed commit is atomic, which a commit per partition isn't.
+- No delta-rs MERGE spill limit: incremental MERGEs already read only new rows (1.1), so nothing to bound yet.
+- Measured on lineitem-shaped generated data, not TPC-H dbgen output: the DuckDB tpch extension needs a download this environment can't make.
+- A stopped load leaves Parquet files no table version uses; the app's Vacuum doesn't remove them yet (it would need delta-rs `vacuum(full=True)`).
+
+Measured with `examples/benchmark/batched_loads.py` on a 4-core, 15 GB machine (a full load with a derived column and a not-null check; local Delta tables, nothing on OneLake):
+
+| Rows | Read | Batches | Seconds | Peak memory |
+| --- | --- | --: | --: | --: |
+| 6M (scale 1) | whole source at once | - | 4.8 | 1,964 MB |
+| 6M | `batch_by`, batch size from free memory | 1, so one ordinary read | 4.7 | 1,949 MB |
+| 6M | `batch_by`, `--batch-rows 1000000` | 7 | 3.8 | 1,556 MB |
+| 60M (scale 10) | `batch_by`, batch size from free memory | 6, the largest 11.5M rows | 51.9 | 7,206 MB |
+
+At 60M rows the plan estimates the whole read at 13.0 GB in memory, so with the 3x headroom the memory guard stops a single read on this machine; it wasn't run. Both 6M-row ways wrote the same rows (a checksum over every row). Learned: delta-rs holds each record batch it is handed until it has written it, so handing it a whole batch as one record batch doubled peak memory (9.2 GB at 60M rows with 6.9M-row batches); 131,072-row record batches brought that to 4.6 GB.
+
 ### Capability 9: always-on monitoring (moved to the Workload management program)
 
 Kept for the record; that program's plan is the source of truth and supersedes 9.1 and 9.2 below. 9.3 was built here before the move ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)).
@@ -152,11 +169,13 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **5.1 Git status and recorded releases.** Effort M, risk low. The metadata page shows branch, commit, ahead/behind and uncommitted files, read with the user's own `git` (no new sign-in or scope). Promote records commit, dirty flag, app and engine versions and the dependency lock hash into `meta.deployments` (new nullable columns; old rows read as empty), using the notebook program's receipt fields. Promote to Test or Prod from uncommitted changes is blocked, depending on decision D1. Existing gates are unchanged.
 
-*Engine part built in this PR.* `meta/release.py` reads branch, commit, upstream, ahead/behind and uncommitted files with the PC's `git` (never prompts, never fetches), counting only files that make up the metadata version. Every promote writes a release receipt (the notebook program's `run-receipt@1`, kind `release`: commit, dirty, pushed, a hash per entity file, engine version, a lock hash over Polars, delta-rs, DuckDB and PyArrow versions, the login name) into new nullable `meta.deployments` columns, with its id, so the Workload management views and anyone else can check it. No remote URL is recorded, since it can hold credentials. Until D1 is answered, files no pushed commit holds are a note on the promote card, and `require_commit = true` per environment in `environments.toml` turns the note into a block. `meta_git_status` serves the status view, which waits for a mockup. The "app version" became the engine version: the sidecar is versioned with the app. 10 tests.
+*Engine part merged in [PR #73](https://github.com/KratosDataGod/fabric-desktop/pull/73).* `meta/release.py` reads branch, commit, upstream, ahead/behind and uncommitted files with the PC's `git` (never prompts, never fetches), counting only files that make up the metadata version. Every promote writes a release receipt (the notebook program's `run-receipt@1`, kind `release`: commit, dirty, pushed, a hash per entity file, engine version, a lock hash over Polars, delta-rs, DuckDB and PyArrow versions, the login name) into new nullable `meta.deployments` columns, with its id, so the Workload management views and anyone else can check it. No remote URL is recorded, since it can hold credentials. Until D1 is answered, files no pushed commit holds are a note on the promote card, and `require_commit = true` per environment in `environments.toml` turns the note into a block. `meta_git_status` serves the status view, which moved to the Git-native development program. The "app version" became the engine version: the sidecar is versioned with the app. 10 tests.
 
 **5.2 Meaningful diffs.** Effort M, risk low. Entity TOML diffs by meaning (contract columns added, removed or retyped, checks and keys changed) and notebook diffs by cell source with outputs stripped, shown in promote impact and before commit.
 
-**5.3 Branches, pull requests and rollback.** Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop by KratosBI). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
+*Engine part merged in [PR #75](https://github.com/KratosDataGod/fabric-desktop/pull/75).* `meta/diff.py` compares parsed TOML. It reports contract columns, contract keys, list items (cleaning, derived columns, checks, surrogate keys, lookups), which it matches by identity so an edit reads as "changed", and any other setting by path. Each change says whether it changes the table's logic. `meta_diff` compares against the last commit or the version promoted to an environment. Promote impact lists each changed table's changes under it. `notebook_diff` compares cells by id, on source only, against another notebook or the notebook's last commit when the notebooks folder is in Git. The before-commit view moved to the Git-native development program with the other Source Control screens.
+
+**5.3 Branches, pull requests and rollback.** *Branches and pull requests moved to the Git-native development program on 2026-10-17, which owns all Git operations and Source Control screens; rollback stays here and will use its Git layer.* Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop by KratosBI). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
 
 ### Capability 8: lineage and compatibility
 
@@ -168,6 +187,8 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **8.3 Column lineage from configuration.** Effort M, risk low. Column-level lineage derived from what the config states (renames, derive expressions, lookups, keys, hook `adds`), labelled declared or inferred; columns produced by custom Python are marked opaque rather than guessed.
 
+*Engine part merged in [PR #76](https://github.com/KratosDataGod/fabric-desktop/pull/76).* `meta/lineage.py` gives each column one record: how it's made (source, derived, lookup, key, framework, custom), a declared, inferred or opaque label, and its inputs. A derived column's inputs are read from its expression by Polars' SQL parser. Inputs a column uses from its own table point at that table's column, so cleaning and renames sit on the path. Columns a hook runs after carry `custom_may_change`. `meta_lineage` returns one entity's columns, or one column's full upstream path and every downstream column in the project. Lineage across projects (through mesh links) and the view wait for 8.2 and a mockup. 7 tests.
+
 ### Capability 4: ingestion
 
 **4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so Fabric Desktop by KratosBI does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
@@ -178,10 +199,10 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 ## Delivery sequence
 
-1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
-2. **5.1** Git status and recorded releases (the notebook program's receipt merged in #59), then **5.2**.
+1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71), **5.1** engine (#73), **5.2** engine (#75), **8.3** engine (#76). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
+2. **1.5** (built, in review).
 3. **4.1** once D2 is answered.
-4. **1.5**, **5.3**, **8.3**, **8.2**, **4.2**, **4.3**, **7.3**.
+4. **5.3** rollback, **8.2**, **4.2**, **4.3**, **7.3**.
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
 
@@ -209,6 +230,10 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-17 | #73, #75 and #76 merged. Stage 1.5 built: full loads in batches (`[load] batch_by`), one commit. Git operations, Source Control screens and branch and pull request work (5.3's Git part) moved to the Git-native development program; promote rollback stays here. |
+| 2026-10-16 | Stage 8.3 engine part built: column lineage from configuration. |
+| 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |
+| 2026-10-16 | #56, #58, #61, #64, #66, #69, #70 and #71 merged; stage 8.1 built ([PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71)). |
 | 2026-10-16 | Stage 5.1 engine part built: Git status, release records in `meta.deployments`, `require_commit`. |
 | 2026-10-16 | Stage 1.4 built ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)). |
 | 2026-10-16 | Stage 1.3 engine part built ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)). #54 merged into #56 and #61; fixed a surrogate-key race in #61's dimension MERGE. |

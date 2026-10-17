@@ -8,6 +8,11 @@ external tool can call them through MCP or the local API.
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
+import sys
+import time
 from typing import Any
 
 from . import policy
@@ -17,7 +22,10 @@ from .registry import PERMISSIONS, default_registry
 from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
-           "integrations_revoke_client", "integrations_approvals", "integrations_decide"}
+           "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
+           "integrations_set_http"}
+
+HTTP_START_SECONDS = 15
 
 
 def _check_permissions(values: list[str], field: str) -> list[str]:
@@ -45,8 +53,88 @@ class IntegrationsMixin:
 
     def _client_view(self, client: dict[str, Any]) -> dict[str, Any]:
         command = str(launcher_path(self.root))
-        return client | {"permissions": permission_rows(client), "config": snippets(client, command),
+        http = self._http_state()
+        url = http["url"] if client["transport"] == "http" else ""
+        return client | {"permissions": permission_rows(client), "config": snippets(client, command, url),
                          "kind_label": TOOLS.get(client["kind"], client["kind"])}
+
+    # ---- the local HTTP API, a child process of this engine (http_server.serve)
+
+    def _http_state(self) -> dict[str, Any]:
+        settings, rules = self.integration_store.settings(), policy.current()
+        port = int(settings["http_port"])
+        proc = getattr(self, "_http_proc", None)
+        running = proc is not None and proc.poll() is None
+        state_file = self.root / "integrations" / "http.json"
+        listening = running and state_file.exists()
+        return {"switch": settings["http_enabled"], "allowed": bool(rules["http"]) and rules["enabled"] is not False,
+                "running": running, "listening": listening, "port": port, "url": f"http://127.0.0.1:{port}",
+                "exit_code": None if proc is None or running else proc.returncode,
+                "log": str(self.root / "integrations" / "http.log")}
+
+    def _http_start(self) -> None:
+        if getattr(self, "_http_proc", None) is not None and self._http_proc.poll() is None:
+            return
+        folder = self.root / "integrations"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "http.json").unlink(missing_ok=True)
+        port = int(self.integration_store.settings()["http_port"])
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        with open(folder / "http.log", "ab") as log:
+            self._http_proc = subprocess.Popen(
+                [sys.executable, "-m", "fabric_desktop.cli", "integrations", "serve", "--port", str(port),
+                 "--parent-pid", str(os.getpid())],
+                cwd=str(self.root), creationflags=flags, env=os.environ.copy(),
+                stdin=subprocess.DEVNULL, stdout=log, stderr=log)
+        deadline = time.monotonic() + HTTP_START_SECONDS
+        while time.monotonic() < deadline:  # wait until it is listening, or has failed
+            if self._http_proc.poll() is not None:
+                raise RuntimeError(f"The local API didn't start (see {folder / 'http.log'}). "
+                                   f"Port {port} may be in use by another program.")
+            if (folder / "http.json").exists():
+                return
+            time.sleep(0.1)
+
+    def _http_stop(self) -> None:
+        proc = getattr(self, "_http_proc", None)
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+        self._http_proc = None
+        (self.root / "integrations" / "http.json").unlink(missing_ok=True)
+
+    def integrations_sync_http(self) -> None:
+        """Start or stop the local API to match the switches and policy. Called when the engine
+        starts and after any change."""
+        status = self._http_state()
+        settings = self.integration_store.settings()
+        want = settings["enabled"] and status["switch"] and status["allowed"]
+        if want and not status["running"]:
+            self._http_start()
+        elif not want and status["running"]:
+            self._http_stop()
+
+    def integrations_set_http(self, enabled: bool, port: int | None = None) -> dict[str, Any]:
+        """The person's switch for the local API (off by default)."""
+        if enabled and not self._http_state()["allowed"]:
+            raise PermissionError("Your organization doesn't allow the local API on this PC.")
+        if port is not None:
+            if not isinstance(port, int) or not 1024 <= port <= 65535:
+                raise ValueError("port is a number from 1024 to 65535")
+            if port != self.integration_store.settings()["http_port"]:
+                self._http_stop()
+                self.integration_store.set_setting("http_port", port)
+        self.integration_store.set_setting("http_enabled", bool(enabled))
+        self.integrations_sync_http()
+        return self.integrations_status()
+
+    def integrations_new_token(self, client_id: str) -> dict[str, Any]:
+        """A new token for a tool that uses the local API; the old one stops working. Shown once."""
+        token = self.integration_store.new_token(client_id)
+        return {"client": self._client_view(self.integration_store.client(client_id)), "token": token}  # type: ignore[arg-type]
 
     def integrations_status(self) -> dict[str, Any]:
         store, rules = self.integration_store, policy.current()
@@ -56,6 +144,7 @@ class IntegrationsMixin:
             write_launcher(self.root)
         return {"enabled": enabled, "switch": settings["enabled"], "policy": rules,
                 "set_by_organization": rules["enabled"] is False, "launcher": str(launcher_path(self.root)),
+                "http": self._http_state(),
                 "tools": TOOLS, "permissions": permission_rows(),
                 "clients": [self._client_view(c) for c in store.clients()],
                 "pending": store.approvals("pending"),
@@ -65,6 +154,7 @@ class IntegrationsMixin:
         if enabled and policy.current()["enabled"] is False:
             raise PermissionError("Your organization has turned off external AI tools on this PC.")
         self.integration_store.set_setting("enabled", bool(enabled))
+        self.integrations_sync_http()
         return self.integrations_status()
 
     def integrations_add_client(self, name: str, kind: str = "other-mcp", grants: list[str] | None = None,
@@ -101,7 +191,7 @@ class IntegrationsMixin:
             changes["auto"] = _check_permissions(sorted(auto), "auto")
         return self._client_view(self.integration_store.update_client(client_id, **changes))
 
-    def integrations_revoke_client(self, client_id: str) -> dict[str, Any]:
+    def integrations_revoke_client(self, client_id: str) -> dict[str, Any]:  # its token stops working at once
         return self._client_view(self.integration_store.revoke_client(client_id))
 
     def integrations_approvals(self, state: str = "pending", limit: int = 50) -> list[dict[str, Any]]:

@@ -73,6 +73,24 @@ fabric-desktop mcp --client my-laptop
 
 `fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing Fabric Desktop sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
 
+### The local HTTP API
+
+Off by default. When it is switched on (engine RPC `integrations_set_http`, the Integrations page's switch), the engine runs `fabric-desktop integrations serve --port 47615 --parent-pid <engine>` as a child process; it stops when the engine does. A tool connected with transport `http` gets a bearer token once (`fdt_…`, stored only as a hash) and calls:
+
+| Endpoint | What |
+| --- | --- |
+| `GET /api/v1/health` | Open: is it up |
+| `GET /api/v1/openapi.json` | Open: the OpenAPI 3.1 document, one operation per capability |
+| `GET /api/v1/capabilities` | Capabilities with their availability for this token |
+| `POST /api/v1/capabilities/{id}/invoke` | Body `{"arguments": {...}}`; result `{"ok": true, "result": ...}` or `{"ok": false, "error": {...}}` |
+| `/mcp` | MCP over Streamable HTTP, the same tools as stdio |
+
+```
+curl -H "Authorization: Bearer fdt_..." -X POST http://127.0.0.1:47615/api/v1/capabilities/fabric_desktop_list_projects/invoke
+```
+
+A call that needs the person's approval answers `428` with `details.approval_id`; call again after they approve it in the app. A client that hangs up cancels its call.
+
 ## 4. The capability registry
 
 Each capability carries:

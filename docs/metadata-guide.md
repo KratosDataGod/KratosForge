@@ -268,7 +268,7 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 | **Runs on: This PC / Fabric** | Where its runs execute. See below. |
 | **Schedules** (Preview) | Runs every entity on a schedule, on this PC or in Fabric. |
 
-Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it.
+Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it. Under each table it lists what changed in its settings since the version promoted there, by meaning rather than by line: *column channel added (string)*, *check returns_are_negative changed on_fail from quarantine to stop*. Comments, spacing and the order of settings don't count.
 
 **Promote to Test** (or Prod):
 
@@ -498,6 +498,10 @@ Changing this file doesn't change the metadata version, so it never forces a re-
 ### Data mesh files
 
 `project.toml` (the project's domain and team), `metadata/products/<name>.toml` (data products) and `metadata/links/<alias>.toml` (links to other teams' products), plus an optional `[catalog]` block in an entity file. All are described in [Data mesh](data-mesh.md).
+
+### Column lineage (Preview)
+
+Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. The app's lineage view is still to come; the engine serves it as `meta_lineage`.
 
 ### Columns and tables the framework adds
 

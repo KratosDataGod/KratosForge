@@ -12,7 +12,7 @@ import polars as pl
 
 from . import duties, lakehouse
 from .meta import keys as keys_mod
-from .meta import release
+from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -479,6 +479,17 @@ class MetaMixin:
             except Exception as exc:  # the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
+        """Column lineage from the project's files: every column of ``name``, or, for one column,
+        the steps back to where it starts and every column built from it further on."""
+        project = self._project()
+        if name not in project.entities:
+            raise LookupError(f"No entity {name}")
+        if column is None:
+            return {"entity": name, "columns": lineage.entity_columns(project, name)}
+        return {"entity": name, "column": column, "upstream": lineage.upstream(project, name, column),
+                "downstream": lineage.downstream(project, name, column)}
 
     def meta_git_status(self) -> dict[str, Any]:
         """Where the project's files stand in Git (read with this PC's git; no network)."""

@@ -33,7 +33,7 @@ None yet.
 - Proof sandboxes live in the attached lakehouse under `Files/_fabric_desktop/proofs/<id>/<side>/`, so a proof creates no lakehouses or tables. The Fabric run publishes one notebook item, `<notebook>_proof`, in the notebook's workspace (as Run in Fabric does), so the user's own notebook and its schedules are never changed.
 - Inputs are pinned to the Delta version of every table at proof start; files are verified by SHA-256 on both sides rather than copied.
 - First-release proofs support notebooks whose writes go through `fabric_desktop.lakehouse` (Python notebooks in Fabric). Spark writes in Fabric block a proof with a reason.
-- No AI features until Chris decides on the AI service and data policy (backlog 11, 13, 16, 18, 20, 50).
+- No AI is built into the app (Chris, 2026-10-17: AI-ready, not AI-dependent; no embedded model, no provider integrations, no AI keys). Backlog 11, 13, 16, 18, 20 and 50 come from the developer's own AI tools through the MCP server and local API of the "Bring your own AI integration" program; this plan registers Prove capabilities there (plan stage 8). The earlier AI service question is withdrawn.
 - Side by side stays as it is; Prove is added next to it, so nothing that works today changes.
 - Ownership split with the sister plan (decided by the project coordinator, 2026-10-16): this plan owns environment profiles (33, 34, 36), isolated comparisons (51–60), compatibility analysis (32), process-isolated kernels and debugging (41–50) and the run receipt schema (81). The sister plan owns large-table execution, guided ingestion, Git and release workflow (82, 86 build on it), pipeline handoff, remote agent control, lineage (97 builds on it) and monitoring.
 - The workload management program (thread "Workload management workspace") reuses this plan's receipt schema, run planner (31), placement recommendation (35) and scorecards and cost model (71–80). Keep them as engine modules returning plain dicts. Cost settings stay in the existing store (`costs.py`, `Service._cost_settings`).
@@ -50,10 +50,10 @@ None yet.
 
 ## Blockers
 
-- Decisions asked of Chris on 2026-10-16 (cards in the project thread): where environment profiles install packages from (recommended: an IT wheel folder from the policy file, then PyPI if the policy allows), and which AI service powers assistant features (recommended: each organization's own endpoint and key in the policy file, off by default).
+- Decision asked of Chris on 2026-10-16 (card in the project thread): where environment profiles install packages from (recommended: an IT wheel folder from the policy file, then PyPI if the policy allows),.
 
 - Live tenant checks: plan section 5, needs Chris.
-- AI features: needs Chris's decision on service and data policy.
+- Stage 8 capabilities: wait on the AI integration program's capability registry; shapes agreed through the project coordinator.
 
 ## Next action
 

@@ -35,6 +35,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
+| [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Monitor > Cost comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
@@ -54,6 +55,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
 | [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) |
+| [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |

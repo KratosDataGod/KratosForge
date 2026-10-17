@@ -14,8 +14,10 @@ Last updated: 2026-10-16.
 | 3 First-release UI | `claude/prove-stage3-ui` | #65 | Merged |
 | 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Merged |
 | 5 Notebook state | `claude/prove-stage5-state` | #68 | Merged |
-| FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Open for review |
-| FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | see GitHub | Open for review; independent of #81 |
+| FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Merged |
+| FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | #83 | Merged |
+| Plan: AI from the developer's own tools (stage 8) | `claude/prove-ai-rescope` | #97 | Merged |
+| `side_by_side_writes` gets the quick-call limit | `claude/prove-quick-sbs-writes` | see GitHub | Open for review |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -61,4 +63,4 @@ None yet.
 
 ## Next action
 
-Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: after #81 merges, add `side_by_side_writes` to the shell's quick-call list (`app/src-tauri/src/watchdog.rs`); a per-cell time limit and memory limit for the kernel process (needs a Settings control, so mockup first); and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: a per-cell time limit and memory limit for the kernel process (needs a Settings control, so mockup first); and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

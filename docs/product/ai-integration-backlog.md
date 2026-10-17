@@ -16,8 +16,8 @@ Built in the requested order, with one change: the capability registry (003) com
 | 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
 | 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
-| 007 | External execution interface | P1 | PARTIAL | 005 | (this PR) | Draft PR; 31 tests |
-| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
+| 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
+| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | (this PR) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |
 | 011 | Compatibility and conformance testing | P1 | MISSING | 004 | | Planned |
@@ -73,6 +73,8 @@ Built in the requested order, with one change: the capability registry (003) com
 ### PR-AI-008: Connection experience
 
 - **Plan.** A section in **Settings** (the left rail is full): on/off switches, server status, clients with their permissions, copyable configuration for stdio and HTTP, connection test, pending approvals, recent external operations, troubleshooting. Mockup first. No chat, no model picker, no API keys for AI services.
+- **Built.** `app/ui/integrations.js`: an **Integrations** tab (Preview) in Settings next to **General**, following the mockup: on/off switch (policy-locked variant), how tools connect (MCP launcher, local HTTP API switch, capability counts and list), connected tools (Test, Edit, Revoke, new token), the two-step **Add a tool** with ready-to-paste setup and **Test connection** (starts the real MCP server through the launcher), an approval prompt that opens over any page, recent activity and troubleshooting. Engine RPC `integrations_pending`, `integrations_activity`, `integrations_test`. Command bar: **Connect an AI tool**. User guide section **External AI tools**.
+- **Limitations.** No Windows notification when the app is in the background (the window title shows the count); that needs a shell change. Recent activity shows approvals and executions; every call arrives with the audit log (PR-AI-010).
 
 ### PR-AI-009: Reusable agent instructions
 

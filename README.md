@@ -38,6 +38,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
+| [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
 | [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why Fabric Desktop by KratosBI is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
 | [docs/architecture.md](docs/architecture.md) | How the app, the sidecar and OneLake fit together |

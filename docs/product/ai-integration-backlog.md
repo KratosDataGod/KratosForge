@@ -16,7 +16,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
 | 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
-| 007 | External execution interface | P1 | PARTIAL | 005 | (this PR) | Draft PR; 31 tests |
+| 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |

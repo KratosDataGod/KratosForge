@@ -45,6 +45,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
+| [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run and no capacity used (Preview) |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
@@ -62,6 +63,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) |
 | [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
+| [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |

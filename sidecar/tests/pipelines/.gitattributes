@@ -1,0 +1,2 @@
+# Byte-exact round trips are tested on these files: never convert their line endings.
+* -text

@@ -1,0 +1,30 @@
+{
+  "name": "CopySalesAndNotify",
+  "type": "Microsoft.DataFactory/factories/pipelines",
+  "properties": {
+    "activities": [
+      {
+        "name": "CopySales",
+        "type": "Copy",
+        "dependsOn": [],
+        "inputs": [{"referenceName": "SqlSales", "type": "DatasetReference"}],
+        "outputs": [{"referenceName": "LakeSales", "type": "DatasetReference"}],
+        "typeProperties": {"source": {"type": "AzureSqlSource", "sqlReaderQuery": "SELECT * FROM sales"}, "sink": {"type": "ParquetSink"}}
+      },
+      {
+        "name": "RunDatabricks",
+        "type": "DatabricksNotebook",
+        "dependsOn": [{"activity": "CopySales", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "Databricks", "type": "LinkedServiceReference"},
+        "typeProperties": {"notebookPath": "/Shared/sales", "baseParameters": {"day": "@pipeline().globalParameters.day"}}
+      },
+      {
+        "name": "RunChild",
+        "type": "ExecutePipeline",
+        "dependsOn": [{"activity": "RunDatabricks", "dependencyConditions": ["Completed"]}],
+        "typeProperties": {"pipeline": {"referenceName": "Child", "type": "PipelineReference"}, "waitOnCompletion": true}
+      }
+    ],
+    "annotations": []
+  }
+}

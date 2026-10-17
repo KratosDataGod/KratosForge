@@ -22,6 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
+    cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
+                     0 (default) for no limit
+    kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
+                     it's ended; 0 (default) for no limit
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -52,12 +56,16 @@ from .auth import MICROSOFT_CLIENT_ID
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
-                            "allowed_tenants": [], "local_retention_days": 30}
+                            "allowed_tenants": [], "local_retention_days": 30,
+                            "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allowed_tenants": list,
-                                            "local_retention_days": int}
-USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
+                                            "local_retention_days": int,
+                                            "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float)}
+USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process",  # support_url is for IT only
+             "cell_time_limit_minutes", "kernel_memory_limit_gb")
+LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
 
@@ -110,13 +118,17 @@ def policy_problems() -> list[str]:
         if key not in DEFAULTS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(DEFAULTS)})")
         elif not _typed(key, value):
-            problems.append(f"{key} should be {TYPES[key].__name__}, not {type(value).__name__}")
+            kind = TYPES[key]
+            name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__
+            problems.append(f"{key} should be {name}, not {type(value).__name__}")
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
+        elif key in LIMITS and not 0 <= value <= LIMITS[key]:
+            problems.append(f"{key} must be between 0 and {LIMITS[key]} (0 for no limit)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
     return problems
@@ -124,9 +136,17 @@ def policy_problems() -> list[str]:
 
 def _typed(key: str, value: Any) -> bool:
     """``value`` has the type ``key`` needs (true and false don't count as numbers)."""
-    if TYPES[key] is int and isinstance(value, bool):
+    if isinstance(value, bool) and TYPES[key] is not bool:
         return False
     return isinstance(value, TYPES[key])
+
+
+def _in_range(key: str, value: Any) -> bool:
+    if key == "local_retention_days":
+        return value >= 0
+    if key in LIMITS:
+        return 0 <= value <= LIMITS[key]
+    return True
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -154,7 +174,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
-            if candidate not in (None, "") and _typed(key, candidate) and not (key == "local_retention_days" and candidate < 0):
+            if candidate not in (None, "") and _typed(key, candidate) and _in_range(key, candidate):
                 value, source = candidate, where
                 break
         if key == "channel" and value not in CHANNELS:
@@ -184,6 +204,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
         if key in ("show_preview", "kernel_process"):
             new = bool(new)
+        if key in LIMITS:
+            new = _limit(key, new)
         if new in (None, ""):
             user.pop(key, None)
         else:
@@ -192,3 +214,14 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(user, indent=2), encoding="utf-8")
     return load()
+
+
+def _limit(key: str, new: Any) -> float | None:
+    """A limit setting: a number from 0 (no limit, not stored) to LIMITS[key]."""
+    try:
+        n = float(new or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number") from None
+    if not 0 <= n <= LIMITS[key]:
+        raise ValueError(f"{key} must be between 0 and {LIMITS[key]}")
+    return n or None

@@ -31,6 +31,7 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.shortcut     every OneLake shortcut last seen in a scan: its target and health
     catalog.shortcut_scope  lakehouses scanned for shortcuts, so a first scan isn't read as "all added"
     catalog.shortcut_change every shortcut added, repointed, removed, broken or fixed, and by whom
+    catalog.policy*      governance policies, their versions, assignments and history (policy.py)
 
 Who may change what (the caller is always who Fabric says it is, see udf.py):
 
@@ -48,7 +49,7 @@ import re
 import uuid
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 MAX_BK = 400
@@ -59,6 +60,10 @@ REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
+
+
+# Tables other modules add to the platform (policy.py's governance policies), created with the rest.
+SCHEMA_HOOKS: list[Any] = []
 
 
 class PlatformError(ValueError):
@@ -189,6 +194,8 @@ def ensure_schema(db: Db) -> dict[str, Any]:
         db.run(f"CREATE TABLE {db.t('catalog', 'audit')} (id {ident}, at {_TEXT[db.dialect]}, by_user {_TEXT[db.dialect]}, "
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
+    for hook in SCHEMA_HOOKS:
+        created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
     db.commit()
     return {"created": created, "schema_version": SCHEMA_VERSION}

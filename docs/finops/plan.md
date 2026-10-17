@@ -37,8 +37,8 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 
 | PR | Feature | Status |
 | --- | --- | --- |
-| 1 | FINOPS-001 Unified CU measurement and cost evidence framework | Open for review |
-| 2 | FINOPS-002 Capacity inventory and health diagnostics | Not started |
+| 1 | FINOPS-001 Unified CU measurement and cost evidence framework | Merged (#117) |
+| 2 | FINOPS-002 Capacity inventory and health diagnostics ([capacity.md](capacity.md)) | Open for review |
 | 3 | FINOPS-003 Measured CU import and reconciliation foundation | Not started (source decision first) |
 | 4 | FINOPS-004 Predeployment capacity and CU risk analyzer | Not started |
 | 5 | FINOPS-005 Local vs Fabric execution advisor | Not started |

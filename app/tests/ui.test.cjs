@@ -13,6 +13,24 @@ test("every UI script parses", () => {
   }
 });
 
+// The page's scripts share one global scope, so a top-level name declared in two of them makes
+// the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
+test("no two page scripts declare the same top-level name", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  assert.ok(scripts.length > 10, "index.html scripts not found");
+  const owner = new Map();
+  const clashes = [];
+  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
+  for (const name of scripts) {
+    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
+      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+      else owner.set(id, name);
+    }
+  }
+  assert.deepStrictEqual(clashes, []);
+});
+
 // esc and inlineMd from app.js, without the rest of the page.
 function markdownHelpers() {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -52,6 +70,17 @@ test("an engine ended for not answering says so, and that variables were cleared
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
+});
+
+test("a cell stopped by a limit from Settings is recognised, and other errors aren't", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function limitStop\([\s\S]*?\n}\n/)[0]}; this.limitStop = limitStop;`, ctx);
+  assert.strictEqual(ctx.limitStop({ ename: "TimeLimit", evalue: "Stopped: this cell ran longer than the 1 hour limit set in Settings." }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: the notebook used more than 8 GB, the memory limit set in Settings. Its process was ended." }), "memory");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: this cell ran longer than the 15 minute limit set in Settings and didn't stop when interrupted" }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "The notebook's Python process stopped (exit code 3)" }), null);
+  assert.strictEqual(ctx.limitStop({ ename: "ValueError", evalue: "the memory limit set in Settings" }), null);
 });
 
 test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
@@ -343,4 +372,15 @@ test("a release record says where its files stood in Git in one line", () => {
   assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: null }), "not in Git");
   assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: false }), "nothing committed yet");
   assert.strictEqual(ctx.f({ receipt_id: null }), "not recorded");
+});
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });

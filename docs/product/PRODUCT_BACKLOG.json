@@ -618,7 +618,7 @@
       "confidence": "Medium",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps FD-LDE-005 local Delta Lake (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-005 local Delta: the LDE thread builds create, append, overwrite and time travel; MERGE, UPDATE and DELETE semantics stay with this item (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 4.5,
@@ -793,7 +793,7 @@
       "confidence": "Medium",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps the incremental MERGE story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-011 incremental and MERGE: this item's owner keeps FD-114/117; the LDE thread builds dataset-level publish on top of them (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.65,
@@ -838,7 +838,7 @@
       "confidence": "Low",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps FD-LDE-004 T-SQL compatibility and the local TDS endpoint story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-004 T-SQL compatibility (LDE thread, on SQL-002's profiles) and FD-LDE-012 local TDS endpoint (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 4.05,
@@ -880,7 +880,7 @@
       "confidence": "High",
       "state": "In progress",
       "external_dependencies": [
-        "Overlaps FD-LDE-003 local SQL target (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.45,
@@ -923,7 +923,7 @@
       "confidence": "Medium",
       "state": "In progress",
       "external_dependencies": [
-        "Overlaps FD-LDE-004 T-SQL compatibility (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.9,
@@ -966,7 +966,7 @@
       "confidence": "High",
       "state": "In progress",
       "external_dependencies": [
-        "Overlaps FD-LDE-003 local SQL target (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.25,
@@ -1011,7 +1011,7 @@
       "confidence": "Medium",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps the local TDS endpoint story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-012 and FD-LDE-013 local TDS endpoint and Power BI Desktop (LDE thread, only after Chris's go) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.1,
@@ -2465,7 +2465,7 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps the large datasets story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 3.6,
@@ -2911,7 +2911,7 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps FD-LDE-006 local data transformations (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit"
+        "Overlaps FD-LDE-006 local transformations: the LDE thread builds parameterized SQL scripts; pipeline orchestration stays with the ORCH thread (owners per docs/local-data-engine-plan.md section 3, PR #126)"
       ],
       "computed": {
         "benefit": 1.85,
@@ -3656,10 +3656,10 @@
       "title": "Local data engine and OneLake publishing program",
       "category": "Local Development and Execution",
       "problem": "Local files and SQL transformations can't be developed in a persistent local engine and published to OneLake with validation, publish history and incremental sync, without Fabric capacity.",
-      "capability": "Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. That thread's audit maps which existing components and programs each story reuses.",
+      "capability": "Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).",
       "evidence": [
         "DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py)",
-        "Thread started 2026-10-17; audit in progress"
+        "Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -3668,7 +3668,7 @@
       ],
       "acceptance": [
         "As defined in FD-LDE-001..020 by its owning thread",
-        "Each story's overlap with an existing item is resolved in that thread's audit before build"
+        "Each story's overlap with an existing item follows the owner named in that plan"
       ],
       "scores": {
         "developer_value": 5,
@@ -3702,6 +3702,42 @@
         "cost": 3.5,
         "score": 2.3,
         "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-100",
+      "title": "Fuller What's new dialog",
+      "category": "Developer Experience and Productivity",
+      "problem": "The What's new dialog shows only the current build, so people who skip updates miss what changed.",
+      "capability": "Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.",
+      "evidence": [
+        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)"
+      ],
+      "features": [
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "As defined by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 1,
+        "strategic_alignment": 2,
+        "complexity": 1,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "owner": "Fuller What's new dialog",
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "In progress",
+      "computed": {
+        "benefit": 1.65,
+        "cost": 1.0,
+        "score": 1.65,
+        "priority": "P3"
       }
     }
   ]

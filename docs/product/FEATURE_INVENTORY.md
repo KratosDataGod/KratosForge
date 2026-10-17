@@ -400,7 +400,7 @@ on quality.
 - **Known limitations:** Checksums come from the same release, so they don't stop someone who can publish releases. Only the newest build per channel exists, so no pinning or rollback. A release without engine_sha256 is still accepted (main.rs check_engine_zip). Updating from Program Files fails.
 - **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82)
 - **Owning workstream:** Enterprise readiness (FD-102, FD-104)
-- **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001), [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071)
+- **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001), [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-100](PRODUCT_BACKLOG.md#pb-100)
 - **Recommended next action:** Code signing (PB-001) and per-build release assets for real rollback (PB-064).
 
 ### FEAT-SHL-10

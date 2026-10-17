@@ -1,0 +1,4533 @@
+{
+  "schema_version": "1.0",
+  "assessed": {
+    "commit": "b7b04cc",
+    "date": "2026-10-17",
+    "method": [
+      "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
+      "Ran the sidecar test suite (pytest) on Linux, Python 3.13",
+      "Ran the UI tests (node --test app/tests/ui.test.cjs)",
+      "Tried cargo test in app/src-tauri (could not build on Linux: gdk-3.0 missing)",
+      "Drove the engine over its stdin protocol and the fabric-desktop CLI with local data only",
+      "Compared each docs/ page with the code it describes",
+      "No Fabric tenant was used and the Windows app was not run"
+    ],
+    "test_run": "sidecar: 656 passed, 2 skipped (231 s); UI: 23 passed; Rust: not run (build failed on Linux, and CI has no cargo test)"
+  },
+  "features": [
+    {
+      "id": "FEAT-SHL-01",
+      "name": "Desktop shell and local engine",
+      "description": "Tauri 2 exe hosting the plain-JS UI and a Python engine spoken to over JSON lines on stdin/stdout, with no network listener.",
+      "pillar": "Platform foundation",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_server_reports_errors_without_crashing",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_server_keeps_prints_out_of_the_protocol_and_speaks_utf8"
+        },
+        {
+          "kind": "smoke",
+          "ref": "python -m fabric_desktop.server driven over stdin in this assessment",
+          "note": "environment, notebooks, cells, jobs, metadata calls answered; an unknown method was refused"
+        },
+        {
+          "kind": "absent",
+          "ref": "Windows app not run: this assessment ran on Linux; app/src-tauri cargo test could not build (gdk-3.0 missing)"
+        }
+      ],
+      "source": [
+        "app/src-tauri/src/main.rs",
+        "sidecar/fabric_desktop/server.py",
+        "sidecar/fabric_desktop/service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py",
+        "sidecar/tests/test_notebook.py"
+      ],
+      "docs": [
+        "docs/architecture.md"
+      ],
+      "ui": {
+        "surface": "Whole app",
+        "preview": false
+      },
+      "limitations": [
+        "All RPC calls are serialized behind one mutex (main.rs rpc); calls outside the watchdog's quick list have no time limit, so a long Fabric call blocks every page",
+        "Windows only for the desktop app; the engine and agent also run on Linux"
+      ],
+      "workstream": "Master product (foundation)",
+      "next_action": "Run the Windows smoke test of ten core flows on the maintainer's tenant (PB-002).",
+      "backlog": [
+        "PB-002",
+        "PB-072"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-02",
+      "name": "RPC method allowlist and error redaction",
+      "description": "server.py only dispatches methods named in METHODS and passes every error through redact.secrets before it reaches the UI.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_redact.py::test_errors_sent_to_the_ui_carry_no_tokens",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "smoke",
+          "ref": "no_such_method call returned \"unknown method 'no_such_method'\""
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/server.py",
+        "sidecar/fabric_desktop/redact.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_redact.py"
+      ],
+      "docs": [
+        "docs/security.md"
+      ],
+      "ui": {
+        "surface": "Engine boundary (no UI)",
+        "preview": false
+      },
+      "workstream": "Enterprise readiness",
+      "next_action": "Keep; generate METHODS from the capability registry once PR-AI-003 merges so the two lists can't drift.",
+      "backlog": [
+        "PB-010",
+        "PB-098"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-03",
+      "name": "Watchdog time limits on engine calls",
+      "description": "Quick engine calls get a 60-second limit; a call that doesn't answer ends the engine instead of freezing the app.",
+      "pillar": "Platform foundation",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Partially Implemented",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": "app/src-tauri/src/watchdog.rs QUICK list and read_reply"
+        },
+        {
+          "kind": "absent",
+          "ref": "Rust tests in watchdog.rs are never run by CI (.github/workflows/ci.yml has cargo build, no cargo test) and could not build here"
+        }
+      ],
+      "source": [
+        "app/src-tauri/src/watchdog.rs",
+        "app/src-tauri/src/main.rs"
+      ],
+      "ui": {
+        "surface": "Every page (implicit)",
+        "preview": false
+      },
+      "limitations": [
+        "Only about 22 methods are on the quick list; sign-in, Fabric calls and runs have no limit"
+      ],
+      "prs": [
+        83
+      ],
+      "workstream": "Prove (FD-110)",
+      "next_action": "Run cargo test in CI (PB-071) and move long calls (sign-in, Fabric calls) off the single pipe (PB-072).",
+      "backlog": [
+        "PB-071",
+        "PB-072"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-04",
+      "name": "Left rail, pages and command bar",
+      "description": "Pages and commands registered in features.js; an 8-item rail plus a bottom group; Ctrl+K command bar that finds pages, actions, notebooks, workspaces and entities.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs every UI script parses",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/features.js registerFeature, paletteItems, openPalette"
+        }
+      ],
+      "source": [
+        "app/ui/features.js",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "app/tests/ui.test.cjs"
+      ],
+      "docs": [
+        "docs/ui-guidelines.md",
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Rail, Ctrl+K",
+        "preview": false
+      },
+      "limitations": [
+        "The rail is full (8 of 8); new features must live inside existing pages",
+        "Command bar listbox has no aria-activedescendant (inference)"
+      ],
+      "next_action": "Keep; add keyboard tests for the command bar.",
+      "backlog": [
+        "PB-063",
+        "PB-070"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-05",
+      "name": "Preview tags and hiding Preview features",
+      "description": "Features not tried on a live tenant carry a Preview tag (19 ids) and can be hidden in Settings or by policy.",
+      "pillar": "Platform foundation",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs Workloads is a Preview feature",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/features.js PREVIEW_FEATURES"
+        }
+      ],
+      "source": [
+        "app/ui/features.js",
+        "app/ui/settings.js"
+      ],
+      "tests": [
+        "app/tests/ui.test.cjs"
+      ],
+      "docs": [
+        "docs/README.md"
+      ],
+      "ui": {
+        "surface": "Settings > Preview features",
+        "preview": false
+      },
+      "limitations": [
+        "Hiding only hides UI; engine methods stay callable",
+        "Several docs-Preview features have no PREVIEW_FEATURES id"
+      ],
+      "next_action": "Add Preview ids for batch_by, release records, who-can-promote, objectives and column lineage, which docs call Preview but code doesn't tag (PB-078).",
+      "backlog": [
+        "PB-078"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-06",
+      "name": "Plain-language errors and activity tray",
+      "description": "friendlyError maps sign-in, HTTP and capacity errors to plain words; the bell and tray list this app's runs and problems.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs an engine ended for not answering says so",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/activity.js friendlyError, renderBell, trackFabricJobs"
+        }
+      ],
+      "source": [
+        "app/ui/activity.js"
+      ],
+      "tests": [
+        "app/tests/ui.test.cjs"
+      ],
+      "ui": {
+        "surface": "Top bar bell",
+        "preview": false
+      },
+      "limitations": [
+        "Tray lives in this webview's localStorage only (80 items)",
+        "Not fed by incidents or agent status"
+      ],
+      "next_action": "Feed incidents and agent status into the bell once incident screens exist (PB-047).",
+      "backlog": [
+        "PB-047"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-07",
+      "name": "Accessibility basics",
+      "description": "Skip link, labelled icon buttons, modal focus trap, focus-visible and reduced-motion styles.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs every icon-only button has a name",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs the page has a skip link and labelled controls"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows"
+        }
+      ],
+      "source": [
+        "app/ui/index.html",
+        "app/ui/app.js",
+        "app/ui/styles.css"
+      ],
+      "tests": [
+        "app/tests/ui.test.cjs"
+      ],
+      "ui": {
+        "surface": "Whole app",
+        "preview": false,
+        "accessibility": "Static checks only; no screen-reader or contrast audit recorded"
+      },
+      "prs": [
+        92
+      ],
+      "workstream": "Enterprise readiness (FD-139)",
+      "next_action": "Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).",
+      "backlog": [
+        "PB-063"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-08",
+      "name": "Settings and the organization policy file",
+      "description": "Settings resolve policy > environment > user > default; policy.json can lock client id, channel, preview, kernel process, support URL, platform, auto update, Fabric runs and allowed tenants.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy.py::test_policy_problems_are_reported_not_applied",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy.py::test_fabric_runs_can_be_turned_off"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_app_settings.py::test_policy_locks_a_setting"
+        },
+        {
+          "kind": "smoke",
+          "ref": "app_settings RPC returned each key with its source"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/app_settings.py",
+        "app/ui/settings.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_policy.py",
+        "sidecar/tests/test_app_settings.py"
+      ],
+      "docs": [
+        "docs/azure-setup.md",
+        "docs/enterprise-install.md"
+      ],
+      "ui": {
+        "surface": "Settings (locked values show 'Set by your organization')",
+        "preview": false
+      },
+      "limitations": [
+        "The headless agent doesn't read the policy file",
+        "`platform` key not in azure-setup.md's key table"
+      ],
+      "prs": [
+        90
+      ],
+      "workstream": "Enterprise readiness (FD-105)",
+      "next_action": "Add the documented-but-missing keys (allowed_hosts, local_retention_days, telemetry, three-value allowed_compute) through the enterprise program (PB-061).",
+      "backlog": [
+        "PB-061"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-09",
+      "name": "Self-update, channels and engine install",
+      "description": "Stable and Preview channels from GitHub Releases; the exe and engine zip are checked against version.json SHA-256 and their build commit before use.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_updater.py::test_download_app_checks_the_checksum",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_updater.py::test_download_app_refuses_when_the_checksum_cant_be_read"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_updater.py::test_no_stable_release_yet_follows_preview"
+        },
+        {
+          "kind": "absent",
+          "ref": "main.rs integrity_tests not run in CI or here"
+        }
+      ],
+      "source": [
+        "app/src-tauri/src/updater.py",
+        "app/src-tauri/src/main.rs"
+      ],
+      "tests": [
+        "sidecar/tests/test_updater.py"
+      ],
+      "docs": [
+        "docs/install.md",
+        "docs/enterprise-install.md",
+        "docs/security.md"
+      ],
+      "ui": {
+        "surface": "Startup check, Settings > Updates",
+        "preview": false
+      },
+      "limitations": [
+        "Checksums come from the same release, so they don't stop someone who can publish releases",
+        "Only the newest build per channel exists, so no pinning or rollback",
+        "A release without engine_sha256 is still accepted (main.rs check_engine_zip)",
+        "Updating from Program Files fails"
+      ],
+      "prs": [
+        51,
+        82
+      ],
+      "workstream": "Enterprise readiness (FD-102, FD-104)",
+      "next_action": "Code signing (PB-001) and per-build release assets for real rollback (PB-064).",
+      "backlog": [
+        "PB-001",
+        "PB-064",
+        "PB-071"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-10",
+      "name": "Report a problem with redaction",
+      "description": "Copies build, Python, page and recent errors with secrets, emails, user paths and GUIDs removed, to the policy's support URL or a GitHub issue.",
+      "pillar": "Platform foundation",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_redact.py::test_shared_cases",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs Report a problem takes out secrets"
+        }
+      ],
+      "source": [
+        "app/ui/settings.js",
+        "sidecar/fabric_desktop/redact.py",
+        "app/tests/redact-cases.json"
+      ],
+      "tests": [
+        "sidecar/tests/test_redact.py",
+        "app/tests/ui.test.cjs"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Account menu, Settings > Help, command bar",
+        "preview": false
+      },
+      "prs": [
+        84
+      ],
+      "workstream": "Enterprise readiness (FD-131a, FD-138)",
+      "next_action": "Fix the user guide, which says it adds the tenant id (it redacts it).",
+      "backlog": [
+        "PB-077"
+      ]
+    },
+    {
+      "id": "FEAT-SHL-11",
+      "name": "Support bundle",
+      "description": "A zip of versions, settings sources and the last 2,000 log lines with personal details taken out.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Partially Implemented",
+      "verification": "Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_redact.py::test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "smoke",
+          "ref": "fabric-desktop support-bundle --out <dir> wrote about.json and CONTENTS.txt"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/support_bundle.py",
+        "sidecar/fabric_desktop/cli.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_redact.py"
+      ],
+      "ui": {
+        "surface": "CLI only (fabric-desktop support-bundle)",
+        "preview": false
+      },
+      "limitations": [
+        "No UI entry and no RPC",
+        "Non-Windows data folder differs from app_settings' folder"
+      ],
+      "workstream": "Enterprise readiness (FD-138)",
+      "next_action": "Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062).",
+      "backlog": [
+        "PB-062"
+      ]
+    },
+    {
+      "id": "FEAT-AUTH-01",
+      "name": "Sign-in with no app registration",
+      "description": "MSAL public client using Microsoft's Fabric CLI app id, with Windows WAM single sign-on; tokens for Fabric and Storage.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_microsofts_sign_in_asks_for_default_scopes_and_an_own_app_for_narrow_ones",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_signed_in_tenant_comes_from_the_msal_account"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/README.md",
+          "note": "Not yet tried on a live tenant with Microsoft's app; the maintainer's tenant results used an own app registration"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/auth.py",
+        "sidecar/fabric_desktop/service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/permissions.md",
+        "docs/troubleshooting.md"
+      ],
+      "ui": {
+        "surface": "Sign-in callout, account menu",
+        "preview": false
+      },
+      "limitations": [
+        "Depends on Microsoft keeping the Fabric CLI public client usable by third parties (review item 8)",
+        "Personal accounts can't sign in (/organizations)"
+      ],
+      "prs": [
+        42,
+        111
+      ],
+      "issues": [
+        96
+      ],
+      "workstream": "Enterprise readiness",
+      "next_action": "Include in the tenant smoke test (PB-002).",
+      "backlog": [
+        "PB-002"
+      ]
+    },
+    {
+      "id": "FEAT-AUTH-02",
+      "name": "Own app registration and tenant allow-list",
+      "description": "Optional own client id (policy, environment or Settings) with an admin-consent link; a policy list of allowed tenants signs out others.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_app_settings.py::test_client_id_order",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy.py::test_other_tenants_are_signed_out"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/app_settings.py",
+        "sidecar/fabric_desktop/auth.py",
+        "app/ui/settings.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_app_settings.py",
+        "sidecar/tests/test_policy.py"
+      ],
+      "docs": [
+        "docs/permissions.md",
+        "docs/azure-setup.md"
+      ],
+      "ui": {
+        "surface": "Settings > Account",
+        "preview": false
+      },
+      "limitations": [
+        "Tenant is checked only after a token is issued"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-AUTH-03",
+      "name": "Token cache",
+      "description": "MSAL cache in the user profile, written atomically; a damaged cache is ignored.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_token_cache_survives_damage_and_is_swapped_in_whole",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/auth.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/security.md"
+      ],
+      "ui": {
+        "surface": "None (background)",
+        "preview": false
+      },
+      "limitations": [
+        "Plain file on Windows (not encrypted)",
+        "No lock between the app and scheduled runs (inference)"
+      ],
+      "workstream": "Enterprise readiness (FD-131b)",
+      "next_action": "Encrypt with DPAPI via msal-extensions once Chris decides D-C2 (PB-005).",
+      "backlog": [
+        "PB-005"
+      ]
+    },
+    {
+      "id": "FEAT-AUTH-04",
+      "name": "Unattended credentials for the agent",
+      "description": "Service principal (certificate or secret from an environment variable), managed identity, or a cached user for the headless agent.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_service_principal_asks_for_each_resource_default",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_managed_identity_asks_for_the_resource"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_service_principal_loads_a_pem_certificate"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/credentials.py",
+        "sidecar/fabric_desktop/runtime.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_agent.py"
+      ],
+      "docs": [
+        "docs/agent.md",
+        "docs/permissions.md"
+      ],
+      "ui": {
+        "surface": "agent.toml (no UI)",
+        "preview": false
+      },
+      "limitations": [
+        "No workload identity federation",
+        "Live service principal access to OneLake unverified (roadmap FD-1)"
+      ],
+      "prs": [
+        34
+      ],
+      "next_action": "Verify a service principal on a tenant with the live test's --agent-config (PB-002).",
+      "backlog": [
+        "PB-002"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-01",
+      "name": "Fabric REST client",
+      "description": "Workspaces, capacities, lakehouses, items, definitions, notebooks, jobs, schedules, table maintenance, semantic models, SQL endpoint refresh, domains, role assignments, data access roles, shortcuts, connections and variable libraries; 429 retry and long-running operation polling.",
+      "pillar": "Platform foundation",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_api.py::test_create_lakehouse_enables_schemas_and_follows_lro",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_api.py::test_create_workspace_puts_it_on_a_capacity_and_explains_a_taken_name"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/README.md",
+          "note": "Listing workspaces and items used on the maintainer's tenant"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/fabric_api.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_fabric_api.py",
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/permissions.md"
+      ],
+      "ui": {
+        "surface": "Used by most pages",
+        "preview": false
+      },
+      "limitations": [
+        "No retry on 5xx or 401",
+        "Long-running operations give up after 300 s",
+        "POWERBI_ADMIN constant unused"
+      ],
+      "next_action": "Run the live test harness on a non-production workspace (PB-002).",
+      "backlog": [
+        "PB-002",
+        "PB-051"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-02",
+      "name": "Workspaces page and item listing",
+      "description": "Lists workspaces with local favorites and pins, a workspace's lakehouses and items, and a lakehouse explorer tree.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_workspace_marks_keep_favorites_and_pin_order",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/README.md",
+          "note": "used on the maintainer's tenant"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/service.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Workspaces",
+        "preview": false
+      },
+      "limitations": [
+        "Workspace page lists lakehouses, not all items",
+        "Favorites and pins are local only",
+        "No 'New workspace' outside metadata and platform flows"
+      ],
+      "next_action": "Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them."
+    },
+    {
+      "id": "FEAT-FAB-03",
+      "name": "Create lakehouses",
+      "description": "Creates schema-enabled lakehouses with Fabric's name rule checked first (letters, numbers, underscores).",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_api.py::test_create_lakehouse_refuses_a_name_fabric_would_reject_before_calling_fabric",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs a lakehouse name Fabric would refuse is caught"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/fabric_api.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_fabric_api.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Create, Home, workspace page, command bar",
+        "preview": false
+      },
+      "limitations": [
+        "Always schema-enabled; no delete in the UI"
+      ],
+      "prs": [
+        109
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-FAB-04",
+      "name": "Item preview panel",
+      "description": "Previews tables (100 rows plus count from the Delta log), files and notebook cells; other item types embed Fabric's own page.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_preview.py::test_table_preview_rows_types_and_count",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_preview.py::test_service_guards_files"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/preview.py",
+        "sidecar/fabric_desktop/preview_service.py",
+        "app/ui/item-preview.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_preview.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Workspaces > item",
+        "preview": true
+      },
+      "limitations": [
+        "Files download whole into the app data folder and are not cleaned up (inference)",
+        "Notebook preview shows no outputs"
+      ],
+      "prs": [
+        43
+      ],
+      "next_action": "Clean up downloaded preview files (inference: never removed).",
+      "backlog": [
+        "PB-087"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-05",
+      "name": "Embedded Fabric portal and Monitoring hub",
+      "description": "A second WebView2 showing app.fabric.microsoft.com (Fabric page) and the Monitoring hub (Monitor), with sign-in cookies saved under DPAPI.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": "app/src-tauri/src/main.rs fabric_view_show, mod signin, dpapi"
+        },
+        {
+          "kind": "report",
+          "ref": "docs/README.md: embedded Fabric pages and saved sign-in used on the maintainer's tenant"
+        },
+        {
+          "kind": "absent",
+          "ref": "Rust signin tests never run by CI"
+        }
+      ],
+      "source": [
+        "app/src-tauri/src/main.rs",
+        "app/ui/app.js"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Fabric, Monitor",
+        "preview": false
+      },
+      "limitations": [
+        "Host allow-list covers any *.microsoft.com and *.live.com",
+        "Windows only"
+      ],
+      "next_action": "Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071).",
+      "backlog": [
+        "PB-008",
+        "PB-071"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-06",
+      "name": "Publish notebooks to Fabric",
+      "description": "Creates or updates a Fabric notebook; notebooks using the lakehouse module get a setup cell that makes them run in a Fabric Python notebook.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_publish.py::test_publish_takes_the_app_payload_and_defaults_to_the_lakehouse_workspace",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_notebook_using_the_local_module_gets_a_setup_cell_and_a_python_kernel"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/fabric_run.py",
+        "sidecar/fabric_desktop/cloud_service.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_publish.py",
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Publish to OneLake",
+        "preview": false
+      },
+      "limitations": [
+        "Items matched by display name (inference)",
+        "The setup cell pip-installs sqlglot in Fabric",
+        "notebooks.md says %%sql notebooks publish as Spark; code converts them (inference)"
+      ],
+      "prs": [
+        31
+      ],
+      "next_action": "Match the Fabric item by recorded id, not display name, so a rename doesn't duplicate (PB-018).",
+      "backlog": [
+        "PB-002",
+        "PB-018",
+        "PB-077"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-07",
+      "name": "Run in Fabric",
+      "description": "Publishes and runs a notebook with Fabric's job scheduler and tracks it in Monitor and the tray; IT can turn it off by policy.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_run_item_job_returns_the_job_id_from_location",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_policy.py::test_fabric_runs_can_be_turned_off"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/cloud_service.py",
+        "sidecar/fabric_desktop/fabric_api.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon (Runs on: Fabric)",
+        "preview": true
+      },
+      "limitations": [
+        "cancel_fabric_run has no UI caller and no test",
+        "UI requires an attached lakehouse"
+      ],
+      "next_action": "Expose cancel (engine method exists with no UI) and include in the tenant smoke test.",
+      "backlog": [
+        "PB-002",
+        "PB-043"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-08",
+      "name": "Fabric schedules",
+      "description": "Create, list, pause and delete schedules for notebooks; pause, delete and run-now for pipelines and Spark job definitions in workspaces you work in.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_schedule_configuration",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schedules.py::test_one_list_has_this_pc_and_fabric"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/schedule_service.py",
+        "sidecar/fabric_desktop/fabric_run.py",
+        "app/ui/schedules.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_schedules.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon, Monitor > Schedules",
+        "preview": true
+      },
+      "limitations": [
+        "No edit of a schedule's time",
+        "Remove has no confirmation",
+        "12 hard-coded time zones",
+        "all_schedules may prompt a sign-in (inference)"
+      ],
+      "next_action": "Allow editing a schedule's time; use the quiet token path in all_schedules.",
+      "backlog": [
+        "PB-048"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-09",
+      "name": "Fabric Environment items and Spark settings",
+      "description": "Attach a notebook to a Fabric Environment item, read its libraries and Spark settings, or create one.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no Environment item calls in sidecar/fabric_desktop/fabric_api.py"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Prove (FD-109)",
+      "next_action": "Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016).",
+      "backlog": [
+        "PB-016"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-10",
+      "name": "Data pipelines, Dataflows and Copy jobs authoring",
+      "description": "Create or edit Fabric Data pipelines, Dataflow Gen2 or Copy jobs.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "fabric_api.py has no pipeline, dataflow or copy job create/update"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None (listed, opened in Fabric, run-now from Monitor > Schedules)",
+        "preview": false
+      },
+      "workstream": "Staged roadmap (stage 4)",
+      "next_action": "Decide scope with decision D2 (who creates landing Copy jobs) before any build (PB-030).",
+      "backlog": [
+        "PB-030",
+        "PB-035"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-11",
+      "name": "Fabric Warehouse and SQL database development",
+      "description": "Connect to a Warehouse, SQL analytics endpoint or Fabric SQL database and run T-SQL, browse objects, check dialect compatibility.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no TDS/ODBC client in sidecar/constraints.txt"
+        },
+        {
+          "kind": "doc",
+          "ref": "SQL development sprint thread (SQL-001..006), 2026-10-17"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "SQL development sprint",
+      "next_action": "Owned by the SQL development sprint: SQL-004 native connectivity, SQL-005 object explorer, SQL-006 local simulation.",
+      "backlog": [
+        "PB-020",
+        "PB-022",
+        "PB-024",
+        "PB-025"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-12",
+      "name": "Fabric workspace Git integration",
+      "description": "Show and drive a workspace's Git connection, status, commit and update from Git.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "docs/git-integration-plan.md",
+          "note": "Phase 2, waiting on Chris's go"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Git-native development",
+      "next_action": "Owned by the Git-native program (Phase 2).",
+      "backlog": [
+        "PB-040"
+      ]
+    },
+    {
+      "id": "FEAT-FAB-13",
+      "name": "Deployment pipelines and item-definition deploy",
+      "description": "Deploy items between workspaces through Fabric deployment pipelines or item definition APIs with preview and validation.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "docs/git-integration-plan.md",
+          "note": "Phase 3"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Git-native development",
+      "next_action": "Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates.",
+      "backlog": [
+        "PB-041"
+      ]
+    },
+    {
+      "id": "FEAT-ONE-01",
+      "name": "OneLake catalog",
+      "description": "Lakehouses across workspaces in one list, table search, group by environment and solution, local favorites.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_catalog_lists_lakehouses_across_workspaces_and_keeps_favorites",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/README.md",
+          "note": "used on the maintainer's tenant"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/service.py",
+        "app/ui/app.js",
+        "app/ui/catalog-groups.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "OneLake > Catalog",
+        "preview": false
+      },
+      "limitations": [
+        "Table names cached once per session; errors swallowed"
+      ],
+      "prs": [
+        43
+      ],
+      "next_action": "Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py)."
+    },
+    {
+      "id": "FEAT-ONE-02",
+      "name": "Endorsed items scope",
+      "description": "Filter the catalog to endorsed (promoted, certified) items.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/service.py endorsements always returns available:false"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/service.py"
+      ],
+      "docs": [
+        "docs/troubleshooting.md"
+      ],
+      "ui": {
+        "surface": "OneLake > Catalog (greyed out)",
+        "preview": false
+      },
+      "next_action": "Fix the reason text and troubleshooting.md, which say Fabric's catalog is embedded on the same page; it isn't.",
+      "backlog": [
+        "PB-083"
+      ]
+    },
+    {
+      "id": "FEAT-ONE-03",
+      "name": "OneLake shortcut command center",
+      "description": "Every shortcut with health checks, readers, rules (no Dev to Prod), change history with undo, repoint and requests.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shortcut_center.py::test_repoint_puts_the_old_shortcut_back_when_the_new_one_fails",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_shortcut_center.py::test_rules_stop_dev_pointing_at_prod_and_flag_it"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/shortcut_service.py",
+        "sidecar/fabric_desktop/shortcut_center.py",
+        "app/ui/shortcuts.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_shortcut_center.py"
+      ],
+      "docs": [
+        "docs/shortcuts.md"
+      ],
+      "ui": {
+        "surface": "OneLake > Shortcuts",
+        "preview": true
+      },
+      "limitations": [
+        "No scheduled check or alert",
+        "Approved request creates the shortcut in one lakehouse only",
+        "OneLake error codes unseen on a tenant"
+      ],
+      "prs": [
+        53
+      ],
+      "next_action": "Scheduled health check with a Teams alert (documented as not built).",
+      "backlog": [
+        "PB-053"
+      ]
+    },
+    {
+      "id": "FEAT-ONE-04",
+      "name": "OneLake access review and data access roles",
+      "description": "Who can read a lakehouse, workspace roles and OneLake data access roles, with grant by email.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_access_review_flags_what_needs_a_second_look",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_data_access_roles_and_who_can_read"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/access.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "app/ui/estate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_estate.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "OneLake > Access",
+        "preview": true
+      },
+      "limitations": [
+        "Viewers can't list roles"
+      ],
+      "next_action": "Include in the tenant smoke test."
+    },
+    {
+      "id": "FEAT-ONE-05",
+      "name": "Fabric-safe Delta writes to OneLake",
+      "description": "Every write is staged locally, checked against the Fabric Delta profile (reader 1, writer 2, no deletion vectors or column mapping) and committed atomically with a version check.",
+      "pillar": "Local development",
+      "category": "Data Engineering and Transformation",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_00b_tables_follow_the_fabric_delta_profile",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_profile_rejects_v2_checkpoints"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_an_overwrite_from_a_stale_read_is_refused"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/README.md",
+          "note": "writing tables to OneLake used on the maintainer's tenant"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/publish.py",
+        "sidecar/fabric_desktop/delta_profile.py",
+        "sidecar/fabric_desktop/meta/store.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py",
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/architecture.md"
+      ],
+      "ui": {
+        "surface": "Every write path",
+        "preview": false
+      },
+      "limitations": [
+        "Writes Delta features Fabric reads; newer Delta features are refused rather than written"
+      ],
+      "prs": [
+        51,
+        54
+      ],
+      "next_action": "Keep; verify MERGE on OneLake in the live test.",
+      "backlog": [
+        "PB-002",
+        "PB-003"
+      ]
+    },
+    {
+      "id": "FEAT-NB-01",
+      "name": "Notebooks on this PC",
+      "description": "Create, open, save (ipynb, stable cell ids, other tools' metadata kept), rename and delete notebooks; ribbon, command mode, parameters, freeze, outline, find and replace.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_ipynb_round_trip_keeps_cells_and_lakehouse",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_saving_keeps_metadata_other_tools_wrote"
+        },
+        {
+          "kind": "smoke",
+          "ref": "new_notebook and list_notebooks over the engine pipe"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook.py",
+        "app/ui/notebook.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Create > Notebook, notebook page",
+        "preview": false
+      },
+      "limitations": [
+        "Outputs are not saved with the notebook",
+        "No notebook-editor UI tests"
+      ],
+      "prs": [
+        30
+      ],
+      "next_action": "Add UI tests for the editor; outputs are never saved, say so in docs.",
+      "backlog": [
+        "PB-070"
+      ]
+    },
+    {
+      "id": "FEAT-NB-02",
+      "name": "Run cells on this PC",
+      "description": "One shared Python namespace, streamed output, cancel that keeps variables, tables, charts, HTML in sandboxed frames.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_kernel_keeps_state_and_shows_last_expression",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_output_streams_while_a_cell_runs_and_cancel_keeps_variables"
+        },
+        {
+          "kind": "smoke",
+          "ref": "run_cell ran DuckDB and Polars code, reported a ZeroDivisionError and kept the kernel alive"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook.py",
+        "app/ui/notebook.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook.py",
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook page",
+        "preview": false
+      },
+      "limitations": [
+        "input() unsupported",
+        "One cell at a time",
+        "Stop in the in-engine kernel restarts the whole engine"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-NB-03",
+      "name": "Notebooks in their own process",
+      "description": "Optional child-process kernel: Stop or a crash ends only that process.",
+      "pillar": "Local development",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_kernel_process.py::test_cancel_keeps_variables_and_stop_ends_only_the_process",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_kernel_process.py::test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/kernel_proc.py",
+        "sidecar/fabric_desktop/kernel_host.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_kernel_process.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Settings > Preview features (off by default)",
+        "preview": true
+      },
+      "limitations": [
+        "Off by default",
+        "No memory or CPU limits"
+      ],
+      "prs": [
+        67
+      ],
+      "workstream": "Prove (FD-110)",
+      "next_action": "Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).",
+      "backlog": [
+        "PB-073"
+      ]
+    },
+    {
+      "id": "FEAT-NB-04",
+      "name": "Spark DataFrame API on this PC",
+      "description": "`spark` is DuckDB's Spark-compatible API wired to the lakehouse: read table/csv/json/parquet/text/delta, spark.sql with CTAS and INSERT, saveAsTable, createDataFrame.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_spark_reads_and_writes_lakehouse_tables",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_pyspark_runs_locally_but_scala_rdds_and_merge_stay_in_fabric"
+        },
+        {
+          "kind": "smoke",
+          "ref": "SparkSession.builder.getOrCreate().createDataFrame(...).filter(...).count() ran and returned 1"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/spark_local.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells",
+        "preview": false
+      },
+      "limitations": [
+        "MERGE INTO, UPDATE and DELETE raise",
+        "partitionBy and reader schema() are ignored",
+        "insertInto defaults to errorifexists, unlike Spark's append (inference)",
+        "No RDD, UDF, streaming; Scala/R refused"
+      ],
+      "next_action": "Publish a supported-API matrix generated from tests (PB-012); fix insertInto default mode.",
+      "backlog": [
+        "PB-012",
+        "PB-013",
+        "PB-015"
+      ]
+    },
+    {
+      "id": "FEAT-NB-05",
+      "name": "notebookutils and mssparkutils on this PC",
+      "description": "fs (ls, head, put, append, cp, mv, rm, mkdirs, exists), credentials.getToken/getSecret, notebook.run/exit/runMultiple, runtime.context, variableLibrary for VL_Sources.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_notebookutils_fs_runtime_and_exit",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_notebookutils_get_token_uses_the_sign_in"
+        },
+        {
+          "kind": "smoke",
+          "ref": "notebookutils was present in a fresh kernel namespace"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebookutils_local.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells",
+        "preview": false
+      },
+      "limitations": [
+        "session, lakehouse, warehouse, udf, connections are absent (plain AttributeError, contrary to the module docstring)",
+        "mount/unmount raise",
+        "runMultiple is sequential",
+        "notebook.run timeout ignored"
+      ],
+      "next_action": "Add session, lakehouse and connections stubs that explain themselves; stop compute_check flagging variableLibrary as Fabric-only (PB-013).",
+      "backlog": [
+        "PB-012",
+        "PB-013"
+      ]
+    },
+    {
+      "id": "FEAT-NB-06",
+      "name": "Run other notebooks and magics",
+      "description": "%run and notebookutils.notebook.run with parameters; %%sql, %%html, %%configure (no-op), %pip skipped with a note, %time.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_run_another_notebook_with_parameters_and_percent_run",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells",
+        "preview": false
+      },
+      "limitations": [
+        "%pip is skipped, so a missing package fails later",
+        "!pip and %%time would be syntax errors (inference)",
+        "%%spark/%%sparkr/%%csharp refused"
+      ],
+      "next_action": "Handle !pip and %%time explicitly.",
+      "backlog": [
+        "PB-028"
+      ]
+    },
+    {
+      "id": "FEAT-NB-07",
+      "name": "Where a notebook can run (compute check)",
+      "description": "A saved This PC / Fabric choice per notebook and a static check naming the cells that block each side.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented but Unreliable",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_open_and_save_say_where_the_notebook_can_run",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/fabric_run.py _FABRIC_ONLY lists notebookutils.variableLibrary, which notebookutils_local implements"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/fabric_run.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Runs on",
+        "preview": false
+      },
+      "limitations": [
+        "Regex-based; flags variableLibrary notebooks as Fabric-only although they run on the PC",
+        "No 'unknown' outcome"
+      ],
+      "prs": [
+        29
+      ],
+      "workstream": "Prove (FD-111)",
+      "next_action": "Fix the variableLibrary false positive and move to the AST analyzer planned as FD-111 (PB-013, PB-014).",
+      "backlog": [
+        "PB-013",
+        "PB-014",
+        "PB-017"
+      ]
+    },
+    {
+      "id": "FEAT-NB-08",
+      "name": "Autocomplete and variables pane",
+      "description": "Completion from the live kernel plus table names; variables pane hides secret-looking values.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_variables_hide_secrets_and_completion_lists_attributes",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "smoke",
+          "ref": "kernel_variables listed df; kernel_complete returned items only for names in the namespace"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook.py",
+        "app/ui/notebook.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook editor, View > Variables",
+        "preview": false
+      },
+      "limitations": [
+        "Completes only what the kernel has run",
+        "No completion when Runs on is Fabric"
+      ],
+      "next_action": "Column completion for attached tables (Prove backlog #12).",
+      "backlog": [
+        "PB-027"
+      ]
+    },
+    {
+      "id": "FEAT-NB-09",
+      "name": "Cell dependencies and stale cells",
+      "description": "Static analysis of what each cell defines, reads and writes; stale cells marked; Run stale cells asks before side effects.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_depgraph.py::test_tables_written_by_one_cell_and_read_by_another",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs stale cells"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/depgraph.py",
+        "app/ui/deps.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_depgraph.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook View and Run tabs",
+        "preview": true
+      },
+      "limitations": [
+        "Declared dependencies have no UI",
+        "External table changes don't mark cells stale"
+      ],
+      "prs": [
+        68
+      ],
+      "workstream": "Prove",
+      "next_action": "Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version.",
+      "backlog": [
+        "PB-085"
+      ]
+    },
+    {
+      "id": "FEAT-NB-10",
+      "name": "New notebook wizard",
+      "description": "Three templates (clean, join and aggregate, load a file) that write runnable lakehouse-module code and a proof contract.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_wizard.py::test_every_template_writes_code_that_parses_and_uses_the_lakehouse_module",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_wizard.py::test_a_wizard_notebook_proves_the_same_with_its_contract"
+        },
+        {
+          "kind": "smoke",
+          "ref": "wizard_templates listed clean, join_aggregate, load_file"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/wizard.py",
+        "app/ui/wizard.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_wizard.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Create > Notebook from a template",
+        "preview": true
+      },
+      "limitations": [
+        "Three fixed templates",
+        "No launch from a table"
+      ],
+      "prs": [
+        65
+      ],
+      "workstream": "Prove",
+      "next_action": "Add the entry point from a lakehouse table (plan Stage 3).",
+      "backlog": [
+        "PB-034"
+      ]
+    },
+    {
+      "id": "FEAT-NB-11",
+      "name": "TOML job runner",
+      "description": "A job file runs DuckDB SQL or a Polars transform locally, checks the result and publishes Delta to OneLake.",
+      "pillar": "Local development",
+      "category": "Data Engineering and Transformation",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_duckdb_job_runs_locally",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local.py::test_polars_job_runs_locally"
+        },
+        {
+          "kind": "smoke",
+          "ref": "preview_job on examples/sales_by_region.toml returned 3 rows; CLI lists preview/run"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/jobs.py",
+        "sidecar/fabric_desktop/publish.py",
+        "sidecar/fabric_desktop/cli.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_local.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "CLI only (fabric-desktop preview|run)",
+        "preview": false
+      },
+      "limitations": [
+        "No UI; Monitor labels its history as 'Notebook write' (inference)",
+        "No managed-table write guard (inference)"
+      ],
+      "next_action": "Decide: expose jobs in the app or mark them a CLI/agent feature and document so (PB-079).",
+      "backlog": [
+        "PB-079"
+      ]
+    },
+    {
+      "id": "FEAT-SQL-01",
+      "name": "SQL query page",
+      "description": "Spark SQL per lakehouse translated by sqlglot to DuckDB over OneLake Delta; first 1,000 rows, Copy, Download CSV, Save as table, Open in notebook.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_sql_runs_spark_sql_over_lakehouse_tables",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_sql_result_saves_as_a_table_and_exports_csv"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/sql.py",
+        "sidecar/fabric_desktop/service.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Workspaces > lakehouse > SQL query",
+        "preview": false
+      },
+      "limitations": [
+        "Plain textarea, no autocomplete or formatting",
+        "Read-only",
+        "Download CSV re-runs the query",
+        "No cancel"
+      ],
+      "workstream": "SQL development sprint",
+      "next_action": "Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.",
+      "backlog": [
+        "PB-021",
+        "PB-022",
+        "PB-023"
+      ]
+    },
+    {
+      "id": "FEAT-SQL-02",
+      "name": "%%sql cells",
+      "description": "Spark SQL cells over the attached lakehouse through the local Spark session.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook_parity.py::test_spark_session_builder_and_temp_views_and_sql_cells",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_notebook.py::test_sql_uses_utc_whatever_this_pc_time_zone_is"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/notebook.py",
+        "sidecar/fabric_desktop/sql.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_notebook_parity.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook cells",
+        "preview": false
+      },
+      "limitations": [
+        "MERGE, UPDATE, DELETE print a note and report status ok, so Run all continues"
+      ],
+      "next_action": "Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013).",
+      "backlog": [
+        "PB-012",
+        "PB-013"
+      ]
+    },
+    {
+      "id": "FEAT-PRV-01",
+      "name": "Prove this notebook",
+      "description": "Pins input versions, runs the notebook on the PC and in Fabric into sandboxes, verifies outputs per table and records a verdict.",
+      "pillar": "Local development",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_prove.py::test_a_proof_runs_both_sides_from_pinned_inputs_without_touching_shared_tables",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_prove.py::test_a_write_to_an_input_during_the_proof_makes_it_inconclusive"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/prove_service.py",
+        "sidecar/fabric_desktop/proof.py",
+        "sidecar/fabric_desktop/proof_runtime.py",
+        "app/ui/prove.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_prove.py"
+      ],
+      "docs": [
+        "docs/prove/how-proofs-work.md",
+        "docs/prove/plan.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Prove",
+        "preview": true
+      },
+      "limitations": [
+        "Spark notebooks blocked",
+        "One proof at a time",
+        "TZ fixed only where time.tzset exists (not Windows)"
+      ],
+      "prs": [
+        59,
+        62,
+        65
+      ],
+      "workstream": "Prove",
+      "next_action": "Run one proof on the tenant (PB-002); add the column heatmap from plan Stage 3.",
+      "backlog": [
+        "PB-002"
+      ]
+    },
+    {
+      "id": "FEAT-PRV-02",
+      "name": "Output verification rules",
+      "description": "Keyed or whole-row comparison with tolerances, ignored columns and a fingerprint level above a row limit.",
+      "pillar": "Local development",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_prove.py::test_tiny_floating_point_drift_passes_the_default_tolerance",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_prove.py::test_verify_whole_rows_counts_duplicates_and_reports_levels"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/verify.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_prove.py"
+      ],
+      "docs": [
+        "docs/prove/how-proofs-work.md"
+      ],
+      "ui": {
+        "surface": "Prove panel",
+        "preview": true
+      },
+      "workstream": "Prove",
+      "next_action": "Reuse for SQL and metadata compare (one comparison engine)."
+    },
+    {
+      "id": "FEAT-PRV-03",
+      "name": "Run receipts",
+      "description": "Tamper-evident receipts (SHA-256 id) of what ran where, exported to Markdown or HTML with chosen redactions.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_receipts_env.py::test_store_writes_once_and_detects_tampering",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_receipts_env.py::test_export_redacts_what_was_chosen_and_keeps_the_id"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/receipts.py",
+        "sidecar/fabric_desktop/prove_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_receipts_env.py"
+      ],
+      "docs": [
+        "docs/prove/how-proofs-work.md"
+      ],
+      "ui": {
+        "surface": "Prove > Receipt",
+        "preview": true
+      },
+      "limitations": [
+        "No receipt list UI (receipts_list has no caller)"
+      ],
+      "workstream": "Prove",
+      "next_action": "Feed receipts into the audit trail (FD-125, PR #89).",
+      "backlog": [
+        "PB-007"
+      ]
+    },
+    {
+      "id": "FEAT-PRV-04",
+      "name": "Environment profile",
+      "description": "Imports found per cell and classified for this PC and Fabric; observed Fabric versions remembered.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_receipts_env.py::test_check_classifies_each_module_for_both_places",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/envprofile.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_receipts_env.py"
+      ],
+      "docs": [
+        "docs/prove/how-proofs-work.md"
+      ],
+      "ui": {
+        "surface": "Prove > Packages only",
+        "preview": true
+      },
+      "limitations": [
+        "Nothing installs packages",
+        "Fabric runtime list is documented, not queried"
+      ],
+      "workstream": "Prove (FD-109)",
+      "next_action": "Reproducible environments wait on the package-source decision (FD-109).",
+      "backlog": [
+        "PB-016"
+      ]
+    },
+    {
+      "id": "FEAT-PRV-05",
+      "name": "Scorecard and run measurement",
+      "description": "Correctness, time, resources and cost labelled measured, estimated or not available.",
+      "pillar": "Local development",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "app/tests/ui.test.cjs a scorecard never shows an estimate or a missing number as measured",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/measure.py RunMeter"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/scorecard.py",
+        "sidecar/fabric_desktop/measure.py"
+      ],
+      "tests": [
+        "app/tests/ui.test.cjs"
+      ],
+      "docs": [
+        "docs/prove/how-proofs-work.md"
+      ],
+      "ui": {
+        "surface": "Prove > Full scorecard",
+        "preview": true
+      },
+      "limitations": [
+        "CPU/memory come from the engine process, not the child kernel (inference)",
+        "Fabric CPU/memory not available"
+      ],
+      "workstream": "Prove (FD-119)",
+      "next_action": "Measure the kernel child process when it is on (FD-119).",
+      "backlog": [
+        "PB-050",
+        "PB-094"
+      ]
+    },
+    {
+      "id": "FEAT-PRV-06",
+      "name": "Side by side and the TPC-H benchmark",
+      "description": "Runs a notebook on the PC and in Fabric against the real lakehouse after confirming the tables it overwrites; compares checksums, speed and cost; TPC-H data and query notebooks.",
+      "pillar": "Local development",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_side_by_side.py::test_side_by_side_runs_only_with_the_tables_it_overwrites_confirmed",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_side_by_side.py::test_benchmark_notebooks_run_end_to_end"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/side_by_side.py",
+        "sidecar/fabric_desktop/side_by_side_service.py",
+        "sidecar/fabric_desktop/benchmark.py",
+        "app/ui/sidebyside.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_side_by_side.py"
+      ],
+      "docs": [
+        "docs/side-by-side.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon > Side by side",
+        "preview": true
+      },
+      "limitations": [
+        "Writes the real tables twice (confirmed first)",
+        "Files/ not compared"
+      ],
+      "prs": [
+        44,
+        81,
+        114
+      ],
+      "workstream": "Prove (FD-112)",
+      "next_action": "Retire in favor of Prove for correctness; keep the benchmark. PR #114 open for its write check time limit.",
+      "backlog": [
+        "PB-076"
+      ]
+    },
+    {
+      "id": "FEAT-META-01",
+      "name": "Metadata project, layers and entities",
+      "description": "TOML project of 2-10 medallion layers (one lakehouse each) and entities from templates, edited in the app with validation and save gates.",
+      "pillar": "Local development",
+      "category": "Data Engineering and Transformation",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_06_no_reads_from_a_later_layer",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_templates_meet_the_standards"
+        },
+        {
+          "kind": "smoke",
+          "ref": "meta_init created a 3-layer sample project; meta_project returned its layers"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/project.py",
+        "sidecar/fabric_desktop/meta/templates.py",
+        "sidecar/fabric_desktop/meta_service.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Design",
+        "preview": false
+      },
+      "limitations": [
+        "Deleting an entity leaves its table"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-02",
+      "name": "Metadata runs on this PC",
+      "description": "Runs entities in dependency order with full, incremental, SCD1 and SCD2 loads; Dev defaults to local Delta in the project's .local folder.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_04_type1_dimension_becomes_type2",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_large_tables.py::test_an_update_merges_into_the_table_and_rewrites_only_the_files_it_touches"
+        },
+        {
+          "kind": "smoke",
+          "ref": "meta_run env=dev ran every sample entity locally with status ok in under a second"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/engine.py",
+        "sidecar/fabric_desktop/meta/store.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py",
+        "sidecar/tests/test_large_tables.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Entities > Run",
+        "preview": false
+      },
+      "limitations": [
+        "Watermark filter is strictly >, so late rows are dropped",
+        "Type 2 source repeating a key fails (plan)"
+      ],
+      "prs": [
+        56,
+        61
+      ],
+      "next_action": "Keep; add late-arriving rows and source deletes (FD-117).",
+      "backlog": [
+        "PB-019"
+      ]
+    },
+    {
+      "id": "FEAT-META-03",
+      "name": "Checks, quarantine and replay",
+      "description": "not_null, unique, exists_in, accepted_values, range, expr and Python checks; stop, quarantine or warn; fix and replay quarantined rows.",
+      "pillar": "Local development",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py::test_fix_and_replay_a_quarantined_row",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_03b_a_stop_check_writes_nothing"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/engine.py",
+        "sidecar/fabric_desktop/dataops_service.py",
+        "app/ui/dataops.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_dataops.py",
+        "sidecar/tests/test_meta.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity page > Quarantine",
+        "preview": false
+      },
+      "limitations": [
+        "exists_in with a missing reference table marks every row bad"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-04",
+      "name": "Custom code: hooks, steps and Python checks",
+      "description": "after_clean and before_write hooks, custom steps and Python checks that read only declared tables and can't write.",
+      "pillar": "Local development",
+      "category": "Data Engineering and Transformation",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_05b_hook_guardrails",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_05d_custom_step_output_is_still_checked"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/engine.py",
+        "sidecar/fabric_desktop/meta/project.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity TOML",
+        "preview": false
+      },
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-05",
+      "name": "Surrogate keys",
+      "description": "One key table per business key in LH_Keys, merged with retry; one business key never gets two keys.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_keys.py::test_runs_at_once_never_give_two_business_keys_one_key",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_keys.py::test_merge_keys_never_gives_a_business_key_two_keys"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/keys.py",
+        "sidecar/fabric_desktop/meta_service.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_keys.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Surrogate keys",
+        "preview": false
+      },
+      "limitations": [
+        "read_keys reads the whole key table"
+      ],
+      "prs": [
+        23,
+        52
+      ],
+      "workstream": "Staged roadmap (FD-115)",
+      "next_action": "Stop reading whole key tables on every keyed run (FD-115).",
+      "backlog": [
+        "PB-068"
+      ]
+    },
+    {
+      "id": "FEAT-META-06",
+      "name": "Large tables: preflight, batches, merge writes and file manifest",
+      "description": "Memory estimate from the Delta log stops runs that won't fit; batch_by streams a full load into one commit; MERGE writes rewrite only touched files; landing files are read once.",
+      "pillar": "Local development",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_preflight.py::test_a_run_shows_the_estimate_and_stops_when_it_cannot_fit",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_batches.py::test_a_batched_full_load_writes_the_same_rows_in_one_commit"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_landing_manifest.py::test_a_run_reads_only_files_it_has_not_loaded"
+        },
+        {
+          "kind": "smoke",
+          "ref": "meta_runs step detail showed 'about 5 rows ... 0.1 MB in memory' estimates"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/preflight.py",
+        "sidecar/fabric_desktop/meta/batches.py",
+        "sidecar/fabric_desktop/meta/engine.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_preflight.py",
+        "sidecar/tests/test_batches.py",
+        "sidecar/tests/test_landing_manifest.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md",
+        "docs/scale-and-operations-plan.md"
+      ],
+      "ui": {
+        "surface": "Automatic in runs; batch_by in entity TOML",
+        "preview": false
+      },
+      "limitations": [
+        "meta_preflight has no UI caller",
+        "Only Delta sources are estimated",
+        "No physical partitioning",
+        "Batching excludes SCD modes"
+      ],
+      "prs": [
+        56,
+        69,
+        70,
+        87
+      ],
+      "workstream": "Staged roadmap (FD-114)",
+      "next_action": "Build the run dialog (mockup first) and vacuum orphan files after a stopped batch (FD-114).",
+      "backlog": [
+        "PB-067",
+        "PB-090"
+      ]
+    },
+    {
+      "id": "FEAT-META-07",
+      "name": "Schema drift review",
+      "description": "Detects renamed, new and retyped columns against the contract with evolve, ignore_new or strict per layer, and settles them through the save gate.",
+      "pillar": "Local development",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py::test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/drift.py",
+        "sidecar/fabric_desktop/dataops_service.py",
+        "app/ui/dataops.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_dataops.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity page > Drift",
+        "preview": false
+      },
+      "limitations": [
+        "landing and link sources not checked (inference)"
+      ],
+      "next_action": "Cover landing and link sources (inference: not read).",
+      "backlog": [
+        "PB-031"
+      ]
+    },
+    {
+      "id": "FEAT-META-08",
+      "name": "Compare, meaningful diffs and promote impact",
+      "description": "Compare a table between environments or versions; TOML and notebook diffs by meaning; promote impact lists changed entities.",
+      "pillar": "Local development",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py::test_compare_dev_with_test_shows_what_a_logic_change_does",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meaningful_diffs.py::test_comments_order_and_spacing_are_not_changes"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/compare.py",
+        "sidecar/fabric_desktop/meta/diff.py",
+        "sidecar/fabric_desktop/dataops_service.py",
+        "app/ui/dataops.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_dataops.py",
+        "sidecar/tests/test_meaningful_diffs.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity > Compare, Deploy > promote impact",
+        "preview": false
+      },
+      "limitations": [
+        "Compare reads whole tables",
+        "meta_diff against Git head has no UI caller"
+      ],
+      "prs": [
+        75
+      ],
+      "next_action": "Batch the compare for large tables.",
+      "backlog": [
+        "PB-069"
+      ]
+    },
+    {
+      "id": "FEAT-META-09",
+      "name": "Promote Dev to Test to Prod",
+      "description": "Gated promote of configuration: every entity ran and passed on current logic, tests pass, keys workspace set; creates lakehouses, syncs keys, publishes VL_Sources and products.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_08_promote_dev_to_test_to_prod",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_08b_a_failed_run_blocks_promote"
+        },
+        {
+          "kind": "smoke",
+          "ref": "meta_promote_check dev->test returned a plain error (no Keys workspace) and a Git note"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/promote.py",
+        "sidecar/fabric_desktop/meta_service.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Deploy > Environments",
+        "preview": false
+      },
+      "limitations": [
+        "Copies configuration only, never data",
+        "No release-level rollback"
+      ],
+      "workstream": "Staged roadmap (FD-121)",
+      "next_action": "Release rollback (scale plan 5.3) and decision D1 (require a pushed commit for Test/Prod).",
+      "backlog": [
+        "PB-042"
+      ]
+    },
+    {
+      "id": "FEAT-META-10",
+      "name": "Release records",
+      "description": "Each promote records environment, version, commit, branch, who, app and engine version in meta.deployments.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_release.py::test_a_promote_from_a_pushed_commit_records_it_and_the_record_checks_out",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_release.py::test_uncommitted_files_are_a_note_unless_the_target_requires_a_commit"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/release.py",
+        "sidecar/fabric_desktop/meta_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_release.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Promote card notes",
+        "preview": false
+      },
+      "limitations": [
+        "No list of releases in the UI",
+        "Docs say Preview; no Preview id"
+      ],
+      "prs": [
+        73,
+        113
+      ],
+      "workstream": "Staged roadmap",
+      "next_action": "Merge PR #113 (release records read Git through the Git layer); add a release list view.",
+      "backlog": [
+        "PB-042"
+      ]
+    },
+    {
+      "id": "FEAT-META-11",
+      "name": "Table history and restore",
+      "description": "Lists a table's Delta versions and restores one, moving the watermark back and logging the restore.",
+      "pillar": "Enterprise services",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_restore_a_bad_load_and_move_the_watermark_back",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_versions_vacuumed_away_cannot_be_restored"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/restore.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "app/ui/estate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_estate.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity > History",
+        "preview": true
+      },
+      "limitations": [
+        "Per table; downstream tables not changed"
+      ],
+      "next_action": "Keep; downstream rebuild guidance in the dialog."
+    },
+    {
+      "id": "FEAT-META-12",
+      "name": "Table health, optimize and retention",
+      "description": "Small-file and retention advice; Fabric table maintenance (V-Order, VACUUM) for OneLake tables and delta-rs compaction on the PC.",
+      "pillar": "Enterprise services",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_health_advises_compaction_and_compact_local_fixes_it",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_layer_retention_is_saved_checked_and_used_by_maintenance"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/maintenance.py",
+        "sidecar/fabric_desktop/cloud_service.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_cloud.py",
+        "sidecar/tests/test_estate.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Quality > Table health",
+        "preview": true
+      },
+      "limitations": [
+        "Local compaction has no V-Order"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-13",
+      "name": "Direct Lake semantic model",
+      "description": "Builds a Direct Lake semantic model (TMDL) over the Gold layer after refreshing the SQL endpoint.",
+      "pillar": "Enterprise services",
+      "category": "Fabric Integration and Deployment",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_save_semantic_model_updates_an_existing_one",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_onelake_run_queues_maintenance_and_builds_the_model"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/semantic.py",
+        "sidecar/fabric_desktop/cloud_service.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Deploy > Semantic model",
+        "preview": true
+      },
+      "limitations": [
+        "Refused for Dev on the PC",
+        "Only facts get a row-count measure",
+        "Arrays and structs skipped"
+      ],
+      "next_action": "Include in the tenant smoke test."
+    },
+    {
+      "id": "FEAT-META-14",
+      "name": "Environments: Tables in and Runs on",
+      "description": "Each environment has its own workspace, keeps tables on the PC or in OneLake, and runs on this PC or in Fabric through the runner notebook.",
+      "pillar": "Enterprise services",
+      "category": "Local Development and Execution",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_compute.py::test_run_in_fabric_uploads_once_starts_the_runner_and_reads_results",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_compute.py::test_bundle_has_the_engine_and_the_project_but_no_local_data"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta_service.py",
+        "sidecar/fabric_desktop/cloud_service.py",
+        "sidecar/fabric_desktop/fabric_compute.py",
+        "app/ui/meta.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_fabric_compute.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Deploy > Environments",
+        "preview": false
+      },
+      "limitations": [
+        "Runs on Fabric is Preview",
+        "Bundle re-uploaded whole",
+        "Runner pip-installs deltalake/polars in Fabric when older"
+      ],
+      "prs": [
+        25,
+        32
+      ],
+      "next_action": "Verify the runner notebook on a tenant (PB-002).",
+      "backlog": [
+        "PB-002",
+        "PB-017"
+      ]
+    },
+    {
+      "id": "FEAT-META-15",
+      "name": "Variable library and source systems",
+      "description": "Source systems with per-environment connection fields (no secrets) published as the VL_Sources variable library.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_variable_library_definition_has_a_value_set_per_environment",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_publish_variable_library_and_read_it_in_a_notebook"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/varlib.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "sidecar/fabric_desktop/meta/keys.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_estate.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Source systems",
+        "preview": false
+      },
+      "limitations": [
+        "Promote publishes VL_Sources best-effort"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-16",
+      "name": "Profiling and rule suggestions",
+      "description": "Profiles a table locally and suggests clean and check blocks that the engine runs.",
+      "pillar": "Local development",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_profile_suggests_rules_the_engine_runs",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_profile_preview_and_add_rules_round_trip"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/profiling.py",
+        "sidecar/fabric_desktop/cloud_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity > Profile",
+        "preview": false
+      },
+      "limitations": [
+        "Reads every row locally"
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-META-17",
+      "name": "Column lineage",
+      "description": "Where each column comes from (declared, inferred or opaque) upstream and downstream.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_lineage.py::test_every_column_says_where_it_comes_from",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/meta_service.py meta_lineage has no caller in app/ui"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/lineage.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_lineage.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "None (entity-level Reads/Feeds card only)",
+        "preview": false
+      },
+      "limitations": [
+        "Python-added columns are opaque"
+      ],
+      "prs": [
+        76
+      ],
+      "workstream": "Staged roadmap (FD-128)",
+      "next_action": "Build the lineage view after a mockup (scale plan 8.x).",
+      "backlog": [
+        "PB-081"
+      ]
+    },
+    {
+      "id": "FEAT-META-18",
+      "name": "Estate X-ray and adopt",
+      "description": "Scans lakehouses for small files, unidentified and stale tables, vacuum and access findings; optimize, vacuum with preview, adopt existing tables as entities.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_xray.py::test_scan_finds_what_needs_attention",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_xray.py::test_vacuum_preview_counts_what_it_would_delete"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_xray.py::test_adopt_writes_entities_and_skips_what_exists"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/xray.py",
+        "sidecar/fabric_desktop/xray_service.py",
+        "app/ui/xray.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_xray.py"
+      ],
+      "docs": [
+        "docs/xray-fixes.md"
+      ],
+      "ui": {
+        "surface": "Home > Estate X-ray",
+        "preview": true
+      },
+      "limitations": [
+        "Stops at 500 tables",
+        "Paused capacities skipped"
+      ],
+      "prs": [
+        41
+      ],
+      "next_action": "Keep."
+    },
+    {
+      "id": "FEAT-GOV-01",
+      "name": "Freshness promises and Teams alerts",
+      "description": "Per-entity freshness promise with late alerts sent once to a Teams webhook.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py::test_late_tables_are_posted_to_teams_once",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_dataops.py::test_freshness_within_hours"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/freshness.py",
+        "sidecar/fabric_desktop/dataops_service.py",
+        "app/ui/dataops.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_dataops.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Entity > Freshness, Home",
+        "preview": false
+      },
+      "limitations": [
+        "Checked only while the app is open (agent covers unattended)",
+        "May post twice alongside incidents"
+      ],
+      "next_action": "Merge with incidents so a late table posts once (agent.md notes duplicates).",
+      "backlog": [
+        "PB-084"
+      ]
+    },
+    {
+      "id": "FEAT-GOV-02",
+      "name": "Project tests gate promote",
+      "description": "pytest-style project tests discovered, run and required to pass before promote.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_failing_project_test_blocks_promote",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "smoke",
+          "ref": "meta_promote_check reported 1 test passed in the sample project"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/testing.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "app/ui/estate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_estate.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Quality > Tests",
+        "preview": true
+      },
+      "limitations": [
+        "Only the tmp_path fixture"
+      ],
+      "workstream": "Git-native (FD-113)",
+      "next_action": "Fold into the Git program's validation framework (FD-113)."
+    },
+    {
+      "id": "FEAT-GOV-03",
+      "name": "Governance exceptions",
+      "description": "exceptions.toml with reason, approver and expiry that lets a gate pass until it expires.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_meta.py::test_05e_exceptions_expire",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/project.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_meta.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Project file only",
+        "preview": false
+      },
+      "limitations": [
+        "No request or approval flow, no history, no expiry view"
+      ],
+      "workstream": "Enterprise readiness (FD-129)",
+      "next_action": "Request and approval flow with history (FD-129), aligned with GOV-00x.",
+      "backlog": [
+        "PB-059"
+      ]
+    },
+    {
+      "id": "FEAT-GOV-04",
+      "name": "Who can promote and separation of duties",
+      "description": "Checks Fabric roles in every target workspace and that the person who promoted to Test doesn't promote to Prod.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_duties.py::test_the_person_who_promoted_to_test_cant_promote_to_prod",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_duties.py::test_promote_checks_roles_in_every_target_workspace"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/duties.py",
+        "sidecar/fabric_desktop/meta_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_duties.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "Promote card",
+        "preview": false
+      },
+      "limitations": [
+        "Not a security boundary",
+        "Group roles become notes",
+        "separate_promoter compares PC login names"
+      ],
+      "prs": [
+        93
+      ],
+      "workstream": "Enterprise readiness (FD-130)",
+      "next_action": "Keep; compare signed-in identities rather than PC login names.",
+      "backlog": [
+        "PB-065"
+      ]
+    },
+    {
+      "id": "FEAT-GOV-05",
+      "name": "Enterprise governance policy registry and offline validation",
+      "description": "Central versioned policies (naming, schema, quality, classification, ownership, contracts, deployment readiness) inherited enterprise to entity and validated offline.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "Enterprise governance foundation thread (GOV-001..005), 2026-10-17"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Enterprise governance foundation",
+      "next_action": "Owned by the Enterprise governance foundation thread (GOV-001 registry first).",
+      "backlog": [
+        "PB-056",
+        "PB-057"
+      ]
+    },
+    {
+      "id": "FEAT-GOV-06",
+      "name": "Sensitive data classification",
+      "description": "Classify columns and carry labels into products and Purview.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "udf.py set_classification exists with no caller in the repo"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/central/udf.py"
+      ],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Enterprise governance foundation",
+      "next_action": "Owned by the governance foundation thread; complement Purview, don't duplicate it.",
+      "backlog": [
+        "PB-060"
+      ]
+    },
+    {
+      "id": "FEAT-GOV-07",
+      "name": "Reliability objectives",
+      "description": "Per-entity success-rate objectives evaluated into incidents.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_incidents.py::test_success_rate_against_the_objective",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/objectives.py",
+        "sidecar/fabric_desktop/workloads/evaluate.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_incidents.py"
+      ],
+      "docs": [
+        "docs/metadata-guide.md"
+      ],
+      "ui": {
+        "surface": "None (agent incidents only)",
+        "preview": false
+      },
+      "workstream": "Workloads",
+      "next_action": "Show in the workload page with incidents (PB-047).",
+      "backlog": [
+        "PB-047"
+      ]
+    },
+    {
+      "id": "FEAT-MESH-01",
+      "name": "Central platform",
+      "description": "Per-environment Platform workspace with LH_Meta, LH_Landing, SQL_Platform (Fabric SQL database) and a User Data Functions app; admins, requests, grants and audit.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_only_platform_admins_create_domains_key_tables_and_sources",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_requests_for_key_tables_sources_and_access"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/central/core.py",
+        "sidecar/fabric_desktop/central/service.py",
+        "sidecar/fabric_desktop/central/setup.py",
+        "sidecar/fabric_desktop/central/udf.py",
+        "app/ui/platform.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_platform.py"
+      ],
+      "docs": [
+        "docs/platform.md"
+      ],
+      "ui": {
+        "surface": "Platform",
+        "preview": true
+      },
+      "limitations": [
+        "T-SQL tested on SQLite only",
+        "Whether UDF context exposes executing_user is unverified",
+        "setup()/join() have no tests",
+        "platform_revoke has no UI"
+      ],
+      "prs": [
+        48,
+        50
+      ],
+      "next_action": "Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).",
+      "backlog": [
+        "PB-052",
+        "PB-054"
+      ]
+    },
+    {
+      "id": "FEAT-MESH-02",
+      "name": "Central business keys",
+      "description": "Keys issued in batches by SQL_Platform UDFs with numbers kept when moved from LH_Keys.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_keys_are_issued_in_batches",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_keys_move_to_the_platform_with_their_numbers"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/central/core.py",
+        "sidecar/fabric_desktop/central/client.py",
+        "sidecar/fabric_desktop/central/migrate.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_platform.py"
+      ],
+      "docs": [
+        "docs/platform.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Surrogate keys > Move keys, Platform > Business keys",
+        "preview": true
+      },
+      "limitations": [
+        "Moving back to LH_Keys refused once new keys are issued"
+      ],
+      "next_action": "Run on Fabric SQL database before anyone moves real keys.",
+      "backlog": [
+        "PB-052"
+      ]
+    },
+    {
+      "id": "FEAT-MESH-03",
+      "name": "Landing zone and source registry",
+      "description": "One landing zone with registered sources, expected arrival and late-file flags, and who reads each.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_teams_build_bronze_from_the_one_landing_zone",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/central/service.py",
+        "app/ui/platform.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_platform.py"
+      ],
+      "docs": [
+        "docs/platform.md"
+      ],
+      "ui": {
+        "surface": "Platform > Landing zone",
+        "preview": true
+      },
+      "limitations": [
+        "Nothing in the app writes into LH_Landing",
+        "No extractors or connectors"
+      ],
+      "workstream": "Staged roadmap (FD-116)",
+      "next_action": "Guided ingestion after decision D2 (FD-116).",
+      "backlog": [
+        "PB-030"
+      ]
+    },
+    {
+      "id": "FEAT-MESH-04",
+      "name": "Data mesh: domains, products, links, glossary",
+      "description": "Domains imported from Fabric, data products with ports, links between teams' products, glossary, About text and a mesh map on Home.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Shared Services",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_an_entity_reads_another_teams_table_through_a_link",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_platform.py::test_mesh_map_lists_domains_projects_products_and_links"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/mesh.py",
+        "sidecar/fabric_desktop/central/service.py",
+        "app/ui/mesh.js",
+        "app/ui/meshmap.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_platform.py"
+      ],
+      "docs": [
+        "docs/data-mesh.md"
+      ],
+      "ui": {
+        "surface": "Data mesh > Domains, OneLake > Data products, Home",
+        "preview": true
+      },
+      "limitations": [
+        "Fabric domain import needs Tenant.Read.All and its shape is unverified"
+      ],
+      "prs": [
+        48,
+        50
+      ],
+      "next_action": "Try on a tenant (data-mesh.md: not yet).",
+      "backlog": [
+        "PB-052"
+      ]
+    },
+    {
+      "id": "FEAT-MESH-05",
+      "name": "Breaking-change check for data products",
+      "description": "Promote stops when a change drops or narrows a column another project reads, unless the product version is raised.",
+      "pillar": "Enterprise services",
+      "category": "Data Governance and Quality",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_breaking_changes.py::test_dropping_a_column_another_project_reads_blocks_the_promote",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/meta/mesh.py",
+        "sidecar/fabric_desktop/meta_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_breaking_changes.py"
+      ],
+      "docs": [
+        "docs/data-mesh.md"
+      ],
+      "ui": {
+        "surface": "Promote card",
+        "preview": false
+      },
+      "prs": [
+        71
+      ],
+      "workstream": "Staged roadmap (FD-127)",
+      "next_action": "Consumer declarations and deprecation (scale plan 8.2).",
+      "backlog": [
+        "PB-082"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-01",
+      "name": "PC schedules",
+      "description": "Notebook and metadata schedules on this PC through Windows Task Scheduler, with a lock so a run still going isn't started twice.",
+      "pillar": "Local development",
+      "category": "Pipelines and Orchestration",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schedules.py::test_task_definition_runs_the_sidecar_quietly",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_schedules.py::test_a_run_still_going_is_not_started_twice"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/local_schedules.py",
+        "sidecar/fabric_desktop/schedule_service.py",
+        "app/ui/schedules.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_schedules.py"
+      ],
+      "docs": [
+        "docs/notebooks.md"
+      ],
+      "ui": {
+        "surface": "Notebook ribbon, Data mesh, Monitor > Schedules",
+        "preview": true
+      },
+      "limitations": [
+        "Windows only; saved but never run elsewhere",
+        "Runs only while the user is signed in",
+        "Scheduled notebook runs execute frozen cells, UI runs skip them"
+      ],
+      "next_action": "Run frozen-cell rules the same as the UI; agent schedules cover Linux.",
+      "backlog": [
+        "PB-013",
+        "PB-048"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-02",
+      "name": "Headless agent",
+      "description": "fabric-desktop agent run/check/status/enqueue on Windows or Linux: SQLite queue with retries, dead letter, recovery, schedules and Teams alerts.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_queue_retries_with_backoff_then_gives_up",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_a_job_from_a_crashed_agent_runs_again_after_restart"
+        },
+        {
+          "kind": "smoke",
+          "ref": "fabric-desktop agent check without a config said where to put agent.toml"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/agent.py",
+        "sidecar/fabric_desktop/jobqueue.py",
+        "sidecar/fabric_desktop/agent_config.py",
+        "sidecar/fabric_desktop/runtime.py",
+        "deploy/agent.example.toml"
+      ],
+      "tests": [
+        "sidecar/tests/test_agent.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "CLI and agent.toml (no UI)",
+        "preview": false
+      },
+      "limitations": [
+        "Never run against a live tenant",
+        "Runs metadata environments only, not notebooks or jobs",
+        "Queue never pruned (inference)",
+        "No command to revive a dead job"
+      ],
+      "prs": [
+        34
+      ],
+      "next_action": "Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).",
+      "backlog": [
+        "PB-044"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-03",
+      "name": "OneLake write leases",
+      "description": "Per-table lease files in LH_Meta with conditional create, renew and delete so two writers don't collide.",
+      "pillar": "Enterprise services",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_leases_block_a_second_writer_until_released_or_expired",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_onelake_leases_use_conditional_requests"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/leases.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_agent.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "None (agent)",
+        "preview": false
+      },
+      "limitations": [
+        "Whether OneLake honors conditional requests is unverified",
+        "The desktop app and Fabric runs take no leases",
+        "Expiry uses the holder's clock"
+      ],
+      "next_action": "Prove OneLake honors If-None-Match/If-Match in the live test (PB-003).",
+      "backlog": [
+        "PB-003"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-04",
+      "name": "Fabric pipeline mailbox",
+      "description": "A Fabric pipeline drops a request in LH_Meta; an agent claims it once, runs it, and writes status; cancel and expiry supported.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_mailbox.py::test_a_pipeline_request_runs_and_reports_back",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_mailbox.py::test_the_same_request_runs_once_however_often_it_is_sent_or_read"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/mailbox.py",
+        "examples/pipeline/run_on_agent.ipynb"
+      ],
+      "tests": [
+        "sidecar/tests/test_mailbox.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "Fabric pipeline notebook + agent",
+        "preview": true
+      },
+      "limitations": [
+        "Not run live",
+        "submitted_by is free text",
+        "enterprise-roadmap.md still calls it unbuilt"
+      ],
+      "prs": [
+        64
+      ],
+      "next_action": "Run once on a tenant; record the writer's identity.",
+      "backlog": [
+        "PB-049",
+        "PB-077"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-05",
+      "name": "Agent status records",
+      "description": "Each agent publishes agents/<name>.json with state, counts, running jobs and recent jobs; stale after 3 status periods.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/agent_status.py",
+        "sidecar/fabric_desktop/workloads/agents.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_agent_status.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "None (read only by incident evaluation)",
+        "preview": false
+      },
+      "limitations": [
+        "No UI reads them"
+      ],
+      "prs": [
+        66
+      ],
+      "workstream": "Workloads (FD-122)",
+      "next_action": "Agent dashboard (FD-122); fix agent.md, which says workload views read these.",
+      "backlog": [
+        "PB-077",
+        "PB-091"
+      ]
+    },
+    {
+      "id": "FEAT-ORC-06",
+      "name": "Multiple workers",
+      "description": "Several agents sharing one queue with claims and a worker registry.",
+      "pillar": "Enterprise services",
+      "category": "Pipelines and Orchestration",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "jobqueue.py is per machine; docs/agent.md says one queue per agent"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Workloads (FD-124)",
+      "next_action": "Workloads program (FD-124, roadmap FD-12).",
+      "backlog": [
+        "PB-045"
+      ]
+    },
+    {
+      "id": "FEAT-OPS-01",
+      "name": "Workload inventory and workload page",
+      "description": "One list of metadata entities, notebooks and Fabric notebooks, pipelines and Spark jobs with health, owners, links and actions with preflight.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_workloads.py::test_a_source_that_cant_be_read_is_unknown_never_failing",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_workloads.py::test_ten_thousand_workloads_filter_and_page_quickly"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/workload_service.py",
+        "sidecar/fabric_desktop/workloads/inventory.py",
+        "sidecar/fabric_desktop/workloads/store.py",
+        "app/ui/workloads.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_workloads.py"
+      ],
+      "docs": [
+        "docs/workloads/plan.md"
+      ],
+      "ui": {
+        "surface": "Monitor > Workloads, Home > Your workloads",
+        "preview": true
+      },
+      "limitations": [
+        "Ownership is per PC",
+        "No agent location or queue view"
+      ],
+      "prs": [
+        63,
+        72
+      ],
+      "workstream": "Workloads",
+      "next_action": "Shared ownership (stage 2B); an 'on agents' view.",
+      "backlog": [
+        "PB-092"
+      ]
+    },
+    {
+      "id": "FEAT-OPS-02",
+      "name": "Incidents",
+      "description": "Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/workloads/incidents.py",
+        "sidecar/fabric_desktop/workloads/notify.py",
+        "sidecar/fabric_desktop/incident_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_incidents.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "Agent only; no incident screens in the app",
+        "preview": false
+      },
+      "limitations": [
+        "Six incident RPCs have no UI",
+        "Metadata tables only",
+        "workloads/plan.md describes a Delta table; code uses a JSON document"
+      ],
+      "prs": [
+        74,
+        79
+      ],
+      "workstream": "Workloads (FD-123)",
+      "next_action": "Incident screens after a mockup (stage 2.3B) (PB-047).",
+      "backlog": [
+        "PB-047",
+        "PB-077",
+        "PB-084"
+      ]
+    },
+    {
+      "id": "FEAT-OPS-03",
+      "name": "Monitor: runs from every place",
+      "description": "One list of metadata runs, Fabric jobs started here, PC schedule runs and notebook writes, plus the Fabric Monitoring hub.",
+      "pillar": "Local development",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_cloud.py::test_monitor_never_signs_in_to_refresh",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_fabric_compute.py::test_runs_from_every_environment"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/cloud_service.py",
+        "app/ui/app.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_cloud.py"
+      ],
+      "docs": [
+        "docs/user-guide.md"
+      ],
+      "ui": {
+        "surface": "Monitor > Runs",
+        "preview": false
+      },
+      "limitations": [
+        "Only jobs started from this app are tracked",
+        "fabric_runs.jsonl keeps 500 entries"
+      ],
+      "prs": [
+        58
+      ],
+      "next_action": "Show worker, host and job for agent runs."
+    },
+    {
+      "id": "FEAT-OPS-04",
+      "name": "Live test harness",
+      "description": "fabric-desktop live-test: guarded checks of sign-in, the Fabric API, OneLake files and Delta on a workspace marked for tests, with a ledger and cleanup.",
+      "pillar": "Enterprise services",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_livetest.py::test_refuses_a_workspace_not_marked_for_tests_or_that_looks_like_production",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_livetest.py::test_a_failure_midway_still_cleans_up_and_keeps_tokens_out"
+        },
+        {
+          "kind": "smoke",
+          "ref": "fabric-desktop live-test --help listed --dry-run, --cleanup and --agent-config"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/livetest.py",
+        "sidecar/fabric_desktop/cli.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_livetest.py"
+      ],
+      "docs": [
+        "docs/live-testing.md"
+      ],
+      "ui": {
+        "surface": "CLI only",
+        "preview": false
+      },
+      "limitations": [
+        "Never run",
+        "Doesn't test leases, concurrent writers, mailbox, Run in Fabric"
+      ],
+      "prs": [
+        80
+      ],
+      "workstream": "Enterprise readiness (FD-101)",
+      "next_action": "Chris runs it on a non-production workspace (PB-002); extend to leases and MERGE (PB-003).",
+      "backlog": [
+        "PB-002"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-01",
+      "name": "Cost estimates",
+      "description": "CU-seconds per Fabric run at a configurable price, what PC runs saved, capacity share by SKU.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_estate.py::test_cost_estimates_fabric_runs_and_what_local_runs_saved",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/costs.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "app/ui/estate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_estate.py"
+      ],
+      "ui": {
+        "surface": "Monitor > Cost",
+        "preview": true
+      },
+      "limitations": [
+        "Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU)",
+        "Agent runs counted as local with no measured cost"
+      ],
+      "next_action": "Calibrate against the Capacity Metrics app and label every number estimated (PB-050).",
+      "backlog": [
+        "PB-050"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-02",
+      "name": "Audit trail",
+      "description": "One hash-chained line per call that runs or changes something.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no audit module on main"
+        },
+        {
+          "kind": "doc",
+          "ref": "PR #89 open"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        89
+      ],
+      "workstream": "Enterprise readiness (FD-125)",
+      "next_action": "Merge PR #89 (FD-125).",
+      "backlog": [
+        "PB-007"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-03",
+      "name": "Backup and restore of local state",
+      "description": "Back up and restore settings, schedules, queue, workloads and receipts without sign-in tokens.",
+      "pillar": "Enterprise services",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no backup command on main"
+        },
+        {
+          "kind": "doc",
+          "ref": "PR #91 open"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        91
+      ],
+      "workstream": "Enterprise readiness (FD-126)",
+      "next_action": "Merge PR #91 (FD-126).",
+      "backlog": [
+        "PB-066"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-04",
+      "name": "Ready to work checklist",
+      "description": "First-run checklist of sign-in, capacity, workspace access and OneLake reach with fixes.",
+      "pillar": "Enterprise services",
+      "category": "Developer Experience and Productivity",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "PR #94 open (mockup accepted)"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        94
+      ],
+      "workstream": "Enterprise readiness (FD-136)",
+      "next_action": "PR #94 merged after this assessment's commit (main 4079a41); re-inventory and run the implementation review (PB-086).",
+      "backlog": [
+        "PB-086"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-05",
+      "name": "Local data retention",
+      "description": "Delete local copies of lakehouse data after a policy period.",
+      "pillar": "Enterprise services",
+      "category": "Security and Enterprise Readiness",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "PR #95 open"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        95
+      ],
+      "workstream": "Enterprise readiness (FD-131b)",
+      "next_action": "Merge PR #95 (FD-131b).",
+      "backlog": [
+        "PB-009"
+      ]
+    },
+    {
+      "id": "FEAT-ADM-06",
+      "name": "Opt-in telemetry",
+      "description": "Consent-based usage telemetry with a policy switch.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no telemetry code"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Enterprise readiness (FD-137)",
+      "next_action": "Waiting on decision D-C1 (recommendation: none until a pilot asks).",
+      "backlog": [
+        "PB-093"
+      ]
+    },
+    {
+      "id": "FEAT-SEC-01",
+      "name": "Code signing",
+      "description": "Signed exe and engine DLLs so Smart App Control and WDAC allow the engine.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": ".github/workflows/ci.yml signs only when Trusted Signing secrets exist"
+        },
+        {
+          "kind": "doc",
+          "ref": "PR #28 blocked on the Trusted Signing account"
+        }
+      ],
+      "source": [
+        ".github/workflows/ci.yml"
+      ],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        28
+      ],
+      "workstream": "Enterprise readiness (FD-103, FD-104)",
+      "next_action": "Chris creates the Azure Trusted Signing account (D-C3) (PB-001).",
+      "backlog": [
+        "PB-001"
+      ]
+    },
+    {
+      "id": "FEAT-SEC-02",
+      "name": "Content Security Policy",
+      "description": "A CSP as a second layer behind escaping in the main webview.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": "app/src-tauri/tauri.conf.json csp: null, withGlobalTauri: true"
+        }
+      ],
+      "source": [
+        "app/src-tauri/tauri.conf.json"
+      ],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Enterprise readiness (FD-102b)",
+      "next_action": "FD-102b: move notebook HTML output to another origin, then set a CSP (PB-006).",
+      "backlog": [
+        "PB-006"
+      ]
+    },
+    {
+      "id": "FEAT-SEC-03",
+      "name": "Supply chain: pinned packages, audit, SBOM, provenance",
+      "description": "Pinned Python packages, pip-audit and cargo-audit, CycloneDX SBOMs for app and engine, build provenance attestation, SHA-pinned actions in CI.",
+      "pillar": "Platform foundation",
+      "category": "Security and Enterprise Readiness",
+      "status": "Implemented",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": ".github/workflows/ci.yml audit, sbom-app, engine, release jobs"
+        },
+        {
+          "kind": "absent",
+          "ref": "CI not run in this assessment"
+        }
+      ],
+      "source": [
+        ".github/workflows/ci.yml",
+        "sidecar/constraints.txt"
+      ],
+      "docs": [
+        "docs/security.md"
+      ],
+      "ui": {
+        "surface": "Releases",
+        "preview": false
+      },
+      "limitations": [
+        "docs.yml and codex-review.yml use tag-pinned actions; zensical install unpinned",
+        "release doesn't wait for audit"
+      ],
+      "prs": [
+        86,
+        88
+      ],
+      "workstream": "Enterprise readiness (FD-103)",
+      "next_action": "Fix docs/security.md, which still says there is no scanning, SBOM or provenance; pin docs.yml and codex-review.yml actions by SHA.",
+      "backlog": [
+        "PB-010",
+        "PB-074"
+      ]
+    },
+    {
+      "id": "FEAT-REL-01",
+      "name": "Continuous release channels",
+      "description": "Every green main build replaces the Preview release; Promote to stable copies it to Stable.",
+      "pillar": "Platform foundation",
+      "category": "Reliability, Testing, and Performance",
+      "status": "Implemented",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": ".github/workflows/ci.yml release job"
+        },
+        {
+          "kind": "code",
+          "ref": ".github/workflows/promote.yml"
+        }
+      ],
+      "source": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/promote.yml"
+      ],
+      "docs": [
+        "docs/install.md"
+      ],
+      "ui": {
+        "surface": "Settings > Updates",
+        "preview": false
+      },
+      "limitations": [
+        "Only the newest build per channel",
+        "Promote can't choose a build; SBOMs not copied",
+        "cargo test never runs"
+      ],
+      "prs": [
+        111
+      ],
+      "next_action": "Per-build release assets for pinning and rollback (PB-064).",
+      "backlog": [
+        "PB-064",
+        "PB-071"
+      ]
+    },
+    {
+      "id": "FEAT-REL-02",
+      "name": "Documentation site",
+      "description": "Zensical site from docs/ with strict link checking, published to GitHub Pages.",
+      "pillar": "Platform foundation",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "code",
+          "ref": ".github/workflows/docs.yml"
+        },
+        {
+          "kind": "code",
+          "ref": "zensical.toml strict = true"
+        }
+      ],
+      "source": [
+        "zensical.toml",
+        ".github/workflows/docs.yml"
+      ],
+      "docs": [
+        "docs/README.md"
+      ],
+      "ui": {
+        "surface": "GitHub Pages",
+        "preview": false
+      },
+      "prs": [
+        40
+      ],
+      "next_action": "Keep; add docs/product to the nav (this PR)."
+    },
+    {
+      "id": "FEAT-GIT-01",
+      "name": "Source control",
+      "description": "Git on the PC: clone, status, diffs (notebook-aware), branches, commit with a secret scan, pull and push in the background.",
+      "pillar": "Local development",
+      "category": "Developer Experience and Productivity",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_git.py::test_notebook_diffs_compare_code_and_leave_outputs_out",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/git_service.py",
+        "sidecar/fabric_desktop/git/repo.py",
+        "sidecar/fabric_desktop/git/secrets.py",
+        "app/ui/git.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_git.py"
+      ],
+      "docs": [
+        "docs/source-control.md"
+      ],
+      "ui": {
+        "surface": "Source control (bottom of the rail)",
+        "preview": true
+      },
+      "limitations": [
+        "Not tried with Git Credential Manager and SSH on many PCs",
+        "No line staging, rebase, tags"
+      ],
+      "prs": [
+        85
+      ],
+      "workstream": "Git-native development",
+      "next_action": "Owned by the Git-native program."
+    },
+    {
+      "id": "FEAT-EXT-01",
+      "name": "Command-line interface",
+      "description": "fabric-desktop serve, sign-in, preview, run, history, run-schedule, agent, live-test, support-bundle.",
+      "pillar": "Platform foundation",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "status": "Implemented",
+      "verification": "Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent.py::test_cli_check_enqueue_and_status",
+          "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "smoke",
+          "ref": "fabric-desktop --help listed all nine commands"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/cli.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_agent.py"
+      ],
+      "docs": [
+        "docs/agent.md"
+      ],
+      "ui": {
+        "surface": "Terminal",
+        "preview": false
+      },
+      "next_action": "Add backup/restore (PR #91) and an mcp command (PR-AI-002)."
+    },
+    {
+      "id": "FEAT-EXT-02",
+      "name": "MCP server and local API for external AI tools",
+      "description": "Read-only MCP over stdio, a capability registry, permissions and approvals, REST and MCP over HTTP on 127.0.0.1, resources, approved execution, Settings > Integrations, audit, conformance tests.",
+      "pillar": "Enterprise services",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no integrations package on main"
+        },
+        {
+          "kind": "doc",
+          "ref": "PRs #99-#108, #110, #112 open (PR-AI-001..012); #98 plan merged"
+        }
+      ],
+      "source": [],
+      "docs": [
+        "docs/architecture/ai-integration.md"
+      ],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "prs": [
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        110,
+        112
+      ],
+      "workstream": "Bring your own AI integration",
+      "next_action": "Merge the AI integration stack in order; run docs/product/ai-integration-client-checklist.md per client.",
+      "backlog": [
+        "PB-095",
+        "PB-096"
+      ]
+    },
+    {
+      "id": "FEAT-EXT-03",
+      "name": "Extensions",
+      "description": "Extension manifest, validators, templates and third-party commands in their own process.",
+      "pillar": "Enterprise services",
+      "category": "Extensibility, APIs, CLI, and MCP",
+      "status": "Planned",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "doc",
+          "ref": "docs/git-integration-plan.md",
+          "note": "Phase 4"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Git-native development",
+      "next_action": "Owned by the Git-native program (FD-132..135).",
+      "backlog": [
+        "PB-097"
+      ]
+    },
+    {
+      "id": "FEAT-EXT-04",
+      "name": "Debugger for notebooks and pipelines",
+      "description": "Breakpoints, stepping and variable watch in an isolated kernel.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Missing",
+      "verification": "Unverified",
+      "evidence": [
+        {
+          "kind": "absent",
+          "ref": "no debugger code; prove/plan.md Stage 5 backlog #44"
+        }
+      ],
+      "source": [],
+      "ui": {
+        "surface": "None",
+        "preview": false
+      },
+      "workstream": "Prove",
+      "next_action": "Prove program Stage 5 after the process kernel is default.",
+      "backlog": [
+        "PB-026"
+      ]
+    }
+  ]
+}

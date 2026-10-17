@@ -244,13 +244,13 @@ Monitor has two halves.
 
 ### Workloads (Preview)
 
-A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). Fabric Desktop never reads your whole tenant.
+A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). Fabric Desktop by KratosBI never reads your whole tenant.
 
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by** Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
 | Column | What it means |
 | --- | --- |
-| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (Fabric Desktop couldn't read it), **Healthy**, or **No recorded runs**. |
+| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (Fabric Desktop by KratosBI couldn't read it), **Healthy**, or **No recorded runs**. |
 | **Owner** | The team or technical owner, and whether it was declared in the project's files or assigned on this PC. **No owner** when nobody is set, or when a template placeholder such as "me" is all there is. |
 | **Deployed to** | Each environment and where it runs: This PC, an agent, or Fabric and its workspace. |
 | **Last run** | How the newest recorded run ended. |
@@ -259,7 +259,7 @@ A workload is something you build and run: a metadata entity (one per table, in 
 
 The line above the list says what each source is and how fresh it is, for example "Cached 3 h · Fabric items in 4 workspaces (1 refused access)". **Refresh** reads them again.
 
-**Not observed is not failing.** When your sign-in has expired, a workspace refuses access or Fabric asks the app to slow down, the workload shows **Not observed** with the reason. That says nothing about the workload itself, only that Fabric Desktop couldn't read it. The last reading it had is shown as **Cached**, and becomes **Stale** after an hour.
+**Not observed is not failing.** When your sign-in has expired, a workspace refuses access or Fabric asks the app to slow down, the workload shows **Not observed** with the reason. That says nothing about the workload itself, only that Fabric Desktop by KratosBI couldn't read it. The last reading it had is shown as **Cached**, and becomes **Stale** after an hour.
 
 **Mine** means you are its team, technical owner, business contact or support contact, declared in the project's files or assigned on this PC. It never means "you ran it last".
 
@@ -270,7 +270,7 @@ The line above the list says what each source is and how fresh it is, for exampl
 - **Deployments:** each environment with where it runs, as whom, where its tables are, which version it runs (and **Behind** when the project has moved on), its schedules and latest run.
 - **What changed:** runs, promotions, edits to its definition, actions taken from this app and ownership changes, newest first.
 - **Who is affected:** what reads from it in the project, and the data products it feeds with their consumers. Only declared links are listed.
-- **Recent runs** and **Actions from Fabric Desktop**.
+- **Recent runs** and **Actions from Fabric Desktop by KratosBI**.
 
 **Actions say what they will do first.** **Retry**, **Run** and **Cancel the run** open a confirmation that names the environment, where it runs, as whom, what it writes and any warning (the last failure, or an environment that runs an older version). Runs go through the same paths as Data mesh > Run, Run in Fabric and Run now on a schedule. Each action is recorded as **Submitted**, then as **Succeeded** or **Failed** once the run records say how it ended. A cancel counts as succeeded only when Fabric reports the job as cancelled.
 

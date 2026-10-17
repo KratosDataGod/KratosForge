@@ -79,3 +79,12 @@ def test_create_workspace_puts_it_on_a_capacity_and_explains_a_taken_name():
     with pytest.raises(Exception, match="already exists. Pick it from the list"):
         c.create_workspace("Sales - Dev")
     assert s.calls[0][2] == {"displayName": "Sales - Dev"}
+
+
+def test_create_lakehouse_refuses_a_name_fabric_would_reject_before_calling_fabric():
+    c, s = client([])
+    with pytest.raises(ValueError, match="For example TPC_H_Benchmark"):
+        c.create_lakehouse("ws1", "TPC-H_Benchmark")
+    with pytest.raises(ValueError, match="For example LH_2024_sales"):
+        c.create_lakehouse("ws1", "2024 sales")
+    assert s.calls == []

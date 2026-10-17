@@ -241,7 +241,7 @@ class CallContext:
         """For handlers that loop: stop here if the caller cancelled or time ran out."""
         if self.cancelled:
             raise IntegrationError("cancelled", "Cancelled by the caller.")
-        if time.monotonic() > self.deadline:
+        if time.monotonic() >= self.deadline:  # >=: Windows clock ticks are ~15 ms, so a zero timeout may read as "now"
             raise IntegrationError("timeout", f"Gave up after {self.timeout:g} seconds.", retryable=True)
 
     def report(self, done: float, total: float | None = None, message: str = "") -> None:
@@ -271,7 +271,7 @@ def run_call(handler: Callable[[], Any], ctx: CallContext) -> Any:
     while not done.wait(0.05):
         if ctx.cancelled:
             raise IntegrationError("cancelled", "Cancelled by the caller.")
-        if time.monotonic() > ctx.deadline:
+        if time.monotonic() >= ctx.deadline:
             ctx.cancel()
             raise IntegrationError("timeout", f"Gave up after {ctx.timeout:g} seconds.", retryable=True,
                                    hint="Ask for less (a smaller page or limit), or use an execution and poll its status.")

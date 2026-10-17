@@ -525,7 +525,7 @@ class CloudMixin:
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
         name = (name or f"SM_{layer.title()}").strip()
         model = fabric.save_semantic_model(store.workspace_id, name, parts,
-                                           f"Direct Lake over {lakehouse}, built by Fabric Desktop from the metadata project")
+                                           f"Direct Lake over {lakehouse}, built by Fabric Desktop by KratosBI from the metadata project")
         model_id = model.get("id") or next((m["id"] for m in fabric.list_semantic_models(store.workspace_id)
                                             if m["displayName"] == name), "")
         return {"name": name, "id": model_id, "created": model.get("created", False), "workspace_id": store.workspace_id,

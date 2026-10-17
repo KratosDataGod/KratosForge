@@ -36,7 +36,7 @@ OPTIMIZE my_schema.my_table VORDER;
 VACUUM my_schema.my_table RETAIN 168 HOURS;
 ```
 
-**To stop it coming back.** Load in larger batches. For tables loaded by Fabric Desktop's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
+**To stop it coming back.** Load in larger batches. For tables loaded by Fabric Desktop by KratosBI's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
 
 ## Unidentified tables
 
@@ -50,7 +50,7 @@ VACUUM my_schema.my_table RETAIN 168 HOURS;
 
 - **Files belong in Files.** In the lakehouse explorer, move the folder from `Tables` to `Files`.
 - **It should be a table.** Load the files into a Delta table: right-click the folder in `Files` and choose **Load to Tables**, or in a notebook read them and write with `df.write.format("delta").saveAsTable("my_table")`. Then delete the original folder under `Tables`.
-- **A table written from outside Fabric** (for example by Fabric Desktop) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
+- **A table written from outside Fabric** (for example by Fabric Desktop by KratosBI) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
 
 ## Access
 

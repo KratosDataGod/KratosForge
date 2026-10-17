@@ -1,6 +1,6 @@
 # Data mesh
 
-Fabric Desktop lets many teams build on one platform without stepping on each other. A central team runs the [platform](platform.md): one business key system and one landing zone for everyone. Bronze processing is decentralized: each team builds its own Bronze from the landing zone, and everything after it; domain teams own their projects, publish **data products**, and read each other's products through **links**. Everything a team builds stays in its own Git repository.
+Fabric Desktop by KratosBI lets many teams build on one platform without stepping on each other. A central team runs the [platform](platform.md): one business key system and one landing zone for everyone. Bronze processing is decentralized: each team builds its own Bronze from the landing zone, and everything after it; domain teams own their projects, publish **data products**, and read each other's products through **links**. Everything a team builds stays in its own Git repository.
 
 !!! note "Preview"
     The Domains tabs are tagged Preview: they're tested on the PC but not yet on a live tenant.
@@ -54,14 +54,14 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). Fabric Desktop asks for it only at this step. No app registration |
+| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). Fabric Desktop by KratosBI asks for it only at this step. No app registration |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
 How the import works:
 
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
-- Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in Fabric Desktop. Owners and description are the platform's and stay as you set them.
+- Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in Fabric Desktop by KratosBI. Owners and description are the platform's and stay as you set them.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** still works for organizations that don't use Fabric domains; those show as "Only here".
@@ -109,7 +109,7 @@ entity = "gold.dim_customer"
 
 **The product gate.** A product open to anyone or to the domain can't be published, and its project can't be promoted, until it has a description and an owner and every port has a table description and a description on every column. The entity's **About** card shows what's missing.
 
-**Breaking changes.** On promote, Fabric Desktop compares each port's columns with what the catalog holds for that port in the target environment.
+**Breaking changes.** On promote, Fabric Desktop by KratosBI compares each port's columns with what the catalog holds for that port in the target environment.
 
 - **What blocks the promote.** A column dropped, or a type changed (other than widening, such as `int32` to `int64` or `float32` to `float64`), while another project reads that environment. The message names the projects, for example *port customers drops email, and 1 other project reads it in test (finance)*.
 - **What doesn't.** Added columns pass. So does anything nobody else reads yet.

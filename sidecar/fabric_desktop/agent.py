@@ -185,7 +185,7 @@ class Agent:
             return
         env = str(job["payload"].get("env", "")).title()
         try:
-            post_teams(url, f"Fabric Desktop agent {self.config.name}: a {env} job didn't finish",
+            post_teams(url, f"Fabric Desktop by KratosBI agent {self.config.name}: a {env} job didn't finish",
                        [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
         except Exception as exc:  # the log has it either way
             self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=str(exc)))

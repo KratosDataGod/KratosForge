@@ -1,6 +1,6 @@
 # Metadata framework guide
 
-The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. Fabric Desktop runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
+The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. Fabric Desktop by KratosBI runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 

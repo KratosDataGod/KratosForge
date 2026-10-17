@@ -12,6 +12,7 @@ import polars as pl
 
 from . import lakehouse
 from .meta import keys as keys_mod
+from .meta import release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -196,7 +197,8 @@ class MetaMixin:
                  "# compute = \"local\" runs on this PC, \"fabric\" on the workspace's capacity.",
                  "# keys_workspace_id is the workspace that holds LH_Keys, the surrogate keys.", ""]
         lines += ["# workspaces: a workspace per designation (ingest, product, serve, sandbox); layers pick one",
-                  "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.", ""]
+                  "# with workspace = \"...\" in layers.toml. keys = \"platform\": surrogate keys are in SQL_Platform.",
+                  "# require_commit = true: promote here only from files a pushed Git commit holds.", ""]
         for name in ENVIRONMENTS:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
@@ -425,8 +427,11 @@ class MetaMixin:
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking
+        git = release.status(project.root)
+        unreleased, more = self._release_gate(project, target, git)
+        errors += unreleased
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
-                "notes": notes}
+                "notes": notes + more, "git": git}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
@@ -436,12 +441,16 @@ class MetaMixin:
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking
+        git = release.status(project.root)
+        unreleased, release_notes = self._release_gate(project, target, git)
+        errors += unreleased
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
         uses_keys = bool(project.key_tables or project.source_systems)
         keys_store = self._keys_store(project, target, create=True) if uses_keys else None  # fails before promoting
-        result = promote(project, src, target_store, dt.date.today())
+        result = promote(project, src, target_store, dt.date.today(),
+                         release=release.record(project, source, target, git))
         if keys_store is not None:
             # Each environment issues its own keys; promote copies the source systems and seeds new key tables.
             result["keys"] = keys_mod.sync(project, keys_store)
@@ -453,6 +462,8 @@ class MetaMixin:
                 result["variable_library"] = f"not updated: {exc}"
         if notes:
             result["breaking"] = notes
+        if release_notes:
+            result["release"]["notes"] = release_notes
         if project.products:
             try:  # so other teams' links find this environment's tables
                 result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
@@ -465,6 +476,20 @@ class MetaMixin:
             except Exception as exc:  # the promote itself worked; the next run uploads again
                 result["fabric"] = f"not synced: {exc}"
         return result
+
+    def meta_git_status(self) -> dict[str, Any]:
+        """Where the project's files stand in Git (read with this PC's git; no network)."""
+        return release.status(self._project().root)
+
+    def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """Promoting files no pushed commit holds: blocked when the target environment sets
+        ``require_commit = true`` in environments.toml, otherwise a note (decision D1)."""
+        found = release.problems(git)
+        if not found or target == "dev":
+            return [], []
+        if project.environments.get(target, {}).get("require_commit"):
+            return [f"{target.title()} only takes released files: {p}" for p in found], []
+        return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 
     def _breaking_gate(self, project: Project, target: str) -> tuple[list[str], list[str]]:
         """Columns other projects read in ``target`` may not be dropped or retyped without a new

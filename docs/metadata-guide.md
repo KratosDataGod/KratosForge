@@ -261,10 +261,36 @@ Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each s
 1. Checks the gate: the project passes the save gate, the tests pass, and every table's last run in the source environment is green on this exact metadata version.
 2. Creates any missing lakehouses (`LH_<Layer>` for each layer, and `LH_Meta`) in the target workspace, and `LH_Keys` with any missing key tables in the Keys workspace.
 3. Syncs source systems to `LH_Keys` and publishes the `VL_Sources` variable library.
-4. Pins the target to this metadata version, recorded in `meta.deployments`.
+4. Pins the target to this metadata version, recorded in `meta.deployments` with a [release record](#release-records).
 5. If the target runs in Fabric, uploads the new version for its runner.
 
 Promote copies **configuration**, never data and never keys. Each environment issues its own surrogate keys from its own `LH_Keys`, and Test and Prod load from their own sources. After a promote, run the target to load it.
+
+### Release records
+
+*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. Fabric Desktop by KratosBI reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
+
+The record goes into the target's `meta.deployments` row:
+
+| Column | Meaning |
+| --- | --- |
+| `commit`, `branch` | The commit and branch the project folder was on. Empty when the folder isn't in Git |
+| `dirty` | True when files that make up the metadata version differed from that commit. Local data (`.local`), caches and `environments.toml` don't count |
+| `pushed` | True when the commit was on the upstream branch |
+| `engine_version`, `lock_hash` | The engine version, and a hash of the versions of the packages it computes with (Polars, delta-rs, DuckDB, PyArrow) |
+| `by` | The PC login name that promoted |
+| `receipt`, `receipt_id` | The whole record as a [run receipt](notebooks.md) of kind `release`, and its SHA-256 id. Anyone with the row can recompute the id to check the record wasn't changed |
+
+Rows written before this existed have these columns empty.
+
+If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
+
+```toml
+[prod]
+require_commit = true
+```
+
+Promote to that environment is then blocked until the files are committed and pushed.
 
 ### This PC or Fabric runs each environment
 
@@ -436,6 +462,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `optimize_after_run` | Optimize every table a run writes (Test and Prod) |
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
+| `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
 

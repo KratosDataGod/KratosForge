@@ -648,8 +648,10 @@ async function renderEnvTab(body, p) {
     attempt(() => rpc("meta_promote_check", { source, target })).then((res) => {
       if (!res) return;
       checks[target] = res;
-      box.replaceWith(res.errors.length ? h("div", { class: "problems" }, h("b", {}, `${res.errors.length} thing${res.errors.length === 1 ? "" : "s"} to do first`), gateList(res.errors))
-        : h("div", { class: "pass-box" }, icon("ok", 16), `Ready: metadata ${res.version} passed every check in ${ENV_LABEL[source]}${res.tests?.passed ? `, and all ${res.tests.passed} test${res.tests.passed === 1 ? "" : "s"} passed` : ""}.`));
+      const verdict = res.errors.length ? h("div", { class: "problems" }, h("b", {}, `${res.errors.length} thing${res.errors.length === 1 ? "" : "s"} to do first`), gateList(res.errors))
+        : h("div", { class: "pass-box" }, icon("ok", 16), `Ready: metadata ${res.version} passed every check in ${ENV_LABEL[source]}${res.tests?.passed ? `, and all ${res.tests.passed} test${res.tests.passed === 1 ? "" : "s"} passed` : ""}.`);
+      // Notes don't block: an unreachable catalog, a breaking version, files no pushed commit holds.
+      box.replaceWith(res.notes?.length ? h("div", {}, verdict, h("div", { class: "card pad warn-box" }, gateList(res.notes))) : verdict);
     });
     return h("div", { class: "card pad" },
       h("div", { class: "row" }, h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`), h("span", { class: "spacer" }),

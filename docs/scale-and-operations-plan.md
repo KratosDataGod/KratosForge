@@ -8,15 +8,16 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 1 | Large-table execution within machine limits | Partial | This plan | 1.1 MERGE writes ([#56](https://github.com/KratosDataGod/fabric-desktop/pull/56)), 1.2 dimensions ([#61](https://github.com/KratosDataGod/fabric-desktop/pull/61)) and 1.3 preflight ([#69](https://github.com/KratosDataGod/fabric-desktop/pull/69)), stacked in that order; 1.4 new files only ([#70](https://github.com/KratosDataGod/fabric-desktop/pull/70)), independent: in review |
+| 2026-10-16 | #56, #58, #61, #64, #66, #69, #70 and #71 merged; stage 8.1 built ([PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71)). |
+| 1 | Large-table execution within machine limits | Partial: 1.1 to 1.4 merged | This plan | 1.3's run dialog (after a mockup), then 1.5 |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
-| 5 | Integrated Git and release workflow | Partial (promote gates), Git missing | This plan | Stage 5.1 |
+| 5 | Integrated Git and release workflow | Partial: release records built | This plan | 5.1 engine in review; its status view after a mockup; then 5.2 |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
-| 7 | Fabric pipeline handoff and remote agent control | Partial | This plan | 7.1 pipeline job contract ([#64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and 7.2 agent status records ([#66](https://github.com/KratosDataGod/fabric-desktop/pull/66), stacked on #64): in review |
-| 8 | Cross-project lineage and product compatibility | Partial (products, links, consumers) | This plan | Stage 8.1 |
-| 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3): [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58); the rest there |
+| 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
+| 8 | Cross-project lineage and product compatibility | Partial: 8.1 merged | This plan | 8.3, then 8.2 |
+| 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3) merged ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
 Capabilities 2, 3, 6 and 10, and the run receipt that records what ran, are owned by the **Prove this notebook** program, which keeps its own plan in `docs/prove/plan.md` ([PR #55](https://github.com/KratosDataGod/fabric-desktop/pull/55)).
@@ -99,7 +100,7 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 ### Capability 1: large tables
 
-**1.1 Incremental writes without rewriting the table: built, [PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56).** Effort M, risk low locally, medium live.
+**1.1 Incremental writes without rewriting the table: merged, [PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56).** Effort M, risk low locally, medium live.
 
 - Outcome: an incremental run of a large table reads only the new rows and the columns it uses, and rewrites only the Parquet files that hold changed rows.
 - Change: source reads go through a lazy scan with the watermark filter and column list pushed down (Polars `scan_delta` on this PC, delta-rs's own file system for OneLake); incremental and replay writes become a Delta MERGE on the keys (or an append without keys); a rewrite still happens, and the run says why, when new rows repeat a key or a column's type changed. Full loads, rebuilds and dimensions are unchanged.
@@ -109,7 +110,7 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 - Learned: delta-rs MERGE scans every file unless the predicate bounds the keys; adding the incoming key range halved its memory. Changes spread over every file still rewrite every file, so 1.5's partitioning matters for tables updated everywhere.
 - Live validation: see [Live verification for stage 1.1](#live-verification-for-stage-11).
 
-**1.2 Dimensions without full reads: built, [PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61) (stacked on #56).** Effort M, risk medium.
+**1.2 Dimensions without full reads: merged, [PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61).** Effort M, risk medium.
 
 - Built: only the versions of the arriving business keys are read; the existing `scd1_merge`/`scd2_merge` run on that subset with the table's next key, `scd2_invariants` check it, and one MERGE on the surrogate key writes it. A Type 2 full snapshot first drops rows that change nothing. Lookups and `exists_in` checks read only their columns. Falls back to a rewrite, saying why, when most of the table's keys arrived, keys repeat or types changed.
 - Measured: a 5-million-key Type 2 dimension fed a full snapshot with 1,000 changed and 1,000 new keys went from 24.1 s, 3.7 GB and 52 MB written to 6.5 s, 2.1 GB and 5.5 MB; identical rows. 336 tests pass.
@@ -117,11 +118,11 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.3 Preflight estimate and memory guard.** Effort M, risk low. Before a run, estimate files, bytes and rows to read from the Delta log (add-action sizes, row counts and min/max statistics against the watermark), compare with the PC's free memory, and warn or stop with a plain explanation; record rows and bytes read in the run's steps. UI goes in the existing entity run dialog, after a mockup. Depends on 1.1.
 
-*Engine part built in [PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)*, stacked on #61. Delta sources only; file sources wait for 1.4. The guard stops a read when three times the estimate exceeds free memory: on a 5M-row first load the peak was 2.5 times the estimate. `[load] memory_guard = false` opts out, and `meta_preflight` serves the run dialog. The dialog itself waits for a mockup.
+*Engine part merged in [PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69).* Delta sources only; file sources wait for 1.4. The guard stops a read when three times the estimate exceeds free memory: on a 5M-row first load the peak was 2.5 times the estimate. `[load] memory_guard = false` opts out, and `meta_preflight` serves the run dialog. The dialog itself waits for a mockup.
 
 **1.4 Read only new landing files.** Effort M, risk low. A per-entity manifest in `meta` of files already loaded (path, size, modified time), so a landing or file source reads only new or changed files; idempotent on retry because the manifest is written after the table commit. Shared with ingestion (4.x). Migration: the first run after upgrade records every file already present as loaded only if the entity has run before, so nothing loads twice.
 
-*Built in [PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)*, independent of #56. The migration turned out simpler than planned. Before this, every run read every file, so the first run after upgrading reads them all once more, as it would have anyway, and records them; no file is marked loaded without being read. Incremental and dimension modes use the list. Full loads and full backfills read every file, and the backfill records them all. No new files is a successful run that writes nothing. `[source] new_files_only = false` opts out. Read settings (`new_files_only`, `memory_guard`) no longer count as logic changes. Measured locally with 31 files of 100,000 rows plus one new one: 2.8 s reading 100,000 rows, against 7.3 s reading 3.1M.
+*Merged in [PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70).* The migration turned out simpler than planned. Before this, every run read every file, so the first run after upgrading reads them all once more, as it would have anyway, and records them; no file is marked loaded without being read. Incremental and dimension modes use the list. Full loads and full backfills read every file, and the backfill records them all. No new files is a successful run that writes nothing. `[source] new_files_only = false` opts out. Read settings (`new_files_only`, `memory_guard`) no longer count as logic changes. Measured locally with 31 files of 100,000 rows plus one new one: 2.8 s reading 100,000 rows, against 7.3 s reading 3.1M.
 
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
 
@@ -133,23 +134,25 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **9.2 Heartbeats, acknowledgement and escalation.** Effort M, risk medium. The agent writes a heartbeat file to the control area; a missing heartbeat opens an incident (raised by any other agent or the desktop app). Acknowledge from the Monitor page; an unacknowledged incident escalates to a second webhook after a set time. Depends on 9.1 and the control-file foundation.
 
-**9.3 Correlate local and Fabric runs: built, [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58).** Effort S, risk low. The Fabric runner passes its request id and job instance into `run_log` through `run_context`, and Monitor shows where each run ran (PC, agent and host, or Fabric job). Independent; can go any time.
+**9.3 Correlate local and Fabric runs: merged, [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58).** Effort S, risk low. The Fabric runner passes its request id and job instance into `run_log` through `run_context`, and Monitor shows where each run ran (PC, agent and host, or Fabric job). Independent; can go any time.
 
 ### Capability 7: pipeline handoff
 
 **7.1 Request mailbox and status contract (FD-13).** Effort L, risk medium (needs FD-2 live). A Fabric pipeline writes `requests/<id>.json` to `LH_Meta/Files/_fabric_desktop/` (a notebook or Copy activity); the agent claims it with a conditional create, enqueues it with the request id as the dedupe key, writes `status/<id>.json` (accepted, running, succeeded, failed, cancelled, rejected with reason), honours `cancel/<id>` markers, and expires requests past their deadline. Authorization: who can write the folder is governed by OneLake permissions on LH_Meta; the agent also checks an allowlist of environments and entities in `agent.toml` and records the submitter (from the file's owner property, if OneLake returns it: to verify). No inbound port. A sample pipeline (Until loop over a Lookup of the status file) ships in `examples/`. Acceptance: tests for duplicate, malformed, expired, cancelled and crashed-mid-run requests; documented contract version.
 
-*Built in [PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64).* The claim is the conditional create of the status file itself, so no separate claim file is needed. A request runs only the environment whose `LH_Meta` it is written to, so OneLake permissions on that lakehouse decide who may submit. Off unless `[pipeline] enabled = true`, with an entity allowlist and a backfill opt-in. `deadline` is the latest start time. A cancel stops a request before it starts or before a retry, and a run already writing finishes. Instead of an Until/Lookup pipeline, the sample is one Python notebook (`examples/pipeline/run_on_agent.ipynb`) for a Notebook activity: it submits, waits, and fails the activity unless the run succeeded. Two things changed from this plan. The submitter is the pipeline's `submitted_by` text, because reading the file's writer from OneLake is unverified. Writing through the `/lakehouse/default` mount also needs a live check. 34 tests; 356 passed in all.
+*Merged in [PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64).* The claim is the conditional create of the status file itself, so no separate claim file is needed. A request runs only the environment whose `LH_Meta` it is written to, so OneLake permissions on that lakehouse decide who may submit. Off unless `[pipeline] enabled = true`, with an entity allowlist and a backfill opt-in. `deadline` is the latest start time. A cancel stops a request before it starts or before a retry, and a run already writing finishes. Instead of an Until/Lookup pipeline, the sample is one Python notebook (`examples/pipeline/run_on_agent.ipynb`) for a Notebook activity: it submits, waits, and fails the activity unless the run succeeded. Two things changed from this plan. The submitter is the pipeline's `submitted_by` text, because reading the file's writer from OneLake is unverified. Writing through the `/lakehouse/default` mount also needs a live check. 34 tests; 356 passed in all.
 
 **7.2 Agent status records.** Effort S, risk low. Each agent writes `agents/<name>.json` in the control area on every loop (version, host, last heartbeat, jobs running, queued, dead), in a documented, versioned shape. The desktop panels that show it belong to the Workload management program. Depends on 7.1.
 
-*Built in [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)*, stacked on #64. Contract 1 records go to `agents/<name>.json` every `agent.status_seconds`. Each record has `stale_after` (three beats) for offline detection and `running`/`stopping`/`stopped`, and it covers only its own environment's jobs, so one workspace's readers never see another's work. 6 tests; 362 passed in all.
+*Merged in [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66).* Contract 1 records go to `agents/<name>.json` every `agent.status_seconds`. Each record has `stale_after` (three beats) for offline detection and `running`/`stopping`/`stopped`, and it covers only its own environment's jobs, so one workspace's readers never see another's work. 6 tests; 362 passed in all.
 
 **7.3 Multiple workers (FD-12).** Deferred until 7.1 has run on a tenant.
 
 ### Capability 5: Git and release
 
 **5.1 Git status and recorded releases.** Effort M, risk low. The metadata page shows branch, commit, ahead/behind and uncommitted files, read with the user's own `git` (no new sign-in or scope). Promote records commit, dirty flag, app and engine versions and the dependency lock hash into `meta.deployments` (new nullable columns; old rows read as empty), using the notebook program's receipt fields. Promote to Test or Prod from uncommitted changes is blocked, depending on decision D1. Existing gates are unchanged.
+
+*Engine part built in this PR.* `meta/release.py` reads branch, commit, upstream, ahead/behind and uncommitted files with the PC's `git` (never prompts, never fetches), counting only files that make up the metadata version. Every promote writes a release receipt (the notebook program's `run-receipt@1`, kind `release`: commit, dirty, pushed, a hash per entity file, engine version, a lock hash over Polars, delta-rs, DuckDB and PyArrow versions, the login name) into new nullable `meta.deployments` columns, with its id, so the Workload management views and anyone else can check it. No remote URL is recorded, since it can hold credentials. Until D1 is answered, files no pushed commit holds are a note on the promote card, and `require_commit = true` per environment in `environments.toml` turns the note into a block. `meta_git_status` serves the status view, which waits for a mockup. The "app version" became the engine version: the sidecar is versioned with the app. 10 tests.
 
 **5.2 Meaningful diffs.** Effort M, risk low. Entity TOML diffs by meaning (contract columns added, removed or retyped, checks and keys changed) and notebook diffs by cell source with outputs stripped, shown in promote impact and before commit.
 
@@ -158,6 +161,8 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 ### Capability 8: lineage and compatibility
 
 **8.1 Breaking-change check at promote.** Effort M, risk low. When a promotion changes a published port, compare its new columns and types with every consumer's declared link `columns` in the central catalog; removed, renamed or narrowed columns that a consumer uses block the promote (or need an exception), and the result names the consumers. Added columns pass.
+
+*Merged in [PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71).* The catalog has no per-consumer column lists yet, so the check is per port: dropping a column, or changing its type other than by widening, blocks promotion to an environment another project reads, and names those projects. Raising the product's `version` lets the change through with a note, which is the agreed way to publish a breaking version. An unreachable catalog is a note, not a block. No platform schema or function change; per-consumer column lists belong to 8.2, which needs a catalog change and a function redeploy by the platform owner. 5 tests.
 
 **8.2 Versioned schema contracts.** Effort L, risk medium. Ports carry a schema version and history in the catalog; consumers declare a compatible range; deprecation sets a date, notifies consumers through the 9.1 alert path and is enforced after it. Depends on 8.1 and 9.1.
 
@@ -173,18 +178,16 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 ## Delivery sequence
 
-1. **1.1** MERGE writes and pushdown reads ([PR #56](https://github.com/KratosDataGod/fabric-desktop/pull/56), in review) and **9.3** run correlation ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58), in review).
-2. **1.2** dimensions ([PR #61](https://github.com/KratosDataGod/fabric-desktop/pull/61), stacked on #56), then **1.3** preflight ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69), stacked on #61).
-3. **7.1** pipeline job contract ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64)) and **7.2** agent status records ([PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)), built and tested locally; live use waits for FD-2 (conditional requests on OneLake).
-4. **5.1** Git status and recorded releases, after the notebook program publishes its receipt schema; then **5.2**, **8.1**.
-5. **1.4** landing manifest ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)), then **4.1** once D2 is answered.
-6. **1.5**, **5.3**, **8.2**, **8.3**, **4.2**, **4.3**, **7.3**.
+1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
+2. **5.1** Git status and recorded releases (the notebook program's receipt merged in #59), then **5.2**.
+3. **4.1** once D2 is answered.
+4. **1.5**, **5.3**, **8.3**, **8.2**, **4.2**, **4.3**, **7.3**.
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
 
 ## Decisions needed
 
-- **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? Blocks the gate part of 5.1, not the status view.
+- **D1.** Should promotion to Test and Prod require a committed, pushed revision (recommended), or only warn? 5.1 ships with a warning and a per-environment `require_commit` setting; the answer decides the default.
 - **D2.** Who creates landing-zone writers (Copy jobs into LH_Landing): only the central platform team (current assumption, matching [platform.md](platform.md)), or domain teams through a request the central team approves? Blocks 4.1.
 
 ## Dependencies outside this plan
@@ -206,6 +209,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 
 | Date | Change |
 | --- | --- |
+| 2026-10-16 | Stage 5.1 engine part built: Git status, release records in `meta.deployments`, `require_commit`. |
 | 2026-10-16 | Stage 1.4 built ([PR #70](https://github.com/KratosDataGod/fabric-desktop/pull/70)). |
 | 2026-10-16 | Stage 1.3 engine part built ([PR #69](https://github.com/KratosDataGod/fabric-desktop/pull/69)). #54 merged into #56 and #61; fixed a surrogate-key race in #61's dimension MERGE. |
 | 2026-10-16 | Stages 7.1 and 7.2 built ([PR #64](https://github.com/KratosDataGod/fabric-desktop/pull/64), [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66)). |

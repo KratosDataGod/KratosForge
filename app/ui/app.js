@@ -2202,6 +2202,11 @@ async function checkComponents(afterInstall = false) {
   else if (app.updated_to && app.updated_to !== app.commit) {
     set("app", "error", `The update didn't take: this is still build ${short(app.commit)}, not ${short(app.updated_to)}. ` +
       "Download fabric-desktop.exe again from the latest release.");
+  } else if (report.auto_update === false) {
+    // The organization rolls out builds itself (policy auto_update: false).
+    set("app", "ok", latest.commit && latest.commit !== app.commit
+      ? `Build ${short(app.commit)}. Build ${short(latest.commit)} is out; your organization rolls out updates`
+      : `Build ${short(app.commit)}. Your organization rolls out updates`);
   } else if (!latest.commit) set("app", "warn", `Build ${short(app.commit)} (${latest.channel || "stable"} channel). Could not check for a newer build: ${latest.error}`);
   else if (latest.commit === app.commit) set("app", "ok", `Up to date (build ${short(app.commit)})`);
   else {
@@ -2246,7 +2251,9 @@ async function checkComponents(afterInstall = false) {
     if (afterInstall && report.bundled) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
-        `but this app is ${short(app.commit)}. Restart Fabric Desktop by KratosBI to update it.`);
+        `but this app is ${short(app.commit)}. ` + (report.auto_update === false
+        ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
+        : "Restart Fabric Desktop by KratosBI to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }

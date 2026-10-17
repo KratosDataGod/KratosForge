@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from typing import IO
 
@@ -75,6 +76,12 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_path_info", "git_notebook_info", "audit_log"}
 
 
+# Settings > Integrations: only the app reaches these (integrations/app_service.py).
+from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E402
+
+METHODS |= INTEGRATION_METHODS
+
+
 def handle(service: Service, line: str) -> dict:
     try:
         req = json.loads(line)
@@ -139,7 +146,29 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
-    serve(stdin=sys.stdin, stdout=rpc_out)
+    _refresh_integration_launcher()
+    service = Service()
+    threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
+    serve(service, stdin=sys.stdin, stdout=rpc_out)
+
+
+def _start_integration_http(service: Service) -> None:
+    """If the person switched the local API on, start it with the engine (it stops with it)."""
+    try:
+        service.integrations_sync_http()
+    except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
+        print(f"integrations: local API not started: {exc}", file=sys.stderr)
+
+
+def _refresh_integration_launcher() -> None:
+    """After an update the engine is in a new folder: point the AI tools' launcher at it."""
+    try:
+        from .integrations.config import launcher_path, write_launcher
+        from .service import data_dir
+        if launcher_path(data_dir()).exists():
+            write_launcher(data_dir())
+    except Exception as exc:  # noqa: BLE001 - never stop the engine over this
+        print(f"integrations: could not update the launcher: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

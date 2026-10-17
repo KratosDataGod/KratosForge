@@ -166,6 +166,37 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2]), "2");
 });
 
+test("Integrations is a Preview tab in Settings, not a rail page, with no AI of its own", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(features, /integrations: "External AI tools"/);
+  assert.match(src, /id: "integrations",\s*preview: true/);
+  assert.ok(!/rail:/.test(src), "Integrations must not add a rail item");
+  assert.ok(!/api[_ ]?key|model picker|chat\(/i.test(src.replace(/no AI keys|no model picker|no chat/gi, "")), "no AI keys, models or chat");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="integrations.js"') < html.indexOf('src="settings.js"'));
+});
+
+test("every AI tool is marked untested until someone tries it", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(src, /const TESTED_TOOLS = new Set\(\);/);
+});
+
+test("an approval request shows the code and decides only through the engine", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const body = src.slice(src.indexOf("function approvalBody"), src.indexOf("async function decide"));
+  assert.match(body, /s\.content \? h\("pre"/);
+  assert.match(src, /rpc\("integrations_decide", \{ approval_id: a\.id, approve \}\)/);
+});
+
+test("extensions are switched only through the engine, marked Preview and locked by policy", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const card = src.slice(src.indexOf("function extensionsCard"), src.indexOf("async function revokeTool"));
+  assert.match(card, /rpc\("integrations_set_extension", \{ extension_id: e\.id, enabled: ev\.target\.checked \}\)/);
+  assert.match(card, /previewTag\(\)/);
+  assert.match(card, /disabled: e\.allowed \? null : true/);
+});
+
 test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};

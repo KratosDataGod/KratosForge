@@ -23,6 +23,7 @@ from ..fabric_run import compute_check
 from .core import CallContext, IntegrationError, redact_secrets
 
 MAX_PAGE = 500
+ALL = 100_000  # services that take a limit: ask for everything, then page here so total is right
 
 
 def page(rows: list[Any], offset: int = 0, limit: int = 100) -> dict[str, Any]:
@@ -178,3 +179,165 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
         out["dependencies"] = {"error": redact_secrets(str(exc))}
     out["ok"] = bool(runs["local"].get("ok"))
     return out
+
+
+# ---- Prove this notebook: plans, proofs, receipts and side-by-side runs, as metadata
+
+def _metadata_only(record: dict[str, Any]) -> dict[str, Any]:
+    """A proof, side-by-side run or receipt without data: cell outputs (which can print rows) are
+    left out and the example rows of a verification are hidden (receipts.REDACTIONS "values")."""
+    from ..receipts import redact
+    out = redact(record, ["values"])
+    for side in ("pc", "local"):
+        cells = (out.get(side) or {}).get("cells")
+        if isinstance(cells, dict):
+            for cell in cells.values():
+                if isinstance(cell, dict):
+                    cell.pop("outputs", None)
+    out.pop("_cancel", None)
+    return out
+
+
+def get_notebook_dependencies(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    return {"name": name, "dependencies": svc.notebook_dependencies(svc.notebooks.load(name)["cells"])}
+
+
+def get_notebook_environment(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    nb = svc.notebooks.load(name)
+    return {"name": name, "environment": svc.notebook_environment(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"),
+                                                                  nb.get("workspace"))}
+
+
+def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    nb = svc.notebooks.load(name)
+    return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))
+
+
+def list_proofs(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
+    rows = svc.prove_list(name or None, limit=ALL)
+    return page([_metadata_only(r) for r in rows], offset, limit)
+
+
+def get_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the proof id
+    return _metadata_only(svc.prove_status(id))
+
+
+def list_receipts(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    return page(svc.receipts_list(name or None, limit=ALL), offset, limit)
+
+
+def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the receipt id
+    got = svc.receipt_get(id)
+    return {"id": got["id"], "receipt": _metadata_only(got["receipt"]), "hidden": ["values"]}
+
+
+def list_side_by_side(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
+    rows = svc.side_by_side_list(name or None, limit=ALL)
+    return page([_metadata_only(r) for r in rows], offset, limit)
+
+
+def get_side_by_side(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the run id
+    return _metadata_only(svc.side_by_side_status(id))
+
+
+# ---- executions (executions.py): SQL, Python and notebooks run for an external tool
+
+def _executions(svc: Any) -> Any:
+    from .executions import ExecutionManager
+    if getattr(svc, "_integration_executions", None) is None:
+        svc._integration_executions = ExecutionManager(svc)
+    return svc._integration_executions
+
+
+def _view(found: Any) -> dict[str, Any]:
+    return found.view() if hasattr(found, "view") else found
+
+
+def execute_sql(svc: Any, ctx: CallContext, workspace_id: str, lakehouse_id: str, query: str, max_rows: int = 100,
+                wait_seconds: float = 30, timeout_seconds: float = 120) -> dict[str, Any]:
+    from .executions import Execution
+    mgr = _executions(svc)
+    run = Execution("sql", ctx.caller.client_id, query.strip().splitlines()[0][:120] if query.strip() else "query",
+                    {"workspace_id": workspace_id, "lakehouse_id": lakehouse_id}, timeout_seconds)
+    ref = _lakehouse_ref(svc, workspace_id, lakehouse_id)
+    return mgr.start(run, lambda r: mgr.run_sql(r, query, ref, max_rows), ctx, wait_seconds)
+
+
+def execute_python(svc: Any, ctx: CallContext, code: str, workspace_id: str = "", lakehouse_id: str = "",
+                   wait_seconds: float = 30, timeout_seconds: float = 300) -> dict[str, Any]:
+    from .executions import Execution
+    if bool(workspace_id) != bool(lakehouse_id):
+        raise ValueError("Give both workspace_id and lakehouse_id to attach a lakehouse, or neither.")
+    mgr = _executions(svc)
+    ref = _lakehouse_ref(svc, workspace_id, lakehouse_id) if lakehouse_id else None
+    run = Execution("python", ctx.caller.client_id, f"{len(code.splitlines())} lines of Python",
+                    {"workspace_id": workspace_id, "lakehouse_id": lakehouse_id} if ref else {}, timeout_seconds)
+    return mgr.start(run, lambda r: mgr.run_cells(r, [code], ref), ctx, wait_seconds)
+
+
+def run_notebook(svc: Any, ctx: CallContext, name: str, workspace_id: str = "", wait_seconds: float = 30,
+                 timeout_seconds: float = 900) -> dict[str, Any]:
+    """Run a notebook's code cells on this PC, in order, in a fresh process. ``workspace_id`` must
+    be the attached lakehouse's workspace, so a tool limited to some workspaces can't run a notebook
+    that reads another."""
+    from .executions import Execution
+    nb = svc.notebooks.load(name)
+    lakehouse = nb.get("lakehouse") or None
+    if lakehouse and lakehouse.get("workspace_id") != workspace_id:
+        raise ValueError(f"{name} reads a lakehouse in workspace {lakehouse.get('workspace_id')}; pass that as workspace_id.")
+    cells = [c.get("source") or "" for c in nb["cells"]
+             if c.get("type", "code") != "markdown" and (c.get("source") or "").strip() and not (c.get("meta") or {}).get("frozen")]
+    if not cells:
+        raise ValueError(f"{name} has no code to run.")
+    mgr = _executions(svc)
+    run = Execution("notebook", ctx.caller.client_id, name, {"notebook": name, "workspace_id": workspace_id}, timeout_seconds)
+    return mgr.start(run, lambda r: mgr.run_cells(r, cells, lakehouse, notebook=name), ctx, wait_seconds)
+
+
+def get_execution_status(svc: Any, ctx: CallContext, execution_id: str, wait_seconds: float = 0) -> dict[str, Any]:
+    found = _executions(svc).get(execution_id, ctx.caller.client_id)
+    if hasattr(found, "done") and wait_seconds:
+        found.done.wait(min(wait_seconds, max(0.0, ctx.remaining() - 1)))
+    out = _view(found)
+    out.pop("logs", None)
+    return out
+
+
+def get_execution_logs(svc: Any, ctx: CallContext, execution_id: str, offset: int = 0, limit: int = 200) -> dict[str, Any]:
+    found = _executions(svc).get(execution_id, ctx.caller.client_id)
+    logs = found.logs if hasattr(found, "logs") and not isinstance(found, dict) else found.get("logs", [])
+    return {"id": execution_id} | page(list(logs), offset, limit)
+
+
+def list_executions(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    return page(_executions(svc).list(ctx.caller.client_id, limit=ALL), offset, limit)
+
+
+def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str, Any]:
+    return _executions(svc).cancel(execution_id, ctx.caller.client_id)
+
+
+# ---- Prove this notebook: actions that ask the person first
+
+def start_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    nb = svc.notebooks.load(name)
+    return _metadata_only(svc.prove_start(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")))
+
+
+def cancel_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the proof id
+    return svc.prove_cancel(id)
+
+
+def verify_proof_table(svc: Any, ctx: CallContext, id: str, table: str, rules: dict[str, Any] | None = None,  # noqa: A002
+                       offset: int = 0) -> dict[str, Any]:
+    return svc.prove_verify(id, table, rules or None, offset, save=False)
+
+
+def delete_proof_outputs(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002
+    return svc.prove_delete_outputs(id)
+
+
+def export_receipt(svc: Any, ctx: CallContext, id: str, format: str = "markdown", hide: list[str] | None = None) -> dict[str, Any]:  # noqa: A002
+    from . import policy
+    hidden = sorted(set(hide or []) | set(policy.receipt_redactions()))
+    return svc.receipt_export(id, format, hidden) | {"hidden": hidden}

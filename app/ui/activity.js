@@ -107,9 +107,12 @@ function renderBell() {
   const bell = document.getElementById("bell");
   if (!bell) return;
   const running = activity.items.filter((i) => i.status === "running" && !i.stale).length;
-  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && new Date(i.at).getTime() > activity.seenAt).length;
-  const count = running + problems;
-  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : ""].filter(Boolean);
+  const unseen = (i) => new Date(i.at).getTime() > activity.seenAt;
+  const problems = activity.items.filter((i) => PROBLEM.has(i.status) && unseen(i)).length;
+  const notices = activity.items.filter((i) => i.notice && !PROBLEM.has(i.status) && unseen(i)).length;
+  const count = running + problems + notices;
+  const parts = [running ? `${running} running` : "", problems ? `${problems} new problem${problems === 1 ? "" : "s"}` : "",
+    notices ? `${notices} notice${notices === 1 ? "" : "s"}` : ""].filter(Boolean);
   bell.setAttribute("aria-label", `Activity${parts.length ? `, ${parts.join(", ")}` : ""}`);
   bell.title = parts.length ? `Activity: ${parts.join(", ")}` : "Activity";
   bell.classList.toggle("on", activity.open);

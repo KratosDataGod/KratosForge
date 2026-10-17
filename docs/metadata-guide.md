@@ -268,7 +268,7 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 | **Runs on: This PC / Fabric** | Where its runs execute. See below. |
 | **Schedules** (Preview) | Runs every entity on a schedule, on this PC or in Fabric. |
 
-Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it.
+Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it. Under each table it lists what changed in its settings since the version promoted there, by meaning rather than by line: *column channel added (string)*, *check returns_are_negative changed on_fail from quarantine to stop*. Comments, spacing and the order of settings don't count.
 
 **Promote to Test** (or Prod):
 

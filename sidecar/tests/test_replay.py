@@ -60,7 +60,7 @@ def lake(root: Path) -> None:
     write_deltalake(str(root / "onelake" / "dbo" / "other"), pa.table({"id": [9], "amount": [1.0]}))  # version 0
     fx = root / "files" / "Files" / "raw" / "fx.csv"
     fx.parent.mkdir(parents=True)
-    fx.write_text("currency,rate\nEUR,1.1\n")
+    fx.write_bytes(b"currency,rate\nEUR,1.1\n")  # bytes: Windows would write \r\n
 
 
 def finished(k, timeout=60):

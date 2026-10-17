@@ -221,6 +221,21 @@ def release_channels() -> list:
 NO_STABLE = "There is no stable release yet, so this PC follows Preview until there is one."
 
 
+def release_history(raw) -> list:
+    """What reached main in the month before a release's build (version.json "history"), newest
+    first. Releases from before it have none; anything malformed is dropped, not shown."""
+    items = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("title"), str) or not item["title"].strip():
+            continue
+        pr = item.get("pr")
+        commit = item.get("commit") if isinstance(item.get("commit"), str) and SHA.fullmatch(item["commit"]) else None
+        date = item.get("date") if isinstance(item.get("date"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", item["date"]) else None
+        items.append({"date": date, "title": item["title"].strip()[:300],
+                      "pr": pr if isinstance(pr, int) and not isinstance(pr, bool) and pr > 0 else None, "commit": commit})
+    return items[:200]
+
+
 def latest_release() -> dict:
     """Commit and notes of the newest exe on this PC's channel, from the release's version.json.
 
@@ -242,7 +257,8 @@ def latest_release() -> dict:
         commit = info.get("commit") or ""
         if not SHA.fullmatch(commit):
             return {"commit": None, "error": f"the release names {commit!r}, not a commit", "channel": name, "notes": "", "note": note}
-        return {"commit": commit, "error": None, "channel": name, "notes": str(info.get("notes") or ""), "note": note}
+        return {"commit": commit, "error": None, "channel": name, "notes": str(info.get("notes") or ""),
+                "history": release_history(info.get("history")), "note": note}
     return {"commit": None, "error": "No release was found.", "channel": name, "notes": "", "note": note}
 
 

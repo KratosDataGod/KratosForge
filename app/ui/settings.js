@@ -143,19 +143,45 @@ function reportProblem() {
 // ---------- What's new ----------
 
 // After an update, the release notes of the build now running, once. From the account menu,
-// whenever asked.
+// whenever asked. Below the notes, everything that reached main in the 30 days before the build
+// (version.json "history", newest first): the 10 newest show, the rest behind Show more.
 function showWhatsNew(asked = false) {
-  const notes = state.release?.commit && state.release.commit === state.commit ? state.release.notes : "";
+  const release = state.release?.commit && state.release.commit === state.commit ? state.release : null;
+  const notes = release?.notes || "";
   let seen = "";
   try { seen = localStorage.getItem("fd.whatsnew.seen") || ""; } catch { /* show it */ }
   if (!asked && (!notes || !state.commit || seen === state.commit)) return;
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
-  const lines = String(notes || "").split(/\r?\n/).map((l) => l.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+  const { lines, items } = whatsNewItems(notes, release?.history);
+  const repo = "https://github.com/KratosDataGod/fabric-desktop";
+  const day = (d) => {
+    const [y, m, dd] = String(d || "").split("-").map(Number);
+    return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  };
+  const item = (i) => h("li", {}, h("span", {}, i.title),
+    h("span", { class: "muted-text small" }, day(i.date),
+      i.pr ? [i.date ? " · " : "", h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); openLink(`${repo}/pull/${i.pr}`); } }, `#${i.pr}`)] : null));
+  const list = h("ul", { class: "whatsnew whatsnew-history" }, items.slice(0, 10).map(item));
+  const more = items.length > 10 ? btn(`Show ${items.length - 10} more`, null, () => {
+    list.append(...items.slice(10).map(item));
+    more.remove();
+  }, "tool link small whatsnew-more") : null;
   showDialog("What's new in Fabric Desktop by KratosBI", h("div", { class: "setup" },
-    lines.length ? h("ul", { class: "whatsnew" }, lines.map((l) => h("li", {}, l)))
-      : h("p", {}, "No notes for this build."),
-    h("p", { class: "muted-text small" }, `Build ${state.build || "unknown"} · ${channelLabel()}. `, learnMore("updates", "About updates"))),
+    lines.length ? h("ul", { class: "whatsnew" }, lines.map((l) => h("li", {}, l))) : null,
+    items.length ? [h("b", {}, "New in the last 30 days"), h("div", { class: "whatsnew-scroll" }, list), more] : null,
+    !lines.length && !items.length ? h("p", {}, "No notes for this build.") : null,
+    h("p", { class: "muted-text small" }, `Build ${state.build || "unknown"} · ${channelLabel()}. `, learnMore("updates", "About updates"),
+      " · ", h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); openLink(repo); } }, "Fabric Desktop on GitHub"))),
   [btn("Got it", null, closeDialog, "tool primary")]);
+}
+
+// The build's own notes, unless they only repeat the newest history item (on Preview the notes
+// are the last pull request's title), and the month's history, newest first.
+function whatsNewItems(notes, history) {
+  const items = (Array.isArray(history) ? history : []).filter((i) => i && typeof i.title === "string" && i.title.trim());
+  let lines = String(notes || "").split(/\r?\n/).map((l) => l.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+  if (lines.length === 1 && items.length && lines[0] === items[0].title.trim()) lines = [];
+  return { lines, items };
 }
 
 // ---------- Settings page ----------

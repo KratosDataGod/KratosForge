@@ -1,5 +1,5 @@
 name: Report a problem
-description: Something in Fabric Desktop is broken or doesn't work as the docs say.
+description: Something in Fabric Desktop by KratosBI is broken or doesn't work as the docs say.
 labels: ["bug"]
 body:
   - type: markdown

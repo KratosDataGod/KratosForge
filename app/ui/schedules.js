@@ -51,7 +51,7 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
       }, "tool link small"))));
 }
 
-const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with Fabric Desktop closed, while you are signed in to Windows. A run missed while the PC was off starts when it is back.";
+const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with Fabric Desktop by KratosBI closed, while you are signed in to Windows. A run missed while the PC was off starts when it is back.";
 
 // One dialog for a notebook's or an environment's schedules, on this PC or in Fabric.
 //   o.pc = { target, query, intro }   o.fabric = { intro, list(), add(schedule), remove(id), unavailable }

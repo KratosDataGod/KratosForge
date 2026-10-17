@@ -219,7 +219,7 @@ function costBody(r) {
         h("td", { class: "n" }, x.fabric_runs ? `${money(x.cost, cur)} · ${cuHours(x.cu_hours)}` : ""),
         h("td", { class: "n" }, x.local_runs ? (x.saved ? money(x.saved, cur) : x.saved_cu_hours ? `under ${money(0.01, cur)}` : "") : "")))))
       : h("p", { class: "muted-text" }, `Nothing ran in the last ${r.days} days.`),
-    h("p", { class: "muted-text small" }, "Estimates: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
+    h("p", { class: "muted-text small" }, "Estimates: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
       "Session start-up in Fabric isn't counted. Fabric's Capacity Metrics app has the billed numbers.",
       unavailable.length ? ` Left out: ${unavailable.map(([env, why]) => `${ENV_LABEL[env]} (${why})`).join(", ")}.` : ""),
   ];

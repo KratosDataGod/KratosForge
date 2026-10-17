@@ -30,7 +30,11 @@ from .jobqueue import JobQueue
 from .local_schedules import next_run
 from .logs import fields
 from .mailbox import Mailbox
+from .meta import mesh as mesh_mod
 from .runtime import Runtime
+from .workloads import evaluate, model
+from .workloads.incidents import IncidentLog
+from .workloads.notify import Outbox, send
 
 KIND_META = "meta"
 
@@ -57,6 +61,8 @@ class Agent:
         self._controls: dict[str, Any] = {}
         self.mailbox: Mailbox | None = None
         self._mailbox_at = 0.0
+        self._incidents_at = 0.0
+        self._outbox: Outbox | None = None
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
@@ -76,6 +82,51 @@ class Agent:
             except Exception as exc:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
+
+    def evaluate_incidents(self) -> dict[str, list[dict[str, Any]]]:
+        """Evaluate each environment's run log and bring its incident list up to date (workloads/
+        incidents.py); tell Teams about what opened or recovered. A failure is logged, never fatal:
+        an environment that can't be read gets a "can't evaluate" incident, and its workload
+        incidents stay as they are."""
+        changed: dict[str, list[dict[str, Any]]] = {}
+        by = f"agent {self.config.name}"
+        now = dt.datetime.fromtimestamp(self.clock()).astimezone()
+        for env in self.config.environments:
+            try:
+                log = IncidentLog(self._control(env), env, clock=self.clock)
+            except Exception as exc:  # no control area: nowhere to keep incidents, so only the log says
+                self._controls.pop(env, None)
+                self.log.warning("couldn't open the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
+                continue
+            try:
+                project = self.runtime._project()
+                runs = self.runtime.meta_runs(env, 2000)
+            except Exception as exc:
+                state, message = model.classify_error(exc)
+                signals, evaluated = [evaluate.cant_evaluate(env, state, message)], False
+            else:
+                specs = {n: e.spec for n, e in project.entities.items()}
+                signals, evaluated = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now), True
+            try:
+                changes = log.sync(signals, evaluated=evaluated, by=by)
+            except Exception as exc:
+                self._controls.pop(env, None)
+                self.log.warning("couldn't update the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
+                continue
+            for c in changes:
+                self.log.info(f"incident {c['change']}", extra=fields(env=env, incident=c["incident"]["id"],
+                                                                     title=c["incident"]["title"]))
+            changed[env] = changes
+        all_changes = [c for cs in changed.values() for c in cs]
+        if self.config.teams_webhook:  # also when nothing changed: messages left from before go out
+            if self._outbox is None:
+                self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
+            result = send(all_changes, self.config.teams_webhook, self._outbox, f"agent {self.config.name}",
+                          post_teams, self.config.incidents.digest_over)
+            if result.get("error"):
+                self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
+                                 extra=fields(queued=result["queued"], error=result["error"]))
+        return changed
 
     # ---- adding work
 
@@ -185,7 +236,7 @@ class Agent:
             return
         env = str(job["payload"].get("env", "")).title()
         try:
-            post_teams(url, f"Fabric Desktop agent {self.config.name}: a {env} job didn't finish",
+            post_teams(url, f"Fabric Desktop by KratosBI agent {self.config.name}: a {env} job didn't finish",
                        [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
         except Exception as exc:  # the log has it either way
             self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=str(exc)))
@@ -206,6 +257,10 @@ class Agent:
             if job is None:
                 break
             self._running[job["id"]] = self._pool.submit(self._guarded, job)
+        inc = self.config.incidents
+        if inc.enabled and self.clock() - self._incidents_at >= inc.seconds:
+            self._incidents_at = self.clock()
+            self.evaluate_incidents()
         if self.clock() - self._status_at >= self.config.status_seconds:
             self._status_at = self.clock()
             self.publish_status()

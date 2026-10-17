@@ -1,6 +1,6 @@
 # Working across teams
 
-Fabric Desktop runs on each person's PC, but the work it produces is shared: metadata projects in Git, workspaces and lakehouses in Fabric, keys in `LH_Keys`. This page is about setting that up so many people and several teams can work side by side without stepping on each other.
+Fabric Desktop by KratosBI runs on each person's PC, but the work it produces is shared: metadata projects in Git, workspaces and lakehouses in Fabric, keys in `LH_Keys`. This page is about setting that up so many people and several teams can work side by side without stepping on each other.
 
 ## Who does what
 
@@ -29,7 +29,7 @@ Every table is a text file, so the normal software workflow applies.
 
 **Day to day:**
 
-1. Clone the project's repository. In Fabric Desktop, **Data mesh > Or open an existing project** and pick the folder.
+1. Clone the project's repository. In Fabric Desktop by KratosBI, **Data mesh > Or open an existing project** and pick the folder.
 2. Create a branch for your change.
 3. Edit entities in the app (or in any editor). Each save runs the save gate, so you see problems before anyone reviews.
 4. Run **Dev on your own PC**. A new project's Dev keeps tables in the project's `.local` folder, which is in `.gitignore`, so every engineer has their own Dev and nobody's runs collide.

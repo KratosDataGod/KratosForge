@@ -1,6 +1,6 @@
-# Fabric Desktop documentation
+# Fabric Desktop by KratosBI documentation
 
-Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
 
 ## Start here
 
@@ -48,7 +48,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 
 ## What is tested and what isn't
 
-Fabric Desktop is new, and it's honest about what has been proven.
+Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 
 **Tested on every build**, by automated tests on Windows and Linux, against local Delta tables:
 
@@ -71,6 +71,8 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Side by side (this PC vs Fabric) and the TPC-H benchmark | Notebook ribbon |
 | Prove this notebook (isolated PC vs Fabric runs, verification, receipts) | Notebook ribbon |
 | New notebook from a template | Create |
+| Run notebooks in their own process | Settings > Preview features |
+| Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |
@@ -83,6 +85,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Platform (admins, landing zone, business keys, requests) | Platform, Settings, Data mesh > Surrogate keys |
 | Data products for everyone | OneLake > Data products |
 | Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
+| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Workloads, Home |
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

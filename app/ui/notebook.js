@@ -96,7 +96,8 @@ function renderNotebook() {
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
+      btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
+      depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
@@ -106,7 +107,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -135,6 +136,7 @@ function renderNotebook() {
       nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
   document.querySelector(".cells").scrollTop = scrollTop;
   editors.forEach((v) => v.requestMeasure());
+  depsChanged();
 }
 
 function kernelLabel() {
@@ -303,6 +305,7 @@ function renderCell(cell) {
     LANGS.map(([v, label]) => h("option", { value: v, selected: cellLang(cell) === v || null }, label))),
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
+    cell.type === "code" ? depsHead(cell) : null,
     h("span", { class: "spacer" }),
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
@@ -334,7 +337,7 @@ function renderCell(cell) {
   } else {
     box.append(h("div", { class: "editor" }, editorFor(cell).dom));
   }
-  box.append(h("div", { class: "cell-results" }, cellResults(cell)));
+  box.append(depsStrip(cell), h("div", { class: "cell-results" }, cellResults(cell)));
   node.append(gutter, box);
   return node;
 }
@@ -775,6 +778,7 @@ function editorFor(cell) {
             }
             markDirty();
             if (cell.type === "markdown") refreshOutline();
+            else depsChanged();
           }
           if (u.focusChanged && u.view.hasFocus) {
             if (state.selected !== cell.id) selectCell(cell);
@@ -1104,6 +1108,7 @@ async function runCell(cell) {
   }
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   setKernel(stopRequested ? "stopped" : "idle");
+  depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
   refreshVariables();
@@ -1171,9 +1176,23 @@ async function cancelRun() {
   }
 }
 
+// With notebooks in their own process (Settings), Stop ends only that process. Otherwise the
+// kernel is inside the engine, and the shell ends the engine.
+function kernelInOwnProcess() {
+  return state.settings?.kernel_process?.value === true;
+}
+
 async function stopKernel() {
   stopRequested = true;
+  depsRestarted();
   cancelRequested = true;
+  if (kernelInOwnProcess()) {
+    const out = await attempt(() => rpc("stop_kernel_process"), "Could not stop the kernel");
+    if (out && !out.in_engine) {  // stopped, or nothing was running
+      state.notebook?.cells.forEach((c) => { if (c.status === "queued") c.status = null; });
+      return;
+    }
+  }
   await attempt(() => invoke("stop_kernel"), "Could not stop the kernel");
   state.notebook?.cells.forEach((c) => { if (c.status === "queued") c.status = null; });
 }
@@ -1187,6 +1206,7 @@ async function restartKernel() {
     await stopKernel();
   } else if (await attempt(() => rpc("restart_kernel"), "Could not restart")) {
     state.notebook?.cells.forEach((c) => { c.count = null; });
+    depsRestarted();
     state.kernel = "idle";
     state.variables = [];
     toast("Kernel restarted. Variables were cleared.");

@@ -62,7 +62,7 @@ def findings(w: dict[str, Any]) -> list[dict[str, Any]]:
             elif run["state"] == "running":
                 add("notice", "run", f"Running in {where}", "", ev, [], env)
             elif run["state"] == "unknown":
-                add("unknown", "run", f"Last run in {where} has a status Fabric Desktop doesn't know",
+                add("unknown", "run", f"Last run in {where} has a status Fabric Desktop by KratosBI doesn't know",
                     str(run.get("native_status") or ""), ev, [], env)
         f = dep.get("freshness")
         if f and f.get("status") == "late":
@@ -74,7 +74,7 @@ def findings(w: dict[str, Any]) -> list[dict[str, Any]]:
         v = dep.get("version") or {}
         if v.get("behind"):
             add("notice", "release", f"{where} runs an older version",
-                f"{where} has version {str(v.get('deployed'))[:8]} (promoted {v.get('at') or 'earlier'}); "
+                f"{where} has version {str(v.get('deployed'))[:8]} (promoted {str(v.get('at') or 'earlier')[:10]}); "
                 f"the project is at {str(v.get('current'))[:8]}.",
                 {"source": "meta.deployments", "deployed": v.get("deployed"), "current": v.get("current")},
                 [{"action": "promote", "label": "Compare and promote"}], env)

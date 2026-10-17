@@ -21,11 +21,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import envprofile, lakehouse, proof, receipts, scorecard, verify, wizard
+from . import depgraph, envprofile, proof, receipts, scorecard, verify, wizard
 from .fabric_run import TERMINAL, fabric_ipynb
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, storage_options
-from .proof_runtime import PROOF_ROOT, ProofRuntime
+from .proof_runtime import PROOF_ROOT
 from .side_by_side import machine
 
 NOTEBOOK_JOB = "RunNotebook"
@@ -87,6 +87,10 @@ class ProveMixin:
         """Which modules each cell imports and where each is available: this PC, Fabric. Takes
         what the notebook screen sends (notebookPayload)."""
         return envprofile.check(cells, self._fabric_observed())
+
+    def notebook_dependencies(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """How the cells depend on each other, read from their code (depgraph.py)."""
+        return depgraph.graph(cells)
 
     def receipts_list(self, name: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
         return self.receipts.list(name, limit)
@@ -386,8 +390,7 @@ class ProveMixin:
         kernel = self.kernel  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = record["name"]
-        runtime = ProofRuntime(config, "pc").bind(root, options)
-        lakehouse.proof = runtime
+        kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:
             with RunMeter() as meter:
@@ -412,11 +415,10 @@ class ProveMixin:
                         pc["failed_cell"] = i + 1
                         break
         finally:
-            lakehouse.proof = None
-            runtime.restore()
+            kernel.unbind_proof()
         pc.update(meter.result())
         pc["status"] = status
-        log = runtime.finish(modules)
+        log = kernel.finish_proof(modules)
         pc["log"] = log
         return log
 

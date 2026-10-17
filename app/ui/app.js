@@ -220,6 +220,10 @@ function renderChrome() {
   } else if (state.view === "workspace" && state.openWorkspace) {
     crumbs.push(h("button", { class: "crumb", onclick: () => go("workspaces") }, "Workspaces"), h("span", {}, "/"),
       h("span", { class: "current" }, state.openWorkspace.displayName));
+  } else if (state.view === "workload" && wlPage.detail) {
+    crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
+      h("button", { class: "crumb", onclick: backToWorkloads }, "Workloads"), h("span", {}, "/"),
+      h("span", { class: "current" }, wlPage.detail.name));
   } else if (state.view === "query" && sqlPage.ref) {
     const lh = sqlPage.ref;
     crumbs.push(h("span", {}, lh.workspace_name || "Workspace"), h("span", {}, "/"),
@@ -281,14 +285,16 @@ async function renderHome() {
   const envCards = h("div", { class: "home-envs" });
   const list = h("div", { class: "muted-text" }, "Loading notebooks...");
   const xray = previewShown() ? xrayCard() : null;
+  const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
   setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop"),
+    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
     summary,
     signInCallout(),
     attention,
     h("div", { class: "home-attention", id: "home-fresh" }),
+    yours,
     h("div", { class: "home-two" },
       h("section", { class: "card pad" }, h("h2", {}, "Running now"), running),
       h("section", { class: "card pad" }, h("h2", {}, "Coming up"), upcoming)),
@@ -421,6 +427,7 @@ async function renderHome() {
 
   // The X-ray's saved scan is read last, so it never holds up the rest of Home.
   await Promise.allSettled([notebooksDone, upcomingDone, runsDone]);
+  if (onHome() && yours?.isConnected) await yours.load();  // reads every source, so after the quick parts
   if (onHome() && xray?.isConnected) loadXray(xray, false);
 }
 
@@ -457,19 +464,23 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  setView(h("div", { class: `page monitor${monitorPage.showFabric ? "" : " no-fabric"}` },
+  // Workloads takes the whole page; Fabric's hub comes back with the other panels.
+  const fabricShown = monitorPage.showFabric && monitorPage.panel !== "workloads";
+  setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
-        h("h2", {}, "From Fabric Desktop"),
+        h("h2", {}, "From Fabric Desktop by KratosBI"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
           h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
+          preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
           preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
           preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
-        h("span", { class: "muted-text" }, monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
+        h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
+          : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore("monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : "monitor")),
         h("span", { class: "spacer" }),
-        btn("Refresh", "sync", () => render(), "tool outline")),
+        monitorPage.panel === "workloads" ? null : btn("Refresh", "sync", () => render(), "tool outline")),
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -479,7 +490,7 @@ async function renderMonitor() {
           onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
         note),
       local),
-    h("section", { class: "card monitor-fabric" },
+    monitorPage.panel === "workloads" ? null : h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "In Fabric"),
         h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
@@ -491,10 +502,11 @@ async function renderMonitor() {
           btn("Open in browser", "publish", () => action("browser"), "tool outline")] : null,
         btn(monitorPage.showFabric ? "Hide" : "Show", null, toggleFabric, "tool outline")),
       monitorPage.showFabric ? slot : null)));
-  if (monitorPage.showFabric) dockFabricView(slot, "monitor", "monitor");
+  if (fabricShown) dockFabricView(slot, "monitor", "monitor");
   else invoke("fabric_view_hide").catch(() => {});
   if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
+  if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
 
   const [writes, meta, cloud, scheduled] = await Promise.all([
     attempt(() => rpc("history")),
@@ -2066,7 +2078,7 @@ registerFeature({
 });
 registerFeature({ id: "fabric", rail: { label: "Fabric", icon: "cloud", order: 60 }, views: { fabric: renderFabric } });
 registerFeature({
-  id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70 }, views: { monitor: renderMonitor },
+  id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
     { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
@@ -2151,7 +2163,7 @@ async function checkComponents(afterInstall = false) {
   const dialog = h("div", { class: "overlay" },
     h("div", { class: "dialog", role: "dialog", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
-      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop"), row("python", "Python"), row("sidecar", "Local engine")),
+      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));
   let dialogShown = false;
   function show() {
@@ -2181,7 +2193,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop by KratosBI needs Python 3.11 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2234,7 +2246,7 @@ async function checkComponents(afterInstall = false) {
     if (afterInstall && report.bundled) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
-        `but this app is ${short(app.commit)}. Restart Fabric Desktop to update it.`);
+        `but this app is ${short(app.commit)}. Restart Fabric Desktop by KratosBI to update it.`);
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }

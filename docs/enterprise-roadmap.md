@@ -1,10 +1,10 @@
 # Enterprise local execution roadmap
 
-**Develop with Fabric Desktop. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
+**Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
 
-![Fabric Desktop in a Microsoft Fabric solution](fabric-desktop-solution.png)
+![Fabric Desktop by KratosBI in a Microsoft Fabric solution](fabric-desktop-solution.png)
 
-This is the assessment and plan for growing Fabric Desktop from a desktop development app into a platform that runs Fabric-compatible data engineering on your own Windows and Linux servers. It was written on 2026-10-15 against `main` at `8edf88a`. Milestone M1, the [headless agent](agent.md), is now built.
+This is the assessment and plan for growing Fabric Desktop by KratosBI from a desktop development app into a platform that runs Fabric-compatible data engineering on your own Windows and Linux servers. It was written on 2026-10-15 against `main` at `8edf88a`. Milestone M1, the [headless agent](agent.md), is now built.
 
 Nothing in this document has been verified against a live Fabric tenant. Every Fabric API behaviour it relies on is marked as needing that check (milestone M0).
 

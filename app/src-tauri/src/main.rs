@@ -357,7 +357,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let info: Value = std::fs::read_to_string(staging.join("engine.json"))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
-        .ok_or("The engine download has no engine.json, so it is not a Fabric Desktop engine.")?;
+        .ok_or("The engine download has no engine.json, so it is not a Fabric Desktop by KratosBI engine.")?;
     let commit = info["commit"].as_str().unwrap_or_default().to_string();
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("The engine download does not say which build it is.".into());

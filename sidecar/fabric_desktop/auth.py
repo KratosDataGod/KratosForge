@@ -137,7 +137,7 @@ class Authenticator:
         if accounts:
             result = self.app.acquire_token_silent(scopes, account=accounts[0])
         if not result and not self.interactive:
-            raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop and sign in, "
+            raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop by KratosBI and sign in, "
                                "and scheduled runs will work again.")
         if not result:
             if self.broker:

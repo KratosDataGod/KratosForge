@@ -226,7 +226,24 @@ async function renderSettings() {
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
         onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
       h("span", {}, s.kernel_process.value ? "On" : "Off")),
-      s.kernel_process.source === "policy" ? "policy" : null) : null);
+      s.kernel_process.source === "policy" ? "policy" : null) : null,
+    s.kernel_process?.value && s.cell_time_limit_minutes ? limitRow("cell_time_limit_minutes", "Cell time limit",
+      "A cell that runs longer is interrupted. Variables are kept. If it doesn't stop within 30 seconds, its process is ended and variables are cleared. Proofs and side by side use the same limit.",
+      [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
+    s.kernel_process?.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
+      "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
+      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null);
+
+  // A limit from Settings: a fixed list, plus the current value when the policy file set another.
+  function limitRow(key, title, help, options) {
+    const current = Number(s[key].value || 0);
+    if (!options.some(([v]) => v === current)) options = [...options, [current, key.endsWith("_gb") ? `${current} GB` : `${current} minutes`]];
+    return settingRow(h("span", {}, title, " ", previewTag()), help,
+      h("select", { "aria-label": title, disabled: locked(key) ? true : null,
+        onchange: async (e) => { if (await saveSettings({ [key]: Number(e.target.value) })) render(); } },
+        options.map(([v, label]) => h("option", { value: v, selected: v === current ? true : null }, label))),
+      s[key].source === "policy" ? "policy" : null);
+  }
 
   // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
   const usage = await usageSection(s);
@@ -253,10 +270,21 @@ async function renderSettings() {
       s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
+  // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
+  const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
+  const tabs = previewShown() ? h("div", { class: "subtabs" },
+    [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
+      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+        label, id === "integrations" ? previewTag() : null))) : null;
+  const integrations = h("div", { class: "integrations" });
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    account, updates, previews, usage, notify, about));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, usage, notify, about].filter(Boolean)));
+  if (tab === "integrations") {
+    renderIntegrationsTab(integrations);
+    return;
+  }
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);

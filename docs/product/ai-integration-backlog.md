@@ -10,18 +10,18 @@ Built in the requested order, with one change: the capability registry (003) com
 
 | # | Item | Priority | Discovery | Depends on | PR | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 001 | Stable application service interfaces | P0 | PARTIAL | | | Planned |
-| 003 | Capability registry | P0 | MISSING | 001 | | Planned |
-| 002 | MCP server (read-only) | P0 | MISSING | 003 | | Planned |
-| 005 | Permissions and approval framework | P0 | MISSING | 002 | | Planned |
-| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | | Planned |
-| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | | Planned |
-| 007 | External execution interface | P1 | PARTIAL | 005 | | Planned |
-| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
-| 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
-| 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |
-| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | | Planned |
-| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
+| 001 | Stable application service interfaces | P0 | PARTIAL | | [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99) | Draft PR; 42 tests |
+| 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100) | Draft PR; 24 tests |
+| 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
+| 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
+| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
+| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
+| 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
+| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
+| 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
+| 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
+| 011 | Compatibility and conformance testing | P1 | MISSING | 004 | [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
+| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112) | Draft PR; the interface, checks, switch, policy key, sample extension and list-change notices; 30 tests. The manifest loader stays with the Git program |
 
 ## Items
 
@@ -53,38 +53,59 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** The engine opens no port today (by design).
 - **Plan.** `fabric-desktop integrations serve`: one Starlette app on `127.0.0.1` with `/api/v1` (REST, OpenAPI generated from the registry) and `/mcp` (Streamable HTTP). Off by default; per-client bearer tokens stored hashed; Host and Origin checks; body size, rate and concurrency limits; started and stopped by the engine; token revocation.
+- **Built.** `integrations/http_server.py` (guard, rate limiter, OpenAPI generator, Starlette app, `serve`), `fabric-desktop integrations serve --port --parent-pid`, engine RPC `integrations_set_http` and `integrations_new_token`, the engine starts the API at launch when it is switched on. Status codes: 401 no or bad token, 403 not allowed, 428 waiting for approval, 429 rate limited, 413 too large, 503 switched off.
+- **Limitations.** Loopback only, no TLS (traffic never leaves the PC). The SDK's own Streamable HTTP client is the only client tested over HTTP. Rate and concurrency limits are fixed (5 per second with bursts of 30 per tool, 4 calls at once).
 
 ### PR-AI-006: Project context and metadata resources
 
 - **Evidence.** The services exist (catalog, tables, columns, notebooks, metadata project, Prove plans) but return everything at once and include data in previews.
 - **Plan.** MCP resources and resource templates with stable `fabric-desktop://` URIs, paging, size limits, schema-only by default, redaction of secrets in notebook text.
+- **Built.** A `resource` URI template on registry entries (checked when registered: read-only, no approval, every required input in the URI, no two alike), `Registry.resolve`, MCP `resources/list`, `resources/templates/list` and `resources/read` generated from it, REST `/api/v1/resources`. 22 resources. Nine Prove capabilities (notebook dependencies, environment, proof plan; proofs, receipts, side-by-side runs, list and get) that leave out cell outputs and example rows. Every result now passes through secret redaction in `invoke`, not only errors.
+- **Limitations.** `side_by_side_writes` (PR #81) is added once that merges. Resource subscriptions and change notifications are not offered. A receipt read through a tool always hides example rows, even for a tool with `READ_DATA`.
 
 ### PR-AI-007: External execution interface
 
 - **Evidence.** Kernel with start, poll, interrupt and stop (`notebook.py`, `kernel_proc.py`); SQL engine; Prove's own status pattern. No execution ids outside Prove.
 - **Plan.** `integrations/executions.py`: ids, states, logs, capped output, timeouts, cancellation; SQL read-only and sandboxed (DuckDB `enable_external_access = false`); Python and notebooks in a process kernel only; approval every call.
+- **Built.** `integrations/executions.py` (ExecutionManager, records on disk, wait/timeout/cancel), `sql.run(sandbox=True)` and `Service.run_sql(sandbox=True)`, seven capabilities (execute SQL, execute Python, run notebook, status, logs, list, cancel) and Prove's five actions with their real permissions. Code gets only a storage token and can't write tables through the engine; workspace-limited tools can't run code.
+- **Limitations.** Notebooks run on this PC only. Per-cell memory limits wait for the Prove program's work. No state is kept between Python runs. The approval for a notebook run names the notebook rather than showing its code.
 
 ### PR-AI-008: Connection experience
 
 - **Plan.** A section in **Settings** (the left rail is full): on/off switches, server status, clients with their permissions, copyable configuration for stdio and HTTP, connection test, pending approvals, recent external operations, troubleshooting. Mockup first. No chat, no model picker, no API keys for AI services.
+- **Built.** `app/ui/integrations.js`: an **Integrations** tab (Preview) in Settings next to **General**, following the mockup: on/off switch (policy-locked variant), how tools connect (MCP launcher, local HTTP API switch, capability counts and list), connected tools (Test, Edit, Revoke, new token), the two-step **Add a tool** with ready-to-paste setup and **Test connection** (starts the real MCP server through the launcher), an approval prompt that opens over any page, recent activity and troubleshooting. Engine RPC `integrations_pending`, `integrations_activity`, `integrations_test`. Command bar: **Connect an AI tool**. User guide section **External AI tools**.
+- **Limitations.** No Windows notification when the app is in the background (the window title shows the count); that needs a shell change. Recent activity shows approvals and executions; every call arrives with the audit log (PR-AI-010).
 
 ### PR-AI-009: Reusable agent instructions
 
 - **Plan.** `docs/ai/`: vendor-neutral instructions and workflow templates (also served as MCP prompts), and configuration examples for Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot, and any MCP client, each marked tested or untested.
+- **Built.** Six workflows in `integrations/prompts.py` (explore a lakehouse, review a notebook, prepare a proof, investigate a proof, answer with SQL, check the metadata project), served as MCP prompts and written out in [docs/ai/workflows.md](../ai/workflows.md); [docs/ai/README.md](../ai/README.md) with the setup for each tool, generated from the same code as the app's **Copy setup**; [docs/ai/agent-instructions.md](../ai/agent-instructions.md) to paste into `AGENTS.md`, `CLAUDE.md`, Cursor rules or Copilot instructions. Prompts only describe tool calls; they read nothing, run nothing and need no permission.
+- **Tests.** Prompts render and refuse missing or unknown arguments; every tool a prompt or the instructions name exists; prompts don't suggest actions the tools can't take; `prompts/list` and `prompts/get` through the SDK client; the docs carry each prompt and each setup exactly as the code has them.
+- **Limitations.** Every AI tool's setup is **Untested**: no tool has been run against it. Prompt arguments are free text (capped at 500 characters) placed into the steps; a prompt is a suggestion to the AI tool, not a control.
 
 ### PR-AI-010: Audit and observability
 
 - **Evidence.** PR #89 adds the audit trail for UI calls.
 - **Plan.** Every external call adds an audit line with channel (`mcp-stdio`, `mcp-http`, `api`), client id, capability, execution id, permission decision, outcome and error class, with redacted arguments; the Integrations page shows the recent ones.
+- **Built.** `integrations/audit.py`, called from `Registry.invoke` for every call and from the HTTP guard for refused requests (throttled to one line per reason and caller every 10 seconds). Lines go to `integrations/audit/audit-YYYY-MM.jsonl` and the store, written in a store transaction so the hash chain holds across the MCP and HTTP processes. **Recent activity** now lists every call with its decision and result (and the execution's state), and **Check the trail** verifies the chain. Same line format and chain as PR #89, in a separate folder so the two never write one file.
+- **Tests.** Allowed, refused, invalid, failed and unknown-tool calls; approved, denied and unanswered approvals; no code, query or token in any line; an audit failure doesn't fail the call; tampering is detected; three processes writing at once keep one unbroken chain; refused HTTP requests recorded and a flood throttled; MCP calls carry their channel; Recent activity and the check through the app's RPC.
+- **Limitations.** The trail is local and can be deleted by anyone who controls the PC. The in-app RPC (the person at the keyboard) is audited by PR #89, not here. When #89 merges, `fabric-desktop audit --folder` reads these files; until then the check is in Settings.
 
 ### PR-AI-011: Compatibility and conformance testing
 
 - **Plan.** Protocol tests through the SDK client over stdio, in-memory and Streamable HTTP (initialize, negotiation, discovery, schemas, auth, approvals, cancellation, errors, restart, disconnect, large responses, invalid input, concurrency); REST tests against the OpenAPI document; a manual test checklist per client. Uses the MCP conformance suite if it can run offline in CI.
+- **Built.** `tests/test_integrations_conformance.py`: one set of checks (initialize and negotiation, schemas, annotations, resources, templates, prompts, output schemas, error shape, concurrency) through the in-memory server, the real stdio process and the real Streamable HTTP server, on both protocol eras; restart and revocation across stdio processes; REST against its own OpenAPI document. The [AI tool test checklist](ai-integration-client-checklist.md) is the manual test for each AI tool, with a coverage table of what is automated. The MCP project's conformance suite 0.1.16 was run by hand; `tests/mcp_conformance_server.py` starts the server for it.
+- **Not in CI.** The MCP conformance suite needs Node and a download, and most of its scenarios need its own reference tools, so it isn't run on every build; the results are recorded in the checklist.
+- **Limitations.** No AI tool has been through the checklist yet, so every tool stays **Untested**.
 
 ### PR-AI-012: Extension integration
 
 - **Evidence.** No extension framework yet (Git program Phase 4).
 - **Plan.** The registration interface with validation, enable and disable, list-changed notifications, and a sample built-in extension; the manifest loader is left to the Git program.
+- **Built.** `integrations/extensions.py`: `Extension` (id, name, version, publisher, declared permissions, capabilities) and `ExtensionHost`, the one way an extension reaches the registry. It checks that capability ids carry the extension's prefix and never `fabric_desktop_`, that permissions are ones the extension declared, that resources stay under `fabric-desktop://ext/<id>/`, and registers all of an extension's capabilities or none. Extensions are off until the person turns each on (**Settings > Integrations > Extensions**, Preview); the policy key `integrations_extensions` limits which can be, failing closed. Every MCP and HTTP server process syncs from the store every 2 seconds and tells connected clients `tools/list_changed` and `resources/list_changed` (on the connection at 2025-11-25, on `subscriptions/listen` at 2026-07-28). Sample: the built-in **Notebook outline** (`notebook_outline_get`, read metadata only: headings, functions and classes, never code).
+- **Tests.** Every check refuses what it should; off by default; the switch reaches another registry (another process); the policy takes an extension away and an unreadable policy allows none; all-or-nothing registration; a new version reloads; calls go through permissions and the audit; the sample as a tool and a resource; list-change notices in memory on both eras, over Streamable HTTP on both eras, and from the real stdio process when the switch changes in the app; the page's RPC; the card is Preview and switches only through the engine.
+- **Not done here.** The manifest, installing extensions from anywhere, signing and running an extension in its own process (Git-native program, Phase 4; its loader calls `ExtensionHost.add`). No Git capability is added.
+- **Limitations.** An extension runs in the engine with the engine's rights, so only extensions shipped with the app exist. The Extensions card wasn't in the Integrations mockup. No AI tool has been seen reacting to the list-change notices yet.
 
 ## Remaining risks
 

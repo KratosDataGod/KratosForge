@@ -13,6 +13,24 @@ test("every UI script parses", () => {
   }
 });
 
+// The page's scripts share one global scope, so a top-level name declared in two of them makes
+// the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
+test("no two page scripts declare the same top-level name", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  assert.ok(scripts.length > 10, "index.html scripts not found");
+  const owner = new Map();
+  const clashes = [];
+  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
+  for (const name of scripts) {
+    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
+      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+      else owner.set(id, name);
+    }
+  }
+  assert.deepStrictEqual(clashes, []);
+});
+
 // esc and inlineMd from app.js, without the rest of the page.
 function markdownHelpers() {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -52,6 +70,17 @@ test("an engine ended for not answering says so, and that variables were cleared
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
+});
+
+test("a cell stopped by a limit from Settings is recognised, and other errors aren't", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function limitStop\([\s\S]*?\n}\n/)[0]}; this.limitStop = limitStop;`, ctx);
+  assert.strictEqual(ctx.limitStop({ ename: "TimeLimit", evalue: "Stopped: this cell ran longer than the 1 hour limit set in Settings." }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: the notebook used more than 8 GB, the memory limit set in Settings. Its process was ended." }), "memory");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: this cell ran longer than the 15 minute limit set in Settings and didn't stop when interrupted" }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "The notebook's Python process stopped (exit code 3)" }), null);
+  assert.strictEqual(ctx.limitStop({ ename: "ValueError", evalue: "the memory limit set in Settings" }), null);
 });
 
 test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
@@ -164,6 +193,37 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.deepStrictEqual([...plan.before], ["b"]);
   assert.strictEqual(depsList([2, 3, 4]), "2, 3 and 4");
   assert.strictEqual(depsList([2]), "2");
+});
+
+test("Integrations is a Preview tab in Settings, not a rail page, with no AI of its own", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(features, /integrations: "External AI tools"/);
+  assert.match(src, /id: "integrations",\s*preview: true/);
+  assert.ok(!/rail:/.test(src), "Integrations must not add a rail item");
+  assert.ok(!/api[_ ]?key|model picker|chat\(/i.test(src.replace(/no AI keys|no model picker|no chat/gi, "")), "no AI keys, models or chat");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="integrations.js"') < html.indexOf('src="settings.js"'));
+});
+
+test("every AI tool is marked untested until someone tries it", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(src, /const TESTED_TOOLS = new Set\(\);/);
+});
+
+test("an approval request shows the code and decides only through the engine", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const body = src.slice(src.indexOf("function approvalBody"), src.indexOf("async function decide"));
+  assert.match(body, /s\.content \? h\("pre"/);
+  assert.match(src, /rpc\("integrations_decide", \{ approval_id: a\.id, approve \}\)/);
+});
+
+test("extensions are switched only through the engine, marked Preview and locked by policy", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const card = src.slice(src.indexOf("function extensionsCard"), src.indexOf("async function revokeTool"));
+  assert.match(card, /rpc\("integrations_set_extension", \{ extension_id: e\.id, enabled: ev\.target\.checked \}\)/);
+  assert.match(card, /previewTag\(\)/);
+  assert.match(card, /disabled: e\.allowed \? null : true/);
 });
 
 test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
@@ -282,4 +342,32 @@ test("side by side pairs removed and added lines and keeps context on both sides
   assert.strictEqual(rows[4].left.text, "d");
   assert.deepStrictEqual({ ...gitSplitPath("notebooks/load.ipynb") }, { name: "load.ipynb", dir: "notebooks" });
   assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
+});
+
+test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
+    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
+  const ctx = {};
+  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
+  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
+  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
+  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
+  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
+  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+});
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });

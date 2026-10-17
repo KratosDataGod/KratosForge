@@ -60,7 +60,7 @@ With your own app, Fabric Desktop by KratosBI signs in with the browser (not Win
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
-| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and capacity size for the cost view | On first use |
+| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and the size and status of each environment's capacity (Monitor > Cost, Data mesh > Environments) | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
 | Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
@@ -142,6 +142,25 @@ The agent runs with nobody signed in, so it can't use a person's sign-in. A **ma
 | Key Vault (only if the agent reads secrets, roadmap M2) | **Key Vault Secrets User** role for the identity | Reading source secrets |
 
 Schedules on a PC (Windows Task Scheduler) are different: they run as the person who set them up, with their saved sign-in, and need nothing here.
+
+## External AI tools
+
+People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool never receives a token and works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. Integrations are off until the person switches them on, and IT can keep them off.
+
+Each connected tool gets some of these categories, in alphabetical order:
+
+| Category | Lets the tool | In this release |
+| --- | --- | --- |
+| `DEPLOY_TO_FABRIC` | Publish, promote and deploy | Not offered |
+| `EXECUTE_LOCAL_CODE` | Run Python and notebooks on the PC, as the person | Offered; the person approves every run |
+| `MANAGE_CONNECTIONS` | Manage connections and credentials | Never offered |
+| `MODIFY_FABRIC_ARTIFACTS` | Create or change Fabric items | Not offered |
+| `READ_DATA` | Read rows: previews and query results | Offered; asks first unless the person pre-approves it for that tool |
+| `READ_METADATA` | Read names, structure, schemas, checks and run status | Offered; every connected tool has it |
+| `WRITE_LOCAL_FILES` | Create and change notebooks in the notebook folder on the PC | Offered; asks first unless pre-approved |
+| `WRITE_ONELAKE` | Write tables and files in OneLake | Not offered |
+
+Policy keys `integrations`, `integrations_http`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
 
 ## Keeping this page right
 

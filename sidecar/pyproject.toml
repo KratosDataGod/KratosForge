@@ -24,6 +24,9 @@ dependencies = [
     "typing_extensions>=4.6",
     # Windows has no system time zone database; pyarrow needs one to show timestamps with a time zone.
     "tzdata; sys_platform == 'win32'",
+    # External AI tools reach the engine through the Model Context Protocol (fabric_desktop.integrations).
+    # The official SDK; it also brings the local HTTP server (starlette, uvicorn) the local API uses.
+    "mcp>=2.3,<3",
 ]
 
 [project.optional-dependencies]

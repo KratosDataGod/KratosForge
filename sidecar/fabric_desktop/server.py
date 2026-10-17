@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from typing import IO
 
@@ -27,6 +28,9 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
+           "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
+           "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
+           "governance_unassign", "governance_applicability", "governance_resolve",
            "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
@@ -42,7 +46,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
-           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings",
+           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -70,6 +74,17 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
+
+
+# Settings > Integrations: only the app reaches these (integrations/app_service.py).
+from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E402
+
+METHODS |= INTEGRATION_METHODS
+
+# Local data projects (localdata_service.py): SQL over files on this PC.
+from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
+
+METHODS |= LOCAL_DATA_METHODS
 
 
 def handle(service: Service, line: str) -> dict:
@@ -148,7 +163,29 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
-    serve(stdin=sys.stdin, stdout=rpc_out)
+    _refresh_integration_launcher()
+    service = Service()
+    threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
+    serve(service, stdin=sys.stdin, stdout=rpc_out)
+
+
+def _start_integration_http(service: Service) -> None:
+    """If the person switched the local API on, start it with the engine (it stops with it)."""
+    try:
+        service.integrations_sync_http()
+    except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
+        print(f"integrations: local API not started: {exc}", file=sys.stderr)
+
+
+def _refresh_integration_launcher() -> None:
+    """After an update the engine is in a new folder: point the AI tools' launcher at it."""
+    try:
+        from .integrations.config import launcher_path, write_launcher
+        from .service import data_dir
+        if launcher_path(data_dir()).exists():
+            write_launcher(data_dir())
+    except Exception as exc:  # noqa: BLE001 - never stop the engine over this
+        print(f"integrations: could not update the launcher: {exc}", file=sys.stderr)
 
 
 if __name__ == "__main__":

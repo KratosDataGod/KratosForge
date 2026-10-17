@@ -84,6 +84,18 @@ except ImportError:  # pragma: no cover - depends on merge order
         return text
 
 
+def redact_result(value: Any) -> Any:
+    """Every string in a result, with secrets removed. Applied to every capability's result, so a
+    token that slipped into a notebook, a log line or a receipt doesn't leave through a tool."""
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if isinstance(value, dict):
+        return {k: redact_result(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_result(v) for v in value]
+    return value
+
+
 def _status_of(exc: BaseException) -> int | None:
     response = getattr(exc, "response", None)
     return getattr(response, "status_code", None)
@@ -222,6 +234,8 @@ class CallContext:
     started: float = field(default_factory=time.monotonic)
     cancel_event: threading.Event = field(default_factory=threading.Event)
     progress: Callable[[float, float | None, str], None] | None = None
+    seconds: float = 0.0  # how long the handler ran, set by Registry.invoke
+    decision: str = ""  # "allowed" or "approved", set by the authorizer; for the audit line
 
     @property
     def deadline(self) -> float:

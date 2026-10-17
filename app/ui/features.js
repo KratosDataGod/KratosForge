@@ -42,6 +42,7 @@ const PREVIEW_FEATURES = {
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   cost: "Cost",
+  capacity: "Capacity status",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",
@@ -54,6 +55,7 @@ const PREVIEW_FEATURES = {
   platform: "Platform",
   sourceControl: "Source control",
   workloads: "Workloads",
+  integrations: "External AI tools",
 };
 
 function previewShown() {

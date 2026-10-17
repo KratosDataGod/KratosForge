@@ -54,6 +54,8 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
            "workload_preflight", "workload_act", "workload_actions",
+           "incidents_list", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
+           "incident_resolve",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",

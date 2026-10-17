@@ -278,6 +278,10 @@ function renderChrome() {
     crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
       h("button", { class: "crumb", onclick: backToWorkloads }, "Workloads"), h("span", {}, "/"),
       h("span", { class: "current" }, wlPage.detail.name));
+  } else if (state.view === "incident" && incPage.detail) {
+    crumbs.push(h("button", { class: "crumb", onclick: () => { monitorPage.panel = "runs"; go("monitor"); } }, "Monitor"), h("span", {}, "/"),
+      h("button", { class: "crumb", onclick: backToIncidents }, "Incidents"), h("span", {}, "/"),
+      h("span", { class: "current" }, incPage.detail.title));
   } else if (state.view === "query" && sqlPage.ref) {
     const lh = sqlPage.ref;
     crumbs.push(h("span", {}, lh.workspace_name || "Workspace"), h("span", {}, "/"),
@@ -519,8 +523,9 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads takes the whole page; Fabric's hub comes back with the other panels.
-  const fabricShown = monitorPage.showFabric && monitorPage.panel !== "workloads";
+  // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
+  const wide = monitorPage.panel === "workloads" || monitorPage.panel === "incidents";
+  const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
@@ -528,14 +533,16 @@ async function renderMonitor() {
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
           h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
           preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
+          preview("incidents", h("button", { class: monitorPage.panel === "incidents" ? "on" : null, onclick: () => { monitorPage.panel = "incidents"; render(); } }, "Incidents")),
           preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
           preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
         h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
+          : monitorPage.panel === "incidents" ? "One record per problem, shared by everyone who can read the environment"
           : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : "monitor")),
         h("span", { class: "spacer" }),
-        monitorPage.panel === "workloads" ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -545,7 +552,7 @@ async function renderMonitor() {
           onchange: (e) => { monitorPage.problemsFirst = e.target.checked; render(); } }), "Problems first"),
         note),
       local),
-    monitorPage.panel === "workloads" ? null : h("section", { class: "card monitor-fabric" },
+    wide ? null : h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "In Fabric"),
         h("span", { class: "muted-text" }, "Fabric's own Monitoring hub, for everything else in your workspaces"),
@@ -562,6 +569,7 @@ async function renderMonitor() {
   if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
+  if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
 
   const [writes, meta, cloud, scheduled] = await Promise.all([
     attempt(() => rpc("history")),

@@ -48,7 +48,49 @@ class IncidentMixin:
             return {"env": env, "incidents": [], "observation": model.observation("Incidents", state, detail=message)}
         for i in items:
             i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
-        return {"env": env, "incidents": items, "observation": model.observation("Incidents", "live", model.now())}
+        return {"env": env, "incidents": items, "observation": model.observation("Incidents", "live", model.now()),
+                "user": self._wl_user(), "agents": self._incident_agents(env)}  # type: ignore[attr-defined]
+
+    def _incident_agents(self, env: str) -> dict[str, Any]:
+        """Which agents serve ``env`` and whether they check its incidents on a timer, from their
+        status records. ``readable`` is false when the records couldn't be listed."""
+        try:
+            records = read_status(self._incident_log(env).backend)
+        except Exception as exc:  # noqa: BLE001
+            return {"readable": False, "detail": model.classify_error(exc)[1], "agents": []}
+        now = dt.datetime.now(dt.timezone.utc)
+        out = []
+        for r in records:
+            try:
+                stale = dt.datetime.fromisoformat(str(r.get("stale_after")).replace("Z", "+00:00"))
+                live = stale.tzinfo is not None and now < stale
+            except ValueError:
+                live = False
+            state = "stopped" if r.get("state") == "stopped" else "live" if live else "offline"
+            inc = r.get("incidents") if isinstance(r.get("incidents"), dict) else None  # None: an agent too old to say
+            out.append({"agent": r.get("agent"), "host": r.get("host"), "version": r.get("version"), "state": state,
+                        "heartbeat_at": r.get("heartbeat_at"), "incidents": inc})
+        return {"readable": True, "agents": sorted(out, key=lambda a: str(a["agent"]))}
+
+    def incidents_summary(self, workload: str = "") -> dict[str, Any]:
+        """Active incidents per environment, for the environment chips and a workload's page. With
+        ``workload``, only that workload's. An environment that can't be read says so."""
+        envs = []
+        for env in ENVIRONMENTS:
+            try:
+                items = self._incident_log(env).active()
+            except Exception as exc:  # noqa: BLE001
+                state, message = model.classify_error(exc)
+                envs.append({"env": env, "count": None, "incidents": [],
+                             "observation": model.observation("Incidents", state, detail=message)})
+                continue
+            if workload:
+                items = [i for i in items if i.get("workload") == workload]
+            for i in items:
+                i["kind_label"] = KIND_LABELS.get(i["kind"], i["kind"])
+            envs.append({"env": env, "count": len(items), "incidents": items,
+                         "observation": model.observation("Incidents", "live", model.now())})
+        return {"envs": envs, "user": self._wl_user()}  # type: ignore[attr-defined]
 
     def incidents_evaluate(self, env: str, notify: bool = False) -> dict[str, Any]:
         """Evaluate the environment now and update its incidents; with ``notify``, tell Teams."""

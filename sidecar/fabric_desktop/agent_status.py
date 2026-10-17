@@ -13,6 +13,9 @@ Record, contract 1::
      "state": "running" | "stopping" | "stopped", "env": "prod", "environments": ["test", "prod"],
      "started_at": "...Z", "heartbeat_at": "...Z", "stale_after": "...Z", "status_seconds": 60,
      "concurrency": 1, "pipeline": {"enabled": true, "entities": [...], "allow_backfill": false},
+     "incidents": {"enabled": true, "seconds": 300, "quiet_hours": "22:00-06:00", "quiet_except": ["critical"],
+                   "escalate_after_minutes": 60, "escalate_to": "on-call",
+                   "routes": [{"name", "teams", "owners", "criticality", "kinds", "envs"}]},  # no webhooks
      "counts": {"queued": 0, "running": 1, ...},           # this environment's jobs
      "running": [{"job_id", "source", "attempts", "entities", "started_at"}],
      "schedules": [{"id", "next"}],                         # this environment's schedules
@@ -59,6 +62,7 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
         "status_seconds": cfg.status_seconds, "concurrency": cfg.concurrency,
         "pipeline": {"enabled": pipeline.enabled and env in pipeline.environments,
                      "entities": list(pipeline.entities), "allow_backfill": pipeline.allow_backfill},
+        "incidents": incidents_summary(cfg.incidents),
         "counts": queue.counts(env),
         "running": [{"job_id": j["id"], "source": j["source"], "attempts": j["attempts"],
                      "entities": j["payload"].get("entities") or [], "started_at": _iso(j["started_at"])}
@@ -68,6 +72,16 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
                     "finished_at": _iso(j["finished_at"]), "error": (j["error"] or "")[:300] or None}
                    for j in finished[:RECENT]],
     }
+
+
+def incidents_summary(inc: Any) -> dict[str, Any]:
+    """What the app shows about this agent's incident checks: whether it checks, how often, and
+    where messages go by route name. Webhook addresses and the variables holding them are left out."""
+    return {"enabled": bool(inc.enabled), "seconds": inc.seconds, "quiet_hours": inc.quiet_hours,
+            "quiet_except": list(inc.quiet_except), "escalate_after_minutes": inc.escalate_after_minutes,
+            "escalate_to": inc.escalate_to,
+            "routes": [{k: (list(v) if isinstance(v, tuple) else v) for k, v in r.items() if k != "webhook_env"}
+                       for r in inc.routes]}
 
 
 def publish(backend: Any, name: str, body: dict[str, Any]) -> None:

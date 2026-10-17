@@ -18,8 +18,10 @@ import requests
 
 from .meta import Engine, impact
 from .meta import compare as compare_mod
+from .meta import diff as diff_mod
 from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
+from .meta import release
 from .meta.project import ENVIRONMENTS
 
 
@@ -65,14 +67,61 @@ class DataOpsMixin:
             return {"source": source, "target": target, "tables": [], "problem": str(exc)}
         ok = log.filter(pl.col("status") == "ok")
         last = {r["entity"]: r for r in ok.iter_rows(named=True)}  # sorted by time, so the last one wins
+        try:  # what each table's settings change, against the version deployed there
+            deployed = self._deployed_entities(project, target)
+        except Exception:  # noqa: BLE001 - the run log is enough for the states
+            deployed = None
+        diffs = {d["entity"]: d for d in diff_mod.project_changes(deployed, self._entity_texts(project))} \
+            if deployed is not None else {}
         tables = []
         for name in sorted(project.entities):
             run = last.get(name)
             fp = project.fingerprint(project.entities[name])
             state = "new" if run is None else "changed" if run["logic"] != fp else "same"
             tables.append({"entity": name, "state": state, "last_run": run["started_at"] if run else None,
-                           "rows": run["rows_written"] if run else None})
-        return {"source": source, "target": target, "tables": tables, "problem": None}
+                           "rows": run["rows_written"] if run else None,
+                           "changes": diffs[name]["changes"] if name in diffs else []})
+        return {"source": source, "target": target, "tables": tables, "problem": None,
+                "removed": sorted(n for n, d in diffs.items() if d["state"] == "removed")}
+
+    # ---- meaningful diffs
+
+    def _entity_texts(self, project: Any) -> dict[str, str]:
+        return {name: e.path.read_text(encoding="utf-8") for name, e in project.entities.items()}
+
+    def _deployed_entities(self, project: Any, env: str) -> dict[str, str] | None:
+        """{name: config text} as promote last copied them to ``env``; None if it never was."""
+        store = self._store(project, env)  # type: ignore[attr-defined]
+        deps = store.meta("deployments").filter(pl.col("env") == env)
+        if not deps.height:
+            return None
+        version = deps["version"][-1]
+        rows = store.meta("entities").filter(pl.col("version") == version)
+        return {r["name"]: r["config"] for r in rows.iter_rows(named=True)}
+
+    def meta_diff(self, against: str = "head") -> dict[str, Any]:
+        """What the project's tables change by meaning, against the last Git commit ("head") or
+        the version last promoted to an environment ("test", "prod")."""
+        project = self._project()  # type: ignore[attr-defined]
+        if against == "head":
+            files = release.committed(project.root, "metadata/entities", ".toml")
+            if files is None:
+                return {"against": against, "entities": [], "problem": "The project isn't in Git, or nothing is committed yet."}
+            base = {}
+            for rel, text in files.items():
+                name = (diff_mod.parse(text) or {}).get("name") or rel.rsplit("/", 1)[-1][:-len(".toml")]
+                base[name] = text
+        elif against in ENVIRONMENTS:
+            try:
+                base = self._deployed_entities(project, against)
+            except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
+                return {"against": against, "entities": [], "problem": str(exc)}
+            if base is None:
+                return {"against": against, "entities": [], "problem": f"Nothing has been promoted to {against.title()} yet."}
+        else:
+            raise ValueError(f"Compare against head or one of {', '.join(ENVIRONMENTS)}")
+        return {"against": against, "entities": diff_mod.project_changes(base, self._entity_texts(project)),
+                "problem": None}
 
     # ---- schema drift
 

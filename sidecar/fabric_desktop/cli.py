@@ -33,10 +33,6 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
-    bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
-                                                   "with secrets and personal details taken out")
-    bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
-    bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
     p = sub.add_parser("backup", help="save this PC's settings, notebooks, schedules and history to a zip "
                                       "(never sign-in tokens)")
     p.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -73,8 +69,6 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command in ("backup", "restore"):
         raise SystemExit(_backup(args))
-    if args.command == "live-test":
-        raise SystemExit(_live_test(args))
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
         return

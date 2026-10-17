@@ -33,6 +33,7 @@ A program that can already run commands as you on this PC. It can read your file
 | Flooding or huge requests | Body size limit, per-client rate limit, concurrency limit, output caps | HTTP server, executions |
 | A revoked client keeps going | Every call checks the client record; revoking stops the next call | Permissions |
 | Lower-privilege interface changes policy | IT policy keys are read only from the policy file; integrations can't change settings | Policy |
+| An extension widens what tools can do, or imitates a core capability | Extensions are off until the person turns each on and can be limited by policy; ids, permissions and resources are checked against what the extension declares; core ids and URIs are reserved; every call goes through the same `invoke`, permissions, approvals and audit; registration is all or nothing | Extensions (`integrations/extensions.py`) |
 | Untraceable actions | One hash-chained audit line per external call and per refused HTTP request, with client, channel, capability, decision and outcome; code and queries not recorded, secrets removed | Audit (`integrations/audit.py`) |
 | Large responses exhaust memory or context | Paging, response size limits, row limits | Resources, executions |
 
@@ -45,8 +46,9 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | `integrations` | `false` turns external AI integration off on this PC; the switch in Settings shows "Set by your organization" |
 | `integrations_max_permissions` | The permission categories clients may be granted, for example `["READ_METADATA", "READ_DATA"]`; anything else can't be granted |
 | `integrations_http` | `false` stops the local HTTP API being switched on |
+| `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
 
-A value of the wrong type fails closed: integrations off, or only `READ_METADATA`, or no HTTP.
+A value of the wrong type fails closed: integrations off, or only `READ_METADATA`, or no HTTP, or no extensions.
 
 ## Residual risks
 
@@ -55,4 +57,5 @@ A value of the wrong type fails closed: integrations off, or only `READ_METADATA
 - Approving a notebook run shows the notebook's name, not its code. External tools can't change notebooks in this release, so the code is what you saved.
 - Token redaction recognises known shapes (JWTs, bearer headers, SAS signatures, key-value secrets); a secret in an unusual format can pass through.
 - The audit trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which the chain check can't see. Ship `integrations\audit` to a log store if that matters.
+- An extension's code runs inside the engine with the engine's rights. Only extensions shipped with the app exist in this release; installing others, signing and isolating them is the Git-native program's Phase 4.
 - Integration settings and approvals are files in your Windows profile; anything running as you can change them (see "What it does not protect against").

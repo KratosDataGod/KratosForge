@@ -189,6 +189,14 @@ test("an approval request shows the code and decides only through the engine", (
   assert.match(src, /rpc\("integrations_decide", \{ approval_id: a\.id, approve \}\)/);
 });
 
+test("extensions are switched only through the engine, marked Preview and locked by policy", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const card = src.slice(src.indexOf("function extensionsCard"), src.indexOf("async function revokeTool"));
+  assert.match(card, /rpc\("integrations_set_extension", \{ extension_id: e\.id, enabled: ev\.target\.checked \}\)/);
+  assert.match(card, /previewTag\(\)/);
+  assert.match(card, /disabled: e\.allowed \? null : true/);
+});
+
 test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};

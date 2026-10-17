@@ -8,8 +8,8 @@ Which external tools have been tried with Fabric Desktop by KratosBI, how, and w
 | --- | --- |
 | MCP protocol versions | 2025-06-18 and 2025-11-25 (handshake era) and 2026-07-28, negotiated by the MCP Python SDK |
 | Transports | stdio (default); Streamable HTTP on `127.0.0.1` when switched on |
-| Server features | Tools, resources and resource templates, prompts, list-changed notifications, cancellation, progress |
-| Not supported | SSE transport (deprecated by MCP), remote (non-loopback) HTTP, OAuth authorization server |
+| Server features | Tools, resources and resource templates, prompts, tool and resource list-changed notifications (on the connection at 2025-11-25, on `subscriptions/listen` at 2026-07-28), cancellation |
+| Not supported | SSE transport (deprecated by MCP), remote (non-loopback) HTTP, OAuth authorization server, progress notifications |
 
 ## Clients
 

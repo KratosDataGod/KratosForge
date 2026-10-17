@@ -142,6 +142,7 @@ class Registry:
         self._caps: dict[str, Capability] = {}
         self._lock = threading.RLock()
         self._listeners: list[Callable[[], None]] = []
+        self.version = 0  # goes up whenever capabilities are added or removed
         self.authorizer: Authorizer = authorizer or ReadOnlyAuthorizer()
         # Called once per invoke with (ctx, capability id, permission, arguments, arrived at,
         # seconds, error or None, execution id). IntegrationAudit.record in the servers.
@@ -226,6 +227,7 @@ class Registry:
         return lambda: self._listeners.remove(listener) if listener in self._listeners else None
 
     def _changed(self) -> None:
+        self.version += 1
         for listener in list(self._listeners):
             try:
                 listener()

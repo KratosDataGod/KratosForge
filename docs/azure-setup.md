@@ -71,6 +71,7 @@ A policy file that sets everything an organization usually wants:
 | `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
 | `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
 | `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
+| `integrations_extensions` | A list of extension ids, for example `["notebook-outline"]`; `[]` for none | Which extensions people can turn on in Settings > Integrations |
 
 A key that is misspelled or has the wrong kind of value (`"false"` in quotes instead of `false`) is ignored, and **Settings > Help and about** lists what was ignored and why. Check there after you push a new file.
 

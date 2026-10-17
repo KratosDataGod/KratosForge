@@ -79,3 +79,20 @@ def test_test_connection_refuses_revoked(svc):
     svc.integrations_revoke_client(client["id"])
     with pytest.raises(LookupError):
         svc.integrations_test(client["id"])
+
+
+def test_extensions_are_listed_and_switched_from_the_page(svc):
+    assert "integrations_set_extension" in server.METHODS
+    status = svc.integrations_status()
+    outline = next(e for e in status["extensions"] if e["id"] == "notebook-outline")
+    assert outline["enabled"] is False and outline["built_in"] and outline["capabilities"][0]["id"] == "notebook_outline_get"
+    assert "notebook_outline_get" not in [c["id"] for c in status["capabilities"]]
+
+    status = svc.integrations_set_extension("notebook-outline", True)
+    assert next(e for e in status["extensions"] if e["id"] == "notebook-outline")["loaded"]
+    assert "notebook_outline_get" in [c["id"] for c in status["capabilities"]]
+
+    status = svc.integrations_set_extension("notebook-outline", False)
+    assert "notebook_outline_get" not in [c["id"] for c in status["capabilities"]]
+    with pytest.raises(ValueError, match="no extension"):
+        svc.integrations_set_extension("nope", True)

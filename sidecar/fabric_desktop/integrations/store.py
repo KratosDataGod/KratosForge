@@ -44,7 +44,8 @@ PENDING_SECONDS = 300      # a request nobody answers is dropped after 5 minutes
 APPROVED_SECONDS = 600     # an approval must be used within 10 minutes
 MAX_ARGUMENT_TEXT = 20_000
 
-DEFAULT_SETTINGS: dict[str, Any] = {"enabled": False, "http_enabled": False, "http_port": 47615}
+DEFAULT_SETTINGS: dict[str, Any] = {"enabled": False, "http_enabled": False, "http_port": 47615,
+                                    "extensions": {}}  # extension id -> on (extensions.py)
 
 
 def args_hash(capability: str, arguments: dict[str, Any]) -> str:

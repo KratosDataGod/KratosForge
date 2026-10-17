@@ -310,7 +310,7 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 ## Settings
 
-Open Settings from the gear at the bottom of the left rail, or from the account menu.
+Open Settings from the gear at the bottom of the left rail, or from the account menu. Settings has two tabs: **General**, below, and **Integrations** (Preview), which connects [external AI tools](#external-ai-tools).
 
 | Section | What's there |
 | --- | --- |
@@ -326,6 +326,25 @@ Anything your organization has set shows "Set by your organization" and can't be
 ### Platform settings
 
 Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
+
+### External AI tools
+
+**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. Fabric Desktop by KratosBI has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
+
+1. Turn on **Let AI tools connect**. It's off until you do, and your organization can keep it off.
+2. **Add a tool**: pick it, name it, and choose what it may do. **Read metadata** (names, structure, schemas, checks, no rows) is always included. **Read data** reads rows. **Run code on this PC** runs Python and notebooks, and asks you every time.
+3. Paste the setup it shows into your tool once, then **Test connection**. The setup uses a command whose path stays the same after updates.
+
+When a tool asks for something that needs you, a prompt opens over whatever page you're on, showing the tool, what it wants to do, on what, and any code in full. **Allow once** lets that exact request through one time; **Deny** refuses it. A tool can't approve anything itself, and text it sends can't either. Requests nobody answers are dropped after 5 minutes. Fabric Desktop by KratosBI must be open for you to see them.
+
+| Part of the tab | What it's for |
+| --- | --- |
+| **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
+| **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code) or makes a new HTTP token. **Revoke** stops it at once. |
+| **Extensions** (Preview) | Extra capabilities tools can use, each off until you turn it on. The built-in **Notebook outline** lets a tool read a notebook's headings, functions and classes without its code. A tool still needs the permission an extension asks for, and anything that runs code still asks you. Tools that are connected see the change within a few seconds. Your organization can limit which extensions can be turned on. |
+| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
+
+Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Setup for each tool, workflows and instructions to paste into it: [Connect your AI tool](ai/README.md). Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
 
 ## Updates
 
@@ -355,3 +374,31 @@ Ideas and feature requests go to the ideas forum instead: see [Submitting ideas]
 ## For IT admins
 
 Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
+
+### Audit trail
+
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+
+Each line says:
+
+| Field | What it holds |
+| --- | --- |
+| `at`, `seconds` | When it started (UTC) and how long it took |
+| `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
+| `who`, `tenant` | The account signed in to the app, and its tenant |
+| `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
+| `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+
+Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
+
+To read it, or to check that no line was changed or removed since it was written:
+
+```powershell
+fabric-desktop audit --limit 20                      # the newest 20 lines
+fabric-desktop audit --action meta_promote           # only promotes
+fabric-desktop audit --verify                        # exit code 1 if the chain is broken
+fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
+```
+
+The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

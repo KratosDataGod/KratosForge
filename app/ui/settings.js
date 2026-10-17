@@ -250,10 +250,21 @@ async function renderSettings() {
       s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
+  // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
+  const tab = previewShown() && state.settingsTab === "integrations" ? "integrations" : "general";
+  const tabs = previewShown() ? h("div", { class: "subtabs" },
+    [["general", "General"], ["integrations", "Integrations"]].map(([id, label]) =>
+      h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
+        label, id === "integrations" ? previewTag() : null))) : null;
+  const integrations = h("div", { class: "integrations" });
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    account, updates, previews, notify, about));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, notify, about]));
+  if (tab === "integrations") {
+    renderIntegrationsTab(integrations);
+    return;
+  }
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);

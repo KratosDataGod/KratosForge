@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 from . import agent_status
 from .agent_config import AgentConfig
+from .audit import AuditLog
 from .dataops_service import post_teams
 from .jobqueue import JobQueue
 from .local_schedules import next_run
@@ -65,6 +66,7 @@ class Agent:
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
         self._outbox: Outbox | None = None
+        self.audit = AuditLog(config.home / "audit", app="agent")
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
@@ -209,6 +211,7 @@ class Agent:
         except Exception as exc:
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
+            self._audit(job, "error", time.monotonic() - t0, error=error)
             if is_retryable(exc):
                 after = self.queue.retry_later(job["id"], owner, error)
                 self.log.warning("job will retry" if after and after["state"] == "queued" else "job gave up",
@@ -226,6 +229,8 @@ class Agent:
         summary = self._summary(results)
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
         retry = [r["entity"] for r in failed if r.get("retryable")]
+        self._audit(job, "error" if failed else "ok", seconds,
+                    error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
         if not failed:
             self.queue.succeed(job["id"], owner, summary)
             self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
@@ -244,6 +249,17 @@ class Agent:
             self.queue.fail(job["id"], owner, error, summary)
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
+
+    def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
+        """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
+        p = job["payload"]
+        params = {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
+                  "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
+                  "attempt": job["attempts"], "agent": self.config.name, **summary}
+        try:
+            self.audit.record("agent_job", outcome, seconds, params, error=error)
+        except Exception as exc:  # a full disk mustn't stop the job; the log has it
+            self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
 
     def _narrow(self, job_id: str, entities: list[str]) -> None:
         """A retry runs only the tables that didn't finish; the rest are written already."""

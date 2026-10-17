@@ -191,9 +191,9 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-020](#pb-020) | Local Warehouse simulation | P3 | SQL development sprint | XL | Proposed |
-| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | In progress |
-| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | In progress |
-| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | In progress |
+| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | In review |
+| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | In review |
+| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | In review |
 | [PB-024](#pb-024) | Native Warehouse and SQL database connectivity | P3 | SQL development sprint | L | Proposed |
 | [PB-025](#pb-025) | SQL object explorer | P2 | SQL development sprint | M | Proposed |
 | [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | Proposed |
@@ -215,40 +215,43 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-021
 
-**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · In progress
+**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · In review
 
 - **Problem:** The SQL page is a plain textarea with no completion or formatting.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-001).
-- **Current-state evidence:** app/ui/app.js SQL page uses a textarea
+- **Current-state evidence:** app/ui/app.js SQL page uses a textarea; PR #118 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-001)
+- **Pull requests:** [#118](https://github.com/KratosDataGod/fabric-desktop/pull/118)
 - **Acceptance criteria:**
     - As defined in SQL-001 by its owning thread
 
 ### PB-022
 
-**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · In progress
+**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · In review
 
 - **Problem:** Spark SQL translated to DuckDB can succeed locally and still fail in Fabric (or the reverse), and nothing says so.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-002).
-- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report
+- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report; PR #120 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-002)
+- **Pull requests:** [#120](https://github.com/KratosDataGod/fabric-desktop/pull/120)
 - **Acceptance criteria:**
     - As defined in SQL-002 by its owning thread
 
 ### PB-023
 
-**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · In progress
+**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · In review
 
 - **Problem:** SQL queries can't be cancelled, show only the first 1,000 rows, and Download CSV runs the query again.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-003).
-- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL
+- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL; PR #134 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)
 - **Owner:** SQL development sprint (SQL-003)
+- **Pull requests:** [#134](https://github.com/KratosDataGod/fabric-desktop/pull/134)
 - **Acceptance criteria:**
     - As defined in SQL-003 by its owning thread
 
@@ -405,7 +408,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-030](#pb-030) | Data pipeline and Copy job scope after decision D2 | P3 | Staged roadmap | L | Proposed |
-| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In progress |
+| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In review |
 | [PB-036](#pb-036) | Pipeline activity compatibility registry | P1 | Local Fabric pipeline execution | M | Proposed |
 | [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | Proposed |
 | [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | Proposed |
@@ -429,14 +432,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-035
 
-**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · In progress
+**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · In review
 
 - **Problem:** Fabric Data pipeline definitions can't be read, validated or run outside Fabric.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).
-- **Current-state evidence:** No pipeline definition parsing in the repo
+- **Current-state evidence:** No pipeline definition parsing in the repo; PR #130 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-FAB-10](FEATURE_INVENTORY.md#feat-fab-10)
 - **Dependencies:** none
 - **Owner:** Local Fabric pipeline execution (ORCH-001)
+- **Pull requests:** [#130](https://github.com/KratosDataGod/fabric-desktop/pull/130)
 - **Acceptance criteria:**
     - As defined in ORCH-001 by its owning thread
 
@@ -677,25 +681,26 @@ review moves it to Accepted; a merge alone does neither.
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In progress |
+| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In review |
 | [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Proposed |
 | [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Proposed |
 | [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
-| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Proposed |
+| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | In review |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Proposed |
 | [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Proposed |
-| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | Proposed |
+| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
 
 ### PB-056
 
-**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · In progress
+**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · In review
 
 - **Problem:** Policies (naming, schema, quality, classification, ownership) live in project files with no central, versioned source.
 - **Proposed capability:** Owned and specified by the Enterprise governance foundation thread (GOV-001).
-- **Current-state evidence:** No policy registry in the repo
+- **Current-state evidence:** No policy registry in the repo; PR #119 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
 - **Dependencies:** Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise governance foundation (GOV-001)
+- **Pull requests:** [#119](https://github.com/KratosDataGod/fabric-desktop/pull/119)
 - **Acceptance criteria:**
     - As defined in GOV-001 by its owning thread
 
@@ -740,14 +745,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-081
 
-**Column lineage view** · P1 (score 3.06) · M · confidence High · Proposed
+**Column lineage view** · P1 (score 3.06) · M · confidence High · In review
 
 - **Problem:** Column lineage is computed but no screen shows it.
 - **Proposed capability:** A lineage view after a mockup, as the staged roadmap plans.
-- **Current-state evidence:** meta_lineage has no caller in app/ui
+- **Current-state evidence:** meta_lineage has no caller in app/ui; PR #124 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-META-17](FEATURE_INVENTORY.md#feat-meta-17)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-128)
+- **Pull requests:** [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
 - **Acceptance criteria:**
     - As defined in FD-128 by its owning program
 
@@ -779,14 +785,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-084
 
-**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · Proposed
+**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · In review
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
+- **Pull requests:** [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
 - **Acceptance criteria:**
     - A late table produces one Teams message
 
@@ -801,7 +808,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
 | [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | In review |
 | [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Proposed |
-| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In progress |
+| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In review |
 
 ### PB-034
 
@@ -881,7 +888,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** First-run failures (no capacity, no workspace access) appear as errors later.
 - **Proposed capability:** Built by the enterprise program as FD-136 (PR #94).
-- **Current-state evidence:** PR #94 merged after this assessment's commit
+- **Current-state evidence:** PR #94 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-04](FEATURE_INVENTORY.md#feat-adm-04)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-136)
@@ -905,14 +912,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-100
 
-**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In progress
+**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In review
 
 - **Problem:** The What's new dialog shows only the current build, so people who skip updates miss what changed.
 - **Proposed capability:** Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.
-- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link)
+- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link); PR #132 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** none
 - **Owner:** Fuller What's new dialog
+- **Pull requests:** [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
 - **Acceptance criteria:**
     - As defined by its owning thread
 
@@ -921,14 +929,14 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-017](#pb-017) | Local vs Fabric execution advisor | P1 | Administration and FinOps sprint | M | Proposed |
-| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | Proposed |
-| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | In progress |
-| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | Proposed |
+| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | In review |
+| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | In review |
+| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | In review |
 | [PB-089](#pb-089) | Measured CU import and reconciliation | P2 | Administration and FinOps sprint | L | Proposed |
 | [PB-090](#pb-090) | Preflight risk analyzer | P1 | Administration and FinOps sprint | M | Proposed |
-| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | Proposed |
+| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | In review |
 | [PB-092](#pb-092) | Shared workload ownership | P3 | Workload management | M | Proposed |
-| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | Proposed |
+| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | In review |
 | [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Proposed |
 
 ### PB-017
@@ -946,40 +954,43 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-047
 
-**Incident screens** · P2 (score 2.27) · M · confidence High · Proposed
+**Incident screens** · P2 (score 2.27) · M · confidence High · In review
 
 - **Problem:** The incident engine runs only in the agent; the app has six incident methods and no screen.
 - **Proposed capability:** Incident list and detail with acknowledge, assign, resolve, after a mockup.
-- **Current-state evidence:** incident_service.py RPCs have no caller in app/ui
+- **Current-state evidence:** incident_service.py RPCs have no caller in app/ui; PR #125 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-GOV-07](FEATURE_INVENTORY.md#feat-gov-07), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123, Workloads stage 2.3B)
+- **Pull requests:** [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125)
 - **Acceptance criteria:**
     - As defined in FD-123 by its owning program
 
 ### PB-050
 
-**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · In progress
+**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · In review
 
 - **Problem:** Cost panel figures are estimates from fixed defaults and aren't calibrated against the Capacity Metrics app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-001).
-- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU
+- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU; PR #117 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01), [FEAT-PRV-05](FEATURE_INVENTORY.md#feat-prv-05)
 - **Dependencies:** none
 - **Owner:** Administration and FinOps sprint (FINOPS-001)
 - **Merged duplicates:** Calibrate cost estimates against the Capacity Metrics app (feature inventory, FEAT-ADM-01)
+- **Pull requests:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
 - **Acceptance criteria:**
     - As defined in FINOPS-001 by its owning thread
 
 ### PB-088
 
-**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · Proposed
+**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · In review
 
 - **Problem:** Admins can't see their capacities' size, state and load from the app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-002).
-- **Current-state evidence:** fabric_api.py lists capacities only
+- **Current-state evidence:** fabric_api.py lists capacities only; PR #123 merged 2026-10-17; awaiting implementation review
 - **Dependencies:** [PB-050](#pb-050)
 - **Owner:** Administration and FinOps sprint (FINOPS-002)
+- **Pull requests:** [#123](https://github.com/KratosDataGod/fabric-desktop/pull/123)
 - **Acceptance criteria:**
     - As defined in FINOPS-002 by its owning thread
 
@@ -1010,14 +1021,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-091
 
-**Agent dashboard** · P2 (score 2.4) · M · confidence High · Proposed
+**Agent dashboard** · P2 (score 2.4) · M · confidence High · In review
 
 - **Problem:** Agent status records are written but nothing shows them.
 - **Proposed capability:** Agent list, queue and availability view.
-- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents
+- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents; PR #133 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-122)
+- **Pull requests:** [#133](https://github.com/KratosDataGod/fabric-desktop/pull/133)
 - **Acceptance criteria:**
     - As defined in FD-122 by its owning program
 
@@ -1036,14 +1048,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-093
 
-**Telemetry decision** · P3 (score 1.15) · M · confidence Low · Proposed
+**Telemetry decision** · P3 (score 1.15) · M · confidence Low · In review
 
 - **Problem:** There is no usage data, and whether to collect any is undecided.
 - **Proposed capability:** Decision D-C1, then build only what it allows.
-- **Current-state evidence:** No telemetry code
+- **Current-state evidence:** No telemetry code; PR #121 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-06](FEATURE_INVENTORY.md#feat-adm-06)
 - **Dependencies:** Product-owner decision D-C1
 - **Owner:** Enterprise readiness (FD-137)
+- **Pull requests:** [#121](https://github.com/KratosDataGod/fabric-desktop/pull/121)
 - **Acceptance criteria:**
     - D-C1 recorded
     - Nothing is collected without consent and a policy switch
@@ -1076,7 +1089,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** External AI tools can't see or drive the app's capabilities.
 - **Proposed capability:** The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.
-- **Current-state evidence:** PRs #99-#108, #110, #112 open; #98 plan merged
+- **Current-state evidence:** PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
 - **Dependencies:** Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Bring your own AI integration (PR-AI-001..012)
@@ -1192,7 +1205,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Nothing records who ran or changed what in a tamper-evident way.
 - **Proposed capability:** Hash-chained audit lines, built in PR #89.
-- **Current-state evidence:** PR #89 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #89 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-02](FEATURE_INVENTORY.md#feat-adm-02), [FEAT-PRV-03](FEATURE_INVENTORY.md#feat-prv-03)
 - **Dependencies:** Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-125)
@@ -1223,7 +1236,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Copies of lakehouse data stay on PCs indefinitely.
 - **Proposed capability:** Built in PR #95 (FD-131b).
-- **Current-state evidence:** PR #95 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #95 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-05](FEATURE_INVENTORY.md#feat-adm-05)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1376,7 +1389,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Settings, schedules, queue and receipts can't be backed up.
 - **Proposed capability:** Built in PR #91 (FD-126).
-- **Current-state evidence:** PR #91 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #91 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-03](FEATURE_INVENTORY.md#feat-adm-03)
 - **Dependencies:** Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-126)
@@ -1475,7 +1488,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Side by side writes real tables twice; Prove does the same check in sandboxes.
 - **Proposed capability:** Keep the benchmark, retire the correctness path.
-- **Current-state evidence:** side_by_side.py; PR #114 open
+- **Current-state evidence:** side_by_side.py; PR #114 merged
 - **Inventory features:** [FEAT-PRV-06](FEATURE_INVENTORY.md#feat-prv-06)
 - **Dependencies:** none
 - **Owner:** Prove (FD-112)

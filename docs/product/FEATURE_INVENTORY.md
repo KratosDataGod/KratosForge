@@ -8,8 +8,10 @@ should happen next for each capability. It is the starting point for every produ
   [schema/feature-inventory.schema.json](schema/feature-inventory.schema.json).
 - **This page:** the tables between `BEGIN GENERATED` and `END GENERATED` markers are written by
   `python docs/product/tools/product_data.py render`. Edit the JSON, never those tables.
-- **Assessed against:** main at commit `b7b04cc` on 2026-10-17. PR #94 (Ready to work checklist)
-  merged after that commit; it is listed as Planned here and waits for the implementation review.
+- **Assessed against:** main at commit `b7b04cc` on 2026-10-17, then refreshed against `9715e28`
+  the same day for the PRs merged in between (#89 to #134). The refresh re-read only the features
+  those PRs touched and added four new rows; every other row still describes `b7b04cc`.
+  Merged is not accepted: these rows wait for the implementation review.
 
 ## How this inventory was taken
 
@@ -21,6 +23,8 @@ should happen next for each capability. It is the starting point for every produ
 | Tried `cargo test` in `app/src-tauri` | Could not build on Linux (`gdk-3.0` missing). CI never runs `cargo test` either, so the Rust tests in `watchdog.rs` and `main.rs` are unverified |
 | Drove the engine over its stdin protocol and the `fabric-desktop` CLI with local data only | Settings, notebooks, cell runs, Spark shim, jobs preview, metadata init/run/tests/promote check, CLI help, agent check and support bundle behaved as described in each row's evidence |
 | Compared each page in `docs/` with the code | Mismatches are listed as limitations and collected in backlog items PB-010 and PB-077 |
+
+| Refresh at `9715e28`: re-read the code of every PR merged since `b7b04cc`, reran the engine and UI tests | Engine tests: 1405 passed, 2 skipped. UI tests: 51 passed. Browser tests in `app/tests/browser` not run (Playwright not installed; CI does not run them either) |
 
 **Not done:** no Fabric tenant was used, the Windows app was not started, and CI was not run.
 Nothing in this inventory claims that local execution is equivalent to Fabric execution; that claim
@@ -59,13 +63,13 @@ on quality.
 <!-- BEGIN GENERATED: summary -->
 | Status | Verified | Partially Verified | Unverified | Total |
 | --- | ---: | ---: | ---: | ---: |
-| Implemented | 2 | 67 | 4 | 73 |
+| Implemented | 2 | 77 | 4 | 83 |
 | Partially Implemented | 1 | 9 | 1 | 11 |
-| Implemented but Not Exposed | 0 | 4 | 0 | 4 |
+| Implemented but Not Exposed | 0 | 5 | 0 | 5 |
 | Implemented but Unreliable | 0 | 1 | 0 | 1 |
-| Missing | 0 | 0 | 8 | 8 |
-| Planned | 0 | 0 | 11 | 11 |
-| **Total** | **3** | **81** | **24** | **108** |
+| Missing | 0 | 0 | 7 | 7 |
+| Planned | 0 | 0 | 5 | 5 |
+| **Total** | **3** | **92** | **17** | **112** |
 <!-- END GENERATED: summary -->
 
 ## What the inventory shows
@@ -73,8 +77,10 @@ on quality.
 1. **Breadth is real, live proof is not.** Most features are Implemented and backed by passing
    tests, but those tests fake Fabric. The live test harness (FEAT-OPS-04) has never run, so every
    Fabric-facing row stays Partially Verified until the tenant smoke test (PB-002).
-2. **Four capabilities are built but unreachable:** the TOML job runner, column lineage, reliability
-   objectives and agent status records. A text search of `app/ui` at `b7b04cc` found no caller for
+2. **Some capabilities are built but unreachable.** At `b7b04cc` these were the TOML job runner,
+   column lineage, reliability objectives and agent status records; since then column lineage
+   (#124), agent status (#133) and the incident methods (#125) gained screens, and local data
+   projects (FEAT-LDE-01) arrived with no screen yet. A text search of `app/ui` at `b7b04cc` found no caller for
    30 of the 275 methods in the engine's allowlist, including `meta_preflight`, `meta_lineage`,
    the six incident methods, `platform_revoke`, `receipts_list` and
    `run_job`. Some may be called through computed names, so treat 30 as an upper bound.
@@ -103,6 +109,7 @@ on quality.
 | [FEAT-PRV-04](#feat-prv-04) | Environment profile | Partially Implemented | Partially Verified | Prove > Packages only (Preview) | Reproducible environments wait on the package-source decision (FD-109). |
 | [FEAT-META-02](#feat-meta-02) | Metadata runs on this PC | Implemented | Partially Verified | Data mesh > Entities > Run | Keep; add late-arriving rows and source deletes (FD-117). |
 | [FEAT-META-14](#feat-meta-14) | Environments: Tables in and Runs on | Implemented | Partially Verified | Data mesh > Deploy > Environments | Verify the runner notebook on a tenant (PB-002). |
+| [FEAT-LDE-01](#feat-lde-01) | Local data projects | Implemented but Not Exposed | Partially Verified | None yet (engine calls only) (Preview) | Screens after the mockup is agreed; publishing to OneLake follows (FD-LDE-005..010) |
 
 ### SQL, Python, and Notebook Development
 
@@ -114,6 +121,7 @@ on quality.
 | [FEAT-SQL-01](#feat-sql-01) | SQL query page | Implemented | Partially Verified | Workspaces > lakehouse > SQL query | Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution. |
 | [FEAT-SQL-02](#feat-sql-02) | %%sql cells | Partially Implemented | Partially Verified | Notebook cells | Make a MERGE/UPDATE/DELETE cell end with a visible 'skipped on this PC' status instead of ok (PB-013). |
 | [FEAT-EXT-04](#feat-ext-04) | Debugger for notebooks and pipelines | Missing | Unverified | None | Prove program Stage 5 after the process kernel is default. |
+| [FEAT-SQL-03](#feat-sql-03) | Fabric SQL dialect compatibility analyzer | Implemented | Partially Verified | SQL page | Compare its verdicts with a Fabric Warehouse run on a tenant (HD-054) |
 
 ### Data Engineering and Transformation
 
@@ -135,6 +143,7 @@ on quality.
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044). |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
 | [FEAT-ORC-06](#feat-orc-06) | Multiple workers | Missing | Unverified | None | Workloads program (FD-124, roadmap FD-12). |
+| [FEAT-ORC-07](#feat-orc-07) | Fabric pipeline definitions on this PC | Implemented | Partially Verified | fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen | ORCH-002 activity registry, after Chris approves |
 
 ### Fabric Integration and Deployment
 
@@ -180,7 +189,7 @@ on quality.
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
 | [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Partially Implemented | Partially Verified | Project file only | Request and approval flow with history (FD-129), built by the governance foundation thread on its policy registry. |
-| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Planned | Unverified | None | Owned by the Enterprise governance foundation thread (GOV-001 registry first). |
+| [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Partially Implemented | Partially Verified | None | GOV-002 offline validation, after Chris approves |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
 | [FEAT-MESH-05](#feat-mesh-05) | Breaking-change check for data products | Implemented | Partially Verified | Promote card | Consumer declarations and deprecation (scale plan 8.2). |
@@ -196,7 +205,7 @@ on quality.
 | [FEAT-NB-08](#feat-nb-08) | Autocomplete and variables pane | Implemented | Partially Verified | Notebook editor, View > Variables | Column completion for attached tables (Prove backlog #12). |
 | [FEAT-NB-09](#feat-nb-09) | Cell dependencies and stale cells | Implemented | Partially Verified | Notebook View and Run tabs (Preview) | Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version. |
 | [FEAT-NB-10](#feat-nb-10) | New notebook wizard | Implemented | Partially Verified | Create > Notebook from a template (Preview) | Add the entry point from a lakehouse table (plan Stage 3). |
-| [FEAT-ADM-04](#feat-adm-04) | Ready to work checklist | Planned | Unverified | None | PR #94 merged after this assessment's commit (main 4079a41); re-inventory and run the implementation review (PB-086). |
+| [FEAT-ADM-04](#feat-adm-04) | Ready to work checklist | Implemented | Partially Verified | None | Implementation review of PR #94 |
 | [FEAT-REL-02](#feat-rel-02) | Documentation site | Implemented | Unverified | GitHub Pages | Keep; add docs/product to the nav (this PR). |
 | [FEAT-GIT-01](#feat-git-01) | Source control | Implemented | Partially Verified | Source control (bottom of the rail) (Preview) | Owned by the Git-native program. |
 
@@ -209,19 +218,20 @@ on quality.
 | [FEAT-SHL-11](#feat-shl-11) | Support bundle | Partially Implemented | Verified | CLI only (fabric-desktop support-bundle) | Add 'Save support bundle' with a contents preview to Settings, as FD-138's acceptance asks (PB-062). |
 | [FEAT-PRV-05](#feat-prv-05) | Scorecard and run measurement | Implemented | Partially Verified | Prove > Full scorecard (Preview) | Measure the kernel child process when it is on (FD-119). |
 | [FEAT-META-18](#feat-meta-18) | Estate X-ray and adopt | Implemented | Partially Verified | Home > Estate X-ray (Preview) | Keep. |
-| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented but Not Exposed | Partially Verified | None (read only by incident evaluation) | Agent dashboard (FD-122); fix agent.md, which says workload views read these. |
+| [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented but Not Exposed | Partially Verified | None (read only by incident evaluation) | Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A) |
 | [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
-| [FEAT-OPS-02](#feat-ops-02) | Incidents | Partially Implemented | Partially Verified | Agent only; no incident screens in the app | Incident screens after a mockup (stage 2.3B) (PB-047). |
+| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Agent only; no incident screens in the app | Implementation review of PRs #125 and #127 |
 | [FEAT-OPS-03](#feat-ops-03) | Monitor: runs from every place | Implemented | Partially Verified | Monitor > Runs | Show worker, host and job for agent runs. |
 | [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Monitor > Cost (Preview) | Calibrate against the Capacity Metrics app and label every number estimated (PB-050). |
-| [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Missing | Unverified | None | Waiting on decision D-C1 (recommendation: none until a pilot asks). |
+| [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
+| [FEAT-ADM-07](#feat-adm-07) | Capacity of each environment | Implemented | Partially Verified | Monitor > Cost; Data mesh > Environments (Preview) | Check against a live tenant's capacities (PB-002) |
 
 ### Extensibility, APIs, CLI, and MCP
 
 | Id | Feature | Status | Verification | Where people reach it | Next action |
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-EXT-01](#feat-ext-01) | Command-line interface | Implemented | Verified | Terminal | Add backup/restore (PR #91) and an mcp command (PR-AI-002). |
-| [FEAT-EXT-02](#feat-ext-02) | MCP server and local API for external AI tools | Planned | Unverified | None | Merge the AI integration stack in order; run docs/product/ai-integration-client-checklist.md per client. |
+| [FEAT-EXT-02](#feat-ext-02) | MCP server and local API for external AI tools | Implemented | Partially Verified | None | Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits |
 | [FEAT-EXT-03](#feat-ext-03) | Extensions | Planned | Unverified | None | Owned by the Git-native program (FD-132..135). |
 
 ### Security and Enterprise Readiness
@@ -237,8 +247,8 @@ on quality.
 | [FEAT-AUTH-04](#feat-auth-04) | Unattended credentials for the agent | Implemented | Partially Verified | agent.toml (no UI) | Verify a service principal on a tenant with the live test's --agent-config (PB-002). |
 | [FEAT-PRV-03](#feat-prv-03) | Run receipts | Implemented | Partially Verified | Prove > Receipt (Preview) | Feed receipts into the audit trail (FD-125, PR #89). |
 | [FEAT-GOV-04](#feat-gov-04) | Who can promote and separation of duties | Implemented | Partially Verified | Promote card | Keep; compare signed-in identities rather than PC login names. |
-| [FEAT-ADM-02](#feat-adm-02) | Audit trail | Planned | Unverified | None | PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125). |
-| [FEAT-ADM-05](#feat-adm-05) | Local data retention | Planned | Unverified | None | PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b). |
+| [FEAT-ADM-02](#feat-adm-02) | Audit trail | Implemented | Partially Verified | None | Implementation review of PR #89; HD-007 (redaction before JSON encoding) and HD-017 (chain across processes) harden it |
+| [FEAT-ADM-05](#feat-adm-05) | Local data retention | Implemented | Partially Verified | None | Implementation review of PR #95 |
 | [FEAT-SEC-01](#feat-sec-01) | Code signing | Planned | Unverified | None | Chris creates the Azure Trusted Signing account (D-C3) (PB-001). |
 | [FEAT-SEC-02](#feat-sec-02) | Content Security Policy | Missing | Unverified | None | FD-102b: move notebook HTML output to another origin, then set a CSP (PB-006). |
 | [FEAT-SEC-03](#feat-sec-03) | Supply chain: pinned packages, audit, SBOM, provenance | Implemented | Unverified | Releases | Fix docs/security.md, which still says there is no scanning, SBOM or provenance; pin docs.yml and codex-review.yml actions by SHA. |
@@ -257,7 +267,7 @@ on quality.
 | [FEAT-META-12](#feat-meta-12) | Table health, optimize and retention | Implemented | Partially Verified | Data mesh > Quality > Table health (Preview) | Keep. |
 | [FEAT-ORC-03](#feat-orc-03) | OneLake write leases | Implemented | Partially Verified | None (agent) | Prove OneLake honors If-None-Match/If-Match in the live test (PB-003). |
 | [FEAT-OPS-04](#feat-ops-04) | Live test harness | Implemented | Partially Verified | CLI only | Chris runs it on a non-production workspace (PB-002); extend to leases and MERGE (PB-003). |
-| [FEAT-ADM-03](#feat-adm-03) | Backup and restore of local state | Planned | Unverified | None | PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126). |
+| [FEAT-ADM-03](#feat-adm-03) | Backup and restore of local state | Implemented | Partially Verified | None | Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix |
 | [FEAT-REL-01](#feat-rel-01) | Continuous release channels | Implemented | Unverified | Settings > Updates | Per-build release assets for pinning and rollback (PB-064). |
 <!-- END GENERATED: index -->
 
@@ -305,7 +315,7 @@ on quality.
 - **Evidence:** code: app/src-tauri/src/watchdog.rs QUICK list and read_reply; absent: Rust tests in watchdog.rs are never run by CI (.github/workflows/ci.yml has cargo build, no cargo test) and could not build here
 - **Source:** `app/src-tauri/src/watchdog.rs`, `app/src-tauri/src/main.rs`
 - **Known limitations:** Only about 22 methods are on the quick list; sign-in, Fabric calls and runs have no limit.
-- **Pull requests and issues:** [#83](https://github.com/KratosDataGod/fabric-desktop/pull/83)
+- **Pull requests and issues:** [#83](https://github.com/KratosDataGod/fabric-desktop/pull/83), [#114](https://github.com/KratosDataGod/fabric-desktop/pull/114), [#115](https://github.com/KratosDataGod/fabric-desktop/pull/115)
 - **Owning workstream:** Prove (FD-110)
 - **Backlog:** [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-072](PRODUCT_BACKLOG.md#pb-072)
 - **Recommended next action:** Run cargo test in CI (PB-071) and move long calls (sign-in, Fabric calls) off the single pipe (PB-072).
@@ -351,6 +361,7 @@ on quality.
 - **Source:** `app/ui/activity.js`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Known limitations:** Tray lives in this webview's localStorage only (80 items). Not fed by incidents or agent status.
+- **Pull requests and issues:** [#122](https://github.com/KratosDataGod/fabric-desktop/pull/122)
 - **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047)
 - **Recommended next action:** Feed incidents and agent status into the bell once incident screens exist (PB-047).
 
@@ -393,13 +404,13 @@ on quality.
 - **Pillar and category:** Platform foundation; Security and Enterprise Readiness
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Startup check, Settings > Updates
-- **Evidence:** test: sidecar/tests/test_updater.py::test_download_app_checks_the_checksum (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_updater.py::test_download_app_refuses_when_the_checksum_cant_be_read; test: sidecar/tests/test_updater.py::test_no_stable_release_yet_follows_preview; absent: main.rs integrity_tests not run in CI or here
+- **Evidence:** test: sidecar/tests/test_updater.py::test_download_app_checks_the_checksum (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_updater.py::test_download_app_refuses_when_the_checksum_cant_be_read; test: sidecar/tests/test_updater.py::test_no_stable_release_yet_follows_preview; absent: main.rs integrity_tests not run in CI or here; test: sidecar/tests/test_whats_new.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_updater.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/settings.js showWhatsNew
 - **Source:** `app/src-tauri/src/updater.py`, `app/src-tauri/src/main.rs`
-- **Tests:** `sidecar/tests/test_updater.py`
+- **Tests:** `sidecar/tests/test_updater.py`, `sidecar/tests/test_whats_new.py`
 - **Docs:** [docs/install.md](../install.md), [docs/enterprise-install.md](../enterprise-install.md), [docs/security.md](../security.md)
 - **Known limitations:** Checksums come from the same release, so they don't stop someone who can publish releases. Only the newest build per channel exists, so no pinning or rollback. A release without engine_sha256 is still accepted (main.rs check_engine_zip). Updating from Program Files fails.
-- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82)
-- **Owning workstream:** Enterprise readiness (FD-102, FD-104)
+- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82), [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
+- **Owning workstream:** Fuller What's new dialog (PB-100) and Enterprise readiness
 - **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001), [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-100](PRODUCT_BACKLOG.md#pb-100), [PB-101](PRODUCT_BACKLOG.md#pb-101)
 - **Recommended next action:** Code signing (PB-001) and per-build release assets for real rollback (PB-064).
 
@@ -788,12 +799,12 @@ on quality.
 - **Pillar and category:** Local development; Reliability, Testing, and Performance
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Settings > Preview features (off by default) (Preview)
-- **Evidence:** test: sidecar/tests/test_kernel_process.py::test_cancel_keeps_variables_and_stop_ends_only_the_process (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_kernel_process.py::test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel
+- **Evidence:** test: sidecar/tests/test_kernel_process.py::test_cancel_keeps_variables_and_stop_ends_only_the_process (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_kernel_process.py::test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel; test: sidecar/tests/test_kernel_process.py (passed in the 2026-10-17 refresh run at 9715e28)
 - **Source:** `sidecar/fabric_desktop/kernel_proc.py`, `sidecar/fabric_desktop/kernel_host.py`
 - **Tests:** `sidecar/tests/test_kernel_process.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Off by default. No memory or CPU limits.
-- **Pull requests and issues:** [#67](https://github.com/KratosDataGod/fabric-desktop/pull/67)
+- **Known limitations:** Off by default. No memory or CPU limits. Cell time and memory limits are Preview settings (PR #115).
+- **Pull requests and issues:** [#67](https://github.com/KratosDataGod/fabric-desktop/pull/67), [#115](https://github.com/KratosDataGod/fabric-desktop/pull/115)
 - **Owning workstream:** Prove (FD-110)
 - **Backlog:** [PB-073](PRODUCT_BACKLOG.md#pb-073)
 - **Recommended next action:** Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).
@@ -867,11 +878,12 @@ on quality.
 - **Pillar and category:** Local development; Developer Experience and Productivity
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Notebook editor, View > Variables
-- **Evidence:** test: sidecar/tests/test_notebook_parity.py::test_variables_hide_secrets_and_completion_lists_attributes (sidecar suite passed in this assessment (656 passed, 2 skipped)); smoke: kernel_variables listed df; kernel_complete returned items only for names in the namespace
-- **Source:** `sidecar/fabric_desktop/notebook.py`, `app/ui/notebook.js`
-- **Tests:** `sidecar/tests/test_notebook_parity.py`
+- **Evidence:** test: sidecar/tests/test_notebook_parity.py::test_variables_hide_secrets_and_completion_lists_attributes (sidecar suite passed in this assessment (656 passed, 2 skipped)); smoke: kernel_variables listed df; kernel_complete returned items only for names in the namespace; test: sidecar/tests/test_debugging.py (passed in the 2026-10-17 refresh run at 9715e28)
+- **Source:** `sidecar/fabric_desktop/notebook.py`, `app/ui/notebook.js`, `app/ui/debugging.js`, `sidecar/fabric_desktop/kernel_host.py`
+- **Tests:** `sidecar/tests/test_notebook_parity.py`, `sidecar/tests/test_debugging.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Completes only what the kernel has run. No completion when Runs on is Fabric.
+- **Known limitations:** Completes only what the kernel has run. No completion when Runs on is Fabric. Variable history, watches and hidden-state warnings are Preview (PR #129).
+- **Pull requests and issues:** [#129](https://github.com/KratosDataGod/fabric-desktop/pull/129)
 - **Backlog:** [PB-027](PRODUCT_BACKLOG.md#pb-027)
 - **Recommended next action:** Column completion for attached tables (Prove backlog #12).
 
@@ -931,11 +943,12 @@ on quality.
 - **Pillar and category:** Local development; SQL, Python, and Notebook Development
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Workspaces > lakehouse > SQL query
-- **Evidence:** test: sidecar/tests/test_notebook.py::test_sql_runs_spark_sql_over_lakehouse_tables (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_notebook.py::test_sql_result_saves_as_a_table_and_exports_csv
-- **Source:** `sidecar/fabric_desktop/sql.py`, `sidecar/fabric_desktop/service.py`, `app/ui/app.js`
-- **Tests:** `sidecar/tests/test_notebook.py`
-- **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Plain textarea, no autocomplete or formatting. Read-only. Download CSV re-runs the query. No cancel.
+- **Evidence:** test: sidecar/tests/test_notebook.py::test_sql_runs_spark_sql_over_lakehouse_tables (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_notebook.py::test_sql_result_saves_as_a_table_and_exports_csv; test: sidecar/tests/test_sql_editor.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_sql_exec.py (passed in the 2026-10-17 refresh run at 9715e28); absent: app/tests/browser/*.test.cjs not run: Playwright is not installed here and CI does not run them (HD-052)
+- **Source:** `sidecar/fabric_desktop/sql.py`, `sidecar/fabric_desktop/service.py`, `app/ui/app.js`, `app/ui/sqleditor.js`, `sidecar/fabric_desktop/sql_exec.py`, `sidecar/fabric_desktop/sql_worker.py`, `sidecar/fabric_desktop/sql_format.py`
+- **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_sql_editor.py`, `sidecar/tests/test_sql_exec.py`
+- **Docs:** [docs/notebooks.md](../notebooks.md), [docs/sql-execution.md](../sql-execution.md)
+- **Known limitations:** Plain textarea, no autocomplete or formatting. Read-only. Download CSV re-runs the query. No cancel. Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run.
+- **Pull requests and issues:** [#118](https://github.com/KratosDataGod/fabric-desktop/pull/118), [#134](https://github.com/KratosDataGod/fabric-desktop/pull/134)
 - **Owning workstream:** SQL development sprint
 - **Backlog:** [PB-021](PRODUCT_BACKLOG.md#pb-021), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-023](PRODUCT_BACKLOG.md#pb-023), [PB-099](PRODUCT_BACKLOG.md#pb-099)
 - **Recommended next action:** Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.
@@ -1201,7 +1214,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_release.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** No list of releases in the UI. Docs say Preview; no Preview id.
-- **Pull requests and issues:** [#73](https://github.com/KratosDataGod/fabric-desktop/pull/73), [#113](https://github.com/KratosDataGod/fabric-desktop/pull/113)
+- **Pull requests and issues:** [#73](https://github.com/KratosDataGod/fabric-desktop/pull/73), [#113](https://github.com/KratosDataGod/fabric-desktop/pull/113), [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
 - **Owning workstream:** Staged roadmap
 - **Backlog:** [PB-042](PRODUCT_BACKLOG.md#pb-042)
 - **Recommended next action:** Merge PR #113 (release records read Git through the Git layer); add a release list view.
@@ -1304,7 +1317,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_lineage.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Python-added columns are opaque.
-- **Pull requests and issues:** [#76](https://github.com/KratosDataGod/fabric-desktop/pull/76)
+- **Pull requests and issues:** [#76](https://github.com/KratosDataGod/fabric-desktop/pull/76), [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
 - **Owning workstream:** Staged roadmap (FD-128)
 - **Backlog:** [PB-081](PRODUCT_BACKLOG.md#pb-081)
 - **Recommended next action:** Build the lineage view after a mockup (scale plan 8.x).
@@ -1392,12 +1405,17 @@ on quality.
 **Enterprise governance policy registry and offline validation.** Central versioned policies (naming, schema, quality, classification, ownership, contracts, deployment readiness) inherited enterprise to entity and validated offline.
 
 - **Pillar and category:** Enterprise services; Data Governance and Quality
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Partially Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17
+- **Evidence:** doc: Enterprise governance foundation thread (GOV-001..005), 2026-10-17; test: sidecar/tests/test_governance.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/central/policy.py; code: sidecar/fabric_desktop/central/governance_service.py
+- **Source:** `sidecar/fabric_desktop/central/policy.py`, `sidecar/fabric_desktop/central/governance_service.py`, `app/ui/governance.js`
+- **Tests:** `sidecar/tests/test_governance.py`
+- **Docs:** [docs/governance.md](../governance.md)
+- **Known limitations:** GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced.
+- **Pull requests and issues:** [#119](https://github.com/KratosDataGod/fabric-desktop/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
-- **Recommended next action:** Owned by the Enterprise governance foundation thread (GOV-001 registry first).
+- **Recommended next action:** GOV-002 offline validation, after Chris approves
 
 ### FEAT-GOV-06
 
@@ -1575,15 +1593,14 @@ on quality.
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented but Not Exposed. **Verification:** Partially Verified.
 - **Where people reach it:** None (read only by incident evaluation)
-- **Evidence:** test: sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing (sidecar suite passed in this assessment (656 passed, 2 skipped))
-- **Source:** `sidecar/fabric_desktop/agent_status.py`, `sidecar/fabric_desktop/workloads/agents.py`
-- **Tests:** `sidecar/tests/test_agent_status.py`
+- **Evidence:** test: sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_agent_fleet.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/agents.js
+- **Source:** `sidecar/fabric_desktop/agent_status.py`, `sidecar/fabric_desktop/workloads/agents.py`, `app/ui/agents.js`
+- **Tests:** `sidecar/tests/test_agent_status.py`, `sidecar/tests/test_agent_fleet.py`
 - **Docs:** [docs/agent.md](../agent.md)
-- **Known limitations:** No UI reads them.
-- **Pull requests and issues:** [#66](https://github.com/KratosDataGod/fabric-desktop/pull/66)
+- **Pull requests and issues:** [#66](https://github.com/KratosDataGod/fabric-desktop/pull/66), [#133](https://github.com/KratosDataGod/fabric-desktop/pull/133)
 - **Owning workstream:** Workloads (FD-122)
 - **Backlog:** [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-091](PRODUCT_BACKLOG.md#pb-091)
-- **Recommended next action:** Agent dashboard (FD-122); fix agent.md, which says workload views read these.
+- **Recommended next action:** Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A)
 
 ### FEAT-ORC-06
 
@@ -1619,17 +1636,17 @@ on quality.
 **Incidents.** Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
-- **Status:** Partially Implemented. **Verification:** Partially Verified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Agent only; no incident screens in the app
-- **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations
-- **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`
+- **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js
+- **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`
 - **Tests:** `sidecar/tests/test_incidents.py`
 - **Docs:** [docs/agent.md](../agent.md)
-- **Known limitations:** Six incident RPCs have no UI. Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document.
-- **Pull requests and issues:** [#74](https://github.com/KratosDataGod/fabric-desktop/pull/74), [#79](https://github.com/KratosDataGod/fabric-desktop/pull/79)
+- **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document.
+- **Pull requests and issues:** [#74](https://github.com/KratosDataGod/fabric-desktop/pull/74), [#79](https://github.com/KratosDataGod/fabric-desktop/pull/79), [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125), [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
 - **Owning workstream:** Workloads (FD-123)
 - **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-084](PRODUCT_BACKLOG.md#pb-084)
-- **Recommended next action:** Incident screens after a mockup (stage 2.3B) (PB-047).
+- **Recommended next action:** Implementation review of PRs #125 and #127
 
 ### FEAT-OPS-03
 
@@ -1670,10 +1687,13 @@ on quality.
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Monitor > Cost (Preview)
-- **Evidence:** test: sidecar/tests/test_estate.py::test_cost_estimates_fabric_runs_and_what_local_runs_saved (sidecar suite passed in this assessment (656 passed, 2 skipped))
-- **Source:** `sidecar/fabric_desktop/costs.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`
-- **Tests:** `sidecar/tests/test_estate.py`
+- **Evidence:** test: sidecar/tests/test_estate.py::test_cost_estimates_fabric_runs_and_what_local_runs_saved (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_measurement.py (passed in the 2026-10-17 refresh run at 9715e28)
+- **Source:** `sidecar/fabric_desktop/costs.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`, `sidecar/fabric_desktop/measurement.py`
+- **Tests:** `sidecar/tests/test_estate.py`, `sidecar/tests/test_measurement.py`
+- **Docs:** [docs/finops/cost-evidence.md](../finops/cost-evidence.md)
 - **Known limitations:** Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU). Agent runs counted as local with no measured cost.
+- **Pull requests and issues:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
+- **Owning workstream:** Administration and FinOps sprint (FINOPS-001)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050)
 - **Recommended next action:** Calibrate against the Capacity Metrics app and label every number estimated (PB-050).
 
@@ -1682,64 +1702,76 @@ on quality.
 **Audit trail.** One hash-chained line per call that runs or changes something.
 
 - **Pillar and category:** Enterprise services; Security and Enterprise Readiness
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** absent: no audit module on main; doc: PR #89 open
+- **Evidence:** test: sidecar/tests/test_audit.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/audit.py
+- **Source:** `sidecar/fabric_desktop/audit.py`
+- **Tests:** `sidecar/tests/test_audit.py`
 - **Pull requests and issues:** [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89)
 - **Owning workstream:** Enterprise readiness (FD-125)
 - **Backlog:** [PB-007](PRODUCT_BACKLOG.md#pb-007)
-- **Recommended next action:** PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125).
+- **Recommended next action:** Implementation review of PR #89; HD-007 (redaction before JSON encoding) and HD-017 (chain across processes) harden it
 
 ### FEAT-ADM-03
 
 **Backup and restore of local state.** Back up and restore settings, schedules, queue, workloads and receipts without sign-in tokens.
 
 - **Pillar and category:** Enterprise services; Reliability, Testing, and Performance
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** absent: no backup command on main; doc: PR #91 open
+- **Evidence:** test: sidecar/tests/test_backup.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/backup.py
+- **Source:** `sidecar/fabric_desktop/backup.py`
+- **Tests:** `sidecar/tests/test_backup.py`
 - **Pull requests and issues:** [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91)
 - **Owning workstream:** Enterprise readiness (FD-126)
 - **Backlog:** [PB-066](PRODUCT_BACKLOG.md#pb-066)
-- **Recommended next action:** PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126).
+- **Recommended next action:** Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix
 
 ### FEAT-ADM-04
 
 **Ready to work checklist.** First-run checklist of sign-in, capacity, workspace access and OneLake reach with fixes.
 
 - **Pillar and category:** Enterprise services; Developer Experience and Productivity
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: PR #94 open (mockup accepted)
+- **Evidence:** test: sidecar/tests/test_readiness.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/readiness.py
+- **Source:** `sidecar/fabric_desktop/readiness.py`
+- **Tests:** `sidecar/tests/test_readiness.py`
 - **Pull requests and issues:** [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94)
 - **Owning workstream:** Enterprise readiness (FD-136)
 - **Backlog:** [PB-086](PRODUCT_BACKLOG.md#pb-086)
-- **Recommended next action:** PR #94 merged after this assessment's commit (main 4079a41); re-inventory and run the implementation review (PB-086).
+- **Recommended next action:** Implementation review of PR #94
 
 ### FEAT-ADM-05
 
 **Local data retention.** Delete local copies of lakehouse data after a policy period.
 
 - **Pillar and category:** Enterprise services; Security and Enterprise Readiness
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** doc: PR #95 open
+- **Evidence:** test: sidecar/tests/test_retention.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/retention.py
+- **Source:** `sidecar/fabric_desktop/retention.py`
+- **Tests:** `sidecar/tests/test_retention.py`
 - **Pull requests and issues:** [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95)
 - **Owning workstream:** Enterprise readiness (FD-131b)
 - **Backlog:** [PB-009](PRODUCT_BACKLOG.md#pb-009)
-- **Recommended next action:** PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b).
+- **Recommended next action:** Implementation review of PR #95
 
 ### FEAT-ADM-06
 
 **Opt-in telemetry.** Consent-based usage telemetry with a policy switch.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
-- **Status:** Missing. **Verification:** Unverified.
-- **Where people reach it:** None
-- **Evidence:** absent: no telemetry code
+- **Status:** Implemented. **Verification:** Partially Verified.
+- **Where people reach it:** None (Preview)
+- **Evidence:** test: sidecar/tests/test_telemetry.py (passed in the 2026-10-17 refresh run at 9715e28); doc: docs/telemetry.md (off until turned on in Settings > Usage data)
+- **Source:** `sidecar/fabric_desktop/telemetry.py`, `app/ui/settings.js`
+- **Tests:** `sidecar/tests/test_telemetry.py`
+- **Docs:** [docs/telemetry.md](../telemetry.md)
+- **Pull requests and issues:** [#121](https://github.com/KratosDataGod/fabric-desktop/pull/121)
 - **Owning workstream:** Enterprise readiness (FD-137)
 - **Backlog:** [PB-093](PRODUCT_BACKLOG.md#pb-093)
-- **Recommended next action:** Waiting on decision D-C1 (recommendation: none until a pilot asks).
+- **Recommended next action:** Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists
 
 ### FEAT-SEC-01
 
@@ -1846,14 +1878,16 @@ on quality.
 **MCP server and local API for external AI tools.** Read-only MCP over stdio, a capability registry, permissions and approvals, REST and MCP over HTTP on 127.0.0.1, resources, approved execution, Settings > Integrations, audit, conformance tests.
 
 - **Pillar and category:** Enterprise services; Extensibility, APIs, CLI, and MCP
-- **Status:** Planned. **Verification:** Unverified.
+- **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** None
-- **Evidence:** absent: no integrations package on main; doc: PRs #99-#108, #110, #112 open (PR-AI-001..012); #98 plan merged
-- **Docs:** [docs/architecture/ai-integration.md](../architecture/ai-integration.md)
+- **Evidence:** test: sidecar/tests/test_integrations_mcp.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_integrations_http.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_integrations_conformance.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_integrations_permissions.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_integrations_executions.py (passed in the 2026-10-17 refresh run at 9715e28); test: sidecar/tests/test_integrations_audit.py (passed in the 2026-10-17 refresh run at 9715e28); absent: No named AI tool has been run against it (docs/product/ai-integration-client-checklist.md, PB-096)
+- **Source:** `sidecar/fabric_desktop/integrations/mcp_server.py`, `sidecar/fabric_desktop/integrations/http_server.py`, `sidecar/fabric_desktop/integrations/registry.py`, `sidecar/fabric_desktop/integrations/permissions.py`, `sidecar/fabric_desktop/integrations/executions.py`, `app/ui/integrations.js`
+- **Tests:** `sidecar/tests/test_integrations_conformance.py`
+- **Docs:** [docs/architecture/ai-integration.md](../architecture/ai-integration.md), [docs/ai/README.md](../ai/README.md)
 - **Pull requests and issues:** [#98](https://github.com/KratosDataGod/fabric-desktop/pull/98), [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99), [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100), [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101), [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102), [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103), [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104), [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105), [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106), [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107), [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108), [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110), [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112)
 - **Owning workstream:** Bring your own AI integration
 - **Backlog:** [PB-095](PRODUCT_BACKLOG.md#pb-095), [PB-096](PRODUCT_BACKLOG.md#pb-096)
-- **Recommended next action:** Merge the AI integration stack in order; run docs/product/ai-integration-client-checklist.md per client.
+- **Recommended next action:** Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits
 
 ### FEAT-EXT-03
 
@@ -1878,6 +1912,66 @@ on quality.
 - **Owning workstream:** Prove
 - **Backlog:** [PB-026](PRODUCT_BACKLOG.md#pb-026)
 - **Recommended next action:** Prove program Stage 5 after the process kernel is default.
+
+### FEAT-SQL-03
+
+**Fabric SQL dialect compatibility analyzer.** Checks a SQL script against Fabric SQL dialect profiles and reports what will and won't run, with an Unknown outcome when it can't tell.
+
+- **Pillar and category:** Local development; SQL, Python, and Notebook Development
+- **Status:** Implemented. **Verification:** Partially Verified.
+- **Where people reach it:** SQL page
+- **Evidence:** test: sidecar/tests/test_sql_compat.py (passed in the 2026-10-17 refresh run at 9715e28); absent: app/tests/browser/*.test.cjs not run: Playwright is not installed here and CI does not run them (HD-052); code: sidecar/fabric_desktop/sqlcompat/analyzer.py
+- **Source:** `sidecar/fabric_desktop/sqlcompat/analyzer.py`, `sidecar/fabric_desktop/sqlcompat/profiles.py`, `sidecar/fabric_desktop/sqlcompat/rules.py`, `app/ui/sqleditor.js`
+- **Tests:** `sidecar/tests/test_sql_compat.py`
+- **Docs:** [docs/sql-compatibility.md](../sql-compatibility.md)
+- **Pull requests and issues:** [#120](https://github.com/KratosDataGod/fabric-desktop/pull/120)
+- **Owning workstream:** SQL development sprint (SQL-002)
+- **Recommended next action:** Compare its verdicts with a Fabric Warehouse run on a tenant (HD-054)
+
+### FEAT-ADM-07
+
+**Capacity of each environment.** Read-only list of the Fabric capacity each environment's workspace is on and whether it is running, on Monitor > Cost and each environment card.
+
+- **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
+- **Status:** Implemented. **Verification:** Partially Verified.
+- **Where people reach it:** Monitor > Cost; Data mesh > Environments (Preview)
+- **Evidence:** test: sidecar/tests/test_capacity.py (passed in the 2026-10-17 refresh run at 9715e28); doc: docs/finops/capacity.md (running is not the same as having room)
+- **Source:** `sidecar/fabric_desktop/capacity.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`
+- **Tests:** `sidecar/tests/test_capacity.py`
+- **Docs:** [docs/finops/capacity.md](../finops/capacity.md)
+- **Pull requests and issues:** [#123](https://github.com/KratosDataGod/fabric-desktop/pull/123)
+- **Owning workstream:** Administration and FinOps sprint (FINOPS-002)
+- **Recommended next action:** Check against a live tenant's capacities (PB-002)
+
+### FEAT-LDE-01
+
+**Local data projects.** A persistent DuckDB project on the PC over registered folders of CSV, JSON and Parquet files, with memory, thread and time limits, spill to disk and cancel.
+
+- **Pillar and category:** Local development; Local Development and Execution
+- **Status:** Implemented but Not Exposed. **Verification:** Partially Verified.
+- **Where people reach it:** None yet (engine calls only) (Preview)
+- **Evidence:** test: sidecar/tests/test_local_data.py (passed in the 2026-10-17 refresh run at 9715e28); doc: docs/local-data.md (the screens come after the mockup is agreed)
+- **Source:** `sidecar/fabric_desktop/localdata/engine.py`, `sidecar/fabric_desktop/localdata/discovery.py`, `sidecar/fabric_desktop/localdata/projects.py`, `sidecar/fabric_desktop/localdata_service.py`
+- **Tests:** `sidecar/tests/test_local_data.py`
+- **Docs:** [docs/local-data.md](../local-data.md), [docs/local-data-engine-plan.md](../local-data-engine-plan.md)
+- **Pull requests and issues:** [#126](https://github.com/KratosDataGod/fabric-desktop/pull/126)
+- **Owning workstream:** Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)
+- **Recommended next action:** Screens after the mockup is agreed; publishing to OneLake follows (FD-LDE-005..010)
+
+### FEAT-ORC-07
+
+**Fabric pipeline definitions on this PC.** Reads, checks and exports Fabric Data pipeline definitions (pipeline-content.json, getDefinition results or Git folders) without running anything.
+
+- **Pillar and category:** Local development; Pipelines and Orchestration
+- **Status:** Implemented. **Verification:** Partially Verified.
+- **Where people reach it:** fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen
+- **Evidence:** test: sidecar/tests/test_pipeline_definitions.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/cli.py pipeline command
+- **Source:** `sidecar/fabric_desktop/orchestration/definition.py`, `sidecar/fabric_desktop/orchestration/expressions.py`, `sidecar/fabric_desktop/orchestration/validate.py`, `sidecar/fabric_desktop/pipeline_service.py`, `sidecar/fabric_desktop/cli.py`
+- **Tests:** `sidecar/tests/test_pipeline_definitions.py`
+- **Docs:** [docs/orchestration/pipeline-definitions.md](../orchestration/pipeline-definitions.md)
+- **Pull requests and issues:** [#130](https://github.com/KratosDataGod/fabric-desktop/pull/130)
+- **Owning workstream:** Local Fabric pipeline execution (ORCH-001)
+- **Recommended next action:** ORCH-002 activity registry, after Chris approves
 <!-- END GENERATED: details -->
 
 ## Keeping this inventory current

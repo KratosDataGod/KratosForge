@@ -277,7 +277,7 @@
       "problem": "Nothing records who ran or changed what in a tamper-evident way.",
       "capability": "Hash-chained audit lines, built in PR #89.",
       "evidence": [
-        "PR #89 merged after this assessment's commit; awaiting implementation review"
+        "PR #89 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-02",
@@ -372,7 +372,7 @@
       "problem": "Copies of lakehouse data stay on PCs indefinitely.",
       "capability": "Built in PR #95 (FD-131b).",
       "evidence": [
-        "PR #95 merged after this assessment's commit; awaiting implementation review"
+        "PR #95 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-05"
@@ -875,7 +875,8 @@
       "problem": "The SQL page is a plain textarea with no completion or formatting.",
       "capability": "Owned and specified by the SQL development sprint (SQL-001).",
       "evidence": [
-        "app/ui/app.js SQL page uses a textarea"
+        "app/ui/app.js SQL page uses a textarea",
+        "PR #118 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -899,9 +900,12 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+      ],
+      "prs": [
+        118
       ],
       "computed": {
         "benefit": 3.45,
@@ -917,7 +921,8 @@
       "problem": "Spark SQL translated to DuckDB can succeed locally and still fail in Fabric (or the reverse), and nothing says so.",
       "capability": "Owned and specified by the SQL development sprint (SQL-002).",
       "evidence": [
-        "sql.py translates with sqlglot without a compatibility report"
+        "sql.py translates with sqlglot without a compatibility report",
+        "PR #120 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -942,9 +947,12 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+      ],
+      "prs": [
+        120
       ],
       "computed": {
         "benefit": 3.9,
@@ -961,7 +969,8 @@
       "capability": "Owned and specified by the SQL development sprint (SQL-003).",
       "evidence": [
         "service.py run_sql returns a fixed page",
-        "No cancel RPC for SQL"
+        "No cancel RPC for SQL",
+        "PR #134 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -985,10 +994,13 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)",
         "Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "prs": [
+        134
       ],
       "computed": {
         "benefit": 3.25,
@@ -1343,7 +1355,8 @@
       "problem": "Fabric Data pipeline definitions can't be read, validated or run outside Fabric.",
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).",
       "evidence": [
-        "No pipeline definition parsing in the repo"
+        "No pipeline definition parsing in the repo",
+        "PR #130 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-FAB-10"
@@ -1367,7 +1380,10 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
+      "prs": [
+        130
+      ],
       "computed": {
         "benefit": 4.3,
         "cost": 3.5,
@@ -1719,7 +1735,8 @@
       "problem": "The incident engine runs only in the agent; the app has six incident methods and no screen.",
       "capability": "Incident list and detail with acknowledge, assign, resolve, after a mockup.",
       "evidence": [
-        "incident_service.py RPCs have no caller in app/ui"
+        "incident_service.py RPCs have no caller in app/ui",
+        "PR #125 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-OPS-02",
@@ -1746,7 +1763,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        125
+      ],
       "computed": {
         "benefit": 3.25,
         "cost": 2.5,
@@ -1845,7 +1865,8 @@
       "problem": "Cost panel figures are estimates from fixed defaults and aren't calibrated against the Capacity Metrics app.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-001).",
       "evidence": [
-        "costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU"
+        "costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU",
+        "PR #117 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-01",
@@ -1873,7 +1894,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
+      "prs": [
+        117
+      ],
       "computed": {
         "benefit": 4.35,
         "cost": 2.0,
@@ -2052,7 +2076,8 @@
       "problem": "Policies (naming, schema, quality, classification, ownership) live in project files with no central, versioned source.",
       "capability": "Owned and specified by the Enterprise governance foundation thread (GOV-001).",
       "evidence": [
-        "No policy registry in the repo"
+        "No policy registry in the repo",
+        "PR #119 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-GOV-05"
@@ -2076,9 +2101,12 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "prs": [
+        119
       ],
       "computed": {
         "benefit": 3.4,
@@ -2439,7 +2467,7 @@
       "problem": "Settings, schedules, queue and receipts can't be backed up.",
       "capability": "Built in PR #91 (FD-126).",
       "evidence": [
-        "PR #91 merged after this assessment's commit; awaiting implementation review"
+        "PR #91 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-03"
@@ -2835,7 +2863,7 @@
       "capability": "Keep the benchmark, retire the correctness path.",
       "evidence": [
         "side_by_side.py",
-        "PR #114 open"
+        "PR #114 merged"
       ],
       "features": [
         "FEAT-PRV-06"
@@ -2996,7 +3024,8 @@
       "problem": "Column lineage is computed but no screen shows it.",
       "capability": "A lineage view after a mockup, as the staged roadmap plans.",
       "evidence": [
-        "meta_lineage has no caller in app/ui"
+        "meta_lineage has no caller in app/ui",
+        "PR #124 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-META-17"
@@ -3020,7 +3049,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        124
+      ],
       "computed": {
         "benefit": 3.4,
         "cost": 1.5,
@@ -3112,7 +3144,8 @@
       "capability": "Freshness evaluated as incidents with one routing path.",
       "evidence": [
         "docs/agent.md notes duplicates",
-        "meta/freshness.py and workloads/incidents.py"
+        "meta/freshness.py and workloads/incidents.py",
+        "PR #127 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3137,7 +3170,10 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        127
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.5,
@@ -3190,7 +3226,7 @@
       "problem": "First-run failures (no capacity, no workspace access) appear as errors later.",
       "capability": "Built by the enterprise program as FD-136 (PR #94).",
       "evidence": [
-        "PR #94 merged after this assessment's commit"
+        "PR #94 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-04"
@@ -3269,7 +3305,8 @@
       "problem": "Admins can't see their capacities' size, state and load from the app.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-002).",
       "evidence": [
-        "fabric_api.py lists capacities only"
+        "fabric_api.py lists capacities only",
+        "PR #123 merged 2026-10-17; awaiting implementation review"
       ],
       "depends_on": [
         "PB-050"
@@ -3293,7 +3330,10 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        123
+      ],
       "computed": {
         "benefit": 3.6,
         "cost": 2.5,
@@ -3389,7 +3429,8 @@
       "problem": "Agent status records are written but nothing shows them.",
       "capability": "Agent list, queue and availability view.",
       "evidence": [
-        "agent_status.py; workloads/agents.py read only by incidents"
+        "agent_status.py; workloads/agents.py read only by incidents",
+        "PR #133 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ORC-05"
@@ -3413,7 +3454,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        133
+      ],
       "computed": {
         "benefit": 3.0,
         "cost": 2.0,
@@ -3467,7 +3511,8 @@
       "problem": "There is no usage data, and whether to collect any is undecided.",
       "capability": "Decision D-C1, then build only what it allows.",
       "evidence": [
-        "No telemetry code"
+        "No telemetry code",
+        "PR #121 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-06"
@@ -3495,7 +3540,10 @@
       ],
       "effort": "M",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        121
+      ],
       "computed": {
         "benefit": 1.65,
         "cost": 2.5,
@@ -3549,7 +3597,7 @@
       "problem": "External AI tools can't see or drive the app's capabilities.",
       "capability": "The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.",
       "evidence": [
-        "PRs #99-#108, #110, #112 open; #98 plan merged"
+        "PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -3786,7 +3834,8 @@
       "problem": "The What's new dialog shows only the current build, so people who skip updates miss what changed.",
       "capability": "Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.",
       "evidence": [
-        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)"
+        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)",
+        "PR #132 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SHL-09"
@@ -3807,7 +3856,10 @@
       "owner": "Fuller What's new dialog",
       "effort": "S",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
+      "prs": [
+        132
+      ],
       "computed": {
         "benefit": 1.65,
         "cost": 1.0,

@@ -268,7 +268,7 @@ Promote copies **configuration**, never data and never keys. Each environment is
 
 ### Release records
 
-*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. Fabric Desktop reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
+*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. Fabric Desktop by KratosBI reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
 
 The record goes into the target's `meta.deployments` row:
 

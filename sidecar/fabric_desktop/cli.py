@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ...`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | mcp | capabilities`."""
 
 from __future__ import annotations
 
@@ -33,8 +33,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
+    p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
+    sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
     args = parser.parse_args(argv)
 
+    if args.command == "mcp":
+        from .integrations.mcp_server import run_stdio
+        run_stdio(args.client)
+        return
+    if args.command == "capabilities":
+        from .integrations.registry import default_registry
+        print(json.dumps({"capabilities": [c.describe() for c in default_registry().all()]}, indent=2))
+        return
     if args.command == "serve":
         serve()
         return

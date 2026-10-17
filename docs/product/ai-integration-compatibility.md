@@ -15,7 +15,7 @@ Which external tools have been tried with Fabric Desktop by KratosBI, how, and w
 
 | Client | Transport | Status | Notes |
 | --- | --- | --- | --- |
-| MCP Python SDK client | stdio, in-memory, Streamable HTTP | Planned (automated tests) | Run on every build |
+| MCP Python SDK client 2.3.0 | stdio, in-memory | **Tested** (automated, every build) | Protocol 2025-11-25 and 2026-07-28; Streamable HTTP comes with the local API |
 | Claude Code | stdio | Untested | |
 | Claude Desktop | stdio | Untested | |
 | OpenAI Codex CLI | stdio | Untested | |

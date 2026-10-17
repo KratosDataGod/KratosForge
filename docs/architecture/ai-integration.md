@@ -63,6 +63,16 @@ Why separate processes and not the app's own engine: the app's engine is owned b
 
 The MCP server is built on the official MCP Python SDK (`mcp`, pinned in `constraints.txt`) using its low-level `Server`, because the tool list is generated from the registry at run time. It serves both protocol eras the SDK supports: the handshake era (2025-06-18 and 2025-11-25, which current desktop clients speak) and 2026-07-28.
 
+### Trying the MCP server from source
+
+Until **Settings > Integrations** writes the configuration for you, a developer with the engine installed from source (`pip install -e sidecar`) can point any MCP client at:
+
+```
+fabric-desktop mcp --client my-laptop
+```
+
+`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing Fabric Desktop sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
+
 ## 4. The capability registry
 
 Each capability carries:

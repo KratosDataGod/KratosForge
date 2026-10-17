@@ -7,6 +7,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | I want to | Read |
 | --- | --- |
 | Install the app on my PC | [Install](install.md) |
+| Roll it out to many PCs | [Enterprise install](enterprise-install.md) |
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
@@ -23,6 +24,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Document | For | What it covers |
 | --- | --- | --- |
 | [install.md](install.md) | Everyone | Requirements, download, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
+| [enterprise-install.md](enterprise-install.md) | Admins | Deploying with Intune or Configuration Manager, managed updates, rollback, failed updates, network access |
 | [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
 | [security.md](security.md) | Admins, security reviewers | The threat model: what is protected, trust boundaries, how updates are checked, and what is still open |

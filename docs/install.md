@@ -57,7 +57,7 @@ Fabric Desktop by KratosBI updates itself. Each time it starts it asks GitHub wh
 | **Stable** (default) | Everyone | Builds a maintainer has tried and promoted with the **Promote to stable** workflow. |
 | **Preview** | Testers | Every build of `main` as soon as CI is green. Things may change or break. |
 
-Change it in **Settings > Updates**. The change takes effect the next time the app starts. An organization can fix the channel for everyone with a policy file ([Rolling out to your organization](permissions.md#rolling-out-to-your-organization)).
+Change it in **Settings > Updates**. The change takes effect the next time the app starts. An organization can fix the channel for everyone with a policy file, or turn self-updates off and roll out builds itself ([Enterprise install](enterprise-install.md)).
 
 The update check uses GitHub's public API, which allows 60 checks an hour from one internet address. In a large office behind one address you may see "Could not check for a newer build" now and then. The app keeps working on the build you have and checks again at the next start.
 

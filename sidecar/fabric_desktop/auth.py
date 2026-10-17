@@ -147,13 +147,30 @@ class Authenticator:
         self._save()
         if "access_token" not in result:
             raise RuntimeError(f"Sign-in failed: {result.get('error')}: {result.get('error_description')}")
+        self._check_tenant(result)
         return result["access_token"]
+
+    def _check_tenant(self, result: dict) -> None:
+        """An organization can limit sign-in to its own tenants (policy ``allowed_tenants``). Another
+        tenant's account is signed out again before its token is used."""
+        from . import app_settings
+        tenant = (result.get("id_token_claims") or {}).get("tid") or self.signed_in_tenant()
+        if app_settings.tenant_allowed(tenant):
+            return
+        self.sign_out()
+        raise RuntimeError("Your organization only allows signing in with its own work accounts, and this account "
+                           "belongs to another organization. Sign in with your work account.")
 
     def silent_token(self, scopes: list[str]) -> str | None:
         """A token for scopes the user has already consented to, without any prompt; None otherwise."""
         accounts = self.app.get_accounts()
         result = self.app.acquire_token_silent(self.scopes_for(scopes), account=accounts[0]) if accounts else None
         self._save()
+        if result and "access_token" in result:
+            try:
+                self._check_tenant(result)
+            except RuntimeError:
+                return None  # signed out: the next call that needs sign-in says why
         return result.get("access_token") if result else None
 
     def fabric_token(self) -> str:

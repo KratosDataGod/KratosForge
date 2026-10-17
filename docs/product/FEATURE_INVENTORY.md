@@ -179,7 +179,7 @@ on quality.
 | [FEAT-META-17](#feat-meta-17) | Column lineage | Implemented but Not Exposed | Partially Verified | None (entity-level Reads/Feeds card only) | Build the lineage view after a mockup (scale plan 8.x). |
 | [FEAT-GOV-01](#feat-gov-01) | Freshness promises and Teams alerts | Implemented | Partially Verified | Entity > Freshness, Home | Merge with incidents so a late table posts once (agent.md notes duplicates). |
 | [FEAT-GOV-02](#feat-gov-02) | Project tests gate promote | Implemented | Partially Verified | Data mesh > Quality > Tests (Preview) | Fold into the Git program's validation framework (FD-113). |
-| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Partially Implemented | Partially Verified | Project file only | Request and approval flow with history (FD-129), aligned with GOV-00x. |
+| [FEAT-GOV-03](#feat-gov-03) | Governance exceptions | Partially Implemented | Partially Verified | Project file only | Request and approval flow with history (FD-129), built by the governance foundation thread on its policy registry. |
 | [FEAT-GOV-05](#feat-gov-05) | Enterprise governance policy registry and offline validation | Planned | Unverified | None | Owned by the Enterprise governance foundation thread (GOV-001 registry first). |
 | [FEAT-GOV-06](#feat-gov-06) | Sensitive data classification | Missing | Unverified | None | Owned by the governance foundation thread; complement Purview, don't duplicate it. |
 | [FEAT-GOV-07](#feat-gov-07) | Reliability objectives | Implemented but Not Exposed | Partially Verified | None (agent incidents only) | Show in the workload page with incidents (PB-047). |
@@ -237,8 +237,8 @@ on quality.
 | [FEAT-AUTH-04](#feat-auth-04) | Unattended credentials for the agent | Implemented | Partially Verified | agent.toml (no UI) | Verify a service principal on a tenant with the live test's --agent-config (PB-002). |
 | [FEAT-PRV-03](#feat-prv-03) | Run receipts | Implemented | Partially Verified | Prove > Receipt (Preview) | Feed receipts into the audit trail (FD-125, PR #89). |
 | [FEAT-GOV-04](#feat-gov-04) | Who can promote and separation of duties | Implemented | Partially Verified | Promote card | Keep; compare signed-in identities rather than PC login names. |
-| [FEAT-ADM-02](#feat-adm-02) | Audit trail | Planned | Unverified | None | Merge PR #89 (FD-125). |
-| [FEAT-ADM-05](#feat-adm-05) | Local data retention | Planned | Unverified | None | Merge PR #95 (FD-131b). |
+| [FEAT-ADM-02](#feat-adm-02) | Audit trail | Planned | Unverified | None | PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125). |
+| [FEAT-ADM-05](#feat-adm-05) | Local data retention | Planned | Unverified | None | PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b). |
 | [FEAT-SEC-01](#feat-sec-01) | Code signing | Planned | Unverified | None | Chris creates the Azure Trusted Signing account (D-C3) (PB-001). |
 | [FEAT-SEC-02](#feat-sec-02) | Content Security Policy | Missing | Unverified | None | FD-102b: move notebook HTML output to another origin, then set a CSP (PB-006). |
 | [FEAT-SEC-03](#feat-sec-03) | Supply chain: pinned packages, audit, SBOM, provenance | Implemented | Unverified | Releases | Fix docs/security.md, which still says there is no scanning, SBOM or provenance; pin docs.yml and codex-review.yml actions by SHA. |
@@ -257,7 +257,7 @@ on quality.
 | [FEAT-META-12](#feat-meta-12) | Table health, optimize and retention | Implemented | Partially Verified | Data mesh > Quality > Table health (Preview) | Keep. |
 | [FEAT-ORC-03](#feat-orc-03) | OneLake write leases | Implemented | Partially Verified | None (agent) | Prove OneLake honors If-None-Match/If-Match in the live test (PB-003). |
 | [FEAT-OPS-04](#feat-ops-04) | Live test harness | Implemented | Partially Verified | CLI only | Chris runs it on a non-production workspace (PB-002); extend to leases and MERGE (PB-003). |
-| [FEAT-ADM-03](#feat-adm-03) | Backup and restore of local state | Planned | Unverified | None | Merge PR #91 (FD-126). |
+| [FEAT-ADM-03](#feat-adm-03) | Backup and restore of local state | Planned | Unverified | None | PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126). |
 | [FEAT-REL-01](#feat-rel-01) | Continuous release channels | Implemented | Unverified | Settings > Updates | Per-build release assets for pinning and rollback (PB-064). |
 <!-- END GENERATED: index -->
 
@@ -1366,9 +1366,9 @@ on quality.
 - **Tests:** `sidecar/tests/test_meta.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** No request or approval flow, no history, no expiry view.
-- **Owning workstream:** Enterprise readiness (FD-129)
+- **Owning workstream:** Enterprise governance foundation (FD-129)
 - **Backlog:** [PB-059](PRODUCT_BACKLOG.md#pb-059)
-- **Recommended next action:** Request and approval flow with history (FD-129), aligned with GOV-00x.
+- **Recommended next action:** Request and approval flow with history (FD-129), built by the governance foundation thread on its policy registry.
 
 ### FEAT-GOV-04
 
@@ -1688,7 +1688,7 @@ on quality.
 - **Pull requests and issues:** [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89)
 - **Owning workstream:** Enterprise readiness (FD-125)
 - **Backlog:** [PB-007](PRODUCT_BACKLOG.md#pb-007)
-- **Recommended next action:** Merge PR #89 (FD-125).
+- **Recommended next action:** PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125).
 
 ### FEAT-ADM-03
 
@@ -1701,7 +1701,7 @@ on quality.
 - **Pull requests and issues:** [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91)
 - **Owning workstream:** Enterprise readiness (FD-126)
 - **Backlog:** [PB-066](PRODUCT_BACKLOG.md#pb-066)
-- **Recommended next action:** Merge PR #91 (FD-126).
+- **Recommended next action:** PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126).
 
 ### FEAT-ADM-04
 
@@ -1727,7 +1727,7 @@ on quality.
 - **Pull requests and issues:** [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95)
 - **Owning workstream:** Enterprise readiness (FD-131b)
 - **Backlog:** [PB-009](PRODUCT_BACKLOG.md#pb-009)
-- **Recommended next action:** Merge PR #95 (FD-131b).
+- **Recommended next action:** PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b).
 
 ### FEAT-ADM-06
 

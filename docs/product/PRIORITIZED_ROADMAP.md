@@ -106,8 +106,8 @@ are sequenced by those programs; the order here is what the master product view 
    wrong answers and wrong documents: local-parity defects (PB-013), Preview labels (PB-078),
    security and network docs (PB-010), Rust tests in CI (PB-071) and Fabric client retries
    (PB-051). Each has a PR-ready package.
-3. **Enterprise readiness already in review.** Review and merge the open enterprise PRs (audit
-   trail #89, retention #95, backup #91) through the implementation review, then token encryption
+3. **Enterprise readiness already merged.** Run the implementation review on the merged enterprise
+   PRs (audit trail #89, retention #95, backup #91, Ready to work #94), then token encryption
    (PB-005), CSP (PB-006), embedded-view hosts (PB-008) and release pinning (PB-064).
 4. **Local-first differentiation (P1, programs).** The Spark API matrix (PB-012) and the AST
    analyzer (PB-014) from Prove, CU labelling (PB-050), preflight risk (PB-090) and the execution
@@ -197,7 +197,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-085](PRODUCT_BACKLOG.md#pb-085) | Declare cell dependencies and mark stale on new table versions | 3 | 2 | 2 | 3 | 3 | 2 | 2 | 2.55 | 2.0 | 2.04 | none | S | Medium | none | Prove |
 | [PB-028](PRODUCT_BACKLOG.md#pb-028) | Package install magics that work on this PC | 4 | 2 | 2 | 1 | 3 | 2 | 2 | 2.5 | 2.0 | 2.0 | none | S | Medium | PB-016 | Prove |
 | [PB-069](PRODUCT_BACKLOG.md#pb-069) | Compare large tables in batches | 3 | 3 | 3 | 2 | 3 | 3 | 2 | 2.85 | 2.5 | 1.99 | none | M | Medium | none | Staged roadmap |
-| [PB-059](PRODUCT_BACKLOG.md#pb-059) | Governance exception requests and approvals | 2 | 1 | 4 | 2 | 3 | 2 | 2 | 2.45 | 2.0 | 1.96 | none | M | Medium | PB-056 | Enterprise readiness |
+| [PB-059](PRODUCT_BACKLOG.md#pb-059) | Governance exception requests and approvals | 2 | 1 | 4 | 2 | 3 | 2 | 2 | 2.45 | 2.0 | 1.96 | none | M | Medium | PB-056 | Enterprise governance foundation |
 | [PB-061](PRODUCT_BACKLOG.md#pb-061) | Missing policy keys | 1 | 1 | 5 | 1 | 4 | 2 | 2 | 2.45 | 2.0 | 1.96 | none | M | High | none | Enterprise readiness |
 | [PB-042](PRODUCT_BACKLOG.md#pb-042) | Release rollback and the committed-revision rule | 3 | 1 | 5 | 3 | 4 | 3 | 3 | 3.25 | 3.0 | 1.95 | none | M | Medium | none | Staged roadmap |
 | [PB-095](PRODUCT_BACKLOG.md#pb-095) | MCP server and local API for external AI tools | 4 | 2 | 4 | 5 | 5 | 4 | 3 | 3.9 | 3.5 | 1.95 | none | XL | Medium | none | Bring your own AI integration |

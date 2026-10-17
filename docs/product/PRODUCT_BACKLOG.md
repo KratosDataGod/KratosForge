@@ -21,13 +21,13 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Workstream | Ids it uses | Where its own plan lives |
 | --- | --- | --- |
 | Git-native development | Git phase 1-4, FD-113, FD-120, FD-132..135 | [git-integration-plan.md](../git-integration-plan.md) |
-| Enterprise readiness | FD-101..105, 125, 126, 129..131, 136..140 | [enterprise-backlog.md](enterprise-backlog.md), [enterprise-gap-analysis.md](enterprise-gap-analysis.md) |
+| Enterprise readiness | FD-101..105, 125, 126, 130, 131, 136..140 | [enterprise-backlog.md](enterprise-backlog.md), [enterprise-gap-analysis.md](enterprise-gap-analysis.md) |
 | Staged roadmap | FD-114..118, 121, 127, 128 | [scale-and-operations-plan.md](../scale-and-operations-plan.md) |
 | Prove | FD-109..112, 119, Prove plan #n | [prove/plan.md](../prove/plan.md) |
 | Workload management | FD-122..124, Workloads stage n | [workloads/plan.md](../workloads/plan.md) |
 | Bring your own AI integration | PR-AI-001..012 | [ai-integration-backlog.md](ai-integration-backlog.md) |
 | SQL development sprint | SQL-001..006 | Its project thread |
-| Enterprise governance foundation | GOV-001..005 | Its project thread |
+| Enterprise governance foundation | GOV-001..005, FD-129 (moved from Enterprise readiness on 2026-10-17) | Its project thread |
 | Administration and FinOps sprint | FINOPS-001..005 | Its project thread |
 | Local Fabric pipeline execution | ORCH-001..010 | Its project thread |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
@@ -659,7 +659,7 @@ review moves it to Accepted; a merge alone does neither.
 | --- | --- | --- | --- | --- | --- |
 | [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In progress |
 | [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Proposed |
-| [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise readiness | M | Proposed |
+| [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Proposed |
 | [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
 | [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Proposed |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Proposed |
@@ -701,9 +701,9 @@ review moves it to Accepted; a merge alone does neither.
 - **Current-state evidence:** meta/project.py exceptions.toml
 - **Inventory features:** [FEAT-GOV-03](FEATURE_INVENTORY.md#feat-gov-03)
 - **Dependencies:** [PB-056](#pb-056)
-- **Owner:** Enterprise readiness (FD-129)
+- **Owner:** Enterprise governance foundation (FD-129)
 - **Acceptance criteria:**
-    - As defined in FD-129 by its owning program, using GOV-001 policy ids
+    - As defined in FD-129 by the Enterprise governance foundation thread (moved from Enterprise readiness on 2026-10-17), built on the GOV-001 policy registry
 
 ### PB-060
 
@@ -1157,7 +1157,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Nothing records who ran or changed what in a tamper-evident way.
 - **Proposed capability:** Hash-chained audit lines, built in PR #89.
-- **Current-state evidence:** PR #89 open
+- **Current-state evidence:** PR #89 merged after this assessment's commit; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-02](FEATURE_INVENTORY.md#feat-adm-02), [FEAT-PRV-03](FEATURE_INVENTORY.md#feat-prv-03)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-125)
@@ -1188,7 +1188,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Copies of lakehouse data stay on PCs indefinitely.
 - **Proposed capability:** Built in PR #95 (FD-131b).
-- **Current-state evidence:** PR #95 open
+- **Current-state evidence:** PR #95 merged after this assessment's commit; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-05](FEATURE_INVENTORY.md#feat-adm-05)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1325,7 +1325,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Settings, schedules, queue and receipts can't be backed up.
 - **Proposed capability:** Built in PR #91 (FD-126).
-- **Current-state evidence:** PR #91 open
+- **Current-state evidence:** PR #91 merged after this assessment's commit; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-03](FEATURE_INVENTORY.md#feat-adm-03)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-126)

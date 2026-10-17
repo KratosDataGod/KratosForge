@@ -268,7 +268,7 @@
       "problem": "Nothing records who ran or changed what in a tamper-evident way.",
       "capability": "Hash-chained audit lines, built in PR #89.",
       "evidence": [
-        "PR #89 open"
+        "PR #89 merged after this assessment's commit; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-02",
@@ -357,7 +357,7 @@
       "problem": "Copies of lakehouse data stay on PCs indefinitely.",
       "capability": "Built in PR #95 (FD-131b).",
       "evidence": [
-        "PR #95 open"
+        "PR #95 merged after this assessment's commit; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-05"
@@ -2093,7 +2093,7 @@
         "PB-056"
       ],
       "acceptance": [
-        "As defined in FD-129 by its owning program, using GOV-001 policy ids"
+        "As defined in FD-129 by the Enterprise governance foundation thread (moved from Enterprise readiness on 2026-10-17), built on the GOV-001 policy registry"
       ],
       "scores": {
         "developer_value": 2,
@@ -2105,7 +2105,7 @@
         "risk": 2
       },
       "mandatory": "none",
-      "owner": "Enterprise readiness",
+      "owner": "Enterprise governance foundation",
       "source_refs": [
         "FD-129"
       ],
@@ -2374,7 +2374,7 @@
       "problem": "Settings, schedules, queue and receipts can't be backed up.",
       "capability": "Built in PR #91 (FD-126).",
       "evidence": [
-        "PR #91 open"
+        "PR #91 merged after this assessment's commit; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-03"

@@ -3186,8 +3186,8 @@
       "limitations": [
         "No request or approval flow, no history, no expiry view"
       ],
-      "workstream": "Enterprise readiness (FD-129)",
-      "next_action": "Request and approval flow with history (FD-129), aligned with GOV-00x.",
+      "workstream": "Enterprise governance foundation (FD-129)",
+      "next_action": "Request and approval flow with history (FD-129), built by the governance foundation thread on its policy registry.",
       "backlog": [
         "PB-059"
       ]
@@ -4055,7 +4055,7 @@
         89
       ],
       "workstream": "Enterprise readiness (FD-125)",
-      "next_action": "Merge PR #89 (FD-125).",
+      "next_action": "PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125).",
       "backlog": [
         "PB-007"
       ]
@@ -4087,7 +4087,7 @@
         91
       ],
       "workstream": "Enterprise readiness (FD-126)",
-      "next_action": "Merge PR #91 (FD-126).",
+      "next_action": "PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126).",
       "backlog": [
         "PB-066"
       ]
@@ -4143,7 +4143,7 @@
         95
       ],
       "workstream": "Enterprise readiness (FD-131b)",
-      "next_action": "Merge PR #95 (FD-131b).",
+      "next_action": "PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b).",
       "backlog": [
         "PB-009"
       ]

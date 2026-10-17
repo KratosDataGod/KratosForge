@@ -3703,6 +3703,42 @@
         "score": 2.3,
         "priority": "P0"
       }
+    },
+    {
+      "id": "PB-100",
+      "title": "Fuller What's new dialog",
+      "category": "Developer Experience and Productivity",
+      "problem": "The What's new dialog shows only the current build, so people who skip updates miss what changed.",
+      "capability": "Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.",
+      "evidence": [
+        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)"
+      ],
+      "features": [
+        "FEAT-SHL-09"
+      ],
+      "acceptance": [
+        "As defined by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 2,
+        "differentiation": 1,
+        "strategic_alignment": 2,
+        "complexity": 1,
+        "risk": 1
+      },
+      "mandatory": "none",
+      "owner": "Fuller What's new dialog",
+      "effort": "S",
+      "confidence": "Medium",
+      "state": "In progress",
+      "computed": {
+        "benefit": 1.65,
+        "cost": 1.0,
+        "score": 1.65,
+        "priority": "P3"
+      }
     }
   ]
 }

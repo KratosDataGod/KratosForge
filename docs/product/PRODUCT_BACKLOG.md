@@ -31,6 +31,7 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Administration and FinOps sprint | FINOPS-001..005 | Its project thread |
 | Local Fabric pipeline execution | ORCH-001..010 | Its project thread |
 | Local data engine and OneLake publishing | FD-LDE-001..020 | Its project thread; tracked here as PB-099, with overlaps noted on PB-015, PB-019..PB-024, PB-067 and PB-079 |
+| Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,
@@ -64,12 +65,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 0 | 6 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 0 | 3 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 2 | 6 | 0 | 8 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 2 | 5 | 0 | 7 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 2 | 5 | 1 | 8 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 3 | 5 | 2 | 10 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 1 | 7 | 2 | 0 | 10 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **3** | **28** | **47** | **9** | **87** |
+| **Total** | **3** | **28** | **47** | **10** | **88** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -799,6 +800,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
 | [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | In review |
 | [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Proposed |
+| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In progress |
 
 ### PB-034
 
@@ -899,6 +901,19 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - Preview files are removed when the panel closes or on next start
     - Files over a limit preview their head only
+
+### PB-100
+
+**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In progress
+
+- **Problem:** The What's new dialog shows only the current build, so people who skip updates miss what changed.
+- **Proposed capability:** Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.
+- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link)
+- **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
+- **Dependencies:** none
+- **Owner:** Fuller What's new dialog
+- **Acceptance criteria:**
+    - As defined by its owning thread
 
 ## Enterprise Administration and FinOps
 

@@ -1204,13 +1204,13 @@ function renderLakehouse() {
 
 // ---------- SQL query page ----------
 
-// Spark SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB).
+// SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
 const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
-const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {} };
+const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
 
 function openSqlQuery(ref) {
   if (sqlPage.ref?.lakehouse_id !== ref.lakehouse_id) {
-    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {} });
+    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {} });
   }
   go("query");
 }
@@ -1222,21 +1222,41 @@ function queryTabsKey(ref) {
 function loadQueryTabs(ref) {
   try {
     const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
-    if (Array.isArray(saved) && saved.length) return saved.map((t) => ({ name: String(t.name), sql: String(t.sql) }));
+    if (Array.isArray(saved) && saved.length) {
+      return saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
+    }
   } catch { /* no saved tabs */ }
-  return [{ name: "Query 1", sql: QUERY_HINT }];
+  return [{ name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
 }
 
 function saveQueryTabs() {
   try {
-    localStorage.setItem(queryTabsKey(sqlPage.ref), JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql }))));
-  } catch { /* storage unavailable: tabs last for this session */ }
+    localStorage.setItem(queryTabsKey(sqlPage.ref),
+      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark" }))));
+    return true;
+  } catch { return false; /* storage unavailable: tabs last for this session */ }
 }
 
-// "dbo.sales" reads as "sales", the way Fabric's query tab names it.
-function sqlTableName(schema, table) {
-  const quote = (s) => (/^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : `\`${s.replace(/`/g, "``")}\``);
-  return schema === "dbo" ? quote(table) : `${quote(schema)}.${quote(table)}`;
+// The SQL editor's completion provider for one lakehouse (the shape is described in sqleditor.js).
+// Tables are the ones the page already listed; each table's columns are asked for once.
+function lakehouseSqlProvider(p, ref, changed) {
+  const key = (t) => sqlTableName(t.schema, t.name);
+  return {
+    id: `lakehouse:${ref.lakehouse_id}`,
+    label: ref.name,
+    tables: () => Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((name) => ({ schema, name }))),
+    cachedColumns: (t) => p.cols[key(t)] || undefined,
+    columns(t) {
+      const k = key(t);
+      if (p.cols[k]) return Promise.resolve(p.cols[k]);
+      if (!p.pending[k]) {
+        p.pending[k] = rpc("table_columns", { lakehouse_ref: ref, table: k })
+          .then((cols) => { p.cols[k] = cols || []; changed(); return p.cols[k]; })
+          .catch(() => { p.cols[k] = []; return []; });  // offline or no access: no column names, ask again after Refresh
+      }
+      return p.pending[k];
+    },
+  };
 }
 
 function cellText(v) {
@@ -1250,46 +1270,38 @@ function renderQuery() {
   if (!ref) return go("onelake");
   if (!p.tabs[p.active]) p.active = 0;
   const tab = p.tabs[p.active];
+  tab.dialect = sqlDialect(tab.dialect);
   const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
+  const runsHere = () => SQL_DIALECTS[tab.dialect].runsHere;
 
-  const editor = h("textarea", { class: "sql-editor", spellcheck: "false", "aria-label": "SQL query" });
-  editor.value = tab.sql;
-  const gutter = h("div", { class: "sql-gutter", "aria-hidden": "true" });
-  const syncGutter = () => {
-    const n = Math.max(editor.value.split("\n").length, 10);
-    gutter.textContent = Array.from({ length: n }, (_, i) => i + 1).join("\n");
-    gutter.scrollTop = editor.scrollTop;
-  };
   const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
-  editor.addEventListener("input", () => { setSql(editor.value); syncGutter(); });
-  editor.addEventListener("scroll", () => { gutter.scrollTop = editor.scrollTop; });
-  editor.addEventListener("keydown", (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); run(); }
-    else if (e.key === "Tab" && !e.shiftKey) {
-      e.preventDefault();
-      editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end");
-      setSql(editor.value);
-    }
+  p.editor?.destroy();
+  const editor = p.editor = createSqlEditor({
+    doc: tab.sql,
+    dialect: tab.dialect,
+    provider: lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
+    on: {
+      change: setSql,
+      run: () => run(),
+      save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
+      format: () => formatSql(),
+    },
   });
-  const chosenSql = () => {
-    const { selectionStart: a, selectionEnd: b } = editor;
-    return b > a ? editor.value.slice(a, b) : editor.value;
-  };
-  const insertAtCursor = (text) => {
-    editor.focus();
-    editor.setRangeText(text, editor.selectionStart, editor.selectionEnd, "end");
-    setSql(editor.value);
-    syncGutter();
-  };
+  const insertAtCursor = (text) => editor.insert(text);
 
-  async function run(query = chosenSql()) {
+  async function run(query = editor.chosen()) {
     if (!query.trim() || tab.running) return;
+    if (!runsHere()) {
+      toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
+      return;
+    }
     tab.running = true;
     tab.error = null;
     drawResults();
     try {
-      tab.result = await rpc("run_sql", { query, lakehouse_ref: ref });
+      tab.result = await rpc("run_sql", { query, lakehouse_ref: ref, dialect: tab.dialect });
       tab.ranSql = query;
+      tab.ranDialect = tab.dialect;
     } catch (err) {
       tab.result = null;
       tab.error = String(err);
@@ -1298,17 +1310,32 @@ function renderQuery() {
     if (here()) drawResults();
   }
 
+  // Format the selection, or everything. The engine leaves the SQL alone and says why when it can't keep its meaning.
+  async function formatSql() {
+    const { from, to } = editor.selection();
+    const whole = to <= from;
+    const text = whole ? editor.text() : editor.text().slice(from, to);
+    if (!text.trim()) return;
+    const out = await attempt(() => rpc("sql_format", { query: text, dialect: tab.dialect }), "Could not format the SQL");
+    if (!out || !here()) return;
+    if (out.warning) toast(out.warning, true);
+    else if (out.changed && editor.text().slice(whole ? 0 : from, whole ? undefined : to) === text) {
+      editor.replace(out.sql, whole ? 0 : from, whole ? editor.text().length : to);
+    }
+  }
+
   async function saveAsTable() {
-    const query = chosenSql();
+    const query = editor.chosen();
     if (!query.trim()) return;
     const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
     if (!name) return;
     toast(`Writing ${name}...`);
-    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name }), "Could not save the table");
+    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
     if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
         `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite" }), "Could not save the table");
+      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
+        "Could not save the table");
     }
     if (out) {
       toast(out.message);
@@ -1319,7 +1346,7 @@ function renderQuery() {
   }
 
   async function openInNotebook() {
-    const query = chosenSql().trim();
+    const query = editor.chosen().trim();
     await newNotebook(ref);
     if (!state.notebook) return;
     const cell = state.notebook.cells[0];
@@ -1330,7 +1357,8 @@ function renderQuery() {
 
   async function downloadCsv() {
     if (!tab.ranSql) return;
-    const out = await attempt(() => rpc("export_sql_csv", { query: tab.ranSql, lakehouse_ref: ref }), "Could not save the CSV");
+    const out = await attempt(() => rpc("export_sql_csv", { query: tab.ranSql, lakehouse_ref: ref, dialect: tab.ranDialect || "spark" }),
+      "Could not save the CSV");
     if (out) toast(`Saved ${out.rows.toLocaleString()} rows to ${out.path}`);
   }
 
@@ -1345,27 +1373,25 @@ function renderQuery() {
   // Explorer: click a table to query it, a column to type its name.
   const tablesBox = h("div", { class: "explorer-content" });
   function queryTable(name) {
-    const text = `SELECT *\nFROM ${name}\nLIMIT 100;`;
+    const text = tab.dialect === "spark" || tab.dialect === "duckdb" ? `SELECT *\nFROM ${name}\nLIMIT 100;` : `SELECT TOP (100) *\nFROM ${name};`;
     if (!tab.sql.trim() || tab.sql === QUERY_HINT) {
-      setSql(text);
-      editor.value = text;
-      syncGutter();
+      editor.replace(text);
       run(text);
     } else {
-      p.tabs.push({ name: nextTabName(), sql: text, autorun: true });
+      p.tabs.push({ name: nextTabName(), sql: text, dialect: tab.dialect, autorun: true });
       p.active = p.tabs.length - 1;
       saveQueryTabs();
       renderQuery();
     }
   }
-  async function toggleColumns(name) {
+  async function toggleColumns(t, name) {
     p.open[name] = !p.open[name];
     if (p.open[name] && !p.cols[name]) {
       drawTables();
-      p.cols[name] = (await attempt(() => rpc("table_columns", { lakehouse_ref: ref, table: name }), "Could not read the columns")) || null;
-      if (!p.cols[name]) p.open[name] = false;
+      const cols = await lakehouseSqlProvider(p, ref, () => {}).columns(t);
+      if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
     }
-    if (state.view === "query" && p.ref === ref) drawTables();
+    if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
   }
   function drawTables() {
     if (!p.tables) {
@@ -1382,14 +1408,14 @@ function renderQuery() {
         const open = !!p.open[name];
         rows.push(h("div", { class: "sql-table-row" },
           h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
-            style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns(name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(name) },
+            style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns({ schema, name: t }, name) }, chevron(open)),
+          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)) },
             icon("table", 15), h("span", { class: "label" }, t))));
         if (open) {
           if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));
           for (const c of p.cols[name] || []) {
             rows.push(h("button", { class: "tree-row sql-col", title: `Insert ${c.name}`,
-              onclick: () => insertAtCursor(/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.name) ? c.name : `\`${c.name}\``) },
+              onclick: () => insertAtCursor(sqlQuoteIdent(c.name, tab.dialect)) },
             h("span", { class: "label" }, c.name), h("span", { class: "hint" }, c.type)));
           }
         }
@@ -1432,6 +1458,7 @@ function renderQuery() {
     while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
     return `Query ${n}`;
   };
+  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
   const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
     p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
       h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
@@ -1442,15 +1469,34 @@ function renderQuery() {
         } }, icon("code", 14), t.name),
       p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
         onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    h("button", { class: "sql-tab add", "aria-label": "New query",
-      onclick: () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); } }, "+"));
+    h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
-  const runBtn = btn("Run", "play", () => run(), "tool primary");
+  const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
+    title: "The SQL you are writing. It sets highlighting, suggestions and formatting; only Spark SQL and DuckDB run on this PC.",
+    onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
+  Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
+  const actions = h("div", { class: "sql-actions" });
+  function drawActions() {
+    const local = runsHere();
+    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local }),
+      h("span", { class: "muted-text" }, local ? "Ctrl+Enter, or select text to run just that"
+        : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
+      h("span", { class: "sql-sep", "aria-hidden": "true" }),
+      dialectPick,
+      btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
+      h("span", { class: "spacer" }),
+      btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
+      btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
+  }
+  drawActions();
+
+  const edit = h("div", { class: "sql-edit" });
+  edit.append(editor.view.dom);
   setView(h("div", { class: "sql-page" },
     h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); }),
+      btn("New SQL query", "add", addTab),
       btn("New notebook", "notebook", () => newNotebook(ref)),
-      btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; renderQuery(); }),
+      btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       h("span", { class: "spacer" }),
       h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB. No Fabric capacity is used."))),
     h("div", { class: "nb-body" },
@@ -1459,14 +1505,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" },
-          h("div", { class: "sql-actions" }, runBtn,
-            h("span", { class: "muted-text" }, "Ctrl+Enter, or select text to run just that"), h("span", { class: "spacer" }),
-            btn("Save as table", "save", saveAsTable, "tool outline"),
-            btn("Open in notebook", "notebook", openInNotebook, "tool outline")),
-          h("div", { class: "sql-edit" }, gutter, editor),
-          band, grid)))));
-  syncGutter();
+        h("div", { class: "sql-card" }, actions, edit, band, grid)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }
@@ -1474,7 +1513,7 @@ function renderQuery() {
     rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
       .then((t) => { p.tables = t; })
       .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) drawTables(); });
+      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); } });
   }
   editor.focus();
 }

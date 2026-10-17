@@ -83,6 +83,7 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |
+| The `IngestionEndpoint` host of the usage data connection string, such as `westeurope-5.in.applicationinsights.azure.com` | Only if usage data is on ([Usage data](telemetry.md)). `"telemetry": false` in the policy file turns it off for everyone |
 
 The list comes from the hosts named in the source code. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 

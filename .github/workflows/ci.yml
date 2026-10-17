@@ -119,7 +119,8 @@ jobs:
           python -m pip wheel --no-deps -w "$env:RUNNER_TEMP\wheels" ./sidecar
           python -m pip install --only-binary=:all: -c sidecar\constraints.txt --target "$dir\Lib\site-packages" pip (Get-ChildItem "$env:RUNNER_TEMP\wheels\*.whl").FullName
           # client_id: an own app registration for a fork built for one organization (repository variable). Empty means Microsoft's Fabric sign-in.
-          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; client_id = "${{ vars.FABRIC_CLIENT_ID }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
+          # telemetry_connection_string: KratosBI's Application Insights for opt-in usage data (docs/telemetry.md); unset means builds never send any.
+          @{ commit = "$env:GITHUB_SHA"; python = "$env:PYTHON_VERSION"; client_id = "${{ vars.FABRIC_CLIENT_ID }}"; telemetry_connection_string = "${{ vars.TELEMETRY_CONNECTION_STRING }}" } | ConvertTo-Json | Set-Content "$dir\engine.json" -Encoding ascii
           "ENGINE_DIR=$dir" >> $env:GITHUB_ENV
       - name: Check the engine starts on its own
         shell: pwsh

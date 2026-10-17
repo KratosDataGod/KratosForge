@@ -17,18 +17,26 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import ParseError
 
-from . import lakehouse
+from . import lakehouse, sql_dialects
 
 
-def parse(query: str) -> list[exp.Expression]:
-    """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark."""
+def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
+    """Spark SQL first; DuckDB SQL is accepted too when it isn't valid Spark.
+
+    ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
+    chosen = sql_dialects.get(dialect)
+    if not chosen["runs_here"]:
+        raise ValueError(f"{chosen['label']} can't run on this PC. Fabric Desktop by KratosBI checks and formats "
+                         "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
-        statements = sqlglot.parse(query, read="spark")
-    except ParseError as spark_error:
+        statements = sqlglot.parse(query, read=chosen["sqlglot"])
+    except ParseError as first_error:
+        if chosen["id"] != "spark":
+            raise ValueError(f"Could not read the query: {first_error}") from None
         try:
             statements = sqlglot.parse(query, read="duckdb")
         except ParseError:
-            raise ValueError(f"Could not read the query: {spark_error}") from None
+            raise ValueError(f"Could not read the query: {first_error}") from None
     statements = [s for s in statements if s is not None]
     if not statements:
         raise ValueError("The query is empty.")
@@ -73,7 +81,7 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
-def run(query: str, sandbox: bool = False) -> pa.Table:
+def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
     """Run every statement in ``query`` and return the last one's result.
 
     ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
@@ -85,7 +93,7 @@ def run(query: str, sandbox: bool = False) -> pa.Table:
     con.execute("SET TimeZone = 'UTC'")
     views: dict[str, str] = {}
     result = None
-    statements = parse(query)
+    statements = parse(query, dialect)
     if sandbox:
         statements = [check_read_only(statements)]
         bind_tables(statements[0], con, views)

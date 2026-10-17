@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import depgraph, envprofile, proof, receipts, scorecard, verify, wizard
+from .notebook import check_watches
 from .fabric_run import TERMINAL, fabric_ipynb
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -152,6 +153,25 @@ class ProveMixin:
     def prove_rules_get(self, name: str) -> dict[str, Any]:
         """The notebook's proof contract: {"default": rules, "tables": {table: rules}}."""
         return self.notebooks.extra(name, "proof") or {}  # type: ignore[attr-defined]
+
+    def notebook_debug_get(self, name: str) -> dict[str, Any]:
+        """The Variables pane's saved choices: watch expressions (not their values) and the names
+        whose hidden-state warning was ignored for this notebook."""
+        saved = self.notebooks.extra(name, "debug") or {}  # type: ignore[attr-defined]
+        return {"watches": list(saved.get("watches") or []), "ignore_hidden": list(saved.get("ignore_hidden") or [])}
+
+    def notebook_debug_set(self, name: str, watches: list[str] | None = None,
+                           ignore_hidden: list[str] | None = None) -> dict[str, Any]:
+        """Saves what's given; None keeps the saved value."""
+        saved = self.notebook_debug_get(name)
+        if watches is not None:
+            saved["watches"] = check_watches(watches)
+        if ignore_hidden is not None:
+            if not isinstance(ignore_hidden, list) or not all(isinstance(n, str) and n.isidentifier() for n in ignore_hidden):
+                raise ValueError("ignore_hidden is a list of variable names")
+            saved["ignore_hidden"] = sorted(set(ignore_hidden))
+        self.notebooks.set_extra(name, "debug", saved if saved["watches"] or saved["ignore_hidden"] else None)  # type: ignore[attr-defined]
+        return saved
 
     def prove_rules_set(self, name: str, rules: dict[str, Any]) -> dict[str, Any]:
         rules = _normalized_rules(rules)

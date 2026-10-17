@@ -1173,3 +1173,34 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .choice-row b .pill-s { margin-left: 6px; vertical-align: 1px; }
 .integrations .list td .tool.small { min-height: 22px; }
 .integ-scroll .snippet code { white-space: pre-wrap; word-break: break-all; }
+
+/* Variable history, watches and hidden state (debugging.js) */
+.dbg-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.dbg-watches { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.dbg-head { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.dbg-watch { border: 1px solid var(--border-soft); border-radius: 4px; padding: 4px 6px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.dbg-watch.paused { opacity: .75; }
+.dbg-watch-head { display: flex; align-items: center; gap: 4px; }
+.dbg-watch-head code { flex: 1; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dbg-value { font-family: var(--mono); font-weight: 600; font-size: 13px; overflow-wrap: anywhere; }
+.dbg-trail { display: flex; flex-wrap: wrap; gap: 2px 8px; color: var(--muted); font-size: 11px; }
+.dbg-trail .changed { color: #8a5300; font-weight: 600; }
+.dbg-addrow { display: flex; gap: 6px; }
+.dbg-add { flex: 1; min-width: 0; height: 26px; border: 1px solid var(--border-input); border-radius: 4px; padding: 0 6px; font: inherit; font-size: 12px; }
+.dbg-note { font-size: 11px; }
+.dbg-tabs { display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid var(--border-soft); }
+.dbg-tab { border: 0; background: none; font: inherit; font-size: 12px; padding: 4px 8px; border-bottom: 2px solid transparent; cursor: pointer; color: var(--text-2); }
+.dbg-tab.on { border-bottom-color: var(--accent); font-weight: 600; color: var(--text); }
+.dbg-history { padding: 4px 10px 16px; display: flex; flex-direction: column; }
+.dbg-run { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid var(--border-soft); font-size: 12px; }
+.dbg-run > div { font-family: var(--mono); white-space: pre; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.dbg-run .add { color: #0b6a0b; }
+.dbg-run .mod { color: #8a5300; }
+.dbg-run .del { color: var(--danger); cursor: default; }
+.dbg-empty { padding: 10px; }
+.output.dbg-hidden { background: #fff8e6; border-left: 3px solid #c27c00; display: flex; flex-direction: column; gap: 8px; }
+.dbg-hidden-item { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.dbg-hidden-item code { font-family: var(--mono); font-size: 12px; }
+.dbg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.dbg-watch .warn { color: #8a5300; overflow-wrap: anywhere; }
+.dbg-hidden-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

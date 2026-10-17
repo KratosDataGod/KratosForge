@@ -510,6 +510,62 @@ test("an incident goes to the routes that match it, else the default, never the 
   assert.match(ctx.incRoutes({ team: "finance", criticality: "critical" }, cfg), /default/);
 });
 
+// The pure helpers at the top of debugging.js.
+function dbgHelpers() {
+  const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- state ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail });`, ctx);
+  return ctx;
+}
+
+test("variable history says what a cell added, changed and removed, without keeping values", () => {
+  const { dbgDiff } = dbgHelpers();
+  const before = [{ name: "df", type: "DataFrame", size: "10 × 3", value: "a, b, c" }, { name: "n", type: "int", size: "", value: "1" },
+    { name: "tmp", type: "list", size: "2", value: "[1, 2]" }, { name: "same", type: "str", size: "1", value: "'x'" }];
+  const after = [{ name: "df", type: "DataFrame", size: "8 × 3", value: "a, b, c" }, { name: "n", type: "int", size: "", value: "2" },
+    { name: "same", type: "str", size: "1", value: "'x'" }, { name: "secret", type: "str", size: "9", value: "hidden" }];
+  const d = dbgDiff(before, after);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(d)), {
+    added: [{ name: "secret", type: "str", size: "9" }],
+    changed: [{ name: "df", type: "DataFrame", size: "8 × 3", was: "10 × 3" }, { name: "n", type: "int", size: "", was: "" }],
+    removed: [{ name: "tmp" }],
+  });
+  assert.ok(!JSON.stringify(d).includes("value"), "values are not kept");
+});
+
+test("hidden state: a name only the kernel has is reported, with the deleted cell's code", () => {
+  const { dbgHidden } = dbgHelpers();
+  const g = { unresolved: [
+    { name: "total", text: "total isn't defined by any cell (an import, a typo, or something defined dynamically)" },
+    { name: "later", text: "later is defined only in a later cell (7)" },
+    { name: "pl", text: "pl isn't defined by any cell" },
+    { name: "quiet", text: "quiet isn't defined by any cell" }] };
+  const setBy = { total: { cell_id: "gone", source: "total = len(events)" }, later: { cell_id: "c7", source: "later = 1" } };
+  const cells = [{ cell_id: "c6", source: "print(total)" }, { cell_id: "c7", source: "later = 1" }];
+  const out = JSON.parse(JSON.stringify(dbgHidden(g, ["total", "later", "quiet"], setBy, cells, ["quiet"])));
+  assert.deepStrictEqual(out, [
+    { name: "total", text: "total isn't defined by any cell in this notebook", source: "total = len(events)" },
+    { name: "later", text: "later comes from a cell further down, which ran before this one", source: null },
+  ]);
+  // An edited cell that no longer has the code counts as gone.
+  const edited = dbgHidden(g, ["total"], { total: { cell_id: "c6", source: "total = 3" } }, cells, []);
+  assert.strictEqual(edited[0].source, "total = 3");
+});
+
+test("a watch keeps its last few values and marks a change", () => {
+  const { dbgTrail } = dbgHelpers();
+  let t = [];
+  t = dbgTrail(t, 1, { value: "5" });
+  t = dbgTrail(t, 2, { value: "5" });
+  t = dbgTrail(t, 3, { error: "NameError: x" });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(t)), [
+    { n: 1, value: "5", changed: false }, { n: 2, value: "5", changed: false }, { n: 3, value: "error: NameError: x", changed: true }]);
+  for (let i = 4; i < 12; i += 1) t = dbgTrail(t, i, { value: String(i) });
+  assert.strictEqual(t.length, 5);
+  assert.strictEqual(t[t.length - 1].n, 11);
+});
+
 test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
   const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };

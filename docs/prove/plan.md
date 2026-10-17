@@ -131,9 +131,9 @@ Repeated benchmarks with medians (75), cell waterfall (72), local resource timel
 
 Recipes (4), imported-notebook onboarding (5), typed parameter forms (6), synthetic data (7), bundles (8), walkthroughs (9), templates (10), translation (14), visual builder (15), suspicious-logic checks (17), shared components (19), backend filtering (21), exploration to code (22), join preview (23), profiling for notebooks (24), keys (25), schema timeline (26), linked charts (27), saved views (29), annotations (30).
 
-### Stage 8: AI-assisted authoring (needs a decision)
+### Stage 8: help from the developer's own AI tools
 
-Items 11, 12 (AI part), 13, 16, 18, 20, 50. Blocked on a product decision: which AI service, whose account pays, and the default data policy. Built only with reviewed diffs and explicit context controls.
+Items 11, 12 (AI part), 13, 16, 18, 20, 50. Fabric Desktop by KratosBI is AI-ready, not AI-dependent (Chris, 2026-10-17): no embedded chatbot or model, no AI provider integrations and no AI API keys. These items come from the developer's own tools (Claude, Codex, Copilot, Cursor and others) through the MCP server and local API that the "Bring your own AI integration" program builds. This plan's part is to register Prove capabilities with that program as plain capabilities, not AI features: checking and starting a proof, its status, the verified comparison, receipts, cell dependencies, compatibility and environment checks, and side by side. Every call keeps the existing safety checks (the side-by-side write confirmation, proof sandboxes, kernel execution controls), because they live in the engine services the adapters call. Capability shapes are agreed with that program through the project coordinator. Without an AI tool, every feature still works.
 
 ### Stage 9: production and collaboration
 
@@ -166,16 +166,16 @@ Stage numbers refer to section 3. "Accept" is the acceptance criterion; "Check" 
 
 | # | Capability | Status | Stage | Accept | Check | PR |
 | --- | --- | --- | --- | --- | --- | --- |
-| 11 | Describe-to-build assistant | Blocked (AI service decision) | 8 | Plan shown before any change; changes as a reviewed diff | U, UI | |
+| 11 | Describe-to-build assistant | External AI tool (MCP) | 8 | The tool sees the plan before any change; changes arrive as a reviewed diff | U, UI | |
 | 12 | Inline completion | Enhance (namespace + table names) | 7 / 8 | Completes columns of attached tables without AI | U | |
-| 13 | Explain selected code | Blocked (AI decision) | 8 | Explanation names side effects found by analysis | U | |
+| 13 | Explain selected code | External AI tool (MCP) | 8 | The dependency analysis (side effects, reads, writes) is available to the tool as a capability | U | |
 | 14 | Translation between engines | Enhance (Spark SQL → DuckDB via sqlglot) | 7 | Unsupported constructs flagged, never silently changed | U | |
 | 15 | Visual transformation builder | Missing | 7 | Generated code visible and editable | UI | |
-| 16 | Notebook-wide refactoring | Blocked (AI decision) for AI part | 8 | Reviewed diff preview | U | |
+| 16 | Notebook-wide refactoring | External AI tool (MCP) for the AI part | 8 | Reviewed diff preview | U | |
 | 17 | Suspicious logic detection | Missing | 7 | Join fan-out, filter-after-join on nulls flagged with evidence | U | |
-| 18 | Test generation | Blocked (AI decision) | 8 | Generated tests from contracts runnable without AI | U | |
+| 18 | Test generation | External AI tool (MCP) | 8 | Generated tests from contracts runnable without AI | U | |
 | 19 | Shared components | Missing | 7 | Inserted component versioned; update notice | U | |
-| 20 | Explicit AI context controls | Blocked (AI decision) | 8 | Nothing sent without the user's per-category consent | U | |
+| 20 | Explicit AI context controls | Owned by the AI integration program (permissions and approvals) | 8 | Nothing reaches a tool without the user's approval | U | |
 
 ### Data exploration
 
@@ -220,7 +220,7 @@ Stage numbers refer to section 3. "Accept" is the acceptance criterion; "Check" 
 | 47 | Failure replay bundles | Missing | 5 | Bundle holds code, params, input pins, environment; no data unless permitted | U | |
 | 48 | Hidden-state detection | Missing | 5 | Reports names used but defined only by deleted/edited cells | U | |
 | 49 | Process-isolated sessions | Enhance (threads in the engine; Stop kills the engine) | 4 | Cancel/terminate one notebook without affecting others | I | |
-| 50 | Failure explanations and repairs | Blocked (AI decision) for repairs | 8 | Proposed repair as a diff plus a focused re-run | U | |
+| 50 | Failure explanations and repairs | External AI tool (MCP) for repairs | 8 | Proposed repair as a diff plus a focused re-run | U | |
 
 ### Trustworthy comparisons
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import time
 from typing import Any, Callable
 
@@ -10,6 +11,23 @@ import requests
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
+
+
+# Fabric's rule for lakehouse names: letters, numbers and underscores, starting with a letter.
+_LAKEHOUSE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,255}")
+
+
+def lakehouse_name_problem(name: str) -> str:
+    """Why Fabric would refuse this lakehouse name, or "" if it's fine."""
+    if _LAKEHOUSE_NAME.fullmatch(name):
+        return ""
+    if len(name) > 256:
+        return "A lakehouse name can be at most 256 characters."
+    suggestion = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if not suggestion[:1].isalpha():
+        suggestion = f"LH_{suggestion}"
+    return (f"Fabric doesn't accept the lakehouse name {name!r}: use only letters, numbers and underscores, "
+            f"starting with a letter. For example {suggestion}.")
 
 
 class FabricError(RuntimeError):
@@ -27,6 +45,17 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
         return FabricError("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
                            "or use a workspace on an active capacity.", code)
     return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code)
+
+
+POLICY_BLOCKED = "PolicyBlocked"
+
+
+def _check_fabric_runs_allowed(what: str) -> None:
+    """The organization's policy can keep work off Fabric capacity (allow_fabric_runs: false)."""
+    from . import app_settings
+    if not app_settings.value("allow_fabric_runs"):
+        raise FabricError(f"Your organization doesn't allow {what} from Fabric Desktop by KratosBI, so it wasn't "
+                          "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 
 class FabricClient:
@@ -110,10 +139,18 @@ class FabricClient:
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
         """Create a schema-enabled lakehouse."""
+        problem = lakehouse_name_problem(name)
+        if problem:
+            raise ValueError(problem)
         body = {"displayName": name, "creationPayload": {"enableSchemas": True}}
         if description:
             body["description"] = description
         return self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
+
+    def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
+        """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
+        harness calls this, for lakehouses it created itself."""
+        self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
 
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
@@ -146,6 +183,7 @@ class FabricClient:
     def run_item_job(self, workspace_id: str, item_id: str, job_type: str,
                      execution_data: dict[str, Any] | None = None, item_path: str = "items") -> str:
         """Start a job instance and return its id (the last part of the Location header)."""
+        _check_fabric_runs_allowed("starting jobs in Fabric")
         body = {"executionData": execution_data} if execution_data else None
         resp = self._request("POST", f"/workspaces/{workspace_id}/{item_path}/{item_id}/jobs/instances",
                              params={"jobType": job_type}, json=body)
@@ -165,11 +203,15 @@ class FabricClient:
 
     def create_schedule(self, workspace_id: str, item_id: str, job_type: str,
                         configuration: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+        if enabled:
+            _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules"
         return self._request("POST", url, json={"enabled": enabled, "configuration": configuration}).json()
 
     def update_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
                         enabled: bool, configuration: dict[str, Any]) -> dict[str, Any]:
+        if enabled:  # turning a schedule off is always allowed
+            _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}"
         return self._request("PATCH", url, json={"enabled": enabled, "configuration": configuration}).json()
 

@@ -24,6 +24,8 @@ from .fabric_run import compute_check
 from .dataops_service import DataOpsMixin
 from .estate_service import EstateMixin
 from .meta_service import MetaMixin
+from .meta import diff as diff_mod
+from .meta import release
 from .schedule_service import ScheduleMixin
 from .side_by_side_service import SideBySideMixin
 from .prove_service import ProveMixin
@@ -33,6 +35,7 @@ from .central.service import PlatformMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
+from .git_service import GitMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore
 from .onelake import FileStore, TableCatalog
@@ -44,7 +47,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
+class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -126,7 +129,8 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         return self.kernel.stop()
 
     def app_settings(self) -> dict[str, Any]:
-        return {**app_settings.load(), "policy_file": str(app_settings.policy_path())}
+        return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
+                "policy_problems": app_settings.policy_problems()}
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
@@ -425,6 +429,21 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands."""
         return (self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
                 | {"check": compute_check(cells, lakehouse_ref)})
+
+    def notebook_diff(self, name: str, other: str | None = None) -> dict[str, Any]:
+        """How the notebook's cells differ, by source only, from ``other`` (another notebook) or,
+        without one, from its last Git commit (when the notebooks folder is in Git)."""
+        path = self.notebooks.path(name)
+        new = json.loads(path.read_text(encoding="utf-8"))
+        if other:
+            old = json.loads(self.notebooks.path(other).read_text(encoding="utf-8"))
+        else:
+            text = release.committed_file(path)
+            if text is None:
+                return {"name": name, "against": "head", "cells": [],
+                        "problem": "This notebook isn't in a Git commit, so there's nothing to compare it with."}
+            old = json.loads(text)
+        return {"name": name, "against": other or "head", "cells": diff_mod.notebook_changes(old, new), "problem": None}
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)

@@ -16,7 +16,7 @@ from fabric_desktop.meta.templates import init_project
 from fabric_desktop.service import Service
 from fabric_desktop.workloads import evaluate
 from fabric_desktop.workloads.incidents import KEY, IncidentLog
-from fabric_desktop.workloads.notify import KEEP_TRYING, Outbox, messages, send
+from fabric_desktop.workloads.notify import KEEP_TRYING, Outbox, Quiet, Route, Routing, messages, send, single
 
 from test_agent import Clock, config_text
 
@@ -230,15 +230,15 @@ def test_teams_unreachable_queues_and_the_next_try_sends_them_marked_delayed(tmp
             raise ConnectionError("no network")
         posted.append((title, lines))
 
-    res = send([change()], "https://hook", outbox, "agent", post)
+    res = send([change()], single("https://hook"), outbox, "agent", post)
     assert res["queued"] == 1 and res["sent"] == 0 and "ConnectionError" in res["error"]
-    res = send([change(name="b", title="b failed in Prod")], "https://hook", outbox, "agent", post)
+    res = send([change(name="b", title="b failed in Prod")], single("https://hook"), outbox, "agent", post)
     assert res["queued"] == 1 and len(outbox.pending()) == 2  # still down: the new one waits too
     down = False
-    res = send([], "https://hook", outbox, "agent", post)
+    res = send([], single("https://hook"), outbox, "agent", post)
     assert res["sent"] == 2 and outbox.pending() == []
     assert all(t.startswith("Delayed: ") for t, _ in posted)
-    assert send([change()], "", outbox, "agent", post)["skipped"]  # no webhook: nothing sent, nothing queued
+    assert send([change()], single(""), outbox, "agent", post)["skipped"]  # no webhook: nothing sent, nothing queued
 
 
 def test_an_alert_waiting_too_long_is_dropped(tmp_path):
@@ -247,7 +247,7 @@ def test_an_alert_waiting_too_long_is_dropped(tmp_path):
     outbox.add("old", ["x"], "down")
     clock.t += KEEP_TRYING + 1
     posted = []
-    assert send([], "https://hook", outbox, "agent", lambda *a: posted.append(a))["sent"] == 0
+    assert send([], single("https://hook"), outbox, "agent", lambda *a: posted.append(a))["sent"] == 0
     assert posted == [] and outbox.pending() == []
 
 
@@ -344,3 +344,192 @@ def test_the_app_and_the_agent_share_one_incident_list(tmp_path, monkeypatch):
         svc.incident_note("dev", inc["id"], "  ")
     with pytest.raises(ValueError):
         svc.incidents_list("staging")
+
+
+# ---------------------------------------------------------------------------- stage 2.3: classification, agents, routes, quiet hours, escalation
+
+from fabric_desktop.mailbox import LocalControl  # noqa: E402
+from fabric_desktop.workloads.agents import read_status  # noqa: E402
+from fabric_desktop.workloads.classify import classify  # noqa: E402
+
+UTC = dt.timezone.utc
+
+
+@pytest.mark.parametrize("message, category", [
+    ("HTTP 403 Forbidden: AuthorizationPermissionMismatch", "access"),
+    ("429 Too Many Requests", "throttled"),
+    ("requests.exceptions.ConnectionError: Failed to establish a new connection", "network"),
+    ("LeaseBusy: another writer holds silver.orders", "busy"),
+    ("glob Files/landing/orders/*.parquet matched no files", "source_missing"),
+    ("KeyError: 'region'", "schema"),
+    ("2 checks failed; 14 rows quarantined", "data_quality"),
+    ("ZeroDivisionError: division by zero", "code"),
+    ("the moon is in the wrong phase", "unrecognized"),
+    (None, "unrecognized"),
+])
+def test_a_failure_message_gets_a_likely_category(message, category):
+    out = classify(message)
+    assert out["category"] == category and out["label"] and out["hint"]
+
+
+def test_a_failed_run_incident_carries_its_likely_category(backend):
+    signals = evaluate.signals("sales", {"silver.orders": {}},
+                               [run("silver.orders", "failed", "r1", message="KeyError: 'region'")], "prod")
+    [c] = IncidentLog(backend, "prod", Clock()).sync(signals, evaluated=True, by="a")
+    assert c["incident"]["classification"]["category"] == "schema"
+    assert c["incident"]["classification"]["retry_helps"] is False
+
+
+def status(name, heartbeat, stale_after, state="running", schedules=()):
+    return {"contract": 1, "kind": "agent_status", "agent": name, "host": f"srv-{name}", "version": "0.21.0",
+            "state": state, "heartbeat_at": heartbeat, "stale_after": stale_after,
+            "schedules": [{"id": s} for s in schedules]}
+
+
+def test_an_agent_past_its_stale_time_is_an_agent_offline_signal():
+    now = dt.datetime(2026, 10, 17, 7, 46, tzinfo=UTC)
+    records = [status("etl-02", "2026-10-17T07:40:00Z", "2026-10-17T07:43:00Z", schedules=["nightly"]),
+               status("etl-03", "2026-10-17T07:45:00Z", "2026-10-17T07:48:00Z"),           # still fresh
+               status("etl-04", "2026-10-17T06:00:00Z", "2026-10-17T06:03:00Z", "stopped"),  # said it stopped
+               status("etl-01", "2026-10-17T06:00:00Z", "2026-10-17T06:03:00Z"),            # the evaluator itself
+               status("etl-05", "x", "not a time"), status("etl-06", "x", "2026-10-17T06:00:00")]  # naive: unknown
+    [s] = evaluate.agent_signals(records, "prod", now, me="etl-01")
+    assert s["kind"] == "agent_offline" and s["workload"] == "agent:etl-02"
+    assert s["title"] == "Agent etl-02 stopped reporting in Prod" and "nightly" in s["text"]
+    assert s["evidence"]["source"] == "agents/etl-02.json"
+
+
+def test_agent_offline_opens_recovers_and_unreadable_records_recover_nothing(tmp_path):
+    control = LocalControl(tmp_path / "control")
+    control.create("agents/etl-02.json", json.dumps(
+        status("etl-02", "2026-10-17T07:40:00Z", "2026-10-17T07:43:00Z")).encode())
+    control.create("agents/notes.json", b"not json")
+    records = read_status(control)
+    assert [r["agent"] for r in records] == ["etl-02"]
+    log = IncidentLog(control, "prod", Clock())
+    now = dt.datetime(2026, 10, 17, 8, 0, tzinfo=UTC)
+    [c] = log.sync(evaluate.agent_signals(records, "prod", now), evaluated={"agent_offline"}, by="a")
+    assert c["change"] == "opened" and c["incident"]["kind"] == "agent_offline"
+    # the run log was read but the agent records weren't: the agent incident stays open
+    assert log.sync([], evaluated=evaluate.WORKLOAD_KINDS, by="a") == []
+    assert log.active()[0]["kind"] == "agent_offline"
+    # the agent reported again
+    fresh = [status("etl-02", "2026-10-17T08:00:00Z", "2026-10-17T08:03:00Z")]
+    [c] = log.sync(evaluate.agent_signals(fresh, "prod", now), evaluated={"agent_offline"}, by="a")
+    assert c["change"] == "recovered" and log.active() == []
+
+
+def test_an_unacknowledged_incident_escalates_once_whoever_evaluates(backend):
+    clock = Clock()
+    first, second = IncidentLog(backend, "prod", clock), IncidentLog(backend, "prod", clock)
+    first.sync(failed() + failed("silver.customers", "r9"), evaluated=True, by="agent etl-01")
+    clock.t += 1800
+    assert first.escalate(3600, "on-call", "agent etl-01") == []  # not yet
+    [ack] = [i for i in first.active() if i["name"] == "silver.customers"]
+    first.acknowledge(ack["id"], "dana")
+    clock.t += 1801
+    [c] = first.escalate(3600, "on-call", "agent etl-01")
+    assert c["change"] == "escalated" and c["incident"]["escalated_to"] == "on-call"
+    assert c["incident"]["name"] == "silver.orders"  # the acknowledged one isn't escalated
+    assert second.escalate(3600, "on-call", "agent etl-02") == []
+    assert "escalated" in evaluate.describe(c).lower()
+
+
+def inc_change(kind="opened", team="", criticality="", owner="", env="prod", name="a"):
+    return {"change": kind, "incident": {"kind": "run_failed", "name": name, "env": env, "title": f"{name} failed",
+                                         "text": "boom", "owner": owner, "team": team, "criticality": criticality,
+                                         "escalated_to": "on-call" if kind == "escalated" else ""}}
+
+
+def test_changes_go_to_matching_team_routes_or_the_default():
+    routing = Routing([Route("default", "https://default"), Route("sales", "https://sales", teams=("Sales",)),
+                       Route("crit", "https://crit", criticality=("critical",), envs=("prod",)),
+                       Route("on-call", "https://oncall")], escalate_to="on-call")
+    names = lambda c: [r.name for r in routing.for_change(c)]  # noqa: E731
+    assert names(inc_change(team="sales")) == ["sales"]
+    assert names(inc_change(team="sales", criticality="Critical")) == ["sales", "crit"]
+    assert names(inc_change(criticality="critical", env="dev")) == ["default"]
+    assert names(inc_change(team="finance")) == ["default"]  # the escalation route isn't a catch-all
+    assert names(inc_change("escalated", team="sales")) == ["on-call"]
+    assert Routing([Route("sales", "https://sales", teams=("sales",))]).for_change(inc_change()) == []
+
+
+def test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations(tmp_path):
+    quiet = Quiet.parse("22:00-06:00")
+    night = dt.datetime(2026, 10, 17, 23, 30, tzinfo=UTC)
+    assert quiet.until(night, "high") == dt.datetime(2026, 10, 18, 6, 0, tzinfo=UTC)
+    assert quiet.until(night.replace(hour=3), "") == dt.datetime(2026, 10, 17, 6, 0, tzinfo=UTC)
+    assert quiet.until(night, "critical") is None and quiet.until(night.replace(hour=12), "") is None
+    assert Quiet.parse("09:00-17:00").until(night.replace(hour=10), "") is not None
+
+    clock = Clock(night.timestamp())
+    outbox = Outbox(tmp_path / "alerts.sqlite3", clock)
+    routing = Routing([Route("default", "https://hook"), Route("on-call", "https://oncall")], quiet,
+                      escalate_after=3600, escalate_to="on-call")
+    posted = []
+    post = lambda url, title, lines: posted.append((url, title, lines))  # noqa: E731
+    res = send([inc_change(name="a"), inc_change(name="b", criticality="critical"),
+                inc_change("escalated", name="c")], routing, outbox, "agent", post, now=night)
+    assert res["held"] == 1 and res["sent"] == 2
+    assert sorted(t for _, t, _ in posted) == ["Escalated: c failed (agent)", "New: b failed (agent)"]
+    posted.clear()
+    clock.t += 3600  # still quiet
+    assert send([], routing, outbox, "agent", post, now=night + dt.timedelta(hours=1))["sent"] == 0
+    clock.t = dt.datetime(2026, 10, 18, 6, 1, tzinfo=UTC).timestamp()
+    assert send([], routing, outbox, "agent", post)["sent"] == 1
+    [(url, title, lines)] = posted
+    assert url == "https://hook" and title == "New: a failed (agent)" and lines[0].startswith("Held during quiet hours")
+
+
+def test_an_outbox_from_before_routes_is_upgraded_in_place(tmp_path):
+    import sqlite3
+    path = tmp_path / "alerts.sqlite3"
+    with sqlite3.connect(path) as db:
+        db.execute("CREATE TABLE outbox (id INTEGER PRIMARY KEY, created REAL, title TEXT, lines TEXT, "
+                   "attempts INTEGER DEFAULT 0, error TEXT)")
+        db.execute("INSERT INTO outbox (created, title, lines, attempts, error) VALUES (?, 'old', '[\"x\"]', 1, 'down')",
+                   (Clock()(),))
+    [item] = Outbox(path, Clock()).pending()
+    assert item["route"] == "default" and item["not_before"] == 0.0
+
+
+def incidents_raw(project, **inc):
+    return {"agent": {"project": str(project), "environments": ["prod"]}, "auth": {"type": "user"},
+            "incidents": {"enabled": True, **inc}}
+
+
+def test_routes_quiet_hours_and_escalation_are_validated(agent_setup):
+    tmp_path = agent_setup.project
+    ok = agent_config.parse(incidents_raw(
+        tmp_path, quiet_hours="22:00-06:00", escalate_after_minutes=60, escalate_to="on-call",
+        route=[{"name": "sales", "webhook_env": "SALES_HOOK", "teams": ["sales"]},
+               {"name": "on-call", "webhook_env": "ONCALL_HOOK", "criticality": ["critical"]}]))
+    assert [r["name"] for r in ok.incidents.routes] == ["sales", "on-call"]
+    assert ok.incidents.routes[0]["teams"] == ("sales",) and ok.incidents.quiet_except == ("critical",)
+    bad = [
+        {"quiet_hours": "late"},
+        {"escalate_after_minutes": 60},
+        {"escalate_to": "nobody", "route": [{"name": "a", "webhook_env": "A"}]},
+        {"route": [{"name": "a", "url": "https://hook"}]},
+        {"route": [{"name": "default", "webhook_env": "A"}]},
+        {"route": [{"name": "a"}]},
+        {"route": [{"name": "a", "webhook_env": "A", "colour": "red"}]},
+        {"route": [{"name": "a", "webhook_env": "A"}, {"name": "a", "webhook_env": "B"}]},
+        {"route": ["a"]},
+    ]
+    for inc in bad:
+        with pytest.raises(agent_config.ConfigError):
+            agent_config.parse(incidents_raw(tmp_path, **inc))
+
+
+def test_the_agent_reports_other_agents_that_went_quiet_and_routes_by_team(agent_setup, monkeypatch, tmp_path):
+    monkeypatch.setenv("TEST_INCIDENT_HOOK", "https://default")
+    posted = []
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", lambda url, title, lines: posted.append((url, title)))
+    agent = Agent(agent_setup, clock=Clock(dt.datetime(2026, 10, 17, 12, 0, tzinfo=UTC).timestamp()))
+    monkeypatch.setattr(agent.runtime, "meta_runs", lambda env, limit: [])
+    agent._control("dev").create("agents/etl-02.json", json.dumps(
+        status("etl-02", "2026-10-17T07:40:00Z", "2026-10-17T07:43:00Z")).encode())
+    [c] = agent.evaluate_incidents()["dev"]
+    assert c["incident"]["kind"] == "agent_offline"
+    assert posted == [("https://default", "New: Agent etl-02 stopped reporting in Dev (agent etl-01)")]

@@ -139,7 +139,15 @@ Replayed quarantine rows go in the same way.
 
 **Dimensions** (`scd1`, `scd2`) read only the rows of the business keys that arrived, plus the Unknown member, merge them exactly as before (same keys, versions and Type 2 checks) and write them back with one MERGE on the surrogate key. A Type 2 dimension fed a full snapshot of its source first drops the rows that would change nothing (same tracked values, no new Type 1 value), so only changed and new keys are touched; when none changed, nothing is written at all. A Type 1 dimension takes every row that arrives, so a full snapshot rewrites it, and the write step says *most of it changed*. The write step says what it read, for example *1000 new, 1000 changed (new versions), 0 Type 1 updates, 4999000 rows unchanged; read 1001 rows of the table for 2000 business keys*.
 
-Full loads and rebuilds still replace the whole table.
+Full loads and rebuilds replace the whole table. A source too big to read at once can be read **in batches** (Preview): set `batch_by` under `[load]` to a column the source has, usually a date such as `order_date`. A full load, an incremental entity's first load, or a full rebuild then reads the source one batch of that column's values at a time, sorted, with as many rows in a batch as fit in free memory with the copies the later steps make. Each batch goes through every step (contract, keys, cleaning, derived columns, hooks, lookups, checks) on its own, and the batches are streamed into the table, which is replaced in **one Delta commit** at the end: readers see the old table until the whole load has worked, and a load that stops (a check, an error, a closed app) leaves the table as it was. The run shows a **plan batches** step, for example *8 batches by order_date, the largest 1,900,000 rows*, and one step per step name with the batches added up.
+
+- Batching reads the source column once to count its values, then each batch's rows. When everything fits in one batch, the load is one ordinary read. Measured on a 15 GB PC with a 60 million row table (16 columns, about 13 GB in memory read at once, too big for one read): 6 batches, 52 seconds, peaking at 7.2 GB. The script is `examples/benchmark/batched_loads.py`.
+- A batch never splits one value. When a single value holds more rows than fit, the memory guard stops the run and names that value: batch by a column with more values.
+- `unique` checks also compare each batch with the values earlier batches wrote. A value repeated across batches fails the check in the later batch; in one big read every copy fails. With `on_fail = "stop"` both stop.
+- Hooks see one batch at a time. A hook that needs the whole table (a ranking, a total) gives different results in batches: leave `batch_by` off for that entity.
+- Only Delta sources (a table, a link or another entity) are batched; files are read as before. Dimensions (`scd1`, `scd2`) are merged by key and don't use it. Changing `batch_by` isn't a logic change.
+- The table isn't partitioned by the column: batching is how the run reads, not how the table is stored. Parquet files a stopped load had already written stay in the table's folder: they aren't part of any table version, so nothing reads them, but they take space, and the app's Vacuum doesn't remove them yet.
+
 
 **Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`; that isn't a logic change, so it doesn't ask whether to rebuild. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
 
@@ -268,7 +276,7 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 | **Runs on: This PC / Fabric** | Where its runs execute. See below. |
 | **Schedules** (Preview) | Runs every entity on a schedule, on this PC or in Fabric. |
 
-Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it.
+Below the cards are **Promote Dev to Test** and **Promote Test to Prod**. Each shows whether the promote gate passes and, if not, what to do first. It also lists the tables whose logic differs from what last ran in the target, each with **Compare**, so you see what a promote does to the numbers before you press it. Under each table it lists what changed in its settings since the version promoted there, by meaning rather than by line: *column channel added (string)*, *check returns_are_negative changed on_fail from quarantine to stop*. Comments, spacing and the order of settings don't count.
 
 **Promote to Test** (or Prod):
 
@@ -305,6 +313,19 @@ require_commit = true
 ```
 
 Promote to that environment is then blocked until the files are committed and pushed.
+
+### Who can promote
+
+*Preview.* Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
+
+To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
+
+```toml
+[prod]
+separate_promoter = true
+```
+
+Whoever promoted a metadata version to Test then can't also promote it to Prod. The check compares PC login names in the [release record](#release-records)'s `by` column. That makes it a team process check, not a security boundary: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
 
 ### This PC or Fabric runs each environment
 
@@ -439,6 +460,7 @@ business_key = "order_id"
 | `[load]` | `mode` | `full`, `incremental`, `scd1` or `scd2` |
 | | `watermark` | The column incremental loads move forward on |
 | | `memory_guard` | `false` lets a run start a read that's estimated not to fit in free memory ([Large tables](#large-tables)) |
+| | `batch_by` | A source column: full loads and rebuilds read the source in batches of its values and replace the table in one commit ([Large tables](#large-tables)) |
 | `[contract]` | `keys` | The business key columns |
 | | `drift` | This table's schema drift policy |
 | `[contract.columns]` | `<column> = "<type>"` | `string`, `int64`, `float64`, `bool`, `date`, `datetime`, `decimal(p,s)` |
@@ -478,12 +500,17 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
 | `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
+| `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
 
 ### Data mesh files
 
 `project.toml` (the project's domain and team), `metadata/products/<name>.toml` (data products) and `metadata/links/<alias>.toml` (links to other teams' products), plus an optional `[catalog]` block in an entity file. All are described in [Data mesh](data-mesh.md).
+
+### Column lineage (Preview)
+
+Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. The app's lineage view is still to come; the engine serves it as `meta_lineage`.
 
 ### Columns and tables the framework adds
 

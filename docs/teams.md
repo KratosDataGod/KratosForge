@@ -29,12 +29,12 @@ Every table is a text file, so the normal software workflow applies.
 
 **Day to day:**
 
-1. Clone the project's repository. In Fabric Desktop by KratosBI, **Data mesh > Or open an existing project** and pick the folder.
-2. Create a branch for your change.
+1. Clone the project's repository with **Source control > Clone a repository** ([Source control](source-control.md)). Then **Data mesh > Or open an existing project** and pick the folder.
+2. Create a branch for your change (**Source control > Branches > New branch**).
 3. Edit entities in the app (or in any editor). Each save runs the save gate, so you see problems before anyone reviews.
 4. Run **Dev on your own PC**. A new project's Dev keeps tables in the project's `.local` folder, which is in `.gitignore`, so every engineer has their own Dev and nobody's runs collide.
 5. Run **Tests** and fix anything red.
-6. Commit and open a pull request. Reviewers read the TOML diff: a new check, a changed key, a new column.
+6. Commit, push and open a pull request (**Source control** does all three; the pull request opens on GitHub or Azure DevOps). Reviewers read the TOML diff: a new check, a changed key, a new column.
 7. After merge, the project owner (or whoever you agree promotes) pulls `main` and promotes Dev to Test, then Test to Prod.
 
 **Ownership in the files:**

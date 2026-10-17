@@ -245,6 +245,9 @@ async function renderSettings() {
       s[key].source === "policy" ? "policy" : null);
   }
 
+  // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
+  const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
+
   // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
   const usage = await usageSection(s);
 
@@ -280,7 +283,7 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, usage, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
@@ -288,6 +291,46 @@ async function renderSettings() {
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);
+}
+
+// The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
+// organization shows as locked.
+const SQL_SETTINGS = [
+  ["sql_page_rows", "Rows per page", "Rows the results show at a time. Next and Previous move through the rest.", 100, 10000, ""],
+  ["sql_time_limit_minutes", "Time limit", "Minutes a query may run before it's stopped. 0 for no limit.", 0, 1440, "minutes"],
+  ["sql_memory_limit_percent", "Memory", "Share of this PC's memory one query may use. A bigger result spills to the temp folder.", 10, 90, "% of RAM"],
+  ["sql_max_concurrent", "Queries at once", "More wait in a queue until one finishes.", 1, 8, ""],
+  ["sql_result_retention_hours", "Keep results", "Hours a finished query's result stays for paging and export. 0 keeps it until the app closes.", 0, 168, "hours"],
+];
+
+function sqlSettingsSection(s, locked) {
+  const inputs = {};
+  const rows = SQL_SETTINGS.map(([key, title, help, min, max, unit]) => {
+    inputs[key] = h("input", { type: "number", min: String(min), max: String(max), step: "1", value: String(s[key].value),
+      class: "num", "aria-label": title, disabled: locked(key) ? true : null });
+    return settingRow(title, help, h("div", { class: "row" }, inputs[key], unit ? h("span", { class: "muted-text small" }, unit) : null),
+      s[key].source === "policy" ? "policy" : null);
+  });
+  const temp = h("input", { value: s.sql_temp_dir.value || "", spellcheck: "false", "aria-label": "Temp folder",
+    placeholder: "Empty: the app's data folder", disabled: locked("sql_temp_dir") ? true : null });
+  rows.push(settingRow("Temp folder", "Where spilled data and results are kept while you page and export. A fast local drive with free space works best.",
+    temp, s.sql_temp_dir.source === "policy" ? "policy" : null));
+  const save = async () => {
+    const changes = {};
+    for (const [key] of SQL_SETTINGS) {
+      if (!locked(key) && inputs[key].value !== String(s[key].value)) changes[key] = inputs[key].value;
+    }
+    if (!locked("sql_temp_dir") && temp.value.trim() !== (s.sql_temp_dir.value || "")) changes.sql_temp_dir = temp.value.trim();
+    if (!Object.keys(changes).length) return;
+    if (await saveSettings(changes)) { toast("Saved. New SQL queries use these limits."); render(); }
+  };
+  return h("section", { class: "card pad" }, h("h2", {}, "SQL queries"),
+    h("p", { class: "muted-text small" }, "Each query on the SQL page runs on this PC in a process of its own with these limits, so Stop ends only that query. ",
+      h("a", { href: "#", class: "learn-more", onclick: (e) => {
+        e.preventDefault();
+        attempt(() => invoke("open_doc", { page: "sql-execution.md" }), "Could not open the guide");
+      } }, "Learn more")),
+    ...rows, h("div", { class: "row" }, btn("Save", null, save, "tool outline")));
 }
 
 // ---------- Usage data ----------

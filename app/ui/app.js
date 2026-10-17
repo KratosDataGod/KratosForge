@@ -1260,6 +1260,35 @@ function lakehouseSqlProvider(p, ref, changed) {
   };
 }
 
+// A managed run's state on the Results band: [pill class, label].
+const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
+  completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
+
+// Follow a run until it finishes. Polls quickly at first, then once a second; stops following when
+// the tab starts another run.
+async function followRun(tab, status) {
+  let wait = 150;
+  while (["queued", "running", "cancelling"].includes(status.state)) {
+    await new Promise((r) => setTimeout(r, wait));
+    wait = Math.min(1000, wait * 1.5);
+    const next = await rpc("sql_status", { execution: status.id });
+    if (tab.exec?.id !== status.id) return null;
+    tab.exec = status = next;
+    sqlPage.redraw?.();
+  }
+  return status;
+}
+
+async function loadPage(tab, offset) {
+  try {
+    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
+    if (page.rerun_needed) { tab.result = null; tab.error = page.message; return; }
+    tab.result = page;
+  } catch (err) {
+    tab.error = String(err);
+  }
+}
+
 function cellText(v) {
   if (v === null || v === undefined) return "NULL";
   return typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(v);
@@ -1314,26 +1343,84 @@ function renderQuery() {
     return report.failed ? null : report;
   }
 
-  async function run(query = editor.chosen()) {
+  // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
+  // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
+  // the run's snapshot, so a large result is never loaded whole.
+  async function run(query = editor.chosen(), allow = []) {
     if (!query.trim() || tab.running) return;
     if (!runsHere()) {
       toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
       return;
     }
     tab.running = true;
-    tab.error = null;
+    Object.assign(tab, { error: null, result: null, exec: null, ranNotice: "" });
     drawResults();
+    let status;
     try {
-      tab.result = await rpc("run_sql", { query, lakehouse_ref: ref, dialect: tab.dialect });
-      tab.ranSql = query;
-      tab.ranDialect = tab.dialect;
+      status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
+      Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
+      status = await followRun(tab, status);
     } catch (err) {
-      tab.result = null;
       tab.error = String(err);
     }
+    if (status?.state === "completed") await loadPage(tab, 0);
     tab.running = false;
-    tab.ranNotice = tab.result ? localNotice(query) : "";
-    if (here()) { drawResults(); editor.recheck(); }
+    if (status?.refused?.permission === "local_mutation" && !allow.length) {
+      sqlPage.redraw?.();
+      const ok = await confirmDialog("Let this query change its own session?",
+        `Statement ${status.refused.statement} ${status.refused.label}: a temp view, a table made in the query, a cache. ` +
+        "Only this run's own DuckDB session on this PC changes; no lakehouse table, file or Fabric item does. Nothing has run yet.", "Run");
+      if (ok) return run(query, ["local_mutation"]);
+    }
+    if (status?.state === "completed") {
+      tab.ranNotice = localNotice(query);
+      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
+    } else if (status) {
+      tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
+    }
+    sqlPage.redraw?.();
+    if (here()) editor.recheck();
+  }
+
+  async function stop() {
+    if (!tab.exec) return;
+    const out = await attempt(() => rpc("sql_cancel", { execution: tab.exec.id }), "Could not stop the query");
+    if (out) { tab.exec = out; sqlPage.redraw?.(); }
+  }
+
+  async function goPage(offset) {
+    if (!tab.result || tab.paging) return;
+    tab.paging = true;
+    await loadPage(tab, Math.max(0, offset));
+    tab.paging = false;
+    sqlPage.redraw?.();
+  }
+
+  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
+  async function exportResult(format) {
+    if (!tab.exec || tab.exporting) return;
+    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
+    if (!out) return;
+    if (out.rerun_needed) {
+      const again = await confirmDialog("Run the query again?",
+        `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
+      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
+      return;
+    }
+    tab.exporting = out;
+    sqlPage.redraw?.();
+    let st = out;
+    while (st.state === "running") {
+      await new Promise((r) => setTimeout(r, 300));
+      try { st = await rpc("sql_export_status", { export: out.id }); } catch (err) { st = { ...st, state: "failed", error: String(err) }; }
+      tab.exporting = st;
+      sqlPage.redraw?.();
+    }
+    tab.exporting = null;
+    sqlPage.redraw?.();
+    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}`);
+    else if (st.state === "cancelled") toast("Export stopped. No file was left behind.");
+    else toast(`Could not export: ${st.error}`, true);
   }
 
   // After a run on this PC: say when the check found differences from Fabric, without blocking the run.
@@ -1392,19 +1479,12 @@ function renderQuery() {
     renderNotebook();
   }
 
-  async function downloadCsv() {
-    if (!tab.ranSql) return;
-    const out = await attempt(() => rpc("export_sql_csv", { query: tab.ranSql, lakehouse_ref: ref, dialect: tab.ranDialect || "spark" }),
-      "Could not save the CSV");
-    if (out) toast(`Saved ${out.rows.toLocaleString()} rows to ${out.path}`);
-  }
-
   async function copyRows() {
     const r = tab.result;
     if (!r) return;
     const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
     await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")), "Could not copy");
-    toast(`Copied ${r.rows.length.toLocaleString()} rows`);
+    toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -1465,31 +1545,55 @@ function renderQuery() {
   const grid = h("div", { class: "sql-grid" });
   function drawResults() {
     const r = tab.result;
-    const pill = tab.running ? ["busy", "Running"] : tab.error ? ["bad", "Failed"] : r ? ["ok", "Succeeded"] : ["", "Not run"];
+    const ex = tab.exec;
+    const busy = tab.running;
+    const st = busy && !ex ? "queued" : ex?.state;
+    const pill = st ? SQL_STATE[st] : ["", "Not run"];
     let msg = "Press Run to see results";
-    if (tab.running) msg = "Running on this PC...";
-    else if (r) {
-      msg = `${r.row_count.toLocaleString()} row${r.row_count === 1 ? "" : "s"} · ${r.seconds} s on this PC`;
-      if (r.rows.length < r.row_count) msg += ` · showing the first ${r.rows.length.toLocaleString()}`;
+    if (st === "queued" && !ex) msg = "Starting on this PC...";
+    else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
+    else if (st === "completed" && !r && busy) msg = "Reading the first page...";
+    else if (st === "running" || st === "cancelling") {
+      msg = `${ex.seconds} s on this PC${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
+    } else if (r) {
+      const last = r.offset + r.rows.length;
+      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s on this PC`;
+      if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
     }
+    const x = tab.exporting;
+    const exportMenu = h("details", { class: "sql-export" },
+      h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
+        onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
+      h("div", { class: "sql-export-menu", role: "menu" },
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
     band.replaceChildren(...[h("span", { style: "font-weight:600" }, "Results"),
-      h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text" }, tab.error ? "" : msg),
-      tab.ranNotice && r && !tab.running ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
+      h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
+      ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
+      tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
-      btn("Copy", null, copyRows, "tool small", { disabled: !r }),
-      btn("Download CSV", null, downloadCsv, "tool small", { disabled: !r })].filter(Boolean));
+      x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
+        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
+      x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
+      r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
+        { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
+      r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
+        { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
+      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
+      exportMenu].filter(Boolean));
     if (tab.error) {
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
       grid.replaceChildren(h("table", {},
         h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(i + 1)),
+        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
           row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
     } else {
       grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
         r ? "The query ran and returned no columns." : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
     }
   }
+  sqlPage.redraw = () => { if (here()) drawResults(); };
 
   const nextTabName = () => {
     let n = p.tabs.length + 1;

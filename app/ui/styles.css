@@ -482,6 +482,15 @@ h2.flush { margin: 0; }
 .sql-pill.bad { background: var(--danger-soft); color: var(--danger); }
 .sql-pill.busy { background: var(--accent-soft); color: var(--accent-dark); }
 .sql-grid { flex: 1; min-height: 120px; overflow: auto; }
+.sql-export { position: relative; }
+.sql-export > summary { list-style: none; display: inline-flex; align-items: center; cursor: pointer; }
+.sql-export > summary::-webkit-details-marker { display: none; }
+.sql-export > summary.disabled { color: var(--muted); cursor: default; }
+.sql-export-menu { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 120px; padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); }
+.sql-export-menu button { padding: 6px 10px; border: 0; background: none; text-align: left; font: inherit; font-size: 13px; color: var(--text); border-radius: 4px; cursor: pointer; }
+.sql-export-menu button:hover, .sql-export-menu button:focus-visible { background: var(--accent-soft); }
+.sql-export-progress { font-variant-numeric: tabular-nums; }
+.setting-control input.num { width: 96px; }
 .sql-grid table { border-collapse: collapse; min-width: 100%; font-size: 12.5px; }
 .sql-grid th, .sql-grid td { padding: 6px 10px; border-bottom: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); text-align: left; white-space: nowrap; max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
 .sql-grid th { position: sticky; top: 0; background: #fafafa; font-weight: 600; color: var(--text-2); }

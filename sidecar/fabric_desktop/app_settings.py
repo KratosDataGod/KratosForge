@@ -35,6 +35,16 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    sql_page_rows    the SQL page: rows on each page of a result (default 1000, 100 to 10000)
+    sql_time_limit_minutes  the SQL page: minutes a query may run before it's stopped (default 10,
+                     0 for no limit, at most 1440)
+    sql_memory_limit_percent  the SQL page: share of this PC's memory one query may use (default 60,
+                     10 to 90); a larger result spills to the temp folder
+    sql_max_concurrent  the SQL page: queries that run at once; more wait in a queue (default 2, 1 to 8)
+    sql_temp_dir     the SQL page: folder for spilled data and result snapshots (default: the
+                     app data folder's sql-runs)
+    sql_result_retention_hours  the SQL page: hours a finished query's result is kept for paging and
+                     export (default 24, 0 keeps it only until the app closes, at most 168)
 
 policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
 """
@@ -59,6 +69,16 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "local_retention_days": int}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+
+
+# The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
+SQL_RANGES: dict[str, tuple[int, int]] = {"sql_page_rows": (100, 10_000), "sql_time_limit_minutes": (0, 24 * 60),
+                                          "sql_memory_limit_percent": (10, 90), "sql_max_concurrent": (1, 8),
+                                          "sql_result_retention_hours": (0, 7 * 24)}
+DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 60,
+                 "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
+TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
+USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 
 
 def policy_path() -> Path:
@@ -113,6 +133,8 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} should be {TYPES[key].__name__}, not {type(value).__name__}")
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
+            problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
         elif key == "local_retention_days" and value < 0:
@@ -178,6 +200,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
+        if key in SQL_RANGES:
+            new = _sql_number(key, new)
+        if key == "sql_temp_dir":
+            new = _sql_folder(new)
         if key == "client_id":
             new = str(new or "").strip()
             if new and not valid_client_id(new):
@@ -192,3 +218,37 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(user, indent=2), encoding="utf-8")
     return load()
+
+
+def _sql_number(key: str, new: Any) -> int | None:
+    """An SQL page limit: a whole number in SQL_RANGES[key]; empty goes back to the default."""
+    if new in (None, ""):
+        return None
+    try:
+        n = int(new)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a whole number") from None
+    low, high = SQL_RANGES[key]
+    if not low <= n <= high:
+        raise ValueError(f"{key} must be between {low} and {high}")
+    return n
+
+
+def _sql_folder(new: Any) -> str:
+    """The SQL page's temp folder: an absolute folder path, or empty for the default."""
+    text = str(new or "").strip()
+    if text and not Path(text).is_absolute():
+        raise ValueError("sql_temp_dir must be a full folder path, like C:\\Temp\\FabricDesktop")
+    return text
+
+
+def sql_limits() -> dict[str, Any]:
+    """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
+    back to the default."""
+    out: dict[str, Any] = {}
+    for key in (*SQL_RANGES, "sql_temp_dir"):
+        v = value(key)
+        if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
+            v = DEFAULTS[key]
+        out[key] = v
+    return out

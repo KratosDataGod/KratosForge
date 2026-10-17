@@ -2,7 +2,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
 
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -20,10 +20,10 @@ before(async () => {
     mocks: {
       list_tables: () => ({ dbo: ["sales", "customers"] }),
       table_columns: () => [{ name: "amount", type: "decimal(18,2)" }, { name: "name", type: "string" }],
-      run_sql: ({ query, dialect }) => {
+      ...sqlRunMocks(({ query, dialect }) => {
         runs.push({ query, dialect });
-        return { columns: [{ name: "x", type: "int64" }], rows: [[1]], row_count: 1, seconds: 0.01 };
-      },
+        return { columns: [{ name: "x", type: "int64" }], rows: [[1]] };
+      }),
       sql_compat_export: (params) => {
         exported.push(params);
         return { path: "C:\\Users\\me\\Downloads\\Board pack compatibility warehouse.json", outcome: "known_problems",

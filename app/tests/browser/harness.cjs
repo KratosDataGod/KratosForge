@@ -96,4 +96,32 @@ async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { wid
   };
 }
 
-module.exports = { playwright, openApp };
+// Engine calls for the SQL page's managed runs (SQL-003) that finish at once: `answer(params)` returns
+// { columns, rows } for a query, or throws to fail it with that message.
+function sqlRunMocks(answer) {
+  const done = new Map();
+  let next = 1;
+  return {
+    sql_start: (params) => {
+      const id = `run${next++}`;
+      let status;
+      try {
+        const { columns, rows } = answer(params);
+        done.set(id, { columns, rows });
+        status = { id, state: "completed", target: "lakehouse", rows: rows.length, columns, seconds: 0.01 };
+      } catch (err) {
+        status = { id, state: "failed", error: String(err.message || err), error_kind: "sql", rows: 0, columns: [], seconds: 0.01 };
+      }
+      return status;
+    },
+    sql_status: ({ execution }) => ({ id: execution, state: "completed", rows: done.get(execution).rows.length, seconds: 0.01 }),
+    sql_page: ({ execution, offset = 0, limit = 1000 }) => {
+      const { columns, rows } = done.get(execution);
+      const page = rows.slice(offset, offset + limit);
+      return { id: execution, offset, limit, rows: page, columns, total: rows.length,
+        has_previous: offset > 0, has_next: offset + page.length < rows.length };
+    },
+  };
+}
+
+module.exports = { playwright, openApp, sqlRunMocks };

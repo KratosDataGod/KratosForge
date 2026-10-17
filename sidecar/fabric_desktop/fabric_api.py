@@ -31,9 +31,10 @@ def lakehouse_name_problem(name: str) -> str:
 
 
 class FabricError(RuntimeError):
-    def __init__(self, message: str, code: str | None = None):
+    def __init__(self, message: str, code: str | None = None, status: int | None = None):
         super().__init__(message)
         self.code = code
+        self.status = status  # the HTTP status, when the error came from a response
 
 
 def _error(method: str, url: str, resp: requests.Response) -> FabricError:
@@ -43,8 +44,8 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
         code = None
     if code == "CapacityNotActive":
         return FabricError("This workspace's Fabric capacity is paused or inactive. Resume the capacity, "
-                           "or use a workspace on an active capacity.", code)
-    return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code)
+                           "or use a workspace on an active capacity.", code, resp.status_code)
+    return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
 
 
 POLICY_BLOCKED = "PolicyBlocked"

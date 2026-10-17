@@ -331,3 +331,14 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
+});

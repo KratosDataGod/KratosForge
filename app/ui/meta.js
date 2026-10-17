@@ -641,8 +641,14 @@ async function renderEnvTab(body, p) {
             onclick: !onWorkspace && cfg.workspace_id ? () => setEnv(env, { target: "onelake" }) : null }, "Workspace"),
           h("button", { class: local ? "on" : null, onclick: local ? null : () => setEnv(env, { target: "local" }) }, "This PC only"))),
       computeChoice(env, local, cfg.compute === "fabric"),
+      capacitySlots[env] = h("div"),
       h("p", { class: "muted-text small" }, where));
   };
+  // Each workspace's capacity, from the last reading (FINOPS-002); never signs in.
+  const capacitySlots = {};
+  rpc("capacity_health").then((doc) => {
+    for (const e of doc.environments || []) capacitySlots[e.env]?.replaceWith((capacityLine(e) && preview("capacity", capacityLine(e))) || h("div"));
+  }).catch(() => {});
   const promoteRow = (source, target) => {
     const box = h("div", { class: "muted-text" }, "Checking the promote gate...");
     attempt(() => rpc("meta_promote_check", { source, target })).then((res) => {

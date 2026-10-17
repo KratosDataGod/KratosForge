@@ -6,4 +6,6 @@ architecture is in docs/architecture/ai-integration.md.
 
     core       errors, argument checks, timeouts and cancellation shared by every transport
     services   adapters over the engine's Service: choose fields, page, never return secrets
+    registry   every capability with its schemas and permission; invoke() is the one way in
+    capabilities  the core capabilities, each a registry entry over a services function
 """

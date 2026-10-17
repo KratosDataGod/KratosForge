@@ -212,9 +212,10 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [sidecar, ui, engine, shell, sbom-app]
     runs-on: ubuntu-latest
-    # One release at a time: two merges close together must not interleave their uploads.
+    # One publish at a time, shared with Promote to stable: two merges close together used to
+    # replace the release's files at once and left Preview with no engine zip.
     concurrency:
-      group: release-latest
+      group: release-assets
       cancel-in-progress: false
     permissions:
       contents: write
@@ -244,6 +245,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          # A newer merge's build publishes instead; publishing this one after it would move Preview back.
+          HEAD_SHA=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          if [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
+            echo "main is at $HEAD_SHA now, so this build of $GITHUB_SHA is not published."
+            exit 0
+          fi
           # What's new for Preview: the pull request's title (a merge commit's body), else the commit subject.
           NOTES=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message' | awk 'NR==1{s=$0} NR>2&&!b&&NF{b=$0} END{print (s ~ /^Merge pull request/ && b) ? b : s}')
           # Checksums let the app refuse a cut-off or mixed-up download before installing it.

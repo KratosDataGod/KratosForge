@@ -231,11 +231,14 @@ def run_stdio(client_id: str = "") -> None:
     from mcp.server.stdio import stdio_server
 
     from ..service import data_dir
+    from .audit import IntegrationAudit
     from .permissions import PermissionAuthorizer
     from .store import IntegrationStore
 
+    store = IntegrationStore.at(data_dir())
     registry = default_registry()
-    registry.authorizer = PermissionAuthorizer(IntegrationStore.at(data_dir()))
+    registry.authorizer = PermissionAuthorizer(store)
+    registry.audit = IntegrationAudit(store).record
     server = build_server(registry, service_factory=_engine_service, client_id=client_id)
 
     async def main() -> None:

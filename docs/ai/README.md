@@ -135,7 +135,7 @@ Header: Authorization: Bearer <the token shown once>
 | Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
 | Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
 
-Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through Fabric Desktop by KratosBI are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**.
+Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through Fabric Desktop by KratosBI are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
 
 These limits apply to what your tool does through Fabric Desktop by KratosBI. A tool that can already run commands on your PC (as most coding agents can) can do anything you can, with or without this connection; see [security](../product/ai-integration-security.md#what-it-does-not-protect-against).
 

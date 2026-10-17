@@ -235,6 +235,7 @@ class CallContext:
     cancel_event: threading.Event = field(default_factory=threading.Event)
     progress: Callable[[float, float | None, str], None] | None = None
     seconds: float = 0.0  # how long the handler ran, set by Registry.invoke
+    decision: str = ""  # "allowed" or "approved", set by the authorizer; for the audit line
 
     @property
     def deadline(self) -> float:

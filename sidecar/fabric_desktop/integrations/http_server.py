@@ -43,6 +43,7 @@ from .registry import Registry
 from .store import IntegrationStore
 
 MAX_BODY_BYTES = 1024 * 1024
+REFUSED_EVERY = 10.0  # seconds between audit lines for the same refused request
 MAX_RESULT_BYTES = 1_000_000
 RATE_PER_SECOND = 5.0      # sustained requests per tool
 RATE_BURST = 30
@@ -83,14 +84,41 @@ class RateLimiter:
 class Guard:
     """Loopback, Host, Origin, size, token and rate checks for every request."""
 
-    def __init__(self, app: ASGIApp, store: IntegrationStore, port: int, limiter: RateLimiter | None = None):
+    def __init__(self, app: ASGIApp, store: IntegrationStore, port: int, limiter: RateLimiter | None = None,
+                 registry: Registry | None = None):
         self.app, self.store, self.port = app, store, port
         self.limiter = limiter or RateLimiter()
         self.hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+        self.registry = registry
+        self._refused: dict[tuple[str, str], tuple[float, int]] = {}  # (reason, client) -> (last line, not written since)
 
     async def _refuse(self, scope: Scope, receive: Receive, send: Send, err: IntegrationError,
-                      headers: dict[str, str] | None = None, status: int | None = None) -> None:
+                      headers: dict[str, str] | None = None, status: int | None = None,
+                      client: dict[str, Any] | None = None) -> None:
+        self._audit(scope, err, client)
         await error_response(err, headers, status)(scope, receive, send)
+
+    def _audit(self, scope: Scope, err: IntegrationError, client: dict[str, Any] | None) -> None:
+        """Refused requests are audited too, but at most one line per reason and caller every
+        REFUSED_EVERY seconds, so a flood can't fill the disk; the next line counts the rest."""
+        audit = self.registry.audit if self.registry else None
+        if audit is None:
+            return
+        key, now = (err.message, (client or {}).get("id", "")), time.monotonic()
+        last, skipped = self._refused.get(key, (0.0, 0))
+        if last and now - last < REFUSED_EVERY:
+            self._refused[key] = (last, skipped + 1)
+            return
+        self._refused[key] = (now, 0)
+        channel = "mcp-http" if scope.get("path", "").startswith("/mcp") else "api"
+        ctx = CallContext(Caller((client or {}).get("id", ""), channel, (client or {}).get("name", "")))
+        request = {"method": scope.get("method", ""), "path": scope.get("path", "")[:200]}
+        if skipped:
+            request["refused_since_last_line"] = skipped
+        try:
+            audit(ctx, "http_request", "", request, time.time(), 0.0, err, "")
+        except Exception as exc:  # noqa: BLE001 - the refusal stands either way
+            print(f"audit: could not record a refused request: {type(exc).__name__}: {exc}", file=sys.stderr)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "lifespan":
@@ -130,7 +158,7 @@ class Guard:
             if not self.limiter.allow(found["id"]):
                 await self._refuse(scope, receive, send, IntegrationError(
                     "rate_limited", "Too many requests.", retryable=True, hint="Wait a second and try again."),
-                    {"Retry-After": "1"})
+                    {"Retry-After": "1"}, client=found)
                 return
             scope.setdefault("state", {})["fd_client"] = found
         await self.app(scope, _limit_body(receive), send)
@@ -312,7 +340,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
                             Route("/api/v1/resources", resources), Route("/api/v1/resources/read", read),
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
                     lifespan=lambda _app: manager.run())
-    return Guard(app, store, port, limiter)
+    return Guard(app, store, port, limiter, registry)
 
 
 # ---- running it
@@ -343,6 +371,7 @@ def serve(port: int, parent_pid: int = 0) -> int:
     from . import policy
     from ..service import data_dir
     from .mcp_server import _engine_service
+    from .audit import IntegrationAudit
     from .permissions import PermissionAuthorizer
     from .registry import default_registry
 
@@ -357,6 +386,7 @@ def serve(port: int, parent_pid: int = 0) -> int:
         return 2
     registry = default_registry()
     registry.authorizer = PermissionAuthorizer(store)
+    registry.audit = IntegrationAudit(store).record
     app = build_app(registry, store, port, _engine_service)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", access_log=False,
                                            timeout_graceful_shutdown=10, server_header=False))

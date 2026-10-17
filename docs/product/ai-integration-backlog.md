@@ -19,7 +19,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
-| 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |
+| 010 | Audit and observability | P1 | PARTIAL | PR #89 | (this PR) | Draft PR; 10 tests, including three processes writing one chain |
 | 011 | Compatibility and conformance testing | P1 | MISSING | 004 | | Planned |
 | 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
 
@@ -87,6 +87,9 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** PR #89 adds the audit trail for UI calls.
 - **Plan.** Every external call adds an audit line with channel (`mcp-stdio`, `mcp-http`, `api`), client id, capability, execution id, permission decision, outcome and error class, with redacted arguments; the Integrations page shows the recent ones.
+- **Built.** `integrations/audit.py`, called from `Registry.invoke` for every call and from the HTTP guard for refused requests (throttled to one line per reason and caller every 10 seconds). Lines go to `integrations/audit/audit-YYYY-MM.jsonl` and the store, written in a store transaction so the hash chain holds across the MCP and HTTP processes. **Recent activity** now lists every call with its decision and result (and the execution's state), and **Check the trail** verifies the chain. Same line format and chain as PR #89, in a separate folder so the two never write one file.
+- **Tests.** Allowed, refused, invalid, failed and unknown-tool calls; approved, denied and unanswered approvals; no code, query or token in any line; an audit failure doesn't fail the call; tampering is detected; three processes writing at once keep one unbroken chain; refused HTTP requests recorded and a flood throttled; MCP calls carry their channel; Recent activity and the check through the app's RPC.
+- **Limitations.** The trail is local and can be deleted by anyone who controls the PC. The in-app RPC (the person at the keyboard) is audited by PR #89, not here. When #89 merges, `fabric-desktop audit --folder` reads these files; until then the check is in Settings.
 
 ### PR-AI-011: Compatibility and conformance testing
 

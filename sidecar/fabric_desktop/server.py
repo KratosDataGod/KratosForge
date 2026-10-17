@@ -70,7 +70,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log"}
+           "git_path_info", "git_notebook_info", "audit_log",
+           "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).

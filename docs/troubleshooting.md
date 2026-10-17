@@ -12,6 +12,8 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "Could not check for a newer build" | GitHub didn't answer, or its limit of 60 checks an hour from your network was reached. | Nothing. The app runs the build you have and checks again next start. |
 | "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every Fabric Desktop by KratosBI window, then download `fabric-desktop.exe` again from the Releases page. |
 | "The engine could not be installed" | The engine download or unpack failed. The log is under the message. | Check the internet connection and disk space, then **Retry**. |
+| "The engine download doesn't match the checksum its release gives" or "...is a different build from the one its release names" | The download didn't match what the release says it should be, so it wasn't installed. Usually a new build was being published at that moment; rarely, a proxy changed the file. | Wait a few minutes, then **Retry**. If it keeps happening, report it with the log under the message. |
+| "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
 
 ## Signing in

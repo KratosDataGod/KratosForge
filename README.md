@@ -29,6 +29,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
+| [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |

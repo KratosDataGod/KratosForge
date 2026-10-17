@@ -24,6 +24,7 @@ nav = [
     { "Install" = "install.md" },
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },
+    { "Security model" = "security.md" },
   ] },
   { "Use the app" = [
     { "User guide" = "user-guide.md" },

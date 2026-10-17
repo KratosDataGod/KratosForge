@@ -276,7 +276,8 @@ CELLS = [{"type": "markdown", "source": "# Test", "meta": {}},
 
 def payload(cells=CELLS):
     # Exactly what the notebook screen sends (notebookPayload in app.js).
-    return {"name": "NB", "cells": cells, "lakehouse_ref": LAKEHOUSE, "compute": "default", "workspace": None}
+    return {"name": "NB", "cells": cells, "lakehouse_ref": LAKEHOUSE, "compute": "default", "workspace": None,
+            "confirm_writes": ["bench.q01"]}
 
 
 def test_side_by_side_end_to_end_same_results(svc, tables):
@@ -310,7 +311,7 @@ def test_side_by_side_reports_a_different_answer(svc, tables):
 def test_a_failure_on_this_pc_still_runs_in_fabric(svc, tables):
     svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 2]}), "bench.q01"))
     cells = CELLS[:2] + [{"type": "code", "source": "raise ValueError('only on my laptop')", "meta": {}}]
-    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells) | {"confirm_writes": []})["id"])
     assert out["local"]["status"] == "failed" and out["local"]["failed_cell"] == 3
     assert out["fabric"]["status"] == "ok"
     assert "failed on this PC" in out["verdict"]["text"]
@@ -324,6 +325,20 @@ def test_side_by_side_needs_a_notebook_that_runs_in_both_places(svc, tables):
     assert "can't run in Fabric" in out["error"]
     out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload() | {"lakehouse_ref": None}}))
     assert "Attach a lakehouse" in out["error"]
+
+
+def test_side_by_side_runs_only_with_the_tables_it_overwrites_confirmed(svc, tables):
+    """Both runs write the real tables, so the person confirms exactly which ones first."""
+    svc.fake = FakeFabric(tables, lambda t: None)
+    assert call(svc, "side_by_side_writes", cells=CELLS) == {"tables": ["bench.q01"], "unknown": False, "reasons": []}
+    for confirm in (None, [], ["bench.other"], ["bench.q01", "bench.q02"]):
+        out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload() | {"confirm_writes": confirm}}))
+        assert "Confirm the tables it writes" in out["error"], confirm
+    assert "bench.q01" not in tables.versions(), "nothing ran"
+    dynamic = CELLS + [{"type": "code", "source": "exec(code)", "meta": {}}]
+    assert call(svc, "side_by_side_writes", cells=dynamic)["unknown"] is True
+    out = handle(svc, json.dumps({"id": 1, "method": "side_by_side_start", "params": payload(dynamic)}))
+    assert "Confirm the tables" in out["error"]
 
 
 # ---- the TPC-H benchmark notebooks
@@ -384,3 +399,14 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
         expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
         got = tables.fingerprint(tname("bench", f"q{n:02d}"), DeltaTable(str(tables.path(tname("bench", f"q{n:02d}")))).version())
         assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]
+
+
+def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
+    svc._attach(LAKEHOUSE)
+    svc.kernel.restart()
+    cells = [c for c in benchmark.notebooks()[benchmark.BENCHMARK_NOTEBOOK] if c["type"] == "code"]
+    for c in cells[:2]:
+        assert svc.kernel.run(c["source"])["status"] == "ok"
+    out = svc.kernel.run(cells[2]["source"])
+    assert out["status"] == "error"
+    assert "Run the TPC-H data notebook" in str(out["outputs"])

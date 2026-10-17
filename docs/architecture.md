@@ -27,6 +27,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 | **Metadata framework** (`meta/`, `meta_service.py`) | Layers, entities, the four gates, SCD Type 1 and 2, incremental loads, quarantine and promotion from Dev to Test to Prod. See the README. |
 | **Fabric hand-off** (`cloud_service.py`, `fabric_run.py`, `maintenance.py`, `semantic.py`, `profiling.py`) | The work that deliberately uses Fabric capacity: Run in Fabric and schedules for published notebooks (with the setup cell that makes `fabric_desktop.lakehouse` work in a Fabric Python notebook), table health and Fabric's table maintenance job (OPTIMIZE with V-Order, VACUUM), and a Direct Lake semantic model written as TMDL. Profiling runs locally and suggests `[[clean]]` and `[[check]]` blocks. |
 | **Fabric compute** (`fabric_compute.py`) | Metadata runs for an environment set to run on Fabric: uploads the engine and project to `LH_Meta/Files/_fabric_desktop/current`, publishes the runner notebook `nb_fabric_desktop_runner`, starts or schedules it with Fabric's job scheduler, and reads its results file back. Inside Fabric, `run_bundle` runs the same `Engine` against the same OneLake tables. |
+| **Git** (`git/`, `git_service.py`) | Source control: runs the person's own `git` with prompts off, literal paths and only the https, ssh and file protocols. `repo.py` reads status, diffs, branches and history and stages and commits; `ops.py` runs clone, fetch, pull and push in the background so the engine keeps answering; `secrets.py` scans staged files before a commit and removes credentials from every message. Sign-in is Git Credential Manager or the SSH agent; the engine never sees a password or token. |
 | **Job runner** (`jobs.py`, `publish.py`) | TOML job files that run DuckDB SQL or a Polars script and publish the result. |
 | **Auth** (`auth.py`) | MSAL public-client sign-in as you (delegated, no service principal). Tokens for Fabric, Azure Storage and, when consented, the Power BI admin API. The token cache is on the PC. |
 | **OneLake I/O** (`onelake.py`, `publish.py`, `delta_profile.py`) | Builds OneLake paths, lists files and tables, and reads and writes Delta with delta-rs. |
@@ -42,6 +43,7 @@ The Python package `fabric_desktop`, run by the shell as `python -m fabric_deskt
 - workload owners, links to Fabric items and actions taken from the app (`workloads.sqlite`)
 - local staging copies of each write
 - catalog favorites
+- the list of repositories opened in Source control (`git_repos.json`; the repositories themselves stay where you put them)
 - the Fabric view's profile and its saved, encrypted sign-in
 - `sidecar.log`
 
@@ -81,6 +83,7 @@ Fabric registers a new table written from outside on its own schedule. Until the
 - The app signs in as you through Entra ID. It has no service principal and no stored secret. Your access in Fabric is exactly your account's access.
 - Tokens stay in the MSAL cache in your Windows profile.
 - The Fabric view's sign-in cookies are encrypted with DPAPI, so only your Windows account on this PC can read them. Delete `fabric-view-signin.bin` to forget them.
+- Git sign-in is Git Credential Manager or the SSH agent. The app never asks for or keeps a Git password or token, refuses addresses that carry one, and removes credentials from Git's messages before showing or logging them.
 - The sidecar only listens on stdin and stdout. It opens no network port.
 
 ## Updates

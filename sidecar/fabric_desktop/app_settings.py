@@ -25,6 +25,18 @@ Keys:
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
+    auto_update      IT only: false stops the app updating itself; IT then rolls out new builds
+                     (default true)
+    allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
+                     Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
+                     the PC (default true)
+    allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
+                     signed out again (default: any)
+    local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
+                     metadata framework's download cache) are deleted after this many days unused;
+                     0 keeps them (default 30)
+
+policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
 """
 
 from __future__ import annotations
@@ -39,7 +51,12 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False}
+                            "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
+                            "allowed_tenants": [], "local_retention_days": 30}
+TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
+                                            "platform": dict, "kernel_process": bool, "auto_update": bool,
+                                            "allow_fabric_runs": bool, "allowed_tenants": list,
+                                            "local_retention_days": int}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
@@ -77,6 +94,47 @@ def _read_engine_info() -> dict[str, Any]:
         return {}
 
 
+def policy_problems() -> list[str]:
+    """What in the organization's policy file is ignored, and why; empty when all of it applies."""
+    path = policy_path()
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
+        return [f"{path} can't be read as JSON, so none of it applies: {exc}"]
+    if not isinstance(data, dict):
+        return [f"{path} must hold one JSON object, so none of it applies"]
+    problems = []
+    for key, value in data.items():
+        if key not in DEFAULTS:
+            problems.append(f"{key} isn't a setting (settings: {', '.join(DEFAULTS)})")
+        elif not _typed(key, value):
+            problems.append(f"{key} should be {TYPES[key].__name__}, not {type(value).__name__}")
+        elif key == "channel" and value not in CHANNELS:
+            problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key == "client_id" and value and not valid_client_id(value):
+            problems.append("client_id isn't an app (client) ID")
+        elif key == "local_retention_days" and value < 0:
+            problems.append("local_retention_days can't be negative (0 keeps local copies)")
+        elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
+            problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
+    return problems
+
+
+def _typed(key: str, value: Any) -> bool:
+    """``value`` has the type ``key`` needs (true and false don't count as numbers)."""
+    if TYPES[key] is int and isinstance(value, bool):
+        return False
+    return isinstance(value, TYPES[key])
+
+
+def tenant_allowed(tenant_id: str | None) -> bool:
+    """Whether the organization lets people sign in to this tenant (any, unless policy lists some)."""
+    allowed = [t.lower() for t in value("allowed_tenants") or []]
+    return not allowed or (tenant_id or "").lower() in allowed
+
+
 def valid_client_id(value: str) -> bool:
     value = value.strip()
     return len(value) == 36 and set(value) <= GUID_CHARS and value.count("-") == 4
@@ -96,7 +154,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
-            if candidate not in (None, ""):
+            if candidate not in (None, "") and _typed(key, candidate) and not (key == "local_retention_days" and candidate < 0):
                 value, source = candidate, where
                 break
         if key == "channel" and value not in CHANNELS:

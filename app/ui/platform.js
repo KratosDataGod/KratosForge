@@ -5,7 +5,7 @@
 
 const PLATFORM_TABS = [
   ["overview", "Overview"], ["landing", "Landing zone"], ["keys", "Business keys"], ["domains", "Domains"],
-  ["glossary", "Glossary"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
+  ["glossary", "Glossary"], ["governance", "Governance"], ["requests", "Requests"], ["audit", "Audit"], ["settings", "Settings"],
 ];
 const REQUEST_KIND = { key_table: "Key table", source: "Source", access: "Access", shortcut: "Shortcut" };
 const REQUEST_STATUS = { waiting: "Waiting", approved: "Approved", declined: "Declined", withdrawn: "Withdrawn" };
@@ -43,18 +43,18 @@ async function renderPlatform() {
       h("div", { class: "head-actions" }, ["landing", "keys", "overview"].includes(p.tab) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
-      h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => goPlatform(id) }, label))),
+      h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
     body));
   p.me = await attempt(() => rpc("platform_whoami"), "Could not reach the platform");
   if (state.view !== "platform") return;
   if (!p.me) { body.replaceChildren(h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return; }
-  who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, and decide requests. "
+  who.replaceChildren(...[p.me.admin ? "You're a platform admin: you create domains, key tables and sources, write governance policies, and decide requests. "
     : p.me.can_claim ? "This platform has no admin yet. "
       : "Domain teams see everything here and ask for what they need in Requests. ",
   p.me.can_claim ? h("a", { href: "#", onclick: (e) => { e.preventDefault(); claimAdmin(); } }, "Become its first admin") : null,
   p.me.can_claim ? ". " : null, learnMore("platform")].filter(Boolean));
   const tabs = { overview: platformOverviewTab, landing: platformLandingTab, keys: platformKeysTab, domains: platformDomainsTab,
-    glossary: platformGlossaryTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
+    glossary: platformGlossaryTab, governance: platformGovernanceTab, requests: platformRequestsTab, audit: platformAuditTab, settings: platformSettingsTab };
   await (tabs[p.tab] || platformOverviewTab)(body);
 }
 
@@ -433,6 +433,7 @@ registerFeature({
     { label: "Landing zone", icon: "folderOpen", keywords: "platform sources raw files", preview: true, run: () => goPlatform("landing") },
     { label: "Business keys", icon: "database", keywords: "platform surrogate key tables", preview: true, run: () => goPlatform("keys") },
     { label: "Requests", icon: "person", keywords: "platform approve access key table", preview: true, run: () => goPlatform("requests") },
+    { label: "Governance policies", icon: "shield", keywords: "platform governance policy policies standards naming quality classification", preview: true, run: () => { govPage.open = null; goPlatform("governance"); } },
   ],
 });
 

@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/KratosDataGod/fabric-desktop/docs/product/schema/product-backlog.schema.json",
+  "title": "Fabric Desktop by KratosBI consolidated product backlog",
+  "description": "The machine-readable backlog. docs/product/PRODUCT_BACKLOG.json is the source of truth; scores and priorities are computed by docs/product/tools/product_data.py from the inputs here, using the model in PRIORITIZED_ROADMAP.md.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "updated",
+    "scoring",
+    "items"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date"
+    },
+    "scoring": {
+      "type": "object",
+      "required": [
+        "benefit_weights",
+        "cost_weights",
+        "thresholds"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "benefit_weights": {
+          "type": "object",
+          "required": [
+            "developer_value",
+            "cu_reduction",
+            "enterprise_value",
+            "differentiation",
+            "strategic_alignment"
+          ],
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "cost_weights": {
+          "type": "object",
+          "required": [
+            "complexity",
+            "risk"
+          ],
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "required": [
+            "P1",
+            "P2"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "P1": {
+              "type": "number"
+            },
+            "P2": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "score": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "category",
+        "problem",
+        "capability",
+        "evidence",
+        "acceptance",
+        "scores",
+        "mandatory",
+        "owner",
+        "effort",
+        "confidence",
+        "state"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^PB-[0-9]{3}$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 5
+        },
+        "category": {
+          "$ref": "feature-inventory.schema.json#/$defs/category"
+        },
+        "problem": {
+          "type": "string",
+          "minLength": 10
+        },
+        "capability": {
+          "type": "string",
+          "minLength": 10
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "description": "Current-state evidence: paths, tests, PRs, smoke observations"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^FEAT-[A-Z]{2,4}-[0-9]{2}$"
+          },
+          "description": "Inventory features this item changes"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^PB-[0-9]{3}$"
+          }
+        },
+        "external_dependencies": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Decisions, accounts, tenants or other programs' work"
+        },
+        "acceptance": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "scores": {
+          "type": "object",
+          "required": [
+            "developer_value",
+            "cu_reduction",
+            "enterprise_value",
+            "differentiation",
+            "strategic_alignment",
+            "complexity",
+            "risk"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "developer_value": {
+              "$ref": "#/$defs/score"
+            },
+            "cu_reduction": {
+              "$ref": "#/$defs/score"
+            },
+            "enterprise_value": {
+              "$ref": "#/$defs/score"
+            },
+            "differentiation": {
+              "$ref": "#/$defs/score"
+            },
+            "strategic_alignment": {
+              "$ref": "#/$defs/score"
+            },
+            "complexity": {
+              "$ref": "#/$defs/score"
+            },
+            "risk": {
+              "$ref": "#/$defs/score"
+            }
+          }
+        },
+        "mandatory": {
+          "description": "Security, reliability or compliance work that is not ranked down for a low commercial score. 'blocker' items are P0; 'required' items are never below P1.",
+          "enum": [
+            "none",
+            "required",
+            "blocker"
+          ]
+        },
+        "mandatory_reason": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string",
+          "description": "Workstream that builds it. Items owned by a specialist program are tracked here and built there."
+        },
+        "source_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Ids in the owning program's own backlog (FD-1xx, PR-AI-0xx, SQL-00x, Prove #n, Workloads #n, scale stage n.n, Git phase n)"
+        },
+        "duplicates": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Requirements merged into this item, with where they came from"
+        },
+        "effort": {
+          "enum": [
+            "S",
+            "M",
+            "L",
+            "XL"
+          ],
+          "description": "S: one focused PR. M: one larger PR or two. L: three to five PRs. XL: a program of its own."
+        },
+        "confidence": {
+          "enum": [
+            "High",
+            "Medium",
+            "Low"
+          ],
+          "description": "How sure the scores and effort are, given the evidence"
+        },
+        "state": {
+          "enum": [
+            "Proposed",
+            "Approved",
+            "In progress",
+            "In review",
+            "Accepted",
+            "Rejected",
+            "Deferred"
+          ],
+          "description": "Lifecycle. Only the product owner moves an item to Approved; only the implementation review moves it to Accepted."
+        },
+        "prs": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "package": {
+          "type": "string",
+          "description": "Path of its PR-ready specification under docs/product/pr-ready/, when one exists"
+        },
+        "computed": {
+          "type": "object",
+          "description": "Written by product_data.py score; never edited by hand.",
+          "additionalProperties": false,
+          "properties": {
+            "benefit": {
+              "type": "number"
+            },
+            "cost": {
+              "type": "number"
+            },
+            "score": {
+              "type": "number"
+            },
+            "priority": {
+              "enum": [
+                "P0",
+                "P1",
+                "P2",
+                "P3"
+              ]
+            }
+          }
+        },
+        "priority_override": {
+          "type": "object",
+          "required": [
+            "priority",
+            "by",
+            "date",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "description": "A product-owner decision that sets the priority regardless of the computed score. The score stays visible.",
+          "properties": {
+            "priority": {
+              "enum": [
+                "P0",
+                "P1",
+                "P2",
+                "P3"
+              ]
+            },
+            "by": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -306,6 +306,19 @@ require_commit = true
 
 Promote to that environment is then blocked until the files are committed and pushed.
 
+### Who can promote
+
+*Preview.* Before a promote to Test or Prod writes anything, the promote card checks your workspace role in each workspace the target uses. If Fabric lists you as a **Viewer** there, it says so and names the workspace's Admins to ask, and the promote is blocked. Fabric would refuse those writes anyway, partway through. If your role may come through a group, or Fabric won't show the workspace's access list, the card shows a note instead and Fabric decides when the promote writes.
+
+To have a second person release to Prod, set `separate_promoter = true` for Prod in `environments.toml`:
+
+```toml
+[prod]
+separate_promoter = true
+```
+
+Whoever promoted a metadata version to Test then can't also promote it to Prod. The check compares PC login names in the [release record](#release-records)'s `by` column. That makes it a team process check, not a security boundary: to make sure only release managers can change Prod, give only them Contributor or higher on the Prod workspaces.
+
 ### This PC or Fabric runs each environment
 
 Each environment card has **Runs on: This PC | Fabric**, saved as `compute` in `environments.toml`. Fabric needs the tables in OneLake, so an environment with **This PC only** tables runs on the PC until you point it at a workspace.
@@ -478,6 +491,7 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `keys` | `platform` (keys in `SQL_Platform`) or `lakehouse` (`LH_Keys`). Unset, keys come from the platform once the environment has one in Fabric, unless the project already has `LH_Keys` |
 | `workspaces` | A workspace per designation, like `{ ingest = { id = "...", name = "Sales Ingest - Test" } }` |
 | `require_commit` | `true`: promote here only from files a pushed Git commit holds ([Release records](#release-records)) |
+| `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
 

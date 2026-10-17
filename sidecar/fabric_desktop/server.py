@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 import time
 from typing import IO
 
@@ -143,7 +144,17 @@ def main() -> None:
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
     _refresh_integration_launcher()
-    serve(stdin=sys.stdin, stdout=rpc_out)
+    service = Service()
+    threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
+    serve(service, stdin=sys.stdin, stdout=rpc_out)
+
+
+def _start_integration_http(service: Service) -> None:
+    """If the person switched the local API on, start it with the engine (it stops with it)."""
+    try:
+        service.integrations_sync_http()
+    except Exception as exc:  # noqa: BLE001 - the app works without it; Settings shows why
+        print(f"integrations: local API not started: {exc}", file=sys.stderr)
 
 
 def _refresh_integration_launcher() -> None:

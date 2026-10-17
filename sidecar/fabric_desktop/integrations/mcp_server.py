@@ -100,13 +100,18 @@ def _client_name(ctx: Any) -> str:
 
 
 def build_server(registry: Registry | None = None, service_factory: Callable[[], Any] | None = None,
-                 client_id: str = "", channel: str = "mcp-stdio") -> Server[Any]:
+                 client_id: str = "", channel: str = "mcp-stdio",
+                 caller_for: Callable[[Any], Caller] | None = None) -> Server[Any]:
     """An MCP server over ``registry`` (the core capabilities by default). ``service_factory``
-    makes the engine's Service when a call first needs it; tests pass their own."""
+    makes the engine's Service when a call first needs it; tests pass their own. Over stdio the
+    caller is the ``client_id`` the tool was started with; over HTTP ``caller_for`` reads it from
+    each request's authenticated token."""
     reg = registry or default_registry()
     holder = ServiceHolder(service_factory)
 
     def caller(ctx: Any) -> Caller:
+        if caller_for is not None:
+            return caller_for(ctx)
         return Caller(client_id or "unregistered", channel, _client_name(ctx))
 
     async def list_tools(ctx: Any, params: types.PaginatedRequestParams | None) -> types.ListToolsResult:

@@ -15,12 +15,12 @@ Which external tools have been tried with Fabric Desktop by KratosBI, how, and w
 
 | Client | Transport | Status | Notes |
 | --- | --- | --- | --- |
-| MCP Python SDK client 2.3.0 | stdio, in-memory | **Tested** (automated, every build) | Protocol 2025-11-25 and 2026-07-28; Streamable HTTP comes with the local API |
+| MCP Python SDK client 2.3.0 | stdio, in-memory, Streamable HTTP | **Tested** (automated, every build) | Protocol 2025-11-25 and 2026-07-28; over HTTP with a bearer token against a real server on `127.0.0.1` |
 | Claude Code | stdio | Untested | |
 | Claude Desktop | stdio | Untested | |
 | OpenAI Codex CLI | stdio | Untested | |
 | Cursor | stdio | Untested | |
 | VS Code with GitHub Copilot (agent mode) | stdio | Untested | |
-| Any HTTP client | REST `/api/v1` | Planned (automated tests) | OpenAPI at `/api/v1/openapi.json` |
+| httpx (Python) | REST `/api/v1` | **Tested** (automated, every build) | OpenAPI 3.1 at `/api/v1/openapi.json`; any HTTP client should work but only this one is tested |
 
 Untested means a configuration example exists but nobody has run it with that client yet. To report a result, open an issue with the client name and version, the transport, and what happened.

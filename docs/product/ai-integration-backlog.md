@@ -13,8 +13,8 @@ Built in the requested order, with one change: the capability registry (003) com
 | 001 | Stable application service interfaces | P0 | PARTIAL | | [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99) | Draft PR; 42 tests |
 | 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100) | Draft PR; 24 tests |
 | 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
-| 005 | Permissions and approval framework | P0 | MISSING | 002 | (this PR) | Draft PR; 17 tests |
-| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | | Planned |
+| 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
+| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | (this PR) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | | Planned |
 | 007 | External execution interface | P1 | PARTIAL | 005 | | Planned |
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
@@ -53,6 +53,8 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** The engine opens no port today (by design).
 - **Plan.** `fabric-desktop integrations serve`: one Starlette app on `127.0.0.1` with `/api/v1` (REST, OpenAPI generated from the registry) and `/mcp` (Streamable HTTP). Off by default; per-client bearer tokens stored hashed; Host and Origin checks; body size, rate and concurrency limits; started and stopped by the engine; token revocation.
+- **Built.** `integrations/http_server.py` (guard, rate limiter, OpenAPI generator, Starlette app, `serve`), `fabric-desktop integrations serve --port --parent-pid`, engine RPC `integrations_set_http` and `integrations_new_token`, the engine starts the API at launch when it is switched on. Status codes: 401 no or bad token, 403 not allowed, 428 waiting for approval, 429 rate limited, 413 too large, 503 switched off.
+- **Limitations.** Loopback only, no TLS (traffic never leaves the PC). The SDK's own Streamable HTTP client is the only client tested over HTTP. Rate and concurrency limits are fixed (5 per second with bursts of 30 per tool, 4 calls at once).
 
 ### PR-AI-006: Project context and metadata resources
 

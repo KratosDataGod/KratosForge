@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only unless a job asks for more; only the release job writes.
+permissions:
+  contents: read
+
 jobs:
   sidecar:
     # The desktop app is Windows only; the engine and the headless agent also run on Linux.
@@ -17,8 +21,8 @@ jobs:
       run:
         working-directory: sidecar
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]" -c constraints.txt
@@ -34,17 +38,52 @@ jobs:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
       - run: node --test app/tests/ui.test.cjs
+
+  audit:
+    # Known vulnerabilities in what the app ships: the engine's pinned Python packages and the
+    # shell's Rust crates. A new advisory turns this red on every pull request until the package
+    # is moved (in its own pull request, per CONTRIBUTING). Releases don't wait for it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Python packages (sidecar/constraints.txt)
+        run: |
+          python -m pip install --quiet pip-audit==2.10.1
+          pip-audit -r sidecar/constraints.txt --no-deps --disable-pip --progress-spinner off
+      - name: Rust crates (app/src-tauri/Cargo.lock)
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo audit --file app/src-tauri/Cargo.lock
+
+  sbom-app:
+    # The shell's software bill of materials (every Rust crate in Cargo.lock), attached to releases
+    # next to the engine's (built in the engine job from the engine itself).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: |
+          cargo install --locked cargo-cyclonedx --version 0.5.9
+          cd app/src-tauri && cargo cyclonedx --format json --override-filename sbom-app
+          mv sbom-app.json "$GITHUB_WORKSPACE/sbom-app.cdx.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-app
+          path: sbom-app.cdx.json
+          if-no-files-found: error
 
   agent-image:
     # The headless agent's Linux container (deploy/linux/Dockerfile): it must build and start.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - run: docker build -f deploy/linux/Dockerfile -t fabric-desktop-agent .
       - run: docker run --rm fabric-desktop-agent --help
 
@@ -56,9 +95,11 @@ jobs:
     runs-on: windows-latest
     env:
       PYTHON_VERSION: "3.12.10"
+      # From https://www.python.org/downloads/release/python-31210/ (Windows embeddable package, 64-bit).
+      PYTHON_EMBED_MD5: "fe8ef205f2e9c3ba44d0cf9954e1abd3"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Build the engine folder
@@ -67,6 +108,11 @@ jobs:
           $ErrorActionPreference = "Stop"
           $dir = "$env:RUNNER_TEMP\engine"
           Invoke-WebRequest "https://www.python.org/ftp/python/$env:PYTHON_VERSION/python-$env:PYTHON_VERSION-embed-amd64.zip" -OutFile "$env:RUNNER_TEMP\embed.zip"
+          # The engine's Python must be exactly the file python.org published (MD5 from its release page).
+          $md5 = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm MD5).Hash.ToLower()
+          $sha = (Get-FileHash "$env:RUNNER_TEMP\embed.zip" -Algorithm SHA256).Hash.ToLower()
+          "Embeddable Python sha256 $sha md5 $md5"
+          if ($md5 -ne $env:PYTHON_EMBED_MD5) { throw "python-$env:PYTHON_VERSION-embed-amd64.zip is not the file python.org published (md5 $md5)" }
           Expand-Archive "$env:RUNNER_TEMP\embed.zip" $dir
           # The ._pth file fixes sys.path, so the PC's own packages and PYTHONPATH never mix in.
           Set-Content "$dir\python312._pth" "python312.zip`r`n.`r`nLib\site-packages`r`nimport site" -Encoding ascii
@@ -83,8 +129,9 @@ jobs:
           & "$env:ENGINE_DIR\python.exe" -c "import site, sys; assert site.getusersitepackages() not in sys.path, sys.path"
           if ($LASTEXITCODE) { exit 1 }
       - name: Sign the engine's packages
-        if: vars.TRUSTED_SIGNING_ACCOUNT != ''
-        uses: azure/trusted-signing-action@v0
+        # Only builds of main are signed: pull request code never runs next to the signing secrets.
+        if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -99,10 +146,20 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      - name: List every package in the engine (SBOM)
+        shell: pwsh
+        run: |
+          python -m pip install --quiet cyclonedx-bom==7.5.0
+          cyclonedx-py environment "$env:ENGINE_DIR\python.exe" --output-format JSON --output-file sbom-engine.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-engine
+          path: sbom-engine.cdx.json
+          if-no-files-found: error
       - name: Zip the engine
         shell: pwsh
         run: 7z a -tzip -mx=5 fabric-desktop-engine.zip "$env:ENGINE_DIR\*"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-engine
           path: fabric-desktop-engine.zip
@@ -114,19 +171,24 @@ jobs:
       run:
         working-directory: app/src-tauri
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: app/src-tauri
+          # Pull requests read the cache but never write it, so a branch can't seed release builds.
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - run: cargo build --release --locked
         env:
           # Builds of main carry their commit, so the app can tell when a newer release exists.
           FABRIC_RELEASE_COMMIT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || '' }}
           FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
       - name: Sign the exe
-        if: vars.TRUSTED_SIGNING_ACCOUNT != ''
-        uses: azure/trusted-signing-action@v0
+        # Only builds of main are signed: pull request code never runs next to the signing secrets.
+        if: vars.TRUSTED_SIGNING_ACCOUNT != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: azure/trusted-signing-action@1d365fec12862c4aa68fcac418143d73f0cea293 # v0
         with:
           azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -138,7 +200,7 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: fabric-desktop-windows
           path: app/src-tauri/target/release/fabric-desktop.exe
@@ -148,7 +210,7 @@ jobs:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
     # exe. People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell]
+    needs: [sidecar, ui, engine, shell, sbom-app]
     runs-on: ubuntu-latest
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
@@ -157,13 +219,28 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      id-token: write      # build provenance: signs the attestation with this workflow's identity
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: fabric-desktop-windows
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: fabric-desktop-engine
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sbom-engine
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: sbom-app
+      # Signed proof that these exact files were built by this workflow from this commit.
+      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/fabric-desktop
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: |
+            fabric-desktop.exe
+            fabric-desktop-engine.zip
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -185,11 +262,11 @@ jobs:
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip --clobber
+            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
+            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
               --title "Fabric Desktop by KratosBI (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi

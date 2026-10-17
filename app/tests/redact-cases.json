@@ -1,0 +1,19 @@
+{
+  "_about": "Shared cases for redaction in the engine (sidecar/fabric_desktop/redact.py) and the UI (redactReport in app/ui/settings.js). level is secrets or support.",
+  "cases": [
+    {"level": "secrets", "in": "GET failed: Authorization: Bearer abc.DEF-123_xyz/+=", "out": "GET failed: Authorization: Bearer [removed]"},
+    {"level": "secrets", "in": "token eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl end", "out": "token [removed] end"},
+    {"level": "secrets", "in": "https://x.blob.core.windows.net/c/f?sv=2022&sig=AbC%2Bdef%3D&se=1", "out": "https://x.blob.core.windows.net/c/f?sv=2022&sig=[removed]&se=1"},
+    {"level": "secrets", "in": "client_secret=s3cr3t&grant_type=x", "out": "client_secret=[removed]&grant_type=x"},
+    {"level": "secrets", "in": "{\"password\": \"hunter2\", \"user\": \"a\"}", "out": "{\"password\": \"[removed]\", \"user\": \"a\"}"},
+    {"level": "secrets", "in": "AccountKey=abc123==;EndpointSuffix=core", "out": "AccountKey=[removed];EndpointSuffix=core"},
+    {"level": "secrets", "in": "Workspace Sales (11111111-2222-3333-4444-555555555555) by ann@contoso.com", "out": "Workspace Sales (11111111-2222-3333-4444-555555555555) by ann@contoso.com"},
+    {"level": "support", "in": "Signed in as ann.lee@contoso.onmicrosoft.com", "out": "Signed in as [email]"},
+    {"level": "support", "in": "File C:\\Users\\ann.lee\\AppData\\Local\\FabricDesktop\\sidecar.log", "out": "File C:\\Users\\[user]\\AppData\\Local\\FabricDesktop\\sidecar.log"},
+    {"level": "support", "in": "\"C:\\\\Users\\\\ann\\\\Documents\\\\x.ipynb\"", "out": "\"C:\\\\Users\\\\[user]\\\\Documents\\\\x.ipynb\""},
+    {"level": "support", "in": "c:/users/Ann Lee/x and /home/ann/y and /Users/ann/z", "out": "c:/users/[user]/x and /home/[user]/y and /Users/[user]/z"},
+    {"level": "support", "in": "Tenant 72F988BF-86F1-41AF-91AB-2D7CD011DB47 workspace 11111111-2222-3333-4444-555555555555", "out": "Tenant [id] workspace [id]"},
+    {"level": "support", "in": "Bearer abcdefghijk from bob@x.io", "out": "Bearer [removed] from [email]"},
+    {"level": "support", "in": "Nothing personal in this line: run 42 failed after 3.5 s", "out": "Nothing personal in this line: run 42 failed after 3.5 s"}
+  ]
+}

@@ -292,16 +292,19 @@ def install_sidecar(commit: str) -> int:
     return 0
 
 
-def release_sha256(tag: str, commit: str) -> str:
-    """The exe's SHA-256 that a release's version.json gives for this build, or "" when it
-    gives none (releases from before checksums) or names another build."""
+def release_sha256(tag: str, commit: str) -> str | None:
+    """The exe's SHA-256 that a release's version.json gives for this build; "" when it names this
+    build but gives no checksum (published before checksums); None when it can't be read or names
+    another build (one is being published), so the download can't be checked yet."""
     try:
         with _get(f"{release_url(tag)}/version.json?nocache={int(time.time())}", timeout=10) as resp:
             info = json.load(resp)
-    except Exception:  # noqa: BLE001 - the commit check below still runs
-        return ""
+    except Exception:  # noqa: BLE001 - reported by the caller as "can't check yet"
+        return None
+    if not isinstance(info, dict) or info.get("commit") != commit:
+        return None
     sha = str(info.get("exe_sha256") or "").lower()
-    return sha if info.get("commit") == commit and re.fullmatch(r"[0-9a-f]{64}", sha) else ""
+    return sha if re.fullmatch(r"[0-9a-f]{64}", sha) else ""
 
 
 def download_app(dest: str, commit: str = "") -> int:
@@ -336,6 +339,9 @@ def download_app(dest: str, commit: str = "") -> int:
         if not commit:
             return 0
         expected = release_sha256(tags[0], commit)
+        if expected is None:
+            print(f"Could not read build {commit[:7]}'s checksum from its release; trying again", flush=True)
+            continue
         if expected and digest.hexdigest() != expected:
             print(f"The download does not match build {commit[:7]}'s checksum; trying again", flush=True)
             continue

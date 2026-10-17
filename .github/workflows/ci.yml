@@ -124,7 +124,7 @@ jobs:
       - name: Check the engine starts on its own
         shell: pwsh
         run: |
-          & "$env:ENGINE_DIR\python.exe" -c "import fabric_desktop.server, pyarrow, polars, duckdb, deltalake, msal, pymsalruntime, ssl, ctypes, winreg"
+          & "$env:ENGINE_DIR\python.exe" -c "import fabric_desktop.server, fabric_desktop.integrations.mcp_server, mcp, uvicorn, pyarrow, polars, duckdb, deltalake, msal, pymsalruntime, ssl, ctypes, winreg"
           if ($LASTEXITCODE) { exit 1 }
           & "$env:ENGINE_DIR\python.exe" -c "import site, sys; assert site.getusersitepackages() not in sys.path, sys.path"
           if ($LASTEXITCODE) { exit 1 }

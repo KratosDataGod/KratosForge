@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore | mcp | capabilities`."""
 
 from __future__ import annotations
 
@@ -61,8 +61,19 @@ def main(argv: list[str] | None = None) -> None:
     trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
     trail.add_argument("--action", default="", help="only this action, such as meta_promote")
     trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
+    p = sub.add_parser("mcp", help="serve the Model Context Protocol on stdin/stdout, for an external AI tool to start")
+    p.add_argument("--client", default="", help="the client id Settings > Integrations gave this tool")
+    sub.add_parser("capabilities", help="print every capability external tools can use, with schemas, as JSON")
     args = parser.parse_args(argv)
 
+    if args.command == "mcp":
+        from .integrations.mcp_server import run_stdio
+        run_stdio(args.client)
+        return
+    if args.command == "capabilities":
+        from .integrations.registry import default_registry
+        print(json.dumps({"capabilities": [c.describe() for c in default_registry().all()]}, indent=2))
+        return
     if args.command == "serve":
         serve()
         return

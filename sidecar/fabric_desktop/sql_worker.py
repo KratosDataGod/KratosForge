@@ -174,6 +174,12 @@ def main() -> None:
             message = ("A query can't change the run's settings (memory, threads, files). They come from "
                        "Settings › SQL.")
         _say("error", kind="sql", message=message[:4000])
+    # Leave without the interpreter's shutdown. _listen is still blocked reading stdin, which the
+    # engine keeps open until this process ends; on Windows closing stdin then waits for that read
+    # to finish, so a normal exit would hang every finished run.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":

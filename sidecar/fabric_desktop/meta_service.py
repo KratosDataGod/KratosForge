@@ -10,9 +10,9 @@ from typing import Any
 
 import polars as pl
 
-from . import lakehouse
+from . import duties, lakehouse
 from .meta import keys as keys_mod
-from .meta import release
+from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
@@ -430,8 +430,10 @@ class MetaMixin:
         git = release.status(project.root)
         unreleased, more = self._release_gate(project, target, git)
         errors += unreleased
+        duty_errors, duty_notes = self._duties_gate(project, source, target)
+        errors += duty_errors
         return {"source": source, "target": target, "version": project.version, "errors": errors, "tests": tests,
-                "notes": notes + more, "git": git}
+                "notes": notes + more + duty_notes, "git": git}
 
     def meta_promote(self, source: str, target: str) -> dict[str, Any]:
         project = self._project()
@@ -444,6 +446,7 @@ class MetaMixin:
         git = release.status(project.root)
         unreleased, release_notes = self._release_gate(project, target, git)
         errors += unreleased
+        errors += self._duties_gate(project, source, target, src)[0]
         if errors:
             raise GateError("promote", errors)
         target_store = self._store(project, target, create=True)
@@ -477,6 +480,17 @@ class MetaMixin:
                 result["fabric"] = f"not synced: {exc}"
         return result
 
+    def meta_lineage(self, name: str, column: str | None = None) -> dict[str, Any]:
+        """Column lineage from the project's files: every column of ``name``, or, for one column,
+        the steps back to where it starts and every column built from it further on."""
+        project = self._project()
+        if name not in project.entities:
+            raise LookupError(f"No entity {name}")
+        if column is None:
+            return {"entity": name, "columns": lineage.entity_columns(project, name)}
+        return {"entity": name, "column": column, "upstream": lineage.upstream(project, name, column),
+                "downstream": lineage.downstream(project, name, column)}
+
     def meta_git_status(self) -> dict[str, Any]:
         """Where the project's files stand in Git (read with this PC's git; no network)."""
         return release.status(self._project().root)
@@ -490,6 +504,48 @@ class MetaMixin:
         if project.environments.get(target, {}).get("require_commit"):
             return [f"{target.title()} only takes released files: {p}" for p in found], []
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
+
+    def _duties_gate(self, project: Project, source: str, target: str,
+                     src: Any = None) -> tuple[list[str], list[str]]:
+        """Before writing to Test or Prod: the person's workspace roles there, and with
+        ``separate_promoter = true`` on the target, that they didn't promote this version to the
+        source themselves (FD-130). Reads only; see duties.py."""
+        cfg = project.environments.get(target, {})
+        if target == "dev":
+            return [], []
+        errors: list[str] = []
+        notes: list[str] = []
+        if cfg.get("separate_promoter"):
+            try:
+                store = src or self._store(project, source)
+                deps = store.meta("deployments")
+                rows = [r for r in deps.iter_rows(named=True)
+                        if r.get("env") == source and r.get("version") == project.version] if deps.height else []
+            except Exception:  # noqa: BLE001 - promote_checks already says when the source can't be read
+                rows = []
+            problem = duties.separation_problem(source, target, project.version,
+                                                rows[-1].get("by") if rows else None, duties.current_user())
+            if problem:
+                errors.append(problem)
+        if cfg.get("target", "onelake") == "local":
+            return errors, notes  # tables on this PC: no workspace roles to check
+        auth = getattr(self, "_auth", None)  # already signed in by the store; never start a sign-in here
+        me = {v.lower() for v in (getattr(auth, "signed_in_object_id", lambda: None)(),
+                                  getattr(auth, "signed_in_user", lambda: None)()) if v}
+        spaces = {cfg.get("workspace_id"): cfg.get("workspace_name")} | {
+            (s or {}).get("id"): (s or {}).get("name") for s in (cfg.get("workspaces") or {}).values()}
+        for ws, name in spaces.items():
+            if not ws:
+                continue
+            label = f"{target.title()} workspace {name or ws}"
+            try:
+                assignments, error = self.fabric.list_role_assignments(ws), None  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001 - reading roles can need more than writing tables
+                assignments, error = None, str(exc)
+            e, n = duties.role_problems(label, assignments, me, error)
+            errors += e
+            notes += n
+        return errors, notes
 
     def _breaking_gate(self, project: Project, target: str) -> tuple[list[str], list[str]]:
         """Columns other projects read in ``target`` may not be dropped or retyped without a new

@@ -36,7 +36,9 @@ async function runSideBySide() {
     return;
   }
   if (!(await ensureSignedIn())) return;
-  const run = await attempt(() => rpc("side_by_side_start", notebookPayload()), "Could not start the side-by-side run");
+  const confirm = await confirmSbsWrites(nb);
+  if (!confirm) return;
+  const run = await attempt(() => rpc("side_by_side_start", { ...notebookPayload(), ...confirm }), "Could not start the side-by-side run");
   if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;
   nb.dirty = false;
@@ -104,6 +106,27 @@ async function addBenchmarkNotebooks() {
 }
 
 // ---------- the panel above the cells ----------
+
+// Both runs write the attached lakehouse's real tables, so the person confirms which ones first.
+// Resolves to the confirmation the engine needs, or null when they cancel.
+async function confirmSbsWrites(nb) {
+  const writes = await attempt(() => rpc("side_by_side_writes", { cells: notebookPayload().cells }), "Could not check the notebook");
+  if (!writes) return null;
+  const confirm = { confirm_writes: writes.tables, confirm_unknown: writes.unknown };
+  if (!writes.tables.length && !writes.unknown) return confirm;
+  return new Promise((resolve) => {
+    const done = (value) => { closeDialog(); resolve(value); };
+    showDialog("Overwrite these tables twice?", h("div", { class: "dialog-text" },
+      h("p", {}, `Side by side runs this notebook on this PC and then in Fabric, and both runs write to ${nb.lakehouse.name} for real. What's in these tables now is replaced, then replaced again:`),
+      writes.tables.length ? h("ul", {}, writes.tables.map((t) => h("li", { class: "mono" }, t))) : null,
+      writes.unknown ? h("p", {}, "Some cells can write tables reading the code can't see: ", writes.reasons.join("; "), ".") : null,
+      h("p", {}, "Prove runs both sides from the same table versions and keeps their writes in a sandbox, so your tables aren't changed.")), [
+      btn("Overwrite and run", null, () => done(confirm), "tool primary"),
+      previewShown() ? btn("Use Prove instead", null, () => { done(null); openProve(nb); }, "tool outline") : null,
+      btn("Cancel", null, () => done(null), "tool outline"),
+    ].filter(Boolean));
+  });
+}
 
 function sbsPanel(nb) {
   const slot = h("div", { class: "sbs-slot" });

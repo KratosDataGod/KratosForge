@@ -12,7 +12,8 @@
 5. If the capability needs approval, the person approves this exact call in Fabric Desktop. The
    call waits a while for the answer; if none comes it fails with ``approval_required`` and the
    same call made again later uses the approval once it is given. An approval is single-use and
-   bound to a hash of the exact arguments.
+   bound to a hash of the exact arguments, including those the capability binds before asking
+   (a notebook run's code cells and their SHA-256), so it can't be used for other code.
 
 Approvals are decided only through the app's own engine (``IntegrationStore.decide``, reached
 from the Settings page). No capability, MCP message or API endpoint can grant, approve or change
@@ -22,7 +23,7 @@ permissions.
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Callable
 
 from . import policy
 from .core import CallContext, IntegrationError, redact_secrets
@@ -37,6 +38,7 @@ APPROVAL_WAIT_SECONDS = 60.0
 WHERE = "Fabric Desktop by KratosBI > Settings > Integrations"
 _TARGET_KEYS = ("workspace_id", "lakehouse_id", "item_id", "name", "notebook", "table", "id", "execution_id")
 _CONTENT_KEYS = ("code", "query", "cells", "source")
+MAX_CONTENT = 20_000  # characters of code shown; anything cut says so
 
 
 def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
@@ -47,7 +49,13 @@ def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) 
     for key in _CONTENT_KEYS:
         if key in arguments:
             value = arguments[key]
-            out["content"] = {"kind": key, "text": redact_secrets(value if isinstance(value, str) else repr(value))[:20_000]}
+            if isinstance(value, list) and all(isinstance(v, str) for v in value):  # a notebook's code cells
+                value = "\n\n".join(f"# ---- cell {n} of {len(value)}\n{v}" for n, v in enumerate(value, 1))
+            text = redact_secrets(value if isinstance(value, str) else repr(value))
+            out["content"] = {"kind": key, "text": text[:MAX_CONTENT]}
+            if len(text) > MAX_CONTENT:
+                out["content"]["text"] += f"\n\n[{len(text) - MAX_CONTENT:,} more characters not shown]"
+                out["content"]["truncated"] = True
             break
     return out
 
@@ -102,7 +110,8 @@ class PermissionAuthorizer:
             return "unavailable", why
         return cap.status, cap.reason
 
-    def check(self, cap: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
+    def check(self, cap: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None) -> None:
         on, why = self._enabled()
         if not on:
             if cap.public:
@@ -125,6 +134,10 @@ class PermissionAuthorizer:
             raise IntegrationError("permission_denied", "This tool is limited to other workspaces.",
                                    hint=f"The person can change its workspaces in {WHERE}.")
         self.store.touch(client["id"])
+        if bind is not None:
+            # Read only for a permitted caller, and before asking, so the person sees (and the
+            # approval is bound to) what will run, not just a name. Calls that don't ask bind too.
+            arguments.update(bind())
         ctx.decision = "allowed"
         if self._needs_approval(cap, client):
             self._approve(cap, client, arguments, ctx)

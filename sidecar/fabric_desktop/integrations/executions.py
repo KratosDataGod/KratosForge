@@ -20,10 +20,13 @@ What code an external tool runs can do is limited on purpose:
   (``notebookutils.credentials.getToken`` for Fabric, Graph or anything else is refused).
 - Writing lakehouse tables through the engine (``saveAsTable``, ``lakehouse.write_table``) is
   refused: OneLake writes aren't offered to external tools in this release.
+- Other notebooks can't be run from it (``%run``, ``notebookutils.notebook.run``): their code
+  wasn't shown to the person. The app's own kernels still run them.
 - Output is capped, images and HTML are left out, and every string has secrets removed.
 
-The person approves every Python and notebook run in the app, with the code shown. Approved code
-runs as the person on this PC (see docs/product/ai-integration-security.md).
+The person approves every Python and notebook run in the app, with the code shown; a notebook run
+is bound to the SHA-256 of the cells shown and runs exactly those (services.bind_notebook).
+Approved code runs as the person on this PC (see docs/product/ai-integration-security.md).
 """
 
 from __future__ import annotations
@@ -47,6 +50,8 @@ STOP_GRACE_SECONDS = 5.0      # after an interrupt, before the process is ended
 WRITE_REFUSED = ("External AI tools can't write lakehouse tables in this release. Run this notebook in "
                  "Fabric Desktop by KratosBI to write.")
 TOKEN_REFUSED = "Code an external tool runs gets no {audience} token; only the attached lakehouse can be read."
+OTHER_NOTEBOOKS_REFUSED = ("Code an external tool runs can't run other notebooks (%run, notebookutils.notebook.run): "
+                           "only the code the person approved runs. Run this notebook in Fabric Desktop by KratosBI instead.")
 
 
 def new_execution_id() -> str:
@@ -136,6 +141,10 @@ class ExecutionManager:
             raise PermissionError(TOKEN_REFUSED.format(audience=audience))
         return self.service.auth.storage_token()
 
+    @staticmethod
+    def _other_notebook(name: str) -> list[dict[str, Any]]:
+        raise PermissionError(OTHER_NOTEBOOKS_REFUSED)
+
     def _new_kernel(self) -> Any:
         from .. import lakehouse
         from ..kernel_proc import ProcessKernel
@@ -150,8 +159,7 @@ class ExecutionManager:
                 finally:
                     lakehouse.write_guard = saved
 
-        kernel = ExternalKernel(token=self._token, load_notebook=lambda name: self.service.notebooks.load(name)["cells"],
-                                command=self.kernel_command)
+        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command)
         kernel.calls["write_guard"] = lambda name, schema, table: WRITE_REFUSED
         return kernel
 

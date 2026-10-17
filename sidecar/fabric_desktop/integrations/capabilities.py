@@ -276,7 +276,8 @@ OPT_ID = {"type": "string", "maxLength": 100, "pattern": r"^[A-Za-z0-9\-]*$", "d
 EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
 CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
                "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
-               "Output is capped at 100,000 characters; images and HTML are left out.")
+               "Output is capped at 100,000 characters; images and HTML are left out.",
+               "Running other notebooks (%run, notebookutils.notebook.run) is refused.")
 
 
 def _executions() -> list[Capability]:
@@ -306,13 +307,14 @@ def _executions() -> list[Capability]:
         Capability(
             "fabric_desktop_run_notebook", "Run a notebook on this PC",
             "Runs a saved notebook's code cells in order on this PC in a fresh process, stopping at the first "
-            "error, and returns each cell's output. The person approves every run. Running in Fabric isn't offered.",
+            "error, and returns each cell's output. The person approves every run, seeing every code cell; if the "
+            "notebook changes after that, the run is refused. Running in Fabric isn't offered.",
             schema({"name": NAME, "workspace_id": OPT_ID | {"description": "The workspace of the notebook's lakehouse."},
                     **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 3600, "default": 900}},
                    ["name"]),
             EXECUTION, "EXECUTE_LOCAL_CODE", services.run_notebook, read_only=False, approval="always",
             artifact_types=("Notebook",), limitations=CODE_LIMITS + ("A notebook that writes tables stops at that cell.",),
-            timeout=3600),
+            timeout=3600, bind=services.bind_notebook),
         Capability(
             "fabric_desktop_get_execution_status", "Get execution status",
             "The state of an execution you started, and its result once finished. wait_seconds waits for it to finish.",

@@ -184,6 +184,39 @@ def test_ask_categories_can_be_pre_approved_but_code_always_asks(store):
     assert code_of(reg, "ext_run", client["id"], {"code": "x"}) == "approval_required"
 
 
+def test_bound_arguments_are_shown_hashed_and_bound_for_pre_approved_calls_too(store):
+    reg = registry(store, wait=0.1)
+    version = {"cells": ["a = 1", "print(a)"]}
+    for cap_id, approval in (("ext_bound", "always"), ("ext_bound_auto", "ask")):
+        reg.register(Capability(cap_id, "Run a notebook", "Runs it.", schema({"name": {"type": "string"}}), schema(extra=True),
+                                "EXECUTE_LOCAL_CODE", ran, read_only=False, approval=approval,
+                                bind=lambda svc, args: {"cells": list(version["cells"])}))
+    client = enabled_client(store, grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"], auto=["EXECUTE_LOCAL_CODE"])
+    # Pre-approved: no question, and the handler still gets what bind read.
+    assert reg.invoke(object(), "ext_bound_auto", {"name": "n"}, ctx(client["id"])) == {"ran": {"name": "n", "cells": ["a = 1", "print(a)"]}}
+    # Asked: every cell is shown, and an approval for one version doesn't run another.
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(object(), "ext_bound", {"name": "n"}, ctx(client["id"]))
+    first = store.approval(err.value.details["approval_id"])
+    assert first["summary"]["content"]["text"] == "# ---- cell 1 of 2\na = 1\n\n# ---- cell 2 of 2\nprint(a)"
+    store.decide(first["id"], True)
+    version["cells"] = ["import os"]
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(object(), "ext_bound", {"name": "n"}, ctx(client["id"]))
+    assert err.value.code == "approval_required" and err.value.details["approval_id"] != first["id"]
+    # A caller can't supply a bound argument itself.
+    assert code_of(reg, "ext_bound", client["id"], {"name": "n", "cells": ["x"]}) == "invalid_input"
+
+
+def test_long_code_says_it_was_cut(store):
+    reg = registry(store, wait=0.05)
+    client = enabled_client(store, grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    with pytest.raises(IntegrationError) as err:
+        reg.invoke(None, "ext_run", {"code": "x" * 25_000}, ctx(client["id"]))
+    content = store.approval(err.value.details["approval_id"])["summary"]["content"]
+    assert content["truncated"] is True and content["text"].endswith("[5,000 more characters not shown]")
+
+
 def test_requests_expire_and_revoking_drops_them(store):
     now = [1000.0]
     store.clock = lambda: now[0]

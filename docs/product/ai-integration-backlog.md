@@ -21,7 +21,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
 | 011 | Compatibility and conformance testing | P1 | MISSING | 004 | [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
-| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
+| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | (this PR) | Draft PR; the interface, checks, switch, policy key, sample extension and list-change notices; 30 tests. The manifest loader stays with the Git program |
 
 ## Items
 
@@ -102,6 +102,10 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** No extension framework yet (Git program Phase 4).
 - **Plan.** The registration interface with validation, enable and disable, list-changed notifications, and a sample built-in extension; the manifest loader is left to the Git program.
+- **Built.** `integrations/extensions.py`: `Extension` (id, name, version, publisher, declared permissions, capabilities) and `ExtensionHost`, the one way an extension reaches the registry. It checks that capability ids carry the extension's prefix and never `fabric_desktop_`, that permissions are ones the extension declared, that resources stay under `fabric-desktop://ext/<id>/`, and registers all of an extension's capabilities or none. Extensions are off until the person turns each on (**Settings > Integrations > Extensions**, Preview); the policy key `integrations_extensions` limits which can be, failing closed. Every MCP and HTTP server process syncs from the store every 2 seconds and tells connected clients `tools/list_changed` and `resources/list_changed` (on the connection at 2025-11-25, on `subscriptions/listen` at 2026-07-28). Sample: the built-in **Notebook outline** (`notebook_outline_get`, read metadata only: headings, functions and classes, never code).
+- **Tests.** Every check refuses what it should; off by default; the switch reaches another registry (another process); the policy takes an extension away and an unreadable policy allows none; all-or-nothing registration; a new version reloads; calls go through permissions and the audit; the sample as a tool and a resource; list-change notices in memory on both eras, over Streamable HTTP on both eras, and from the real stdio process when the switch changes in the app; the page's RPC; the card is Preview and switches only through the engine.
+- **Not done here.** The manifest, installing extensions from anywhere, signing and running an extension in its own process (Git-native program, Phase 4; its loader calls `ExtensionHost.add`). No Git capability is added.
+- **Limitations.** An extension runs in the engine with the engine's rights, so only extensions shipped with the app exist. The Extensions card wasn't in the Integrations mockup. No AI tool has been seen reacting to the list-change notices yet.
 
 ## Remaining risks
 

@@ -8,6 +8,8 @@ The same file as every other IT setting (app_settings.policy_path(), usually
     integrations_max_permissions    the permission categories a tool may be given, for example
                                     ["READ_METADATA", "READ_DATA"] (default: all that are offered)
     integrations_http               false: the local HTTP API can't be switched on (default: allowed)
+    integrations_extensions         the extensions the person may turn on, by id, for example
+                                    ["notebook-outline"]; [] allows none (default: any)
     receipt_redactions              parts of a receipt every export leaves out (the enterprise
                                     program's key, PR #84); external tools' exports honour it too
 
@@ -22,7 +24,8 @@ from typing import Any
 from .. import app_settings
 from .registry import PERMISSIONS
 
-KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "receipt_redactions")
+KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
+        "receipt_redactions")
 
 
 def _read() -> dict[str, Any]:
@@ -36,7 +39,8 @@ def _read() -> dict[str, Any]:
 def current() -> dict[str, Any]:
     """The policy as it applies now, with problems in the file reported rather than guessed at."""
     raw = _read()
-    out: dict[str, Any] = {"enabled": None, "max_permissions": list(PERMISSIONS), "http": True, "problems": [], "set": sorted(raw)}
+    out: dict[str, Any] = {"enabled": None, "max_permissions": list(PERMISSIONS), "http": True, "extensions": None,
+                           "problems": [], "set": sorted(raw)}
     if "integrations" in raw:
         if raw["integrations"] is False:
             out["enabled"] = False  # true means "the person decides", the same as no key
@@ -59,6 +63,13 @@ def current() -> dict[str, Any]:
         else:
             out["problems"].append("integrations_http should be true or false")
             out["http"] = False
+    if "integrations_extensions" in raw:
+        value = raw["integrations_extensions"]
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
+            out["extensions"] = list(value)
+        else:
+            out["problems"].append("integrations_extensions should be a list of extension ids")
+            out["extensions"] = []  # fail closed: none
     return out
 
 

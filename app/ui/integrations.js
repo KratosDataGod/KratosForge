@@ -66,6 +66,7 @@ async function renderIntegrationsTab(box) {
     switchCard(status, refresh),
     status.enabled ? connectCard(status, refresh) : null,
     status.enabled ? toolsCard(status, refresh) : null,
+    status.enabled && (status.extensions || []).length ? extensionsCard(status, refresh) : null,
     status.enabled && status.pending.length ? pendingCard(status.pending, refresh) : null,
     status.enabled ? activityCard(activity, status) : null,
     troubleshootingCard(status)].filter(Boolean));
@@ -154,6 +155,29 @@ function toolsCard(status, refresh) {
       h("tbody", {}, rows))
       : h("p", { class: "muted-text" }, "No tools yet. Add one to get the setup to paste into it."),
     h("p", { class: "muted-text small" }, "Revoke stops a tool at once: its next request is refused, and anything waiting for your approval is cancelled."));
+}
+
+// Extensions add capabilities that tools can use, with the same permissions and approvals
+// (sidecar integrations/extensions.py). Off until switched on here; the IT policy can limit them.
+function extensionsCard(status, refresh) {
+  const rows = status.extensions.map((e) => {
+    const toggle = h("label", { class: "switch" },
+      h("input", { type: "checkbox", checked: e.enabled ? true : null, disabled: e.allowed ? null : true,
+        onchange: async (ev) => {
+          const res = await attempt(() => rpc("integrations_set_extension", { extension_id: e.id, enabled: ev.target.checked }), "Not changed");
+          if (res) toast(ev.target.checked ? `${e.name} is on. Connected tools are told in a few seconds.` : `${e.name} is off`);
+          refresh();
+        } }), h("span", {}, e.enabled ? "On" : "Off"));
+    return settingRow(h("span", {}, e.name, " ", h("span", { class: "muted-text small" }, `${e.version} · ${e.publisher}${e.built_in ? " · built in" : ""}`)),
+      h("span", {}, e.description, " ", h("span", { class: "muted-text small" },
+        `Adds: ${e.capabilities.map((c) => c.title).join(", ") || "nothing"}. Needs `), permissionPills(e.permissions),
+        e.error ? h("div", { class: "fail-text small" }, `Didn't load: ${e.error}`) : null),
+      toggle, e.allowed ? null : "policy");
+  });
+  return h("section", { class: "card pad" },
+    h("div", { class: "row" }, h("h2", {}, "Extensions"), previewTag()),
+    ...rows,
+    h("p", { class: "muted-text small" }, "A tool still needs the permission each one asks for, and anything that runs code still asks you here."));
 }
 
 async function revokeTool(c, refresh) {

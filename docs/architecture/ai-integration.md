@@ -18,7 +18,7 @@ This page is the architecture. The backlog and status of each pull request are i
 | Execution boundaries | Notebook cells run in the engine or in a process of their own (`kernel_proc.py`, Preview), with interrupt and stop. SQL runs in an in-memory DuckDB with each named table registered as an Arrow dataset. Prove runs in a fresh kernel with outputs redirected. | |
 | Local network APIs | **None.** The engine is stdio only and the headless agent has no HTTP endpoint (`agent.py`, `agent_status.py` write files). | |
 | MCP | **None.** No MCP code, experiment or dependency anywhere in the repository. | |
-| Extension mechanism | **None yet.** Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
+| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
 | Audit, redaction, IT policy | In review, owned by the enterprise readiness program: hash-chained audit trail (PR #89, `audit.py`), secret redaction (PR #84, `redact.py`), policy keys `auto_update`, `allow_fabric_runs`, `allowed_tenants` (PR #90). The policy file itself (`%ProgramData%\FabricDesktop\policy.json`) already exists in `app_settings.py`. | |
 | Tests | About 40 pytest modules in `sidecar/tests`, all run without Fabric; UI tests in `app/tests/ui.test.cjs`. | |
 
@@ -196,9 +196,24 @@ Lines go to `%LOCALAPPDATA%\FabricDesktop\integrations\audit\audit-YYYY-MM.jsonl
 
 ## 8. Extensions
 
-Extensions register capabilities with `registry.register(capability, source="<extension id>")` and remove them with `unregister_source()`. The registry validates schemas and requires an explicit permission category; an extension can't register a capability in a category the person can't grant, can't replace a core capability, and every call still passes through `invoke`. Listing changes are sent to connected MCP clients as `tools/list_changed`.
+An extension is a named, versioned set of capabilities with the permission categories it declares (`integrations/extensions.py`). `ExtensionHost` is the only way one reaches the registry, so its capabilities appear in MCP, the local API and Settings like core ones, and every call still passes through `invoke` with the same permissions, approvals, limits and audit line.
 
-The extension framework itself (manifest, signing, own process) belongs to the Git-native program's Phase 4. This program supplies the registration interface and a sample built-in extension; the manifest loader will call it.
+| Rule, checked when an extension is added and again when it is turned on | Why |
+| --- | --- |
+| Its id is a valid extension id, not `core`, and doesn't start with `fabric_desktop` | Core capabilities can't be replaced or imitated |
+| Its capability ids start with its own prefix (`notebook-outline` gives `notebook_outline_...`) | Two extensions can't collide, and a tool can see where a capability comes from |
+| Each capability's permission is one the extension declared, and its `source` is the extension | What the person sees before turning it on is what it can ask for |
+| A resource is under `fabric-desktop://ext/<extension id>/` | It can't stand in for a core resource |
+| Everything the registry checks for any capability (schemas, read-only means a read permission, destructive means approval) | No second, weaker path |
+| All of its capabilities register, or none do | A half-loaded extension never shows up |
+
+Extensions are off until the person turns each on in **Settings > Integrations > Extensions**. The policy key `integrations_extensions` (a list of ids) limits which ones can be turned on; `[]` or an unreadable value allows none, and one already on is taken away at the next sync. The switches live in the integration store, and each server process's `ExtensionHost.sync()` runs every 2 seconds, so a change reaches every MCP and HTTP server without a restart.
+
+When capabilities change, connected clients are told: `notifications/tools/list_changed` and `notifications/resources/list_changed` on the connection for clients on the 2025-11-25 protocol (advertised as `listChanged` at initialize), and the same events on `subscriptions/listen` streams for clients on 2026-07-28. Prompts don't change at run time.
+
+The built-in **Notebook outline** extension is the sample: one read-only capability, `notebook_outline_get`, which returns a notebook's headings and the functions and classes each cell defines, never its code, using the notebook service the app already has.
+
+What this program leaves to the Git-native program's Phase 4: the manifest, where extensions are installed from, signing, and running an extension in its own process. Its loader calls `ExtensionHost.add(extension)`; until then only built-in extensions exist, and an extension runs inside the engine with the engine's rights, so only code shipped with the app can be one.
 
 ## 9. Security boundaries
 
@@ -223,5 +238,5 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 | Secret redaction | Enterprise readiness (PR #84) | In review; the integration layer has a small redaction of its own until it merges |
 | Policy file keys | Enterprise readiness (PR #90) | In review; integration keys use the same file |
 | Per-cell timeouts and resource limits | Prove this notebook | In progress; PR-AI-007 uses timeouts and interrupt today |
-| Extension manifest and loader | Git-native development, Phase 4 | Not started; PR-AI-012 supplies the interface |
+| Extension manifest and loader | Git-native development, Phase 4 | Not started; PR-AI-012 supplies `ExtensionHost.add`, the checks, the switch and list-change notices |
 | Artifact capability registry | Git-native development | Not started; would feed `artifact_types` |

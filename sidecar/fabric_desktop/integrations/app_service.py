@@ -17,13 +17,15 @@ from typing import Any
 
 from . import policy
 from .config import TOOLS, launcher_path, snippets, write_launcher
+from .extensions import ExtensionHost
 from .permissions import OFFERED, permission_rows
 from .registry import PERMISSIONS, default_registry
 from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
            "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
-           "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_audit_check", "integrations_test"}
+           "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_audit_check", "integrations_test",
+           "integrations_set_extension"}
 
 HTTP_START_SECONDS = 15
 
@@ -50,6 +52,12 @@ class IntegrationsMixin:
         if getattr(self, "_integration_store", None) is None:
             self._integration_store = IntegrationStore.at(self.root)
         return self._integration_store
+
+    @property
+    def extension_host(self) -> ExtensionHost:
+        if getattr(self, "_extension_host", None) is None:
+            self._extension_host = ExtensionHost(default_registry(), self.integration_store)
+        return self._extension_host
 
     def _client_view(self, client: dict[str, Any]) -> dict[str, Any]:
         command = str(launcher_path(self.root))
@@ -138,6 +146,7 @@ class IntegrationsMixin:
 
     def integrations_status(self) -> dict[str, Any]:
         store, rules = self.integration_store, policy.current()
+        self.extension_host.sync()
         settings = store.settings()
         enabled = settings["enabled"] and rules["enabled"] is not False
         if enabled:
@@ -148,7 +157,14 @@ class IntegrationsMixin:
                 "tools": TOOLS, "permissions": permission_rows(),
                 "clients": [self._client_view(c) for c in store.clients()],
                 "pending": store.approvals("pending"),
-                "capabilities": default_registry().describe()}
+                "capabilities": default_registry().describe(),
+                "extensions": self.extension_host.describe()}
+
+    def integrations_set_extension(self, extension_id: str, enabled: bool) -> dict[str, Any]:
+        """The person's switch for one extension (off by default). Connected tools are told within
+        a few seconds, by each server process's own sync."""
+        self.extension_host.set_enabled(extension_id, bool(enabled))
+        return self.integrations_status()
 
     def integrations_set_enabled(self, enabled: bool) -> dict[str, Any]:
         if enabled and policy.current()["enabled"] is False:

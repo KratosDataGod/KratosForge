@@ -45,7 +45,7 @@ audit_log telemetry_status benchmark_notebooks capacity_health catalog catalog_t
 governance_applicability governance_overview governance_policy governance_resolve governance_version history
 incidents_list kernel_complete kernel_info kernel_variables mesh_about mesh_map mesh_overview
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result
-meta_freshness meta_git_status meta_health meta_key_lookup meta_key_notebook meta_keys meta_model_plan
+meta_freshness meta_git_status meta_health meta_last_release meta_key_lookup meta_key_notebook meta_keys meta_model_plan
 meta_preflight meta_preview meta_profile_preview meta_project meta_promote_check meta_promote_impact
 meta_quarantine meta_run_detail meta_runs meta_runs_all meta_schedules meta_table_history meta_varlib
 meta_versions notebook_dependencies notebook_environment notebook_schedules open_notebook pc_schedule_runs
@@ -57,9 +57,10 @@ shortcut_center shortcut_changes shortcut_check shortcut_connections shortcut_pr
 shortcut_rules side_by_side_list side_by_side_status table_columns wizard_preview wizard_templates
 workload_actions workload_detail workload_preflight workloads_list workspace_marks xray xray_adopt_plan
 xray_vacuum_preview
-sql_dialects sql_format
+sql_analyze sql_compat_profiles sql_dialects sql_executions sql_export_status sql_format sql_page sql_status
 git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_ops git_path_info git_repos git_scan git_settings git_status side_by_side_writes
 local_query_status
+pipeline_export pipeline_import pipeline_inspect pipeline_validate
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

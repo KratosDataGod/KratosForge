@@ -56,7 +56,11 @@ const PREVIEW_FEATURES = {
   platform: "Platform",
   sourceControl: "Source control",
   workloads: "Workloads",
+  incidents: "Incidents",
+  agents: "Agents",
   integrations: "External AI tools",
+  releases: "Release records",
+  lineage: "Column lineage",
 };
 
 function previewShown() {

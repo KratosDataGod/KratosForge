@@ -238,7 +238,7 @@ by = "07:00"          # and one by 7:00 each day, this PC's clock
 envs = ["prod"]
 ```
 
-Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). Each late or failed table is posted once. The app checks at startup and every 10 minutes while it's open.
+Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). The app checks at startup and every 10 minutes while it's open. Late and failed tables become [incidents](user-guide.md#incidents-preview) (Preview), shared with everyone who can read the environment, and each new incident is posted once, and again when it recovers. An environment that a running [agent](agent.md#incidents-preview) already checks is left to the agent, so Teams hears about a problem once. With preview features hidden, each late or failed table is posted once, as before.
 
 ### Reliability objectives (Preview)
 
@@ -304,6 +304,8 @@ The record goes into the target's `meta.deployments` row:
 | `receipt`, `receipt_id` | The whole record as a [run receipt](notebooks.md) of kind `release`, and its SHA-256 id. Anyone with the row can recompute the id to check the record wasn't changed |
 
 Rows written before this existed have these columns empty.
+
+Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
 If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
 
@@ -510,7 +512,7 @@ Changing this file doesn't change the metadata version, so it never forces a re-
 
 ### Column lineage (Preview)
 
-Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. The app's lineage view is still to come; the engine serves it as `meta_lineage`.
+Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
 
 ### Columns and tables the framework adds
 

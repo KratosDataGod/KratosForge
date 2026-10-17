@@ -69,6 +69,15 @@ def main(argv: list[str] | None = None) -> None:
     p = integ_sub.add_parser("serve", help="run the local HTTP API on 127.0.0.1 (the app starts this when it's switched on)")
     p.add_argument("--port", type=int, default=47615)
     p.add_argument("--parent-pid", type=int, default=0, help="stop when this process ends")
+    pipe = sub.add_parser("pipeline", help="read and check a Fabric pipeline definition on this PC (nothing runs)")
+    pipe_sub = pipe.add_subparsers(dest="pipeline_command", required=True)
+    for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
+                       ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
+                       ("export", "print the definition in another format")):
+        p = pipe_sub.add_parser(name, help=text)
+        p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
+        if name == "export":
+            p.add_argument("--format", choices=["pipeline_content", "item_definition", "git_folder"])
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -82,6 +91,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "integrations":
         from .integrations.http_server import serve as serve_http
         raise SystemExit(serve_http(args.port, args.parent_pid))
+    if args.command == "pipeline":
+        raise SystemExit(_pipeline(args))
     if args.command == "serve":
         serve()
         return
@@ -217,6 +228,29 @@ def _live_test(args: argparse.Namespace) -> int:
     print(livetest.summary(result))
     print("\n".join(result["files"]))
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
+
+
+def _pipeline(args: argparse.Namespace) -> int:
+    from .pipeline_service import PipelineMixin
+
+    svc = PipelineMixin()
+    if args.pipeline_command == "export":
+        result = svc.pipeline_export(path=args.path, format=args.format)
+        if result.get("ok") and "text" in result:
+            print(result["text"])
+            return 0
+    elif args.pipeline_command == "inspect":
+        result = svc.pipeline_inspect(path=args.path)
+    else:
+        result = svc.pipeline_validate(path=args.path)
+        for d in result["diagnostics"]:
+            where = f" [{d['activity']}]" if d.get("activity") else ""
+            print(f"{d['severity']}: {d['code']}{where} at {d['path']}: {d['message']}")
+        c = result["counts"]
+        print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
+        return 0 if result["ok"] else 1
+    print(json.dumps(result, indent=2, default=str))
+    return 0 if result.get("ok") else 1
 
 
 def _audit(args: argparse.Namespace) -> int:

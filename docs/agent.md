@@ -171,7 +171,7 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |
@@ -182,6 +182,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
 | `status_seconds`, `concurrency` | Its settings |
 | `pipeline` | Whether it takes pipeline requests here, its entity allowlist, and whether it allows backfills |
+| `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
 | `schedules` | This environment's schedules and when each fires `next` |
@@ -324,5 +325,5 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
 - Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
-- Incidents (Preview) cover metadata tables only, and the app has no incident screens yet; read `incidents.json`, or call `incidents_list`. Late tables can also still be posted by the app's own freshness alerts, so a team using both may see a late table twice. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
+- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

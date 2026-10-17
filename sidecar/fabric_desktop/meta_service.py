@@ -10,7 +10,7 @@ from typing import Any
 
 import polars as pl
 
-from . import duties, lakehouse
+from . import duties, lakehouse, receipts
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -494,6 +494,29 @@ class MetaMixin:
     def meta_git_status(self) -> dict[str, Any]:
         """Where the project's files stand in Git (read with this PC's git; no network)."""
         return release.status(self._project().root)
+
+    def meta_last_release(self, env: str) -> dict[str, Any]:
+        """The last release promoted to ``env`` from its ``meta.deployments`` row, and whether the
+        stored receipt still hashes to its id. Reads only."""
+        project = self._project()
+        try:
+            deps = self._store(project, env).meta("deployments")
+        except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
+            return {"env": env, "release": None, "problem": str(exc)}
+        rows = [r for r in deps.iter_rows(named=True) if r.get("env") == env] if deps.height else []
+        if not rows:
+            return {"env": env, "release": None, "problem": None}
+        row = rows[-1]
+        keep = ("version", "source_env", "at", "commit", "branch", "dirty", "pushed", "engine_version", "lock_hash",
+                "by", "receipt_id")
+        out = {k: row.get(k) for k in keep}
+        receipt = row.get("receipt")
+        try:
+            out["verified"] = bool(receipt) and receipts.receipt_id(json.loads(receipt)) == row.get("receipt_id")
+        except (ValueError, KeyError, TypeError):
+            out["verified"] = False
+        out["receipt"] = receipt  # the canonical record, for Copy record
+        return {"env": env, "release": out, "problem": None}
 
     def _release_gate(self, project: Project, target: str, git: dict[str, Any]) -> tuple[list[str], list[str]]:
         """Promoting files no pushed commit holds: blocked when the target environment sets

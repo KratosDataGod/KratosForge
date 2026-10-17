@@ -187,6 +187,7 @@ async function renderWorkload() {
         h("div", { class: "muted-text small wl-ready" }, `Readiness: ${w.readiness.label}`)),
       h("section", { class: "card pad" }, h("div", { class: "row" }, h("h2", { class: "grow" }, "Ownership"),
         btn("Edit", "person", () => ownershipDialog(w), "tool link small")), ownershipTable(w))),
+    workloadIncidentsCard(w),
     h("section", { class: "card pad" }, h("h2", {}, "Deployments"), deploymentsTable(w)),
     h("div", { class: "wl-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What changed"), timeline(w)),

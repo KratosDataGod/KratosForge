@@ -16,6 +16,7 @@
 const SQL_DIALECTS = {
   spark: { label: "Spark SQL (Lakehouse)", short: "Spark SQL", runsHere: true, quote: "`" },
   warehouse: { label: "Fabric Warehouse (T-SQL)", short: "Warehouse T-SQL", runsHere: false, quote: "[" },
+  endpoint: { label: "Fabric SQL analytics endpoint (T-SQL)", short: "SQL endpoint T-SQL", runsHere: false, quote: "[" },
   sqldb: { label: "Fabric SQL database (T-SQL)", short: "SQL database T-SQL", runsHere: false, quote: "[" },
   duckdb: { label: "DuckDB (this PC)", short: "DuckDB", runsHere: true, quote: '"' },
 };
@@ -78,6 +79,7 @@ const SQL_WORDS = (() => {
   return {
     spark: { keywords: split(spark), functions: split(sparkFns), types: split(sparkTypes) },
     warehouse: t,
+    endpoint: t,
     sqldb: t,
     duckdb: { keywords: split(duck), functions: split(duckFns), types: split(duckTypes) },
   };
@@ -93,6 +95,36 @@ function sqlDialect(id) {
 }
 
 const SQL_PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+// ---- compatibility findings (SQL-002) as editor diagnostics
+
+// The engine counts characters as Python does (code points); the editor counts UTF-16 units.
+function sqlUtf16Offset(text, codePoints) {
+  let units = 0;
+  for (let n = 0; n < codePoints && units < text.length; n++) {
+    const c = text.charCodeAt(units);
+    units += c >= 0xd800 && c <= 0xdbff && units + 1 < text.length ? 2 : 1;
+  }
+  return units;
+}
+
+const SQL_LINT_SEVERITY = { error: "error", warning: "warning", information: "info", unverified: "hint" };
+const SQL_SEVERITY_LABEL = { error: "Error", warning: "Warning", information: "Information", unverified: "Unverified" };
+
+// A compatibility report's findings, placed for the editor. `text` is the SQL the report was made from.
+function sqlLintDiagnostics(report, text) {
+  if (!report || !Array.isArray(report.diagnostics)) return [];
+  return report.diagnostics.map((d) => {
+    const from = sqlUtf16Offset(text, d.from);
+    const to = Math.max(from, sqlUtf16Offset(text, d.to));
+    return {
+      from, to, severity: SQL_LINT_SEVERITY[d.severity] || "hint", source: d.rule,
+      message: `${SQL_SEVERITY_LABEL[d.severity] || d.severity} · ${d.title}\n${d.message}\n${d.action}\nConfidence: ${d.confidence}`,
+      lines: [`${SQL_SEVERITY_LABEL[d.severity] || d.severity} · ${d.title}`, d.message, d.action,
+        `${d.rule} · confidence ${d.confidence}`],
+    };
+  });
+}
 
 // A name as the dialect writes it: plain when it can be, quoted otherwise.
 function sqlQuoteIdent(name, dialect = "spark") {
@@ -303,7 +335,7 @@ function sqlCmDialect(id) {
   const d = sqlDialect(id);
   if (!sqlCmDialects[d]) {
     const w = SQL_WORDS[d];
-    if (d === "warehouse" || d === "sqldb") {
+    if (SQL_DIALECTS[d].quote === "[") {
       sqlCmDialects[d] = CM.SQLDialect.define({ ...CM.MSSQL.spec, builtin: `${CM.MSSQL.spec.builtin} ${w.functions.join(" ")}` });
     } else {
       sqlCmDialects[d] = CM.SQLDialect.define({
@@ -397,8 +429,15 @@ function sqlCompletionSource(provider, getDialect) {
 }
 
 // The SQL page's editor. `on` holds the page's actions: change(text), run(), save(), format().
-function createSqlEditor({ doc, dialect, provider, on, extensions = [] }) {
+// `check(text, dialect)`, when given, returns a compatibility report (or null), shown as diagnostics.
+function createSqlEditor({ doc, dialect, provider, on, check = null, extensions = [] }) {
   let current = sqlDialect(dialect);
+  const recheckNow = CM.StateEffect.define();
+  const recheck = () => {
+    if (!check) return;
+    view.dispatch({ effects: recheckNow.of(null) });  // marks the check due (needsRefresh) ...
+    CM.forceLinting(view);  // ... and runs it now instead of after the typing delay
+  };
   const langComp = new CM.Compartment();
   const language = () => [CM.sql({ dialect: sqlCmDialect(current), upperCaseKeywords: true }),
     CM.autocompletion({ override: [sqlCompletionSource(provider, () => current)], activateOnTypingDelay: 120 })];
@@ -426,6 +465,23 @@ function createSqlEditor({ doc, dialect, provider, on, extensions = [] }) {
         CM.EditorView.updateListener.of((u) => { if (u.docChanged) on.change(u.state.doc.toString()); }),
         CM.EditorView.contentAttributes.of({ "aria-label": "SQL query" }),
         sqlTheme,
+        check ? [CM.linter(async (v) => {
+          const text = v.state.doc.toString();
+          const report = await check(text, current);
+          if (v.state.doc.toString() !== text) return [];
+          return sqlLintDiagnostics(report, text).map((d) => ({ ...d, renderMessage: () => {
+            const box = document.createElement("div");
+            box.className = "sql-lint-msg";
+            d.lines.forEach((line, i) => {
+              const el = document.createElement(i === 0 ? "b" : "div");
+              el.textContent = line;
+              if (i === d.lines.length - 1) el.className = "muted";
+              box.append(el);
+            });
+            return box;
+          } }));
+        }, { delay: 750, needsRefresh: (u) => u.transactions.some((tr) => tr.effects.some((e) => e.is(recheckNow))) }),
+        CM.lintGutter()] : [],
         ...extensions,
       ],
     }),
@@ -452,6 +508,13 @@ function createSqlEditor({ doc, dialect, provider, on, extensions = [] }) {
     setDialect(id) {
       current = sqlDialect(id);
       view.dispatch({ effects: langComp.reconfigure(language()) });
+      recheck();
+    },
+    recheck,
+    // Select from..to and show it, for a finding picked in the Compatibility panel.
+    reveal(from, to) {
+      view.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+      view.focus();
     },
     refresh() { view.dispatch({}); },  // redraw the reference marks after columns arrive
     focus: () => view.focus(),

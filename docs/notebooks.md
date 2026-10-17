@@ -117,6 +117,16 @@ A cell gets a **Stale** tag when its output may not match the code above it: its
 
 Dependencies come from reading the code, not from watching it run. A cell can still depend on something reading can't see (a value read from a file another program changed, a global set inside a function from a library), so **Run all** remains the way to be sure.
 
+### Variable history, watches and hidden state (Preview)
+
+The **Variables** pane (**View > Variables**) has three more parts for cells that run on this PC:
+
+- **Watches.** Type an expression, such as `len(events)` or `df["amount"].sum()`, and it's shown with its value after every cell, with its last few values so you can see which cell changed it. A watch runs as notebook code in the kernel, after the cell and as part of its run, so Cancel and the cell time limit cover it. Keep watches to reads: one that changes data changes your notebook's state too. Only expressions are accepted (not `x = 1`), up to 10 per notebook. A watch that takes longer than 2 seconds is paused until you click **Resume**. The expressions are saved in the notebook file; their values aren't. Proofs and side by side don't run watches, so they can't change what a proof compares.
+- **History.** For each cell run: the variables it added, changed and removed, with their type and size. Values aren't kept. History stays in memory for the current kernel only; it's cleared when the kernel restarts and isn't saved. Cell numbers are as they were when the cell ran.
+- **Hidden state.** After a cell runs, Fabric Desktop by KratosBI checks the names it uses against the cells in the notebook (the same reading of the code as Dependencies). If the cell uses a name that no cell defines, or that only a cell further down defines, but the kernel still has it from an earlier run, a warning shows under the cell: the cell works now but will fail in Fabric, in a proof and after a restart. If that name was set by a cell you've since deleted or changed in this session, **Insert that cell back above** puts its code back. **Ignore for this notebook** stops the warning for that name and is saved in the notebook file.
+
+None of these run for notebooks that run in Fabric.
+
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.

@@ -37,6 +37,11 @@ nav = [
     { "Shortcuts" = "shortcuts.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
+    { "Your AI tool" = [
+      { "Connect your AI tool" = "ai/README.md" },
+      { "Workflows" = "ai/workflows.md" },
+      { "Instructions for your AI tool" = "ai/agent-instructions.md" },
+    ] },
   ] },
   { "Servers" = [
     { "Headless agent" = "agent.md" },

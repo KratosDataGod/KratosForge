@@ -175,7 +175,7 @@ MCP resources give context without moving data. A read-only capability that does
 | `fabric-desktop://notebooks/{name}/validation`, `/dependencies`, `/environment`, `/proof-plan` | Checks that run no code |
 | `fabric-desktop://proofs`, `.../proofs/{id}`, `fabric-desktop://receipts`, `.../receipts/{id}`, `fabric-desktop://side-by-side`, `.../side-by-side/{id}` | Prove this notebook, without cell outputs or example rows |
 
-Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go through a tool. Results are size-limited (1 MB) and every string in every result passes through secret redaction. MCP prompts carry the reusable workflow templates from the agent instructions (PR-AI-009).
+Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go through a tool. Results are size-limited (1 MB) and every string in every result passes through secret redaction. MCP prompts carry the reusable workflow templates ([workflows](../ai/workflows.md), PR-AI-009): text only, each step a tool call with the usual checks.
 
 ## 8. Extensions
 

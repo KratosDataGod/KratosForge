@@ -23,4 +23,4 @@ Which external tools have been tried with Fabric Desktop by KratosBI, how, and w
 | VS Code with GitHub Copilot (agent mode) | stdio | Untested | |
 | httpx (Python) | REST `/api/v1` | **Tested** (automated, every build) | OpenAPI 3.1 at `/api/v1/openapi.json`; any HTTP client should work but only this one is tested |
 
-Untested means a configuration example exists but nobody has run it with that client yet. To report a result, open an issue with the client name and version, the transport, and what happened.
+Untested means a configuration example exists ([setup for each tool](../ai/README.md)) but nobody has run it with that client yet. MCP prompts ([workflows](../ai/workflows.md)) are tested with the SDK client only; whether a client shows them, and how, is part of each client's test. To report a result, open an issue with the client name and version, the transport, and what happened.

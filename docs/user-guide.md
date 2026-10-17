@@ -315,7 +315,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code) or makes a new HTTP token. **Revoke** stops it at once. |
 | **Recent activity** | Requests that needed you and everything tools ran, with the outcome. No table data is kept. |
 
-Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
+Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Setup for each tool, workflows and instructions to paste into it: [Connect your AI tool](ai/README.md). Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
 
 ## Updates
 

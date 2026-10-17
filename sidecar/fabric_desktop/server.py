@@ -60,7 +60,7 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
-           "notebook_dependencies",
+           "notebook_dependencies", "side_by_side_writes",
            "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",

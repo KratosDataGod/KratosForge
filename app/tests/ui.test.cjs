@@ -156,6 +156,24 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2]), "2");
 });
 
+test("a lakehouse name Fabric would refuse is caught before it's sent", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function lakehouseNameProblem\([\s\S]*?\n}\n/)[0]}; this.check = lakehouseNameProblem;`, ctx);
+  assert.strictEqual(ctx.check("TPCH_Benchmark"), "");
+  assert.match(ctx.check("TPC-H_Benchmark"), /For example TPC_H_Benchmark\./);
+  assert.match(ctx.check("1st lake"), /For example LH_1st_lake\./);
+  assert.match(ctx.check("x".repeat(257)), /256/);
+});
+
+test("Fabric refusing a name reads as a name problem, not an app crash", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const raw = 'FabricError: POST https://api.fabric.microsoft.com/v1/workspaces/w/lakehouses failed with 400: {"errorCode":"InvalidInput","moreDetails":[{"errorCode":"InvalidParameter","message":"Artifact request failed due to invalid input. Error: DisplayName is Invalid for ArtifactType. DisplayName: <pi>TPC-H_Benchmark</pi>"}]}';
+  assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
+});
+
 function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));

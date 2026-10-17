@@ -12,6 +12,8 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "Could not check for a newer build" | GitHub didn't answer, or its limit of 60 checks an hour from your network was reached. | Nothing. The app runs the build you have and checks again next start. |
 | "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every Fabric Desktop by KratosBI window, then download `fabric-desktop.exe` again from the Releases page. |
 | "The engine could not be installed" | The engine download or unpack failed. The log is under the message. | Check the internet connection and disk space, then **Retry**. |
+| "The engine download doesn't match the checksum its release gives" or "...is a different build from the one its release names" | The download didn't match what the release says it should be, so it wasn't installed. Usually a new build was being published at that moment; rarely, a proxy changed the file. | Wait a few minutes, then **Retry**. If it keeps happening, report it with the log under the message. |
+| "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
 
 ## Signing in
@@ -35,6 +37,8 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "Skipped N workspaces" on OneLake | Those workspaces couldn't be read with your access. | Usually fine. Ask for a role if you need them. |
 | Every read or write in OneLake is refused, but Fabric works in the browser | The tenant setting **Users can access data stored in OneLake with apps external to Fabric** is off for you. | A Fabric admin turns it on ([azure-setup.md](azure-setup.md#1-check-your-fabric-tenant-settings)). |
 | "The workspace's Fabric capacity is paused or full" | Creating items, or anything that runs in Fabric, needs an active capacity. | Resume or scale the capacity, or wait. Work on your PC isn't affected. |
+| "Fabric doesn't accept that name" when creating a lakehouse | Lakehouse names can use only letters, numbers and underscores, and must start with a letter, so `TPC-H_Benchmark` is refused. | Use a name like `TPC_H_Benchmark`. The **New lakehouse** box now says this before anything is sent. |
+| "... isn't in ... yet. Run the TPC-H data notebook" | **TPC-H benchmark** reads the tables **TPC-H data** writes, and that notebook hasn't run on the attached lakehouse. | Attach the same lakehouse to **TPC-H data**, run it once, then run **TPC-H benchmark** again. |
 | "Fabric is busy and asked the app to slow down" | Fabric throttled the requests. | Wait a minute and retry. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
 | Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which Fabric Desktop by KratosBI doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |

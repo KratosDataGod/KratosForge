@@ -15,7 +15,7 @@ use std::time::Duration;
 /// legitimately take hours and has no limit; Stop ends those.
 pub const QUICK: &[&str] = &[
     "app_settings", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "new_notebook", "notebook_dependencies", "notebook_environment",
+    "list_notebooks", "new_notebook", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "rename_notebook", "save_notebook", "side_by_side_list",
     "side_by_side_status", "wizard_preview", "wizard_templates",

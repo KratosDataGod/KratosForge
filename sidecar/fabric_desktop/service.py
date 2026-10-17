@@ -38,7 +38,7 @@ from .incident_service import IncidentMixin
 from .git_service import GitMixin
 from .integrations.app_service import IntegrationsMixin
 from .kernel_proc import ProcessKernel
-from .notebook import Kernel, NotebookStore
+from .notebook import Kernel, NotebookStore, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
 
@@ -375,15 +375,17 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
     # The app runs cells with start_cell, then polls: output shows while the cell runs, and
     # interrupt_cell stops it without clearing variables.
     def start_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None,
-                   notebook: str | None = None, time_limit: bool = True) -> dict[str, Any]:
-        """``time_limit`` False runs this cell without the cell time limit (Run again without the limit)."""
+                   notebook: str | None = None, time_limit: bool = True,
+                   watches: list[str] | None = None) -> dict[str, Any]:
+        """``time_limit`` False runs this cell without the cell time limit (Run again without the limit).
+        ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._attach(lakehouse_ref)
         self.kernel.notebook_name = notebook or ""
         if isinstance(self.kernel, ProcessKernel):
-            return self.kernel.start(code, time_limit=time_limit)
-        return self.kernel.start(code)
+            return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
+        return self.kernel.start(code, check_watches(watches))
 
     def poll_cell(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
         return self.kernel.poll(version, wait)

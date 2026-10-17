@@ -1,6 +1,6 @@
 # Notebooks and SQL
 
-Notebooks in Fabric Desktop look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
+Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
 
 ## Your first notebook
 
@@ -25,7 +25,7 @@ Notebooks in Fabric Desktop look and work like Fabric's, but every cell runs in 
 
 Notebooks are `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks`. They stay on your PC until you publish them.
 
-Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
+Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop by KratosBI doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
 
 ## The lakehouse module
 

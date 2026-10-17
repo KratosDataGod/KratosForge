@@ -1,6 +1,6 @@
 # Headless agent
 
-The Fabric Desktop agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with Fabric Desktop. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
+The Fabric Desktop by KratosBI agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
 
 The agent is the first milestone (M1) of the [enterprise local execution roadmap](enterprise-roadmap.md). It runs one machine's worth of work. Several agents sharing one queue comes in M3.
 
@@ -163,12 +163,12 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop's workload views read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views read these files.
 
 | Field | Meaning |
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
-| `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop version |
+| `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |

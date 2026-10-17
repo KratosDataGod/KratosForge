@@ -25,7 +25,7 @@ RULE_TEXT = {
     "storage_role": "A storage shortcut should have a data access role on its folder",
     "deprecated_product": "A shortcut should not point at a deprecated data product",
     "connections": "Storage shortcuts use only the allowed connections",
-    "who_creates": "Who may create shortcuts from Fabric Desktop",
+    "who_creates": "Who may create shortcuts from Fabric Desktop by KratosBI",
 }
 
 

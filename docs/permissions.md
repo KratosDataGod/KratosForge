@@ -1,10 +1,10 @@
 # Permissions
 
-Fabric Desktop never gets more access than the person using it. It signs in as you and can only do what your own Fabric workspace roles let you do. It has no app-level (application) permissions of its own.
+Fabric Desktop by KratosBI never gets more access than the person using it. It signs in as you and can only do what your own Fabric workspace roles let you do. It has no app-level (application) permissions of its own.
 
 There are two ways it signs in:
 
-- **Microsoft's Fabric sign-in (the default).** Nobody registers an app, grants consent or types an app ID. Fabric Desktop signs in through the same Microsoft app that Fabric's own command-line tool (Fabric CLI, `fab auth login`) uses, which every Microsoft Entra tenant already trusts for Fabric and OneLake. On Windows it signs in through Windows itself (Web Account Manager), so you are often signed in with your Windows work account and see no prompt.
+- **Microsoft's Fabric sign-in (the default).** Nobody registers an app, grants consent or types an app ID. Fabric Desktop by KratosBI signs in through the same Microsoft app that Fabric's own command-line tool (Fabric CLI, `fab auth login`) uses, which every Microsoft Entra tenant already trusts for Fabric and OneLake. On Windows it signs in through Windows itself (Web Account Manager), so you are often signed in with your Windows work account and see no prompt.
 - **Your organization's own app registration (optional).** For organizations whose policy says every app must be registered in their own tenant, or that want to choose the exact permissions. See [Using your own app registration](#using-your-own-app-registration).
 
 The [headless agent](#the-headless-agent) is separate: it runs unattended, so it signs in as a managed identity or service principal.
@@ -17,12 +17,12 @@ Nothing, in most tenants. These are the things that can stop it:
 | --- | --- | --- |
 | Fabric tenant setting **Users can access data stored in OneLake with apps external to Fabric** is off | Every OneLake read and write is refused | Turn it on, for everyone or for a group ([azure-setup.md](azure-setup.md#1-check-your-fabric-tenant-settings)) |
 | Conditional Access requires a compliant or managed device | Sign-in is refused on a PC your organization doesn't manage | Nothing to change if the PC is managed: Windows sign-in passes the device check. On an unmanaged PC, use a managed one |
-| Conditional Access blocks Microsoft's developer tools (Azure CLI, Fabric CLI) for some users | Sign-in is refused with AADSTS53003 | Allow the **Fabric CLI** app for Fabric Desktop's users, or use [your own app registration](#using-your-own-app-registration) |
+| Conditional Access blocks Microsoft's developer tools (Azure CLI, Fabric CLI) for some users | Sign-in is refused with AADSTS53003 | Allow the **Fabric CLI** app for Fabric Desktop by KratosBI's users, or use [your own app registration](#using-your-own-app-registration) |
 | Your organization doesn't allow apps it hasn't registered | Policy, not a technical block | Use [your own app registration](#using-your-own-app-registration) |
 
 ### What each feature uses
 
-With Microsoft's sign-in, Fabric Desktop asks each Microsoft API for its default access (`/.default`), which Microsoft sets for the Fabric CLI app. The table says which API each feature calls. A feature that needs something Microsoft's app doesn't cover says so, and still works with your own app registration.
+With Microsoft's sign-in, Fabric Desktop by KratosBI asks each Microsoft API for its default access (`/.default`), which Microsoft sets for the Fabric CLI app. The table says which API each feature calls. A feature that needs something Microsoft's app doesn't cover says so, and still works with your own app registration.
 
 | Feature | API | Expected with Microsoft's sign-in |
 | --- | --- | --- |
@@ -39,9 +39,9 @@ With Microsoft's sign-in, Fabric Desktop asks each Microsoft API for its default
 | Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
-"Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop on a live tenant yet.
+"Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop by KratosBI on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in Fabric Desktop's own list, because it needs an admin-only permission. Fabric's domain names are the one admin-only read Fabric Desktop uses, and only when a Fabric administrator chooses **Import from Fabric**: the names are then kept in the platform, so nobody else needs that permission. The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in Fabric Desktop by KratosBI's own list, because it needs an admin-only permission. Fabric's domain names are the one admin-only read Fabric Desktop by KratosBI uses, and only when a Fabric administrator chooses **Import from Fabric**: the names are then kept in the platform, so nobody else needs that permission. The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 
@@ -50,9 +50,9 @@ You only need this if your organization requires it. Everything below is optiona
 1. **Register the app.** Entra admin center: **App registrations > New registration**, any name (for example `Fabric Desktop`). For people from one organization choose single tenant; for several, **Accounts in any organizational directory**. Under **Authentication > Add a platform > Mobile and desktop applications**, add the redirect URI `http://localhost`.
 2. **Add the delegated permissions** below. **API permissions > Add a permission**, then **Microsoft APIs**, or **APIs my organization uses** if you search by name. Choose **Delegated permissions** each time.
 3. **Grant admin consent** (optional). None of these permissions requires an admin, so people can consent for themselves at first sign-in if your tenant lets users consent to apps. If it doesn't, select **Grant admin consent for <your tenant>** (Global Administrator, Privileged Role Administrator or Cloud Application Administrator).
-4. **Give the app's ID to Fabric Desktop**: see [Rolling out to your organization](#rolling-out-to-your-organization).
+4. **Give the app's ID to Fabric Desktop by KratosBI**: see [Rolling out to your organization](#rolling-out-to-your-organization).
 
-With your own app, Fabric Desktop signs in with the browser (not Windows sign-in) and asks for each permission the first time a feature needs it.
+With your own app, Fabric Desktop by KratosBI signs in with the browser (not Windows sign-in) and asks for each permission the first time a feature needs it.
 
 | API (as Entra shows it) | Permission | Needed for | Asked |
 | --- | --- | --- | --- |
@@ -64,7 +64,7 @@ With your own app, Fabric Desktop signs in with the browser (not Windows sign-in
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
 | Power BI Service | `Item.ReadWrite.All` | Creating and updating lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
-| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**). Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop | Optional, when a Fabric administrator imports domains |
+| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**). Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop by KratosBI | Optional, when a Fabric administrator imports domains |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.

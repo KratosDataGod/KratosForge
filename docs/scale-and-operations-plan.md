@@ -1,6 +1,6 @@
 # Scale and operations plan
 
-How Fabric Desktop grows from "runs on my PC" to "runs large tables, ingests sources, releases from Git and takes work from Fabric pipelines". It covers ten capabilities Chris asked for on 2026-10-16. Five are planned here; the other five belong to two sister programs and are only cross-referenced.
+How Fabric Desktop by KratosBI grows from "runs on my PC" to "runs large tables, ingests sources, releases from Git and takes work from Fabric pipelines". It covers ten capabilities Chris asked for on 2026-10-16. Five are planned here; the other five belong to two sister programs and are only cross-referenced.
 
 Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests passing on Linux). Nothing here has run against a live Fabric tenant unless it says so.
 
@@ -153,7 +153,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 **5.2 Meaningful diffs.** Effort M, risk low. Entity TOML diffs by meaning (contract columns added, removed or retyped, checks and keys changed) and notebook diffs by cell source with outputs stripped, shown in promote impact and before commit.
 
-**5.3 Branches, pull requests and rollback.** Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
+**5.3 Branches, pull requests and rollback.** Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop by KratosBI). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
 
 ### Capability 8: lineage and compatibility
 
@@ -165,7 +165,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 ### Capability 4: ingestion
 
-**4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so Fabric Desktop does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
+**4.1 SQL Server to the landing zone through a Fabric Copy job.** Effort L, risk high until D2 is decided and the Copy job API is checked on a tenant. Connect (pick or create a Fabric connection, so credentials stay in Fabric or Key Vault), Preview (a row-limited copy to a scratch folder), Map (columns and types into a Bronze entity draft), Load (create and run a Copy job writing to `LH_Landing/Files/<source>/<table>/`), Schedule (the Copy job's own schedule). Fabric's Copy job already handles connectors, gateways, incremental copy and retries, so Fabric Desktop by KratosBI does not build its own extractors. Bronze reads new files only (1.4). Depends on D2, 1.4.
 
 **4.2 Late rows and source deletes.** Effort M. A watermark lookback window for late-arriving rows (safe because 1.1's MERGE is idempotent per key) and an optional periodic key snapshot that marks deleted keys. Depends on 4.1.
 

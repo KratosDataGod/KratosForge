@@ -46,7 +46,7 @@ A table's result is one of:
 
 ### How tables are checked
 
-Fabric Desktop notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
+Fabric Desktop by KratosBI notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
 
 For each table on each side it computes:
 
@@ -113,7 +113,7 @@ These runs follow TPC-H's data and queries but are not audited TPC-H results, an
 
 - Both runs use the same lakehouse, so anything else writing to it during the comparison (another notebook, a schedule) shows up as a difference. Run comparisons in a lakehouse nobody else is writing to.
 - The comparison doesn't look at files under `Files/`, only tables.
-- Before, between and after the runs, Fabric Desktop reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
+- Before, between and after the runs, Fabric Desktop by KratosBI reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
 - Cell output from the Fabric run stays in Fabric; the panel links to it.
 - Only notebooks can run side by side. Metadata runs load incrementally (the second run would find nothing new to load), so they aren't compared this way.
 - While a comparison runs, the notebook's kernel is busy, so its cells can't be run one by one until it finishes or is cancelled.

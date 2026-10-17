@@ -249,7 +249,7 @@ class DataOpsMixin:
                 text = f"**{x['entity']}** in {env} is late: {'; '.join(x['reasons'])}."
             elif x.get("failed_run"):
                 key = f"failed:{x['env']}:{x['entity']}:{x['failed_run']}"
-                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in Fabric Desktop'}."
+                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in Fabric Desktop by KratosBI'}."
             else:
                 continue
             if key not in sent:
@@ -275,7 +275,7 @@ class DataOpsMixin:
         if url and not url.startswith("https://"):
             raise ValueError("The Teams webhook address starts with https://")
         if url and test:
-            post_teams(url, "Fabric Desktop alerts are on",
+            post_teams(url, "Fabric Desktop by KratosBI alerts are on",
                        ["Late or failed tables will be posted here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
@@ -286,7 +286,7 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": True}]
     body += [{"type": "TextBlock", "text": line, "wrap": True, "spacing": "Small"} for line in lines[:20]]
     if len(lines) > 20:
-        body.append({"type": "TextBlock", "text": f"and {len(lines) - 20} more in Fabric Desktop", "wrap": True})
+        body.append({"type": "TextBlock", "text": f"and {len(lines) - 20} more in Fabric Desktop by KratosBI", "wrap": True})
     return {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
             "content": {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
                         "version": "1.4", "body": body}}]}

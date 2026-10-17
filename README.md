@@ -35,6 +35,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
+| [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |

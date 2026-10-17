@@ -67,6 +67,12 @@ A policy file that sets everything an organization usually wants:
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
+| `sql_max_concurrent` | 1 to 8 (default `2`) | SQL page queries that run at once; more wait in a queue ([SQL execution](sql-execution.md#limits)) |
+| `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |
+| `sql_page_rows` | 100 to 10000 (default `1000`) | Rows per page of SQL page results |
+| `sql_result_retention_hours` | 0 to 168 (default `24`; `0` keeps them until the app closes) | How long a finished SQL page query's result is kept for paging and export |
+| `sql_temp_dir` | A full folder path (default: the app's data folder) | Where SQL page queries spill data and keep results |
+| `sql_time_limit_minutes` | 0 to 1440 (default `10`; `0` for no limit) | Minutes an SQL page query may run before it's stopped |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
 | `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
 | `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |

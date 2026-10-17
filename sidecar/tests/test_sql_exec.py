@@ -7,7 +7,6 @@ test reaches Fabric or OneLake.
 from __future__ import annotations
 
 import json
-import resource
 import subprocess
 import sys
 import time
@@ -20,6 +19,7 @@ import pytest
 from deltalake import write_deltalake
 
 from fabric_desktop import app_settings, sql, sql_exec, sql_policy
+from fabric_desktop.measure import RunMeter
 
 SLOW = "SELECT sum(a.range * b.range) FROM range(200000000) a, range(1000) b"
 
@@ -204,9 +204,9 @@ def test_ten_million_rows_page_without_being_held_in_memory(runs, lake):
     run = wait(runs, runs.start("SELECT range AS id, range % 7 AS bucket, 'row ' || range AS label "
                                 "FROM range(10000000)", lake)["id"], seconds=180)
     assert run["state"] == "completed" and run["rows"] == 10_000_000
-    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
-    pages = [runs.page(run["id"], offset) for offset in (0, 5_000_000, 9_999_000, 9_998_000)]
-    grew_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before) / 1024
+    with RunMeter(interval=0.01) as meter:
+        pages = [runs.page(run["id"], offset) for offset in (0, 5_000_000, 9_999_000, 9_998_000)]
+    grew_mb = ((meter.peak or 0) - (meter.start_rss or 0)) / 2 ** 20
     assert pages[0]["rows"][0] == [0, 0, "row 0"]
     assert pages[1]["rows"][0] == [5_000_000, 5_000_000 % 7, "row 5000000"]
     assert pages[2]["rows"][-1] == [9_999_999, 9_999_999 % 7, "row 9999999"] and not pages[2]["has_next"]
@@ -228,11 +228,11 @@ def test_stop_ends_only_that_run(runs, lake):
         run = runs.start(SLOW, lake)
         wait(runs, run["id"], ("running",))
         time.sleep(0.5)
-        pid = runs._get(run["id"]).proc.pid
+        proc = runs._get(run["id"]).proc
         assert runs.cancel(run["id"])["state"] in ("cancelling", "cancelled")
         status = wait(runs, run["id"])
         assert status["state"] == "cancelled"
-        assert not Path(f"/proc/{pid}").exists() or "zombie" in Path(f"/proc/{pid}/status").read_text().lower()
+        assert proc.poll() is not None, "the run's own process ended"
         assert bystander.poll() is None, "Stop ended a process it didn't start"
         assert not runs._get(run["id"]).folder.exists()
     finally:

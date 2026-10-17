@@ -37,7 +37,8 @@ async function setDoc(text) {
 }
 const pill = () => page().locator(".sql-pill").textContent();
 const waitPill = (text, timeout = 60000) =>
-  page().waitForFunction((t) => document.querySelector(".sql-pill")?.textContent === t, text, { timeout });
+  page().waitForFunction((t) => document.querySelector(".sql-pill")?.textContent === t
+    && (t === "Running" || !sqlPage.tabs[sqlPage.active].running), text, { timeout });
 const band = () => page().locator(".sql-band").textContent();
 const toastText = async () => (await page().locator(".toast").allTextContents()).join(" | ");
 const runs = () => app.calls.filter((c) => c.method === "sql_start").map((c) => c.params);

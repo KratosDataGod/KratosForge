@@ -46,7 +46,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
-           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings",
+           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -80,6 +80,11 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
 from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E402
 
 METHODS |= INTEGRATION_METHODS
+
+# Local data projects (localdata_service.py): SQL over files on this PC.
+from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
+
+METHODS |= LOCAL_DATA_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

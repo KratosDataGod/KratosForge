@@ -226,11 +226,12 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 
-### P3 (9 items)
+### P3 (10 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-092](PRODUCT_BACKLOG.md#pb-092) | Shared workload ownership | 2 | 1 | 4 | 2 | 3 | 3 | 2 | 2.45 | 2.5 | 1.72 | none | M | Medium | none | Workload management |
+| [PB-100](PRODUCT_BACKLOG.md#pb-100) | Fuller What's new dialog | 2 | 1 | 2 | 1 | 2 | 1 | 1 | 1.65 | 1.0 | 1.65 | none | S | Medium | none | Fuller What's new dialog |
 | [PB-026](PRODUCT_BACKLOG.md#pb-026) | Notebook debugger | 5 | 2 | 2 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Medium | PB-073 | Prove |
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | SQL development sprint |

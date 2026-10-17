@@ -193,20 +193,46 @@ See [How a proof works](prove/how-proofs-work.md).
 
 The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse in **OneLake** or **Workspaces**, or **New SQL query** on a lakehouse page.
 
-1. The **Explorer** lists the lakehouse's tables. Click a table to run `SELECT * FROM <table> LIMIT 100`. Click **▸** next to it to see its columns; click a column to type its name.
-2. Write **Spark SQL** using the names Fabric uses: `SELECT * FROM sales`, or `schema.table` for schemas other than `dbo`.
+1. The **Explorer** lists the lakehouse's tables. Click a table to run `SELECT * FROM <table> LIMIT 100`. Click **▸** next to it to see its columns; click a column to type its name where the cursor is.
+2. Pick the SQL you are writing in the dialect list next to **Run** (see below), then write it using the names Fabric uses: `SELECT * FROM sales`, or `schema.table` for schemas other than `dbo`.
 3. **Run**, or **Ctrl+Enter**. Select some text first to run just that.
 4. Results show the first 1,000 rows, with how many rows there were and how long it took.
 
 | Button | What it does |
 | --- | --- |
+| **Format SQL** | Lays out the selection, or the whole query: one clause per line, nested queries and CTEs indented, keywords in capitals. See [Format SQL](#format-sql). |
 | **Copy** | Copies the shown rows, tab-separated, for pasting into Excel |
 | **Download CSV** | Saves the full result to your Downloads folder |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
-| **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook |
+| **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
 
-How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Queries only read; nothing in the lakehouse changes unless you **Save as table**. Query tabs are kept per lakehouse between launches.
+How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Queries only read; nothing in the lakehouse changes unless you **Save as table**. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
+
+### Dialects
+
+Each Fabric engine has its own SQL, so each query tab has a dialect. It sets the highlighting, the suggestions and how **Format SQL** reads the query.
+
+| Dialect | Runs on this PC? |
+| --- | --- |
+| **Spark SQL (Lakehouse)**, the default | Yes, translated to DuckDB. What you write is what a Fabric notebook's `%%sql` or a lakehouse SQL query takes. |
+| **Fabric Warehouse (T-SQL)** | No. It is highlighted, suggested and formatted here; run it in the Warehouse. |
+| **Fabric SQL database (T-SQL)** | No, as for Warehouse. |
+| **DuckDB (this PC)** | Yes, as written. Use it for DuckDB features; Fabric doesn't run DuckDB SQL. |
+
+A query that runs here is not proof that it runs, or gives the same answer, in a Fabric Warehouse or SQL database: DuckDB is a different engine. That's why T-SQL isn't run on this PC.
+
+### Editor
+
+- Line numbers, current-line highlight, bracket matching, folding (click the arrow in the gutter), and highlighting of keywords, functions, strings, numbers, comments, variables (`@name` in T-SQL) and operators. Table names the lakehouse has are underlined, so a misspelled table stands out.
+- **Suggestions** as you type, or **Ctrl+Space**: keywords and functions for the dialect, the lakehouse's schemas and tables, and the columns of the tables the statement names. After `s.` where `s` is an alias or a table, you get that table's columns. Names that need it are quoted for the dialect (`` `Region Name` ``, `[Region Name]` or `"Region Name"`). Tables come from the list the Explorer already loaded, and a table's columns are read once, the first time a statement names it, so typing doesn't call Fabric. **Refresh** reads them again.
+- **Ctrl+Enter** runs the selection, or everything. **Ctrl+S** saves the query tabs (they are also saved as you type). **Shift+Alt+F** formats.
+- **Ctrl+F** finds, with replace. **Ctrl+/** comments or uncomments lines. **Tab** and **Shift+Tab** indent. **Ctrl+Z** and **Ctrl+Y** undo and redo.
+- More than one cursor: **Ctrl+D** selects the next match of the selection, **Ctrl+click** adds a cursor, and **Alt+drag** selects a rectangle.
+
+### Format SQL
+
+Format SQL uses sqlglot to read the query in the tab's dialect and print it back laid out. It never changes what the query does: before replacing your text it checks that the formatted query reads the same, and that every identifier, string, number, function name and comment is still there. Only keywords, function names and date parts such as `'month'` change case. If sqlglot would change anything else (rename a function, drop a comment, read something differently) or can't read the query, your SQL stays as it was and a message says why. Formatting is one step for **Ctrl+Z**. Comments are kept; a comment can move to the end of the line next to the code it was attached to.
 
 ## Job files
 

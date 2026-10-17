@@ -434,9 +434,16 @@ h2.flush { margin: 0; }
 .sql-tab.add { color: var(--muted); font-size: 18px; }
 .sql-card { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 0 8px 8px 8px; overflow: hidden; }
 .sql-actions, .sql-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
-.sql-edit { position: relative; display: flex; height: 220px; flex: none; border-bottom: 1px solid var(--border); resize: vertical; overflow: hidden; min-height: 100px; }
-.sql-gutter { flex: none; width: 44px; padding: 10px 8px 10px 0; overflow: hidden; white-space: pre; text-align: right; font-family: var(--mono); font-size: 12px; line-height: 22px; color: #a19f9d; background: #fafafa; border-right: 1px solid var(--border-soft); }
-.sql-editor { flex: 1; min-width: 0; padding: 10px 12px; border: 0; outline: 0; resize: none; font-family: var(--mono); font-size: 13.5px; line-height: 22px; color: var(--text); background: transparent; white-space: pre; overflow: auto; }
+.sql-edit { position: relative; height: 260px; flex: none; border-bottom: 1px solid var(--border); resize: vertical; overflow: hidden; min-height: 100px; }
+.sql-edit .cm-editor { height: 100%; }
+.sql-edit .var { color: #8a4b00; } .sql-edit .op { color: #424242; }
+.sql-ref-table { text-decoration: underline dotted rgba(27, 54, 100, 0.45); text-underline-offset: 3px; }
+.sql-ref-col { color: #1d4f2f; }
+.sql-dialect { height: 30px; padding: 0 6px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font-size: 13px; }
+.sql-sep { width: 1px; height: 22px; background: var(--border); }
+.sql-actions .tool.primary:disabled { background: var(--border); color: var(--muted); }
+.sql-edit .sql-quoted-name, .sql-edit .sql-quoted-name * { color: var(--text) !important; font-weight: normal; }
+.sql-edit .sql-quoted-name.sql-ref-col, .sql-edit .sql-quoted-name.sql-ref-col * { color: #1d4f2f !important; }
 .sql-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: #f0f0f0; color: var(--text-2); }
 .sql-pill.ok { background: #e7f4e8; color: #0e5c2a; }
 .sql-pill.bad { background: var(--danger-soft); color: var(--danger); }
@@ -1024,7 +1031,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 /* Accessibility: a visible focus ring for keyboard users, a skip link, and less motion when asked. */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .search:focus-within, .palette-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-.sql-editor:focus-visible, .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .view:focus { outline: none; }
 .skip-link { position: absolute; left: 8px; top: -48px; z-index: 50; padding: 8px 12px; border-radius: 4px; background: var(--accent); color: #fff; }
 .skip-link:focus { top: 8px; }

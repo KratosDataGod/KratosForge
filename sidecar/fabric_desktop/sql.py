@@ -50,9 +50,14 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
     ``is_local(name)`` says a name is already a view or table on ``con`` (like a Spark temp
     view), so it is left alone."""
     ctes = {c.alias_or_name.lower() for c in statement.find_all(exp.CTE)}
+    # CREATE ... v AS ...: v is what the statement makes, not a lakehouse table to read.
+    made = statement.this if isinstance(statement, exp.Create) else None
+    made = made.this if isinstance(made, exp.Schema) else made
     for table in list(statement.find_all(exp.Table)):
         if not isinstance(table.this, exp.Identifier):
             continue  # a table function such as range(10)
+        if table is made:
+            continue
         if not table.db and (table.name.lower() in ctes or is_local(table.name)):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.

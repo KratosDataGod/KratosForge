@@ -39,6 +39,16 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    sql_page_rows    the SQL page: rows on each page of a result (default 1000, 100 to 10000)
+    sql_time_limit_minutes  the SQL page: minutes a query may run before it's stopped (default 10,
+                     0 for no limit, at most 1440)
+    sql_memory_limit_percent  the SQL page: share of this PC's memory one query may use (default 60,
+                     10 to 90); a larger result spills to the temp folder
+    sql_max_concurrent  the SQL page: queries that run at once; more wait in a queue (default 2, 1 to 8)
+    sql_temp_dir     the SQL page: folder for spilled data and result snapshots (default: the
+                     app data folder's sql-runs)
+    sql_result_retention_hours  the SQL page: hours a finished query's result is kept for paging and
+                     export (default 24, 0 keeps it only until the app closes, at most 168)
     telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
@@ -73,6 +83,16 @@ USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetr
              "cell_time_limit_minutes", "kernel_memory_limit_gb")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+
+
+# The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
+SQL_RANGES: dict[str, tuple[int, int]] = {"sql_page_rows": (100, 10_000), "sql_time_limit_minutes": (0, 24 * 60),
+                                          "sql_memory_limit_percent": (10, 90), "sql_max_concurrent": (1, 8),
+                                          "sql_result_retention_hours": (0, 7 * 24)}
+DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memory_limit_percent": 60,
+                 "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
+TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
+USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 
 
 def policy_path() -> Path:
@@ -129,15 +149,17 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} should be {name}, not {type(value).__name__}")
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
+            problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
+        elif key in LIMITS and not 0 <= value <= LIMITS[key]:
+            problems.append(f"{key} must be between 0 and {LIMITS[key]} (0 for no limit)")
         elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
-        elif key in LIMITS and not 0 <= value <= LIMITS[key]:
-            problems.append(f"{key} must be between 0 and {LIMITS[key]} (0 for no limit)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
     return problems
@@ -150,17 +172,17 @@ def _typed(key: str, value: Any) -> bool:
     return isinstance(value, TYPES[key])
 
 
-def _telemetry_target(text: str) -> bool:
-    from .telemetry import valid_connection_string
-    return valid_connection_string(text)
-
-
 def _in_range(key: str, value: Any) -> bool:
     if key == "local_retention_days":
         return value >= 0
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
     return True
+
+
+def _telemetry_target(text: str) -> bool:
+    from .telemetry import valid_connection_string
+    return valid_connection_string(text)
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -212,6 +234,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
+        if key in SQL_RANGES:
+            new = _sql_number(key, new)
+        if key == "sql_temp_dir":
+            new = _sql_folder(new)
         if key == "client_id":
             new = str(new or "").strip()
             if new and not valid_client_id(new):
@@ -239,3 +265,37 @@ def _limit(key: str, new: Any) -> float | None:
     if not 0 <= n <= LIMITS[key]:
         raise ValueError(f"{key} must be between 0 and {LIMITS[key]}")
     return n or None
+
+
+def _sql_number(key: str, new: Any) -> int | None:
+    """An SQL page limit: a whole number in SQL_RANGES[key]; empty goes back to the default."""
+    if new in (None, ""):
+        return None
+    try:
+        n = int(new)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a whole number") from None
+    low, high = SQL_RANGES[key]
+    if not low <= n <= high:
+        raise ValueError(f"{key} must be between {low} and {high}")
+    return n
+
+
+def _sql_folder(new: Any) -> str:
+    """The SQL page's temp folder: an absolute folder path, or empty for the default."""
+    text = str(new or "").strip()
+    if text and not Path(text).is_absolute():
+        raise ValueError("sql_temp_dir must be a full folder path, like C:\\Temp\\FabricDesktop")
+    return text
+
+
+def sql_limits() -> dict[str, Any]:
+    """The SQL page's limits as they apply now: a value out of range (an old file, a typo) falls
+    back to the default."""
+    out: dict[str, Any] = {}
+    for key in (*SQL_RANGES, "sql_temp_dir"):
+        v = value(key)
+        if key in SQL_RANGES and not SQL_RANGES[key][0] <= v <= SQL_RANGES[key][1]:
+            v = DEFAULTS[key]
+        out[key] = v
+    return out

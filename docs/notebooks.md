@@ -211,16 +211,21 @@ How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads 
 
 ### Dialects
 
-Each Fabric engine has its own SQL, so each query tab has a dialect. It sets the highlighting, the suggestions and how **Format SQL** reads the query.
+Each Fabric engine has its own SQL, so each query tab has a dialect. It sets the highlighting, the suggestions, how **Format SQL** reads the query and which engine the [compatibility check](sql-compatibility.md) uses.
 
 | Dialect | Runs on this PC? |
 | --- | --- |
 | **Spark SQL (Lakehouse)**, the default | Yes, translated to DuckDB. What you write is what a Fabric notebook's `%%sql` or a lakehouse SQL query takes. |
-| **Fabric Warehouse (T-SQL)** | No. It is highlighted, suggested and formatted here; run it in the Warehouse. |
+| **Fabric Warehouse (T-SQL)** | No. It is highlighted, suggested, formatted and checked here; run it in the Warehouse. |
+| **Fabric SQL analytics endpoint (T-SQL)** | No, as for Warehouse. Lakehouse tables are read-only through the endpoint. |
 | **Fabric SQL database (T-SQL)** | No, as for Warehouse. |
 | **DuckDB (this PC)** | Yes, as written. Use it for DuckDB features; Fabric doesn't run DuckDB SQL. |
 
 A query that runs here is not proof that it runs, or gives the same answer, in a Fabric Warehouse or SQL database: DuckDB is a different engine. That's why T-SQL isn't run on this PC.
+
+### Compatibility (preview)
+
+As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
 
 ### Editor
 

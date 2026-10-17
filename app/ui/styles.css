@@ -436,6 +436,32 @@ h2.flush { margin: 0; }
 .sql-actions, .sql-band { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .sql-edit { position: relative; height: 260px; flex: none; border-bottom: 1px solid var(--border); resize: vertical; overflow: hidden; min-height: 100px; }
 .sql-edit .cm-editor { height: 100%; }
+.sql-editor-row { display: flex; border-bottom: 1px solid var(--border); }
+.sql-editor-row .sql-edit { flex: 1; min-width: 0; border-bottom: 0; }
+.sql-compat { position: relative; width: 300px; flex: none; border-left: 1px solid var(--border); }
+.sql-compat-body { position: absolute; inset: 0; overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.sql-compat-head { display: flex; align-items: center; gap: 8px; }
+.sql-compat-head b { flex: 1; }
+.sql-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.sql-chip { padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #f0f0f0; color: #424242; }
+.sql-chip.error { background: #fdf3f4; color: #b10e1c; }
+.sql-chip.warning { background: #fff3dc; color: #8a4b00; }
+.sql-chip.information { background: #eef3fb; color: #1b3664; }
+.sql-outcome { padding: 8px 10px; border-radius: 4px; background: #f0f0f0; color: #242424; }
+.sql-outcome.known_problems { background: #fdf3f4; color: #8a0b16; }
+.sql-outcome.review { background: #fff3dc; color: #5c3300; }
+.sql-outcome.no_known_problems { background: #e7f4e8; color: #0e5c2a; }
+.sql-findings { display: flex; flex-direction: column; border-top: 1px solid var(--border-soft); }
+.sql-finding { text-align: left; padding: 6px 4px; border: 0; border-bottom: 1px solid var(--border-soft); background: none; font: inherit; color: inherit; cursor: pointer; }
+.sql-finding:hover, .sql-finding:focus-visible { background: #f5f7fb; }
+.sql-finding.error b { color: #b10e1c; } .sql-finding.warning b { color: #8a4b00; }
+.sql-finding.information b { color: #1b3664; } .sql-finding.unverified b { color: #424242; }
+.sql-finding-detail { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; }
+.sql-compat-note { margin: 0; font-size: 12px; }
+.sql-local-note { flex-basis: 100%; padding: 6px 10px; border-radius: 4px; background: #fff8eb; color: #5c3300; font-size: 12.5px; }
+.sql-lint-msg { display: flex; flex-direction: column; gap: 2px; max-width: 420px; font-family: var(--font, "Segoe UI", system-ui, sans-serif); font-size: 12.5px; }
+.sql-lint-msg .muted { color: #616161; }
+@media (max-width: 1100px) { .sql-compat { width: 240px; } }
 .sql-edit .var { color: #8a4b00; } .sql-edit .op { color: #424242; }
 .sql-ref-table { text-decoration: underline dotted rgba(27, 54, 100, 0.45); text-underline-offset: 3px; }
 .sql-ref-col { color: #1d4f2f; }

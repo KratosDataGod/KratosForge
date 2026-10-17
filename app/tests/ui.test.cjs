@@ -283,16 +283,17 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const SQL_TABLES = [{ schema: "dbo", name: "sales" }, { schema: "dbo", name: "customers" }, { schema: "finance", name: "budget" },
   { schema: "finance", name: "sales" }];
 
-test("the SQL editor knows four dialects and only Spark SQL and DuckDB run on this PC", () => {
+test("the SQL editor knows five dialects and only Spark SQL and DuckDB run on this PC", () => {
   const { SQL_DIALECTS, SQL_WORDS, sqlDialect } = sqlEditorHelpers();
-  assert.deepStrictEqual(Object.keys(SQL_DIALECTS), ["spark", "warehouse", "sqldb", "duckdb"]);
+  assert.deepStrictEqual(Object.keys(SQL_DIALECTS), ["spark", "warehouse", "endpoint", "sqldb", "duckdb"]);
+  assert.strictEqual(SQL_WORDS.endpoint, SQL_WORDS.warehouse);
   assert.deepStrictEqual(Object.keys(SQL_DIALECTS).filter((d) => SQL_DIALECTS[d].runsHere), ["spark", "duckdb"]);
   assert.strictEqual(sqlDialect(undefined), "spark");  // a tab saved before dialects existed
   assert.strictEqual(sqlDialect("oracle"), "spark");
@@ -393,6 +394,27 @@ test("Run uses the selection when there is one, otherwise the whole query", () =
   assert.strictEqual(sqlChosenText("SELECT 1; SELECT 2", 4, 4), "SELECT 1; SELECT 2");
 });
 
+test("compatibility findings land where the engine says, even after characters outside the basic plane", () => {
+  const { sqlUtf16Offset, sqlLintDiagnostics } = sqlEditorHelpers();
+  const text = "SELECT '🙂' AS f LIMIT 3";  // the emoji is one character to Python, two to JavaScript
+  assert.strictEqual(sqlUtf16Offset(text, 0), 0);
+  assert.strictEqual(sqlUtf16Offset(text, 8), 8);
+  assert.strictEqual(sqlUtf16Offset(text, 9), 10);
+  assert.strictEqual(sqlUtf16Offset(text, 999), text.length);
+  const report = { diagnostics: [
+    { severity: "error", rule: "SYN-001", title: "LIMIT isn't T-SQL", message: "No LIMIT.", action: "Use TOP.", confidence: "high", from: 16, to: 23 },
+    { severity: "information", rule: "SEM-002", title: "t", message: "m", action: "a", confidence: "high", from: 0, to: 0 },
+    { severity: "unverified", rule: "SYN-007", title: "t", message: "m", action: "a", confidence: "medium", from: 0, to: 6 },
+  ] };
+  const diags = sqlLintDiagnostics(report, text);
+  assert.strictEqual(text.slice(diags[0].from, diags[0].to), "LIMIT 3");
+  assert.deepStrictEqual(diags.map((d) => d.severity), ["error", "info", "hint"]);
+  assert.strictEqual(diags[0].source, "SYN-001");
+  assert.deepStrictEqual(plain(diags[0].lines), ["Error · LIMIT isn't T-SQL", "No LIMIT.", "Use TOP.", "SYN-001 · confidence high"]);
+  assert.deepStrictEqual(plain(sqlLintDiagnostics(null, text)), []);
+  assert.deepStrictEqual(plain(sqlLintDiagnostics({ failed: "x" }, text)), []);
+});
+
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
@@ -402,7 +424,8 @@ test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () 
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
-  for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder"]) {
+  for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
+    "linter", "lintGutter", "forceLinting", "StateEffect"]) {
     assert.match(cm, new RegExp(`${name}:\\(\\)=>`), `codemirror.js exports ${name}; rebuild it with npm run build`);
   }
 });

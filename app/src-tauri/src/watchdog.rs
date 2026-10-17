@@ -18,7 +18,8 @@ pub const QUICK: &[&str] = &[
     "list_notebooks", "new_notebook", "notebook_dependencies", "notebook_environment",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "rename_notebook", "save_notebook", "side_by_side_list",
-    "side_by_side_status", "wizard_preview", "wizard_templates",
+    "side_by_side_status", "sql_analyze", "sql_compat_profiles", "wizard_preview",
+    "wizard_templates",
 ];
 
 pub const QUICK_SECONDS: u64 = 60;

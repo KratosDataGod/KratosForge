@@ -384,3 +384,14 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
         expected = sbs.fingerprint(con.execute(benchmark.QUERIES[n]).pl().to_arrow())
         got = tables.fingerprint(tname("bench", f"q{n:02d}"), DeltaTable(str(tables.path(tname("bench", f"q{n:02d}")))).version())
         assert got["rows"] == expected["rows"] and got["checksum"] == expected["checksum"]
+
+
+def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
+    svc._attach(LAKEHOUSE)
+    svc.kernel.restart()
+    cells = [c for c in benchmark.notebooks()[benchmark.BENCHMARK_NOTEBOOK] if c["type"] == "code"]
+    for c in cells[:2]:
+        assert svc.kernel.run(c["source"])["status"] == "ok"
+    out = svc.kernel.run(cells[2]["source"])
+    assert out["status"] == "error"
+    assert "Run the TPC-H data notebook" in str(out["outputs"])

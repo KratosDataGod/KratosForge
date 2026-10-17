@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import time
 from typing import Any, Callable
 
@@ -10,6 +11,23 @@ import requests
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
+
+
+# Fabric's rule for lakehouse names: letters, numbers and underscores, starting with a letter.
+_LAKEHOUSE_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_]{0,255}")
+
+
+def lakehouse_name_problem(name: str) -> str:
+    """Why Fabric would refuse this lakehouse name, or "" if it's fine."""
+    if _LAKEHOUSE_NAME.fullmatch(name):
+        return ""
+    if len(name) > 256:
+        return "A lakehouse name can be at most 256 characters."
+    suggestion = re.sub(r"[^A-Za-z0-9_]", "_", name)
+    if not suggestion[:1].isalpha():
+        suggestion = f"LH_{suggestion}"
+    return (f"Fabric doesn't accept the lakehouse name {name!r}: use only letters, numbers and underscores, "
+            f"starting with a letter. For example {suggestion}.")
 
 
 class FabricError(RuntimeError):
@@ -110,6 +128,9 @@ class FabricClient:
 
     def create_lakehouse(self, workspace_id: str, name: str, description: str = "") -> dict[str, Any]:
         """Create a schema-enabled lakehouse."""
+        problem = lakehouse_name_problem(name)
+        if problem:
+            raise ValueError(problem)
         body = {"displayName": name, "creationPayload": {"enableSchemas": True}}
         if description:
             body["description"] = description

@@ -758,6 +758,7 @@ _LOAD = '''
 import time
 import duckdb
 import polars as pl
+from deltalake.exceptions import TableNotFoundError
 from fabric_desktop import lakehouse
 
 timings = []
@@ -770,11 +771,18 @@ def table_name(schema, table):
     """schema.table, or schema_table in a lakehouse created without schemas."""
     return f"{schema}.{table}" if lakehouse.has_schemas() else f"{schema}_{table}"
 
+def source(table):
+    try:
+        return lakehouse.open_table(table_name(schema, table))
+    except TableNotFoundError:
+        raise TableNotFoundError(f"{table_name(schema, table)} isn't in {lakehouse.name()} yet. Run the TPC-H data "
+                                 f"notebook with this lakehouse attached first, then run this one again.") from None
+
 # Read every table from the lakehouse once, so the queries time compute, not downloads.
 con = duckdb.connect()
 started = time.perf_counter()
 for table in TABLES:
-    con.register(f"_src_{table}", lakehouse.open_table(table_name(schema, table)).to_pyarrow_dataset())
+    con.register(f"_src_{table}", source(table).to_pyarrow_dataset())
     con.execute(f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM _src_{table}")
     con.unregister(f"_src_{table}")
 rows = con.execute("SELECT count(*) FROM lineitem").fetchone()[0]

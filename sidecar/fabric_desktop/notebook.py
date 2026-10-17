@@ -141,6 +141,7 @@ class _Run:
         self.seconds: float | None = None
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
+        self.watches: list[dict[str, Any]] | None = None
 
     def write(self, text: str) -> None:
         if not text:
@@ -167,9 +168,12 @@ class _Run:
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
         with self.lock:
             changed = self.version != known_version
-            return {"status": self.status, "execution_count": self.count, "version": self.version,
+            snap = {"status": self.status, "execution_count": self.count, "version": self.version,
                     "seconds": self.seconds if self.seconds is not None else round(time.monotonic() - self.started, 2),
                     "outputs": list(self.outputs) if changed else None}
+            if self.watches is not None:
+                snap["watches"] = list(self.watches)
+            return snap
 
 
 class _Router(io.TextIOBase):
@@ -268,14 +272,18 @@ class Kernel:
 
     # ---- running a cell
 
-    def start(self, code: str) -> dict[str, Any]:
-        """Start ``code`` on its own thread; ``poll`` reports its output as it comes."""
+    def start(self, code: str, watches: list[str] | None = None) -> dict[str, Any]:
+        """Start ``code`` on its own thread; ``poll`` reports its output as it comes.
+
+        ``watches`` are expressions evaluated after the cell, in its namespace and on its thread
+        (so Cancel and the cell time limit cover them); their values come back in ``watches``."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
         self.count += 1
         run = _Run(self.count)
         self._current = run
-        run.thread = threading.Thread(target=self._execute, args=(code, run), daemon=True, name=f"cell-{self.count}")
+        run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
+                                      name=f"cell-{self.count}")
         run.thread.start()
         return run.snapshot()
 
@@ -312,7 +320,7 @@ class Kernel:
         snap = run.snapshot()
         return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"]}
 
-    def _execute(self, code: str, run: _Run) -> None:
+    def _execute(self, code: str, run: _Run, watches: list[str] | None = None) -> None:
         from .notebookutils_local import NotebookExit
         out, err = _routers()
         ident = threading.get_ident()
@@ -328,6 +336,10 @@ class Kernel:
             except KeyboardInterrupt:
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
+            if watches and status != "cancelled":
+                # What a watch prints goes nowhere: the cell's output is the cell's.
+                out.targets[ident] = err.targets[ident] = _Run(0)
+                self._watch(watches, run)
         except KeyboardInterrupt:  # an interrupt that landed while the first one was being handled
             status = "cancelled"
         finally:
@@ -335,6 +347,25 @@ class Kernel:
             err.targets.pop(ident, None)
             self._local.run = None
             run.finish(status)
+
+    def _watch(self, watches: list[str], run: _Run) -> None:
+        """Evaluate each watch expression; Cancel stops the rest, which are reported as skipped."""
+        from .redact import secrets
+        results: list[dict[str, Any]] = []
+        for i, expr in enumerate(watches):
+            started = time.monotonic()
+            try:
+                value = eval(compile(expr, "<watch>", "eval"), self.namespace)  # noqa: S307 - the person's own notebook code
+                shown = "hidden" if self._hidden(expr, value) else secrets(_preview(value))
+                results.append({"expr": expr, "value": shown, "type": type(value).__name__})
+            except KeyboardInterrupt:
+                results += [{"expr": e, "skipped": True} for e in watches[i:]]
+                break
+            except Exception as exc:  # noqa: BLE001 - shown next to the watch
+                results.append({"expr": expr, "error": secrets(f"{type(exc).__name__}: {exc}")})
+            results[-1]["seconds"] = round(time.monotonic() - started, 3)
+        with run.lock:
+            run.watches = results
 
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error"."""
@@ -636,6 +667,32 @@ def _preview(value: Any) -> str:
 # Storage: notebooks are standard .ipynb files with the attached lakehouse in metadata.
 
 _SAFE_NAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+MAX_WATCHES = 10
+
+
+def check_watches(watches: Any) -> list[str]:
+    """Watch expressions as the Variables pane keeps them: at most MAX_WATCHES single expressions
+    (not statements) of up to 200 characters. Raises ValueError naming the one that isn't."""
+    if not watches:
+        return []
+    if not isinstance(watches, list) or not all(isinstance(w, str) for w in watches):
+        raise ValueError("watches is a list of expressions")
+    out = []
+    for w in (w.strip() for w in watches):
+        if not w or w in out:
+            continue
+        if len(w) > 200:
+            raise ValueError("A watch can be up to 200 characters.")
+        try:
+            compile(w, "<watch>", "eval")
+        except SyntaxError:
+            raise ValueError(f"{w} isn't an expression. A watch is something like df.height or len(rows).") from None
+        out.append(w)
+    if len(out) > MAX_WATCHES:
+        raise ValueError(f"A notebook can have up to {MAX_WATCHES} watches.")
+    return out
 
 
 def check_notebook_name(name: str) -> str:

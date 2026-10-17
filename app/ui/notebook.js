@@ -262,7 +262,8 @@ function renderVariables() {
   return h("aside", { class: "varpane", "aria-label": "Variables" },
     h("div", { class: "explorer-head" }, "Variables",
       h("button", { class: "tool small", title: "Refresh", "aria-label": "Refresh variables", onclick: refreshVariables }, icon("restart", 14))),
-    h("div", { class: "var-list" }, state.variables ? variableTable(state.variables) : h("div", { class: "muted-text" }, "Loading...")));
+    dbgOn() && state.notebook && !nbWhere(state.notebook).fabric ? dbgPane(state.notebook)  // debugging.js
+      : h("div", { class: "var-list" }, state.variables ? variableTable(state.variables) : h("div", { class: "muted-text" }, "Loading...")));
 }
 
 function variableTable(rows) {
@@ -355,13 +356,15 @@ function renderGutter(cell) {
 function cellResults(cell) {
   const parts = [];
   if (cell.status) parts.push(statusLine(cell));
-  if (!cell.outputs.length) return parts;
+  if (!cell.outputs.length) return cell.hidden?.length ? [...parts, dbgCellWarning(cell)].filter(Boolean) : parts;
   if (cell.meta?.outputs_hidden) {
     parts.push(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "outputs_hidden", false) },
       `Output hidden (${cell.outputs.length} item${cell.outputs.length === 1 ? "" : "s"}). Click to show.`));
   } else {
     cell.outputs.forEach((o) => parts.push(renderOutput(o, cell)));
   }
+  const hidden = cell.status === "running" ? null : dbgCellWarning(cell);  // debugging.js
+  if (hidden) parts.push(hidden);
   return parts;
 }
 
@@ -1101,11 +1104,14 @@ async function runCell(cell, { timeLimit = true } = {}) {
   cell.outputs = [];
   cell.seconds = 0;
   updateResults(cell);
+  cell.hidden = null;
   const started = performance.now();
   let ok = false;
+  let last = null;
   try {
+    const watches = await dbgWatches(state.notebook);  // debugging.js
     let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: state.notebook.lakehouse, notebook: state.notebook.name,
-      ...(timeLimit ? {} : { time_limit: false }) });
+      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
       cell.count = snap.execution_count;
@@ -1115,6 +1121,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
       snap = await rpc("poll_cell", { version: snap.version, wait: 0.4 });
     }
     cell.status = snap.status;
+    last = snap;
     ok = snap.status === "ok";
     // Its process ended (a crash, Stop, the memory limit): variables are gone.
     if ((snap.outputs || cell.outputs).some((o) => o.ename === "KernelStopped")) depsRestarted();
@@ -1135,7 +1142,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
   depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
-  refreshVariables();
+  if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   return ok;
 }
 

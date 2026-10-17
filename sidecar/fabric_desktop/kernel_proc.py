@@ -229,8 +229,9 @@ class ProcessKernel:
 
     # ---- the Kernel interface
 
-    def start(self, code: str, time_limit: bool = True) -> dict[str, Any]:
-        """Start ``code``. ``time_limit`` False runs this one cell without the cell time limit."""
+    def start(self, code: str, time_limit: bool = True, watches: list[str] | None = None) -> dict[str, Any]:
+        """Start ``code``. ``time_limit`` False runs this one cell without the cell time limit.
+        ``watches`` are evaluated after it (notebook.Kernel.start)."""
         if self._running and self._proc is not None:
             snap = self.poll()
             if snap["status"] == "running":
@@ -245,7 +246,7 @@ class ProcessKernel:
         if time_limit:
             self._started_at = time.monotonic()
         try:
-            snap = self._request("start", code=code, notebook_name=self.notebook_name)
+            snap = self._request("start", code=code, notebook_name=self.notebook_name, watches=list(watches or []))
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
             deadline = time.monotonic() + 5

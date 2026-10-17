@@ -96,6 +96,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | New notebook from a template | Create |
 | Run notebooks in their own process | Settings > Preview features |
 | Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
+| Variable history, watches and hidden-state warnings | Notebook Variables pane (View tab) |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Cost | Monitor |
 | Capacity status | Monitor > Cost, Data mesh > Environments |

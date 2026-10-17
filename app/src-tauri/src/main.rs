@@ -12,7 +12,11 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod watchdog;
+use watchdog::Reply;
+
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
+const SIDECAR_STUCK: &str = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it.";
 
 /// Startup check and updater, run with the user's Python before the sidecar starts.
 const UPDATER: &str = include_str!("updater.py");
@@ -28,6 +32,34 @@ fn setting(path: PathBuf, key: &str) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
     let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
     value.get(key)?.as_str().map(str::to_owned)
+}
+
+/// Whether the app may update itself. An organization that rolls out builds itself sets
+/// `"auto_update": false` in its policy file; only that file can turn updates off.
+fn auto_update_allowed() -> bool {
+    let Some(dir) = std::env::var_os("ProgramData") else { return true };
+    policy_allows_updates(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+}
+
+fn policy_allows_updates(text: &str) -> bool {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    value.get("auto_update").and_then(Value::as_bool) != Some(false)
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::policy_allows_updates;
+
+    #[test]
+    fn only_policy_false_stops_updates() {
+        assert!(policy_allows_updates(""));
+        assert!(policy_allows_updates("{}"));
+        assert!(policy_allows_updates("not json"));
+        assert!(policy_allows_updates(r#"{"auto_update": "false"}"#));
+        assert!(policy_allows_updates(r#"{"auto_update": true}"#));
+        assert!(!policy_allows_updates(r#"{"auto_update": false}"#));
+        assert!(!policy_allows_updates("\u{feff}{\"auto_update\": false}"));
+    }
 }
 
 /// The release this PC updates from: "stable" or "latest" (the Preview channel). The
@@ -240,11 +272,16 @@ impl Sidecar {
             return Err(self.exited());
         }
 
-        let mut line = String::new();
-        let read = self.stdout.read_line(&mut line).map_err(|e| e.to_string())?;
-        if read == 0 {
-            return Err(self.exited());
-        }
+        let line = match watchdog::read_reply(&mut self.stdout, &self.child, watchdog::limit(method))
+            .map_err(|e| e.to_string())?
+        {
+            Reply::Line(line) => line,
+            Reply::Closed => return Err(self.exited()),
+            Reply::TimedOut => return Err(format!(
+                "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
+                 run the notebook's cells again. Details are in {}",
+                watchdog::QUICK_SECONDS, self.log.display())),
+        };
         let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
         if let Some(error) = response.get("error") {
             return Err(error.as_str().unwrap_or("Unknown sidecar error").to_string());
@@ -273,7 +310,10 @@ async fn rpc(
     let sidecar = guard.as_mut().expect("sidecar started");
     let first_call = sidecar.next_id == 1;
     let result = sidecar.call(&method, params.unwrap_or_else(|| json!({})));
-    if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+    if matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK)) {
+        // Ended by the time limit: the next call starts a fresh one.
+        *guard = None;
+    } else if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
         *guard = None;
         if first_call {
             // It would not even start: have the next startup check load the engine again
@@ -318,6 +358,7 @@ async fn check_components() -> Result<Value, String> {
             .map_err(|_| "Python gave an unexpected answer to the startup check.".to_string())?
     };
     report["bundled"] = json!(bundled());
+    report["auto_update"] = json!(auto_update_allowed());
     // Set by the exe that updated us, so the check can tell whether the update took.
     let args: Vec<String> = std::env::args().collect();
     let updated_to = args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1));
@@ -463,6 +504,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
 async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String> {
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{commit} is not a build commit"));
+    }
+    if !auto_update_allowed() {
+        return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let new = exe.with_extension("exe.new");

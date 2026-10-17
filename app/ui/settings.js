@@ -204,7 +204,9 @@ async function renderSettings() {
       onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time Fabric Desktop by KratosBI starts`); render(); } } }),
     h("span", {}, h("b", {}, label), h("span", { class: "muted-text small" }, help)));
   const updates = h("section", { class: "card pad" }, h("h2", {}, "Updates"),
-    h("p", { class: "muted-text small" }, "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
+    h("p", { class: "muted-text small" }, s.auto_update?.value === false
+      ? "Your organization rolls out new builds, so Fabric Desktop by KratosBI doesn't update itself. "
+      : "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
       `This is build ${state.build || "unknown"}. `, learnMore("updates")),
     h("div", { class: "choices" },
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
@@ -240,7 +242,13 @@ async function renderSettings() {
     h("dl", { class: "about" },
       h("dt", {}, "Build"), h("dd", {}, state.build || "unknown"),
       h("dt", {}, "Engine Python"), h("dd", {}, state.python || "unknown"),
-      h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file)));
+      h("dt", {}, "Organization settings file"), h("dd", { class: "mono" }, s.policy_file),
+      s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
+        h("dd", {}, "Off: your organization keeps work on this PC")] : null,
+      s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
+        h("dd", {}, "Only your organization's own work accounts")] : null,
+      s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
+        h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),

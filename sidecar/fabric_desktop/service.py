@@ -117,7 +117,8 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         return self.kernel.stop()
 
     def app_settings(self) -> dict[str, Any]:
-        return {**app_settings.load(), "policy_file": str(app_settings.policy_path())}
+        return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
+                "policy_problems": app_settings.policy_problems()}
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):

@@ -52,6 +52,10 @@ def main(argv: list[str] | None = None) -> None:
     live.add_argument("--out", default="live-test-results", help="folder for results (default: live-test-results)")
     live.add_argument("--agent-config", help="sign in as this agent.toml's identity instead of as you")
     live.add_argument("--cleanup", metavar="LEDGER", help="delete what an earlier run's ledger.json lists, then exit")
+    bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
+                                                   "with secrets and personal details taken out")
+    bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
+    bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -59,6 +63,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "agent":
         raise SystemExit(_agent(args))
+    if args.command == "live-test":
+        raise SystemExit(_live_test(args))
     if args.command == "support-bundle":
         from pathlib import Path
 

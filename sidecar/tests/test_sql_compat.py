@@ -161,3 +161,11 @@ def test_the_page_can_check_list_and_export(tmp_path, monkeypatch):
     assert saved["sql"] == "SELECT 1 AS x" and saved["outcome"]["status"] == "no_known_problems"
     bad = server.handle(service, '{"id": 5, "method": "sql_analyze", "params": {"query": "x", "target": "oracle"}}')
     assert "Unknown target" in bad["error"]
+
+
+def test_checking_isnt_audited_and_an_export_is_audited_without_the_sql():
+    from fabric_desktop import audit
+    assert not audit.audited("sql_analyze") and not audit.audited("sql_compat_profiles")
+    assert audit.audited("sql_compat_export")
+    assert audit.target({"query": "SELECT secret FROM t", "target": "spark", "name": "Q"}) == {
+        "query": "(given)", "target": "spark", "name": "Q"}

@@ -15,6 +15,8 @@ Every request passes ``Guard`` before anything else:
   and the health check are open); tokens are stored hashed and stop working when revoked;
 - bodies over 1 MiB are refused, each tool is rate limited, and only a few calls run at once.
 
+Resources (``fabric-desktop://`` URIs) are readable at /api/v1/resources/read?uri=... too.
+
 Behind the guard, REST and MCP both call ``Registry.invoke``: the same permissions, approvals and
 results as MCP over stdio. No endpoint can change settings, permissions or approvals.
 """
@@ -162,6 +164,14 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
                                    "responses": {"200": {"description": "Up"}}}},
         "/api/v1/capabilities": {"get": {"summary": "List capabilities with schemas, permissions and availability for this token",
                                          "operationId": "listCapabilities", "responses": {"200": {"description": "Capabilities"}, **errors}}},
+        "/api/v1/resources": {"get": {"summary": "List fabric-desktop:// resources and resource templates this token can read",
+                                      "operationId": "listResources", "responses": {"200": {"description": "Resources"}, **errors}}},
+        "/api/v1/resources/read": {"get": {
+            "summary": "Read a fabric-desktop:// resource; paging and options go in its query",
+            "operationId": "readResource",
+            "parameters": [{"name": "uri", "in": "query", "required": True, "schema": {"type": "string", "maxLength": 2000},
+                            "example": "fabric-desktop://notebooks?limit=50"}],
+            "responses": {"200": {"description": "The same result as the capability behind it"}, **errors}}},
     }
     for cap in registry.all():
         paths[f"/api/v1/capabilities/{cap.id}/invoke"] = {"post": {
@@ -211,6 +221,20 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         ctx = CallContext(caller_of(request))
         return JSONResponse({"ok": True, "capabilities": registry.describe(ctx)})
 
+    async def resources(request: Request) -> Response:
+        ctx = CallContext(caller_of(request))
+        rows = [{"uri": cap.resource, "template": bool(cap.resource_params), "capability": cap.id, "title": cap.title,
+                 "description": cap.description}
+                for cap in registry.resources() if registry.availability(cap, ctx)[0] != "unavailable"]
+        return JSONResponse({"ok": True, "resources": rows})
+
+    async def read(request: Request) -> Response:
+        try:
+            cap, args = registry.resolve(request.query_params.get("uri", ""))
+        except IntegrationError as err:
+            return error_response(err)
+        return await _run(request, cap.id, args)
+
     async def invoke(request: Request) -> Response:
         cap_id = request.path_params["cap_id"]
         try:
@@ -222,12 +246,15 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
             return error_response(IntegrationError("invalid_input", "The body must be JSON: {\"arguments\": {...}}."))
         if not isinstance(body, dict) or not isinstance(body.get("arguments", {}), dict) or set(body) - {"arguments"}:
             return error_response(IntegrationError("invalid_input", "The body must be {\"arguments\": {...}}."))
+        return await _run(request, cap_id, body.get("arguments") or {})
+
+    async def _run(request: Request, cap_id: str, arguments: dict[str, Any]) -> Response:
         cap = registry.get(cap_id)
         ctx = CallContext(caller_of(request), timeout=cap.timeout if cap else 60.0)
 
         def run() -> Any:
             service = holder.get() if cap is not None and cap.needs_service else None
-            return registry.invoke(service, cap_id, body.get("arguments") or {}, ctx)
+            return registry.invoke(service, cap_id, arguments, ctx)
 
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
@@ -282,6 +309,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
     app = Starlette(routes=[Route("/api/v1/health", health), Route("/api/v1/openapi.json", spec),
                             Route("/api/v1/capabilities", capabilities),
                             Route("/api/v1/capabilities/{cap_id}/invoke", invoke, methods=["POST"]),
+                            Route("/api/v1/resources", resources), Route("/api/v1/resources/read", read),
                             Route("/mcp", MCPEndpoint(), methods=["GET", "POST", "DELETE"])],
                     lifespan=lambda _app: manager.run())
     return Guard(app, store, port, limiter)

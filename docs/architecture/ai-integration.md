@@ -152,7 +152,20 @@ Every execution gets a stable id, a state (`queued`, `running`, `succeeded`, `fa
 
 ## 7. Resources and prompts
 
-MCP resources give context without moving data: `fabric-desktop://status`, `fabric-desktop://capabilities`, `fabric-desktop://notebooks/{name}`, `fabric-desktop://workspaces/{id}/items`, `fabric-desktop://lakehouses/{workspace}/{lakehouse}/tables/{table}/schema` and the metadata project. Resources are paged and size-limited, carry schemas only (rows need `READ_DATA` and go through a tool), and pass through the same `invoke`. MCP prompts carry the reusable workflow templates from the agent instructions (PR-AI-009).
+MCP resources give context without moving data. A read-only capability that doesn't ask for approval can also be a resource: its registry entry carries a `fabric-desktop://` URI template, and reading the URI is the same `invoke` as calling the tool, with the same permission check. Paging and options go in the query, for example `fabric-desktop://notebooks?offset=100&limit=50`. Resources with no placeholders are listed by `resources/list`; the others by `resources/templates/list`. Over the local API they are at `GET /api/v1/resources` and `GET /api/v1/resources/read?uri=...`.
+
+| URI | What |
+| --- | --- |
+| `fabric-desktop://status` | Version, sign-in, how this client is connected |
+| `fabric-desktop://capabilities` | Every capability with schemas and availability |
+| `fabric-desktop://projects`, `.../projects/{id}`, `.../projects/metadata/validation` | Notebooks folder and metadata project |
+| `fabric-desktop://workspaces`, `.../workspaces/{workspace_id}/items`, `.../items/{item_id}` | Fabric workspaces and items |
+| `fabric-desktop://workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables`, `.../tables/{table}/schema` | Tables and their columns |
+| `fabric-desktop://notebooks`, `.../notebooks/{name}` | Notebooks and their cells (secrets removed, no outputs) |
+| `fabric-desktop://notebooks/{name}/validation`, `/dependencies`, `/environment`, `/proof-plan` | Checks that run no code |
+| `fabric-desktop://proofs`, `.../proofs/{id}`, `fabric-desktop://receipts`, `.../receipts/{id}`, `fabric-desktop://side-by-side`, `.../side-by-side/{id}` | Prove this notebook, without cell outputs or example rows |
+
+Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go through a tool. Results are size-limited (1 MB) and every string in every result passes through secret redaction. MCP prompts carry the reusable workflow templates from the agent instructions (PR-AI-009).
 
 ## 8. Extensions
 

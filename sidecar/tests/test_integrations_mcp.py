@@ -116,7 +116,7 @@ def test_resources_list_and_read():
     async def go():
         async with connect(build_server(registry())) as c:
             uris = {str(r.uri) for r in (await c.list_resources()).resources}
-            assert uris == {"fabric-desktop://status", "fabric-desktop://capabilities"}
+            assert {"fabric-desktop://status", "fabric-desktop://capabilities", "fabric-desktop://notebooks"} <= uris
             body = await c.read_resource("fabric-desktop://capabilities")
             assert json.loads(body.contents[0].text)["capabilities"]
     run(go)

@@ -11,6 +11,10 @@ the arguments, asks the authorizer (permissions, approvals: PR-AI-005), runs the
 timeout and hands back the result or an IntegrationError. Every transport calls it; none calls a
 service directly, so a check here can't be skipped by choosing another route.
 
+A read-only capability can also be a resource: ``resource`` is a ``fabric-desktop://`` URI
+template whose ``{placeholders}`` are its arguments (RFC 6570 level 1). ``resolve`` turns a URI
+back into the capability and its arguments, so reading a resource is the same ``invoke``.
+
 Extensions add capabilities with ``register(..., source="<extension id>")`` and take them away
 with ``unregister_source``. A capability can never be registered without an explicit permission
 category, and an extension can't replace a core capability.
@@ -24,7 +28,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Protocol
 
-from .core import CallContext, IntegrationError, run_call, validate
+from urllib.parse import quote, unquote
+
+from .core import CallContext, IntegrationError, redact_result, run_call, validate
 
 # Permission categories, from least to most trust. Each capability needs exactly one.
 PERMISSIONS = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE", "WRITE_ONELAKE",
@@ -45,6 +51,9 @@ LOCATIONS = ("this_pc", "fabric")
 STATUSES = ("available", "preview", "unavailable")
 ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 SOURCE_PATTERN = re.compile(r"^[a-z][a-z0-9_.\-]{1,63}$")
+URI_SCHEME = "fabric-desktop://"
+_PLACEHOLDER = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
+MAX_URI = 2000
 
 Handler = Callable[..., Any]
 
@@ -74,6 +83,15 @@ class Capability:
     # Answered for any caller while integrations are on, connected or not (the capability list,
     # so a tool that isn't connected yet can see why nothing else is available).
     public: bool = False
+    # A fabric-desktop:// URI template that also serves this capability as an MCP resource.
+    resource: str = ""
+
+    @property
+    def resource_params(self) -> list[str]:
+        return _PLACEHOLDER.findall(self.resource)
+
+    def resource_uri(self, **params: str) -> str:
+        return _PLACEHOLDER.sub(lambda m: quote(str(params[m.group(1)]), safe=""), self.resource)
 
     def describe(self) -> dict[str, Any]:
         """The capability as a client sees it."""
@@ -82,7 +100,8 @@ class Capability:
                 "permission": self.permission, "read_only": self.read_only, "destructive": self.destructive,
                 "approval": self.approval, "locations": list(self.locations), "artifact_types": list(self.artifact_types),
                 "status": self.status, "reason": self.reason, "limitations": list(self.limitations),
-                "version": self.version, "source": self.source, "timeout_seconds": self.timeout, "public": self.public}
+                "version": self.version, "source": self.source, "timeout_seconds": self.timeout, "public": self.public,
+                "resource": self.resource or None}
 
 
 class Authorizer(Protocol):
@@ -157,7 +176,14 @@ class Registry:
             raise ValueError(f"{cap.id}: timeout must be between 0 and 3600 seconds")
         _check_schema(cap.input_schema, "input_schema", cap.id)
         _check_schema(cap.output_schema, "output_schema", cap.id)
+        if cap.resource:
+            _check_resource(cap)
         with self._lock:
+            if cap.resource:
+                clash = next((c for c in self._caps.values() if c.id != cap.id and _pattern(c.resource) is not None
+                              and _shape(c.resource) == _shape(cap.resource)), None)
+                if clash is not None:
+                    raise ValueError(f"{cap.id}: resource {cap.resource} is the same as {clash.id}'s")
             existing = self._caps.get(cap.id)
             if existing is not None:
                 if existing.source == "core" and cap.source != "core":
@@ -231,6 +257,28 @@ class Registry:
             out.append(cap.describe() | {"status": status, "reason": reason})
         return out
 
+    def resources(self) -> list[Capability]:
+        """Capabilities that are also resources."""
+        return [c for c in self.all() if c.resource]
+
+    def resolve(self, uri: str) -> tuple[Capability, dict[str, Any]]:
+        """The capability a resource URI names and the arguments it carries. Raises not_found."""
+        if len(uri) <= MAX_URI and uri.startswith(URI_SCHEME):
+            path, _, query = uri.partition("?")
+            for cap in self.resources():
+                m = _pattern(cap.resource).fullmatch(path)  # type: ignore[union-attr]
+                if m is not None:
+                    args: dict[str, Any] = {k: unquote(v) for k, v in m.groupdict().items()}
+                    for part in filter(None, query.split("&")):  # paging and options: ?offset=100&limit=50
+                        key, _, value = part.partition("=")
+                        prop = cap.input_schema.get("properties", {}).get(unquote(key))
+                        if prop is None or unquote(key) in args:
+                            raise IntegrationError("invalid_input", f"{unquote(key)!r} isn't an option of {uri.split('?')[0]}.")
+                        args[unquote(key)] = _query_value(unquote(value), prop)
+                    return cap, args
+        raise IntegrationError("not_found", f"There is no resource {uri[:200]}.",
+                               hint="List resources and resource templates to see what can be read.")
+
     # ---- calling
 
     def invoke(self, service: Any, cap_id: str, arguments: dict[str, Any] | None, ctx: CallContext) -> Any:
@@ -250,7 +298,52 @@ class Registry:
         started = time.monotonic()
         result = run_call(lambda: cap.handler(service, ctx, **args), ctx)
         ctx.seconds = round(time.monotonic() - started, 3)
-        return result
+        return redact_result(result)
+
+
+def _shape(template: str) -> str:
+    return _PLACEHOLDER.sub("{}", template)
+
+
+def _pattern(template: str) -> re.Pattern[str] | None:
+    if not template:
+        return None
+    parts = _PLACEHOLDER.split(template)
+    regex = "".join(re.escape(p) if i % 2 == 0 else f"(?P<{p}>[^/?#]+)" for i, p in enumerate(parts))
+    return re.compile(regex)
+
+
+def _check_resource(cap: Capability) -> None:
+    if not cap.read_only or cap.approval != "never":
+        raise ValueError(f"{cap.id}: only read-only capabilities that don't ask can be resources")
+    if not cap.resource.startswith(URI_SCHEME) or any(c in cap.resource for c in " ?#"):
+        raise ValueError(f"{cap.id}: resource must be a {URI_SCHEME} URI template with no query")
+    props = cap.input_schema.get("properties", {})
+    required = set(cap.input_schema.get("required", []))
+    params = cap.resource_params
+    if len(set(params)) != len(params):
+        raise ValueError(f"{cap.id}: resource repeats a placeholder")
+    missing = [p for p in params if p not in props]
+    if missing:
+        raise ValueError(f"{cap.id}: resource placeholder {', '.join(missing)} isn't an input")
+    if required - set(params):
+        raise ValueError(f"{cap.id}: required inputs {', '.join(sorted(required - set(params)))} must be in the resource URI")
+
+
+def _query_value(value: str, prop: dict[str, Any]) -> Any:
+    kind = prop.get("type")
+    try:
+        if kind == "integer":
+            return int(value)
+        if kind == "number":
+            return float(value)
+    except ValueError:
+        raise IntegrationError("invalid_input", f"{value!r} isn't a number.") from None
+    if kind == "boolean":
+        if value not in ("true", "false"):
+            raise IntegrationError("invalid_input", f"{value!r} isn't true or false.")
+        return value == "true"
+    return value
 
 
 def schema(properties: dict[str, Any] | None = None, required: Iterable[str] = (), *, extra: bool = False) -> dict[str, Any]:

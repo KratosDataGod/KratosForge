@@ -14,8 +14,8 @@ Built in the requested order, with one change: the capability registry (003) com
 | 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100) | Draft PR; 24 tests |
 | 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
 | 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
-| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | (this PR) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
-| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | | Planned |
+| 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
+| 006 | Project context and metadata resources | P1 | PARTIAL | 005 | (this PR) | Draft PR; 23 tests |
 | 007 | External execution interface | P1 | PARTIAL | 005 | | Planned |
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
@@ -60,6 +60,8 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** The services exist (catalog, tables, columns, notebooks, metadata project, Prove plans) but return everything at once and include data in previews.
 - **Plan.** MCP resources and resource templates with stable `fabric-desktop://` URIs, paging, size limits, schema-only by default, redaction of secrets in notebook text.
+- **Built.** A `resource` URI template on registry entries (checked when registered: read-only, no approval, every required input in the URI, no two alike), `Registry.resolve`, MCP `resources/list`, `resources/templates/list` and `resources/read` generated from it, REST `/api/v1/resources`. 22 resources. Nine Prove capabilities (notebook dependencies, environment, proof plan; proofs, receipts, side-by-side runs, list and get) that leave out cell outputs and example rows. Every result now passes through secret redaction in `invoke`, not only errors.
+- **Limitations.** `side_by_side_writes` (PR #81) is added once that merges. Resource subscriptions and change notifications are not offered. A receipt read through a tool always hides example rows, even for a tool with `READ_DATA`.
 
 ### PR-AI-007: External execution interface
 

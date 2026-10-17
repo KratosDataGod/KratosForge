@@ -12,6 +12,10 @@ on:
 jobs:
   promote:
     runs-on: ubuntu-latest
+    # Waits for a Preview publish in progress, so it never copies a half-replaced release.
+    concurrency:
+      group: release-assets
+      cancel-in-progress: false
     permissions:
       contents: write
     steps:

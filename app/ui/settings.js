@@ -6,7 +6,7 @@ const SOURCE_TEXT = {
   policy: "Set by your organization",
   environment: "Set on this PC (FABRIC_DESKTOP_CLIENT_ID)",
   user: "Set by you",
-  built_in: "Comes with Fabric Desktop",
+  built_in: "Comes with Fabric Desktop by KratosBI",
   default: "Default",
 };
 // Shown under the app ID when nothing set one.
@@ -49,7 +49,7 @@ function openLink(url) {
 // ---------- sign-out ----------
 
 async function signOut() {
-  if (!(await confirmDialog("Sign out?", "Fabric Desktop forgets your sign-in on this PC, in the app and in the Fabric views. " +
+  if (!(await confirmDialog("Sign out?", "Fabric Desktop by KratosBI forgets your sign-in on this PC, in the app and in the Fabric views. " +
     "Scheduled runs on this PC wait until someone signs in again. Notebooks and settings stay.", "Sign out"))) return;
   await attempt(() => rpc("sign_out"), "Sign-out failed");
   await invoke("fabric_view_sign_out").catch(() => {});
@@ -69,7 +69,7 @@ function accountMenu(anchor) {
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
     { label: "What's new", icon: "rocket", action: () => showWhatsNew(true) },
-    { info: `Fabric Desktop build ${state.build || "unknown"} · ${channelLabel()}` },
+    { info: `Fabric Desktop by KratosBI build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
   showMenu(anchor, items);
@@ -84,7 +84,7 @@ function channelLabel() {
 function diagnostics() {
   const errors = activity.items.filter((i) => i.status === "error" || i.status === "failed").slice(0, 10);
   return [
-    `Fabric Desktop build: ${state.build || "unknown"} (${channelLabel()})`,
+    `Fabric Desktop by KratosBI build: ${state.build || "unknown"} (${channelLabel()})`,
     `Engine Python: ${state.python || "unknown"}`,
     `Tenant: ${state.tenant || "not signed in"}`,
     `Page: ${state.view}`,
@@ -105,7 +105,7 @@ function reportProblem() {
     if (support.startsWith("mailto:")) {
       // Mail apps cap a link's length; the full text is also on the clipboard.
       await copyText(text, "Report");
-      openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("Fabric Desktop problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
+      openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("Fabric Desktop by KratosBI problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
     } else {
       await copyText(text, "Report");
       openLink(support || "https://github.com/KratosDataGod/fabric-desktop/issues/new");
@@ -133,7 +133,7 @@ function showWhatsNew(asked = false) {
   if (!asked && (!notes || !state.commit || seen === state.commit)) return;
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
   const lines = String(notes || "").split(/\r?\n/).map((l) => l.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
-  showDialog("What's new in Fabric Desktop", h("div", { class: "setup" },
+  showDialog("What's new in Fabric Desktop by KratosBI", h("div", { class: "setup" },
     lines.length ? h("ul", { class: "whatsnew" }, lines.map((l) => h("li", {}, l)))
       : h("p", {}, "No notes for this build."),
     h("p", { class: "muted-text small" }, `Build ${state.build || "unknown"} · ${channelLabel()}. `, learnMore("updates", "About updates"))),
@@ -168,14 +168,14 @@ async function renderSettings() {
       state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
-    settingRow("App (client) ID", "Leave it empty: Fabric Desktop signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
+    settingRow("App (client) ID", "Leave it empty: Fabric Desktop by KratosBI signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
       h("div", { class: "row" }, idInput,
         locked("client_id") ? null : btn("Save", null, async () => {
           if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
         }, "tool outline")),
       s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
     s.client_id.source !== "default" ? settingRow("Admin approval",
-      "If sign-in says your organization needs to approve Fabric Desktop, send this link to a Microsoft Entra admin. They open it once for everyone.",
+      "If sign-in says your organization needs to approve Fabric Desktop by KratosBI, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
         if (!(await copyText(adminConsentUrl(), "Link"))) toast(adminConsentUrl());
       }, "tool outline")) : null);
@@ -183,10 +183,10 @@ async function renderSettings() {
   // Updates
   const channel = (value, label, help) => h("label", { class: `choice-row${s.channel.value === value ? " selected" : ""}` },
     h("input", { type: "radio", name: "channel", value, checked: s.channel.value === value ? true : null, disabled: locked("channel") ? true : null,
-      onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time Fabric Desktop starts`); render(); } } }),
+      onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time Fabric Desktop by KratosBI starts`); render(); } } }),
     h("span", {}, h("b", {}, label), h("span", { class: "muted-text small" }, help)));
   const updates = h("section", { class: "card pad" }, h("h2", {}, "Updates"),
-    h("p", { class: "muted-text small" }, "Fabric Desktop checks for an update each time it starts and installs it before opening. ",
+    h("p", { class: "muted-text small" }, "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
       `This is build ${state.build || "unknown"}. `, learnMore("updates")),
     h("div", { class: "choices" },
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
@@ -200,7 +200,13 @@ async function renderSettings() {
       `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.values(PREVIEW_FEATURES).join(", ")}.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
-      s.show_preview.source === "policy" ? "policy" : null));
+      s.show_preview.source === "policy" ? "policy" : null),
+    s.kernel_process ? settingRow("Run notebooks in their own process (Preview)",
+      "Cells run in a Python process of their own instead of inside the app's engine. Stop and a crash then end only that process, and the rest of the app keeps working. Variables are cleared when you switch.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: s.kernel_process.value ? true : null, disabled: locked("kernel_process") ? true : null,
+        onchange: async (e) => { await saveSettings({ kernel_process: e.target.checked }); render(); } }),
+      h("span", {}, s.kernel_process.value ? "On" : "Off")),
+      s.kernel_process.source === "policy" ? "policy" : null) : null);
 
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
@@ -220,7 +226,7 @@ async function renderSettings() {
 
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "How Fabric Desktop signs in, updates and talks to you. ", learnMore("settings")))),
+      h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
     account, updates, previews, notify, about));
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
@@ -242,7 +248,7 @@ function getStarted(project, notebookCount) {
     [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
-    [false, "Set up a metadata project", "Describe your medallion tables once and let Fabric Desktop build and run them.", () => go("metadata")],
+    [false, "Set up a metadata project", "Describe your medallion tables once and let Fabric Desktop by KratosBI build and run them.", () => go("metadata")],
   ];
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),

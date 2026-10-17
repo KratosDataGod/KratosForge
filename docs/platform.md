@@ -1,6 +1,6 @@
 # The platform
 
-The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop creates it for you, in Fabric, from **Platform > Settings** (also in **Settings > Platform**), and the **Platform** page is where the central team runs it and every other team asks for what it needs.
+The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop by KratosBI creates it for you, in Fabric, from **Platform > Settings** (also in **Settings > Platform**), and the **Platform** page is where the central team runs it and every other team asks for what it needs.
 
 !!! note "Preview"
     The platform is built to Fabric's documented APIs but hasn't been tried on a live tenant yet. Create it in a test tenant or a non-production capacity first. See [What isn't proven yet](#what-isnt-proven-yet).
@@ -12,7 +12,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 | Item | Type | What it's for |
 | --- | --- | --- |
 | `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
-| `UDF_Platform` | User data functions | The platform's API. Fabric Desktop, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
+| `UDF_Platform` | User data functions | The platform's API. Fabric Desktop by KratosBI, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
 | `LH_Landing` | Lakehouse | The one landing zone: raw files from every source system, in `Files/<source>/<entity>/`. Teams read it; they don't copy it |
 | `LH_Meta` | Lakehouse | Run history from every project |
 | `VL_Platform` | Variable library | The ids of these items, so a notebook can find them |
@@ -33,7 +33,7 @@ If the step **Platform tables** fails because `UDF_Platform` has no connection t
 
 ## Join it from other PCs
 
-Everyone else chooses **Join existing** next to each environment and picks the Platform workspace. Fabric Desktop finds the items by name.
+Everyone else chooses **Join existing** next to each environment and picks the Platform workspace. Fabric Desktop by KratosBI finds the items by name.
 
 IT can skip that step for everyone: add the platform to the [organization settings file](azure-setup.md) (`policy.json`), and every PC uses it without anyone choosing:
 
@@ -115,7 +115,7 @@ Key tables are the platform's, not a project's. Only platform admins create one 
 
 ## Moving surrogate keys into the platform
 
-Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Data mesh > Design > Surrogate keys**, choose **Move keys** for Test or Prod. Fabric Desktop:
+Projects that already issue keys in `LH_Keys` keep them there until you move them. On **Data mesh > Design > Surrogate keys**, choose **Move keys** for Test or Prod. Fabric Desktop by KratosBI:
 
 1. Copies every key into `SQL_Platform` with the **same number**. A business key that already has a different number in the platform stops the move; nothing is renumbered.
 2. Reads the copy back and compares it, row by row, with `LH_Keys`.

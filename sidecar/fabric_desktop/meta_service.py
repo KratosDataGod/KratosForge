@@ -140,7 +140,7 @@ class MetaMixin:
             for name, space in where.items():
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
-                        space, name, "Managed by Fabric Desktop's metadata framework")["id"]
+                        space, name, "Managed by Fabric Desktop by KratosBI's metadata framework")["id"]
         # The organization's landing zone is the platform's, never created here.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
@@ -171,7 +171,7 @@ class MetaMixin:
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
             existing[keys_mod.KEYS_LAKEHOUSE] = fabric.create_lakehouse(
-                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop")["id"]
+                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop by KratosBI")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
 
@@ -241,7 +241,7 @@ class MetaMixin:
         if not name:
             raise ValueError("Give the workspace a name.")
         ws = self.fabric.create_workspace(  # type: ignore[attr-defined]
-            name, capacity_id, f"{env.title()} environment, managed by Fabric Desktop's metadata framework")
+            name, capacity_id, f"{env.title()} environment, managed by Fabric Desktop by KratosBI's metadata framework")
         return self.meta_set_environment(env, ws["id"], ws.get("displayName") or name) | {
             "created": {"id": ws["id"], "displayName": ws.get("displayName") or name}}
 

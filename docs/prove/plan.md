@@ -1,6 +1,6 @@
 # Prove this notebook: program plan and backlog
 
-This is the delivery plan for making notebook creation, local and Fabric execution, comparison and value measurement the defining experience of Fabric Desktop. It tracks all 100 capabilities Chris listed on 2026-10-16, what exists today, and the order they will be built in. The live state of work (branches, PRs, what is next) is in [continuation.md](continuation.md).
+This is the delivery plan for making notebook creation, local and Fabric execution, comparison and value measurement the defining experience of Fabric Desktop by KratosBI. It tracks all 100 capabilities Chris listed on 2026-10-16, what exists today, and the order they will be built in. The live state of work (branches, PRs, what is next) is in [continuation.md](continuation.md).
 
 A sister plan, owned by the "Staged roadmap for ten capabilities" work, covers large-table execution, guided ingestion, Git and release workflow, Fabric pipeline handoff, remote agent control, cross-project lineage and always-on monitoring. Items here that build on that work are marked **Dep: roadmap** and are not duplicated. Its plan lives in its own file in this repository once that work lands; this file links to it then.
 
@@ -27,7 +27,7 @@ Checked by reading the code and running the engine's tests (322 passed, 2 skippe
 ### Dependencies and environment
 
 - The engine ships pinned packages (`sidecar/constraints.txt`): DuckDB, Polars, deltalake, pyarrow, sqlglot, matplotlib and their dependencies. `%pip` in a cell is skipped on the PC with a note.
-- Fabric Python notebooks offer Python 3.10, 3.11 and 3.12 (3.12 is Fabric's default) and come with DuckDB, Polars and delta-rs preinstalled; Microsoft doesn't publish package versions, and [Environments aren't available for Python notebooks](https://learn.microsoft.com/en-us/fabric/data-engineering/using-python-experience-on-notebook). Fabric Desktop publishes Python notebooks with the `python3.11` kernel.
+- Fabric Python notebooks offer Python 3.10, 3.11 and 3.12 (3.12 is Fabric's default) and come with DuckDB, Polars and delta-rs preinstalled; Microsoft doesn't publish package versions, and [Environments aren't available for Python notebooks](https://learn.microsoft.com/en-us/fabric/data-engineering/using-python-experience-on-notebook). Fabric Desktop by KratosBI publishes Python notebooks with the `python3.11` kernel.
 - Nothing records which package versions a run used, on either side.
 
 ### Local versus Fabric execution contract

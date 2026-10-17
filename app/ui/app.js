@@ -284,7 +284,7 @@ async function renderHome() {
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
   setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop"),
+    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
     summary,
     signInCallout(),
     attention,
@@ -460,7 +460,7 @@ async function renderMonitor() {
   setView(h("div", { class: `page monitor${monitorPage.showFabric ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
-        h("h2", {}, "From Fabric Desktop"),
+        h("h2", {}, "From Fabric Desktop by KratosBI"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
           h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
           preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
@@ -2151,7 +2151,7 @@ async function checkComponents(afterInstall = false) {
   const dialog = h("div", { class: "overlay" },
     h("div", { class: "dialog", role: "dialog", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
-      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop"), row("python", "Python"), row("sidecar", "Local engine")),
+      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));
   let dialogShown = false;
   function show() {
@@ -2181,7 +2181,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop by KratosBI needs Python 3.11 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2234,7 +2234,7 @@ async function checkComponents(afterInstall = false) {
     if (afterInstall && report.bundled) {
       // The engine just installed is still not this build's: the exe update above failed.
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
-        `but this app is ${short(app.commit)}. Restart Fabric Desktop to update it.`);
+        `but this app is ${short(app.commit)}. Restart Fabric Desktop by KratosBI to update it.`);
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }

@@ -1,12 +1,12 @@
 # Architecture
 
-![Fabric Desktop architecture](architecture.svg)
+![Fabric Desktop by KratosBI architecture](architecture.svg)
 
-Fabric Desktop does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they use no Fabric capacity.
+Fabric Desktop by KratosBI does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they use no Fabric capacity.
 
 ## The pieces
 
-### Fabric Desktop app (`app/`)
+### Fabric Desktop by KratosBI app (`app/`)
 
 `fabric-desktop.exe` is a [Tauri 2](https://v2.tauri.app/) shell written in Rust. It holds two WebView2 views and starts the local engine.
 

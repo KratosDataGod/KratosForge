@@ -37,6 +37,7 @@ async function runSideBySide() {
   }
   if (!(await ensureSignedIn())) return;
   const run = await attempt(() => rpc("side_by_side_start", notebookPayload()), "Could not start the side-by-side run");
+  if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;
   nb.dirty = false;
   nb.sbs = run;

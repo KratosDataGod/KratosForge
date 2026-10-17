@@ -18,7 +18,7 @@ from .audit import AuditLog
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql, sql_dialects, sql_format
+from . import app_settings, lakehouse, sql, sql_dialects, sql_format, sqlcompat
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -462,6 +462,36 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
     def sql_format(self, query: str, dialect: str = "spark") -> dict[str, Any]:
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
+
+    def sql_analyze(self, query: str, target: str = "spark") -> dict[str, Any]:
+        """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
+        return sqlcompat.analyze(query, target)
+
+    def sql_compat_profiles(self) -> dict[str, Any]:
+        """What each engine supports, the rule set's version and the rules, for the panel and the docs."""
+        return {"rule_version": sqlcompat.RULE_VERSION, "profiles": sqlcompat.profiles(),
+                "rules": [{"id": r.id, "category": r.category, "targets": list(r.targets), "confidence": r.confidence,
+                           "severity": r.severity} for r in sqlcompat.RULES.values()]}
+
+    def sql_compat_export(self, query: str, target: str = "spark", name: str = "") -> dict[str, Any]:
+        """Write the compatibility report, with the SQL it is about, as JSON in the Downloads folder.
+
+        Never replaces a file: a name that is taken gets a number."""
+        report = sqlcompat.analyze(query, target)
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        stem = "".join(ch for ch in (name or "SQL") if ch.isalnum() or ch in " -_").strip()[:60] or "SQL"
+        base = f"{stem} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
+        text = sqlcompat.report_json(report, query)
+        for n in range(1, 1000):
+            path = folder / (f"{base}.json" if n == 1 else f"{base} ({n}).json")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(text)
+            except FileExistsError:
+                continue
+            return {"path": str(path), "outcome": report["outcome"]["status"], "counts": report["counts"]}
+        raise ValueError("Couldn't find a free file name in Downloads for the report.")
 
     def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark",
                 sandbox: bool = False) -> dict[str, Any]:

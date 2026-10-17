@@ -1206,6 +1206,7 @@ function renderLakehouse() {
 
 // SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
 const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
+const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
 const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
 
 function openSqlQuery(ref) {
@@ -1286,8 +1287,32 @@ function renderQuery() {
       save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
       format: () => formatSql(),
     },
+    check: (text, dialect) => checkSql(text, dialect),
   });
   const insertAtCursor = (text) => editor.insert(text);
+
+  // SQL-002: the compatibility check, run by the editor shortly after typing stops. It reads the SQL
+  // with the chosen engine's documented rules; nothing runs and nothing is sent to Fabric.
+  async function checkSql(text, dialect) {
+    tab.compatLong = text.length > SQL_AUTO_CHECK_LIMIT && !tab.checkLong;
+    if (!text.trim() || tab.running || tab.compatLong) {
+      if (!text.trim()) tab.compat = null;
+      if (here()) drawCompat();
+      return null;
+    }
+    tab.checkLong = false;
+    let report;
+    try {
+      report = await rpc("sql_analyze", { query: text, target: dialect });
+    } catch (err) {
+      report = { failed: String(err).replace(/^Error: /, "") };
+    }
+    if (!here() || editor.text() !== text) return null;
+    tab.compat = report;
+    tab.compatText = text;
+    drawCompat();
+    return report.failed ? null : report;
+  }
 
   async function run(query = editor.chosen()) {
     if (!query.trim() || tab.running) return;
@@ -1307,7 +1332,19 @@ function renderQuery() {
       tab.error = String(err);
     }
     tab.running = false;
-    if (here()) drawResults();
+    tab.ranNotice = tab.result ? localNotice(query) : "";
+    if (here()) { drawResults(); editor.recheck(); }
+  }
+
+  // After a run on this PC: say when the check found differences from Fabric, without blocking the run.
+  function localNotice(query) {
+    const r = tab.compat;
+    if (!r?.diagnostics || tab.compatText === undefined || !tab.compatText.includes(query.trim())) return "";
+    const local = r.diagnostics.filter((d) => d.category === "local" && d.rule !== "LOC-008").length;
+    const engine = tab.dialect === "duckdb" ? "No Fabric engine runs DuckDB SQL as written"
+      : `${local} finding${local === 1 ? "" : "s"} say Fabric Spark may give different results`;
+    if (tab.dialect !== "duckdb" && !local) return "";
+    return `Ran on this PC with DuckDB, not in Fabric. ${engine}; see Compatibility. A warning doesn't mean the query is wrong.`;
   }
 
   // Format the selection, or everything. The engine leaves the SQL alone and says why when it can't keep its meaning.
@@ -1435,11 +1472,12 @@ function renderQuery() {
       msg = `${r.row_count.toLocaleString()} row${r.row_count === 1 ? "" : "s"} · ${r.seconds} s on this PC`;
       if (r.rows.length < r.row_count) msg += ` · showing the first ${r.rows.length.toLocaleString()}`;
     }
-    band.replaceChildren(h("span", { style: "font-weight:600" }, "Results"),
+    band.replaceChildren(...[h("span", { style: "font-weight:600" }, "Results"),
       h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text" }, tab.error ? "" : msg),
+      tab.ranNotice && r && !tab.running ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
       h("span", { class: "spacer" }),
       btn("Copy", null, copyRows, "tool small", { disabled: !r }),
-      btn("Download CSV", null, downloadCsv, "tool small", { disabled: !r }));
+      btn("Download CSV", null, downloadCsv, "tool small", { disabled: !r })].filter(Boolean));
     if (tab.error) {
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
@@ -1472,7 +1510,7 @@ function renderQuery() {
     h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
 
   const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
-    title: "The SQL you are writing. It sets highlighting, suggestions and formatting; only Spark SQL and DuckDB run on this PC.",
+    title: "The SQL you are writing and the engine it's checked against. It sets highlighting, suggestions, formatting and the compatibility check; only Spark SQL and DuckDB run on this PC.",
     onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
   Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
   const actions = h("div", { class: "sql-actions" });
@@ -1490,6 +1528,65 @@ function renderQuery() {
   }
   drawActions();
 
+  // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
+  const compat = h("aside", { class: "sql-compat", "aria-label": "Compatibility" });
+  const compatBody = h("div", { class: "sql-compat-body" });
+  compat.append(compatBody);
+  async function exportCompat() {
+    const out = await attempt(() => rpc("sql_compat_export", { query: editor.text(), target: tab.dialect, name: tab.name }),
+      "Could not export the report");
+    if (out) toast(`Saved the compatibility report to ${out.path}`);
+  }
+  function drawCompat() {
+    const r = tab.compat;
+    const label = SQL_DIALECTS[tab.dialect].label;
+    const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Compatibility"), previewShown() ? previewTag() : null,
+      btn("Export JSON", null, exportCompat, "tool outline small", { disabled: !r || !!r.failed || !editor.text().trim(),
+        title: "Save this report, with the SQL it checked, as a JSON file in Downloads" }));
+    if (tab.compatLong) {
+      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
+        `This query is long (${editor.text().length.toLocaleString()} characters), so it's checked when you ask.`),
+      btn("Check now", null, () => { tab.checkLong = true; editor.recheck(); }, "tool outline small"));
+      return;
+    }
+    if (!r) {
+      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
+        `Write SQL to check it against ${label}. Nothing runs and nothing is sent to Fabric.`));
+      return;
+    }
+    if (r.failed) {
+      compatBody.replaceChildren(head, h("p", { class: "output error" }, `Could not check the SQL: ${r.failed}`));
+      return;
+    }
+    const c = r.counts;
+    const chip = (n, one, many, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${n === 1 ? one : many}`);
+    const list = r.diagnostics.map((d) => h("button", { class: `sql-finding ${d.severity}`,
+      title: `${d.message} ${d.action}`,
+      onclick: () => {
+        const text = editor.text();
+        if (text === tab.compatText) editor.reveal(sqlUtf16Offset(text, d.from), sqlUtf16Offset(text, d.to));
+        tab.compatPicked = d;
+        drawCompat();
+      } },
+    h("b", {}, SQL_SEVERITY_LABEL[d.severity]), ` · Ln ${d.line} · ${d.title}`));
+    const picked = tab.compatPicked && r.diagnostics.includes(tab.compatPicked) ? tab.compatPicked : null;
+    compatBody.replaceChildren(...[head,
+      h("div", { class: "muted-text" }, `${label} · rules ${r.rule_version} · ${r.statements.toLocaleString()} statement${r.statements === 1 ? "" : "s"}`),
+      h("div", { class: "sql-chips" }, chip(c.error, "error", "errors", "error"), chip(c.warning, "warning", "warnings", "warning"),
+        chip(c.information, "note", "notes", "information"), chip(c.unverified, "unverified", "unverified", "unverified")),
+      h("div", { class: `sql-outcome ${r.outcome.status}`, role: "status" }, r.outcome.text),
+      picked ? h("div", { class: "sql-finding-detail" },
+        h("b", {}, `${picked.rule} · ${picked.title}`), h("div", {}, picked.message), h("div", {}, picked.action),
+        h("div", { class: "muted-text" }, `Confidence: ${picked.confidence} · `,
+          h("a", { href: "#", onclick: (e) => { e.preventDefault(); attempt(() => invoke("open_link", { url: picked.doc }), "Could not open the link"); } },
+            "Source"))) : null,
+      list.length ? h("div", { class: "sql-findings" }, list) : null,
+      r.truncated ? h("p", { class: "muted-text" }, `Showing the first ${r.diagnostics.length.toLocaleString()} findings; the counts include all of them.`) : null,
+      h("p", { class: "muted-text sql-compat-note" }, "Static check: the SQL was read, not run. No findings isn't proof it runs in Fabric.")]
+      .filter(Boolean));
+  }
+  drawCompat();
+
   const edit = h("div", { class: "sql-edit" });
   edit.append(editor.view.dom);
   setView(h("div", { class: "sql-page" },
@@ -1505,7 +1602,7 @@ function renderQuery() {
           h("span", { class: "label" }, ref.name)),
         tablesBox),
       h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, edit, band, grid)))));
+        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid)))));
   drawResults();
   drawTables();
   if (tab.autorun) { delete tab.autorun; run(tab.sql); }

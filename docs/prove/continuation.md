@@ -16,6 +16,7 @@ Last updated: 2026-10-16.
 | 5 Notebook state | `claude/prove-stage5-state` | #68 | Merged |
 | FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Open for review |
 | FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | see GitHub | Open for review; independent of #81 |
+| FD-110 Notebook cell time and memory limits | `claude/prove-kernel-limits` | see GitHub | Draft until Chris reacts to mockup board 7 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 

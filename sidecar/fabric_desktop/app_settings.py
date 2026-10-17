@@ -22,6 +22,10 @@ Keys:
     show_preview     true to show features still in preview (default true)
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
+    cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
+                     0 (default) for no limit
+    kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
+                     it's ended; 0 (default) for no limit
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -39,8 +43,10 @@ from .auth import MICROSOFT_CLIENT_ID
 
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
-                            "platform": {}, "kernel_process": False}
-USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
+                            "platform": {}, "kernel_process": False,
+                            "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0}
+USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "cell_time_limit_minutes", "kernel_memory_limit_gb")
+LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
 
@@ -126,6 +132,8 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
         if key in ("show_preview", "kernel_process"):
             new = bool(new)
+        if key in LIMITS:
+            new = _limit(key, new)
         if new in (None, ""):
             user.pop(key, None)
         else:
@@ -134,3 +142,14 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(user, indent=2), encoding="utf-8")
     return load()
+
+
+def _limit(key: str, new: Any) -> float | None:
+    """A limit setting: a number from 0 (no limit, not stored) to LIMITS[key]."""
+    try:
+        n = float(new or 0)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number") from None
+    if not 0 <= n <= LIMITS[key]:
+        raise ValueError(f"{key} must be between 0 and {LIMITS[key]}")
+    return n or None

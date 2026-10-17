@@ -1041,6 +1041,9 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .ag-overlap b { color: #6b4100; }
 .ag-overlap ul { margin: 4px 0; padding-left: 18px; }
 .ag-overlap p { margin: 4px 0 0; }
+/* Queue (queue.js) */
+.qu-chips { gap: 6px; margin: 8px 0; }
+.qu-group td { background: var(--surface-2, #fafafa); font-size: 12px; font-weight: 600; color: var(--muted); }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }

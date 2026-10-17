@@ -305,7 +305,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: every management action shows environment, identity, target, consequence first; the full preflight reuses Prove's planner. Validation: U, UI. PR: —
 
 **34. Unified queue view** · Missing · Stage 5 · *Dep roadmap (agent queue records)*
-- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: —
+- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: 5C (Monitor > Queue: agents' running and queued work and schedules, this PC's schedules, Fabric jobs this app started and Fabric schedules as last read; no tenant polling)
 
 **35. Supported lifecycle controls** · Enhance · Stage 1
 - Today: run, cancel, enable/disable and run-now exist on separate pages. Enhancement: offered on the workload page only where the adapter supports them for that deployment. Acceptance: no pause/resume where none exists. Validation: U, UI. PR: —
@@ -489,3 +489,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |
 | 2026-10-17 | #125 (2.3B), #127 (2.3C) and #133 (5A) merged. Next: overlap warning, queue view across locations, FD-124. |
 | 2026-10-17 | The roadmap thread agreed four status-record fields: `owner`, `identity`, and each schedule's `entities` (empty = every table) and `when`. Stage 5B builds "Scheduled in two places" on them (item 36). |
+| 2026-10-17 | Stage 5C: Monitor > Queue (item 34), mockup board 9. Read only, no new Fabric calls; agent queued jobs are counts, as the status record has them. |

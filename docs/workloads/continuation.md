@@ -17,6 +17,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | `claude/workload-management-plan-4su03b` | #136 | Status update after #125, #127 and #133 merged | Docs only, ready |
 | `claude/workload-agent-fields-4su03b` | agent fields | `owner`, `identity`, and each schedule's `entities` and `when` in agent status records (agreed with the roadmap thread) | Ready, on #136 |
 | `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
+| `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
 
 ## Completed backlog items
 
@@ -24,7 +25,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Next action: the queue view across locations (item 34), then FD-124 multi-worker. 5B (item 36) compares agent and PC schedules by table, not by time window, and doesn't compare Fabric schedules yet.
+- Next action: FD-124 multi-worker. 5C (item 34) shows an agent's queued jobs as a count (the record doesn't list them) and lists only Fabric work this app started; a run Task Scheduler started on this PC isn't listed while it runs (the run log records it when it finishes). 5B (item 36) compares agent and PC schedules by table, not by time window, and doesn't compare Fabric schedules yet.
 - The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.

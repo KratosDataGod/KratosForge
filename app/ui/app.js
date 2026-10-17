@@ -528,7 +528,7 @@ async function renderMonitor() {
   };
   const note = h("div", { class: "muted-text small" });
   // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
-  const wide = ["workloads", "incidents", "agents"].includes(monitorPage.panel);
+  const wide = ["workloads", "incidents", "agents", "queue"].includes(monitorPage.panel);
   const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
@@ -539,14 +539,16 @@ async function renderMonitor() {
           preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
           preview("incidents", h("button", { class: monitorPage.panel === "incidents" ? "on" : null, onclick: () => { monitorPage.panel = "incidents"; render(); } }, "Incidents")),
           preview("agents", h("button", { class: monitorPage.panel === "agents" ? "on" : null, onclick: () => { monitorPage.panel = "agents"; render(); } }, "Agents")),
+          preview("queue", h("button", { class: monitorPage.panel === "queue" ? "on" : null, onclick: () => { monitorPage.panel = "queue"; render(); } }, "Queue")),
           preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
           preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
         h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
           : monitorPage.panel === "incidents" ? "One record per problem, shared by everyone who can read the environment"
           : monitorPage.panel === "agents" ? "Fabric Desktop by KratosBI on your own servers, from the status they report"
+          : monitorPage.panel === "queue" ? "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it"
           : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : monitorPage.panel === "queue" ? "queue-preview" : "monitor")),
         h("span", { class: "spacer" }),
         wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
@@ -577,6 +579,7 @@ async function renderMonitor() {
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
+  if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
 
   const [writes, meta, cloud, scheduled] = await Promise.all([
     attempt(() => rpc("history")),

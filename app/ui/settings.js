@@ -81,25 +81,43 @@ function channelLabel() {
 
 // ---------- Report a problem ----------
 
+// Takes out what a public issue mustn't carry: tokens, keys, passwords, email addresses, the
+// Windows user name in paths, and tenant, workspace and item ids. The same rules as the engine's
+// redact.py; both are tested against app/tests/redact-cases.json.
+function redactReport(text, level = "support") {
+  const slash = "(?:\\\\\\\\|\\\\|/)+";
+  const out = String(text)
+    .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
+    .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
+    .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+  if (level !== "support") return out;
+  return out
+    .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
+    .replace(new RegExp(`([a-z]:${slash}(?:users|documents and settings)${slash})([^\\\\/"'<>\\r\\n]+)`, "gi"), "$1[user]")
+    .replace(/(\/home\/|\/Users\/)([^\\/\s"'<>]+)/g, "$1[user]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[id]");
+}
+
 function diagnostics() {
   const errors = activity.items.filter((i) => i.status === "error" || i.status === "failed").slice(0, 10);
   return [
     `Fabric Desktop by KratosBI build: ${state.build || "unknown"} (${channelLabel()})`,
     `Engine Python: ${state.python || "unknown"}`,
-    `Tenant: ${state.tenant || "not signed in"}`,
+    `Signed in: ${state.tenant ? "yes" : "no"}`,
     `Page: ${state.view}`,
     `Windows: ${navigator.userAgent}`,
     "",
     errors.length ? "Recent problems (newest first):" : "No recent problems in Activity.",
     ...errors.map((i) => `- ${new Date(i.at).toISOString()} ${i.title}${i.text ? `: ${i.text}` : ""}${i.details ? `\n    ${String(i.details).slice(0, 400).replace(/\n/g, "\n    ")}` : ""}`),
-  ].join("\n");
+  ].map((line) => redactReport(line)).join("\n");
 }
 
 function reportProblem() {
   const what = h("textarea", { rows: 3, placeholder: "What were you doing, and what went wrong?" });
   const info = h("textarea", { rows: 9, class: "mono", readonly: true }, diagnostics());
   const support = state.settings?.support_url?.value || "";
-  const report = () => `${what.value.trim() || "(no description)"}\n\n${info.value}`;
+  const report = () => redactReport(`${what.value.trim() || "(no description)"}\n\n${info.value}`);
   const send = async () => {
     const text = report();
     if (support.startsWith("mailto:")) {
@@ -114,7 +132,7 @@ function reportProblem() {
   };
   showDialog("Report a problem", h("div", { class: "setup" },
     h("label", { class: "field" }, "What happened", what),
-    h("label", { class: "field" }, "Sent with it (no data, file contents or passwords)", info),
+    h("label", { class: "field" }, "Sent with it (no data, file contents, passwords, email addresses or ids)", info),
     h("p", { class: "muted-text small" }, support
       ? "Send copies all of this and opens your organization's support contact. Paste it there if it isn't filled in."
       : "Send copies all of this and opens a new issue on GitHub. Paste it there.")),

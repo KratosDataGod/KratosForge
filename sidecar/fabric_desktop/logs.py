@@ -16,6 +16,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .redact import secrets
+
 
 class JsonFormatter(logging.Formatter):
     def __init__(self, worker: str):
@@ -30,7 +32,8 @@ class JsonFormatter(logging.Formatter):
         line |= getattr(record, "fields", None) or {}
         if record.exc_info:
             line["exception"] = self.formatException(record.exc_info)
-        return json.dumps(line, default=str)
+        # Nothing credential-shaped reaches a log file or a log shipper.
+        return secrets(json.dumps(line, default=str))
 
 
 def setup(worker: str, log_dir: Path | None, level: str = "INFO") -> logging.Logger:

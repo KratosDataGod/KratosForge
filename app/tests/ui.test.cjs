@@ -174,6 +174,14 @@ test("Fabric refusing a name reads as a name problem, not an app crash", () => {
   assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
 });
 
+test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
+  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+});
+
 function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));

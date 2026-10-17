@@ -89,5 +89,5 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 ## Still stuck
 
 1. Open the bell and expand **Details** on the error.
-2. **Report a problem** (account menu). It copies the build, channel, page and recent errors, and opens your organization's support contact or a new GitHub issue.
-3. If you were asked for logs, attach `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. Check it first: it can contain table and workspace names.
+2. **Report a problem** (account menu). It copies the build, channel, page and recent errors, and opens your organization's support contact or a new GitHub issue. Before anything is copied it takes out tokens, keys, passwords, email addresses, your Windows user name in file paths, and tenant, workspace and item ids. Table and workspace names in an error stay, so read it before you send it.
+3. If you were asked for logs, make a **support bundle** instead of sending the raw log. In a terminal where the engine is installed, run `fabric-desktop support-bundle --out %USERPROFILE%\Desktop`. It saves a zip with the app and engine versions, where each setting comes from, and the last 2,000 lines of the engine's log, with the same details taken out. `CONTENTS.txt` in the zip lists what's inside. On an agent server, add `--agent-home <its home folder>` to include the agent's log.

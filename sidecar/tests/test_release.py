@@ -133,7 +133,7 @@ def test_a_promote_without_git_still_works_and_says_the_record_has_no_commit(svc
 
 
 def test_no_git_installed_reads_as_such(svc, monkeypatch):
-    monkeypatch.setattr(release.shutil, "which", lambda name: None)
+    monkeypatch.setattr(release.cli, "git_path", lambda: None)
     status = svc.meta_git_status()
     assert status == {"available": False, "repo": False,
                       "message": "Git isn't installed on this PC, so releases can't name a commit."}

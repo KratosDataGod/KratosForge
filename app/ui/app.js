@@ -230,6 +230,7 @@ function go(view) {
 function renderChrome() {
   renderEnvBar();
   renderBell();
+  if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
   account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);

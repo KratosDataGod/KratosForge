@@ -372,7 +372,8 @@ async function renderEntity() {
         errBox, editor),
       h("div", { class: "side" },
         h("div", { class: "card pad" }, h("b", {}, "Contract"), h("div", { class: "cols" }, cols)),
-        h("div", { class: "card pad" }, h("b", {}, "Lineage"),
+        h("div", { class: "card pad" }, h("div", { class: "row" }, h("b", { class: "grow" }, "Lineage"),
+          preview("lineage", btn("Columns", "flow", () => columnLineage(e.name), "tool link small"))),
           h("div", { class: "lineage3" },
             h("div", {}, h("span", { class: "muted-text small" }, "Reads"),
               e.reads.length ? e.reads.map((r) => h("button", { class: "node", onclick: () => openEntity(r) }, entityName(r)))
@@ -662,7 +663,7 @@ async function renderEnvTab(body, p) {
           if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
-      box, promoteImpact(source, target));
+      box, promoteImpact(source, target), lastRelease(target));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
     promoteRow("dev", "test"), promoteRow("test", "prod"));

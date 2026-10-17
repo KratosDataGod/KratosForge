@@ -331,3 +331,16 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });
+
+test("a release record says where its files stood in Git in one line", () => {
+  const src = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function releaseCommitText\([\s\S]*?\n}\n/)[0]}; this.f = releaseCommitText;`, ctx);
+  const sha = "8c1d0e7aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: "main", dirty: false, pushed: true }), "commit 8c1d0e7 on main, pushed");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: null, dirty: false, pushed: false }), "commit 8c1d0e7, not pushed");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: "main", dirty: true, pushed: true }), "commit 8c1d0e7 on main, with uncommitted changes");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: null }), "not in Git");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: false }), "nothing committed yet");
+  assert.strictEqual(ctx.f({ receipt_id: null }), "not recorded");
+});

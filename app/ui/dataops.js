@@ -133,6 +133,88 @@ function promoteImpact(source, target) {
   return box;
 }
 
+// ---------- release records ----------
+
+// The last release promoted to an environment, from its meta.deployments row: which metadata,
+// which commit, which engine, who and when, and whether the stored record still matches its id.
+function lastRelease(env) {
+  if (!previewShown()) return null;
+  const box = h("div", { class: "muted-text small" }, `Reading the last release to ${ENV_LABEL[env]}...`);
+  rpc("meta_last_release", { env }).then((res) => {
+    if (res.problem) { box.replaceWith(h("p", { class: "muted-text small" }, `Can't read ${ENV_LABEL[env]}'s releases yet: ${friendlyError(res.problem).text}`)); return; }
+    const r = res.release;
+    if (!r) { box.replaceWith(h("p", { class: "muted-text small" }, `Nothing has been promoted to ${ENV_LABEL[env]} yet.`)); return; }
+    const row = (label, ...value) => h("div", { class: "release-row" }, h("span", { class: "muted-text" }, label), h("span", {}, value));
+    const record = r.receipt_id ? [h("span", { class: "mono" }, `${r.receipt_id.slice(0, 8)}…`),
+      h("span", { class: `pill-s ${r.verified ? "pass" : "fail"}` }, r.verified ? "checks out" : "doesn't match its id"),
+      btn("Copy record", null, () => attempt(() => navigator.clipboard.writeText(r.receipt), "Could not copy").then(() => toast("Copied")), "tool link small")]
+      : h("span", { class: "muted-text" }, "none (promoted before release records)");
+    box.replaceWith(h("div", { class: "release-card dataops" },
+      preview("releases", h("b", {}, `Last release to ${ENV_LABEL[env]}`)),
+      row("Metadata version", h("span", { class: "mono" }, r.version || "")),
+      row("Code", releaseCommitText(r)),
+      r.engine_version ? row("Engine", `Fabric Desktop by KratosBI ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
+      row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
+        h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
+      row("Record", record)));
+  }).catch(() => box.remove());
+  return box;
+}
+
+// Where the released files stood in Git, in one line.
+function releaseCommitText(r) {
+  if (!r.receipt_id) return "not recorded";
+  if (!r.commit) return r.dirty === null || r.dirty === undefined ? "not in Git" : "nothing committed yet";
+  const at = `commit ${r.commit.slice(0, 7)}${r.branch ? ` on ${r.branch}` : ""}`;
+  if (r.dirty) return `${at}, with uncommitted changes`;
+  return `${at}, ${r.pushed ? "pushed" : "not pushed"}`;
+}
+
+// ---------- column lineage ----------
+
+const LINEAGE_HOW = { source: "source", derived: "derived", lookup: "lookup", key: "key", framework: "framework", custom: "custom" };
+const LINEAGE_PILL = { declared: "info", inferred: "neu", opaque: "cus" };
+
+// Every column the entity writes and where it comes from, worked out from the project's files.
+// Picking a column shows the steps back to where it starts and what reads it further on.
+async function columnLineage(name, pick = null) {
+  const res = await metaCall("meta_lineage", { name }, "Lineage not available");
+  if (!res) return;
+  const columns = Object.entries(res.columns);
+  const detail = h("div", { class: "lineage-detail" }, h("p", { class: "muted-text" }, "Pick a column to see where it comes from."));
+  const list = h("div", { class: "lineage-cols" }, columns.map(([col, c]) =>
+    h("button", { class: "lineage-col", onclick: (ev) => { list.querySelectorAll(".on").forEach((b) => b.classList.remove("on")); ev.currentTarget.classList.add("on"); show(col); } },
+      h("span", { class: "mono" }, col), h("span", { class: "muted-text small" }, `${LINEAGE_HOW[c.how] || c.how}, `),
+      h("span", { class: `pill-s ${LINEAGE_PILL[c.label] || "neu"}` }, c.label))));
+  const show = async (col) => {
+    detail.replaceChildren(h("p", { class: "muted-text" }, "Working it out..."));
+    const r = await metaCall("meta_lineage", { name, column: col }, "Lineage not available");
+    if (!r) return;
+    const input = (i) => i.entity ? `${i.entity}.${i.column}` : `${i.value}${i.column ? ` (${i.column})` : ""}`;
+    detail.replaceChildren(
+      h("b", {}, `Where ${col} comes from`),
+      h("table", { class: "grid small" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Column"), h("th", {}, "How"), h("th", {}, "Label"), h("th", {}, "Reads"))),
+        h("tbody", {}, r.upstream.map((s) => h("tr", {},
+          h("td", { class: "mono" }, `${s.entity}.${s.column}`), h("td", {}, LINEAGE_HOW[s.how] || s.how),
+          h("td", {}, h("span", { class: `pill-s ${LINEAGE_PILL[s.label] || "neu"}` }, s.label)),
+          h("td", { class: "small" }, [s.expr ? h("div", { class: "mono" }, s.expr) : null,
+            (s.inputs || []).length ? h("div", {}, s.inputs.map(input).join(", ")) : null,
+            s.note ? h("div", { class: "muted-text" }, s.note) : null,
+            s.custom_may_change ? h("div", { class: "muted-text" }, `custom code may change it (${s.custom_may_change.join(", ")})`) : null]))))),
+      h("b", {}, "Read further on"),
+      r.downstream.length ? h("ul", { class: "gate-list small" }, r.downstream.map((d) => h("li", {},
+        h("button", { class: "tool link small", onclick: () => { closeDialog(); openEntity(d.entity); } }, `${d.entity}.${d.column}`),
+        ` (${LINEAGE_HOW[d.how] || d.how})`)))
+        : h("p", { class: "muted-text small" }, `Nothing in this project reads ${name}.${col}. Reports in Power BI aren't shown here yet.`));
+  };
+  const overlay = showDialog(`Column lineage: ${name}`, h("div", { class: "lineage-view" },
+    h("p", { class: "muted-text small" }, "Worked out from the project's files, not from running anything. Declared means a file names the link. Inferred means the name matches. Opaque means your Python decides."),
+    h("div", { class: "lineage-split" }, list, detail)), [btn("Close", null, closeDialog, "tool outline")]);
+  overlay.querySelector(".dialog").classList.add("wide");
+  if (pick && res.columns[pick]) list.querySelectorAll(".lineage-col")[columns.findIndex(([c]) => c === pick)].click();
+}
+
 // ---------- schema drift ----------
 
 // The entity page's drift card: what the source sends that the contract doesn't expect, and one

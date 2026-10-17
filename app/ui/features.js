@@ -55,6 +55,8 @@ const PREVIEW_FEATURES = {
   sourceControl: "Source control",
   workloads: "Workloads",
   integrations: "External AI tools",
+  releases: "Release records",
+  lineage: "Column lineage",
 };
 
 function previewShown() {

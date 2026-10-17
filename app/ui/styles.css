@@ -1124,3 +1124,20 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .choice-row b .pill-s { margin-left: 6px; vertical-align: 1px; }
 .integrations .list td .tool.small { min-height: 22px; }
 .integ-scroll .snippet code { white-space: pre-wrap; word-break: break-all; }
+
+/* Release records on the promote card, and the column lineage dialog. */
+.release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.release-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; }
+.release-row > span:last-child { overflow-wrap: anywhere; }
+.lineage-view { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
+.lineage-split { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
+.lineage-cols { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.lineage-col { display: flex; gap: 6px; align-items: baseline; padding: 6px 8px; min-height: 32px; border: 1px solid transparent; border-radius: 4px; background: none; text-align: left; cursor: pointer; color: inherit; }
+.lineage-col .mono { flex: 1; overflow-wrap: anywhere; }
+.lineage-col:hover, .lineage-col.on { border-color: var(--border); background: var(--surface); }
+.lineage-detail { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-width: 0; }
+.lineage-detail table td { vertical-align: top; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }
+  .release-row { grid-template-columns: 1fr; gap: 0; }
+}

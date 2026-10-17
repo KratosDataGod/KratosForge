@@ -15,7 +15,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 5 | Integrated Git and release workflow | Partial: release records and meaningful diffs merged | This plan, with the Git-native program | Promote rollback (5.3); Git and Source Control screens are the Git-native program's |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
-| 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 engine merged | This plan | Lineage view after a mockup; 8.2 (platform owner decision) |
+| 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 merged (view in review) | This plan | 8.2 (platform owner decision) |
 | 9 | Always-on monitoring and incident handling | Partial (in-app freshness alerts) | Workload management program | Run correlation (9.3) merged ([PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)); the rest there |
 | 10 | Isolated notebook kernels and debugging | Partial (in-process kernel) | Notebook program | See its plan |
 
@@ -231,6 +231,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | Date | Change |
 | --- | --- |
 | 2026-10-17 | #73, #75 and #76 merged. Stage 1.5 built: full loads in batches (`[load] batch_by`), one commit. Git operations, Source Control screens and branch and pull request work (5.3's Git part) moved to the Git-native development program; promote rollback stays here. |
+| 2026-10-17 | Release and lineage views from the mockup: **Last release** on each promote card (from `meta.deployments`, with the record checked against its id) and **Columns** on an entity's Lineage card. Changes since the last commit belong to the Git-native program. |
 | 2026-10-16 | Stage 8.3 engine part built: column lineage from configuration. |
 | 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |
 | 2026-10-16 | #56, #58, #61, #64, #66, #69, #70 and #71 merged; stage 8.1 built ([PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71)). |

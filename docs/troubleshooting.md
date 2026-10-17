@@ -12,7 +12,10 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "Could not check for a newer build" | GitHub didn't answer, or its limit of 60 checks an hour from your network was reached. | Nothing. The app runs the build you have and checks again next start. |
 | "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every Fabric Desktop by KratosBI window, then download `fabric-desktop.exe` again from the Releases page. |
 | "The engine could not be installed" | The engine download or unpack failed. The log is under the message. | Check the internet connection and disk space, then **Retry**. |
+| "The engine download doesn't match the checksum its release gives" or "...is a different build from the one its release names" | The download didn't match what the release says it should be, so it wasn't installed. Usually a new build was being published at that moment; rarely, a proxy changed the file. | Wait a few minutes, then **Retry**. If it keeps happening, report it with the log under the message. |
+| "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
+| "The local engine stopped answering, so the app restarted it" | A quick request (opening a notebook, reading variables, checking a running cell) had no answer for 60 seconds, so the app ended the engine instead of freezing. Notebook variables are gone. | Run the notebook's cells again. If it keeps happening, report it with the request named in the details and `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. |
 
 ## Signing in
 
@@ -35,6 +38,8 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "Skipped N workspaces" on OneLake | Those workspaces couldn't be read with your access. | Usually fine. Ask for a role if you need them. |
 | Every read or write in OneLake is refused, but Fabric works in the browser | The tenant setting **Users can access data stored in OneLake with apps external to Fabric** is off for you. | A Fabric admin turns it on ([azure-setup.md](azure-setup.md#1-check-your-fabric-tenant-settings)). |
 | "The workspace's Fabric capacity is paused or full" | Creating items, or anything that runs in Fabric, needs an active capacity. | Resume or scale the capacity, or wait. Work on your PC isn't affected. |
+| "Fabric doesn't accept that name" when creating a lakehouse | Lakehouse names can use only letters, numbers and underscores, and must start with a letter, so `TPC-H_Benchmark` is refused. | Use a name like `TPC_H_Benchmark`. The **New lakehouse** box now says this before anything is sent. |
+| "... isn't in ... yet. Run the TPC-H data notebook" | **TPC-H benchmark** reads the tables **TPC-H data** writes, and that notebook hasn't run on the attached lakehouse. | Attach the same lakehouse to **TPC-H data**, run it once, then run **TPC-H benchmark** again. |
 | "Fabric is busy and asked the app to slow down" | Fabric throttled the requests. | Wait a minute and retry. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
 | Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which Fabric Desktop by KratosBI doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
@@ -67,8 +72,23 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
 | A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > Schedules shows each run and why it was skipped. |
 
+## Source control
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| "Git isn't installed on this PC" | The app uses your own Git and couldn't find it. | Install [Git for Windows](https://git-scm.com/download/win) (it includes Git Credential Manager), then reopen Source control. |
+| "Git couldn't sign in" | Git Credential Manager has no sign-in for that server, or it was cancelled. The app never asks for a password itself. | Run `git fetch` once in a terminal in that folder to sign in, or check **Repository settings > Signing in**. For Azure DevOps, check that your account can read the project. |
+| "You don't have permission" | You're signed in, but that account can't read or push to the repository or branch. | Ask the repository owner for access, or check that Git Credential Manager is using the right account. |
+| "The SSH key was refused" or "The server's SSH key isn't known yet" | Your key isn't loaded in the SSH agent, or this is the first connection to the server. The app doesn't answer SSH prompts. | Run `ssh-add` for your key, then `ssh -T git@github.com` (or your server) once in a terminal and accept the host key. |
+| "The remote has commits you don't have" | Someone pushed first. | **Pull**, then push again. |
+| "Your branch and the remote have both moved on" | A fast-forward pull isn't possible. | **Pull > Merge**, or keep working and merge later. |
+| "This branch is protected" | The server refuses direct pushes to it. | Push to a new branch and **Create pull request**. |
+| "Git needs your name and email" | No identity is set for commits. | **Repository settings > Your name on commits**. |
+| "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
+| "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
+
 ## Still stuck
 
 1. Open the bell and expand **Details** on the error.
-2. **Report a problem** (account menu). It copies the build, channel, page and recent errors, and opens your organization's support contact or a new GitHub issue.
-3. If you were asked for logs, attach `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. Check it first: it can contain table and workspace names.
+2. **Report a problem** (account menu). It copies the build, channel, page and recent errors, and opens your organization's support contact or a new GitHub issue. Before anything is copied it takes out tokens, keys, passwords, email addresses, your Windows user name in file paths, and tenant, workspace and item ids. Table and workspace names in an error stay, so read it before you send it.
+3. If you were asked for logs, make a **support bundle** instead of sending the raw log. In a terminal where the engine is installed, run `fabric-desktop support-bundle --out %USERPROFILE%\Desktop`. It saves a zip with the app and engine versions, where each setting comes from, and the last 2,000 lines of the engine's log, with the same details taken out. `CONTENTS.txt` in the zip lists what's inside. On an agent server, add `--agent-home <its home folder>` to include the agent's log.

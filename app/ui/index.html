@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#view">Skip to content</a>
   <header class="topbar">
     <div class="brand">
       <img src="kratosbi-mark.svg" width="28" height="28" alt="KratosBI">
@@ -23,9 +24,10 @@
       </label>
     </div>
     <div class="topbar-right">
+      <div id="git-slot" class="git-slot"></div>
       <div id="env-slot" class="env-slot"></div>
       <button id="bell" class="bell" aria-label="Activity"></button>
-      <button id="account" class="avatar" title="Sign in">?</button>
+      <button id="account" class="avatar" title="Sign in" aria-label="Sign in">?</button>
     </div>
   </header>
 
@@ -38,7 +40,7 @@
       <div id="rail-bottom" class="rail-group"></div>
     </nav>
 
-    <main id="view" class="view"></main>
+    <main id="view" class="view" tabindex="-1"></main>
   </div>
 
   <div id="tray-root"></div>
@@ -69,5 +71,6 @@
   <script src="xray.js"></script>
   <script src="integrations.js"></script>
   <script src="settings.js"></script>
+  <script src="git.js"></script>
 </body>
 </html>

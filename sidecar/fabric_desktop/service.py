@@ -14,6 +14,7 @@ from typing import Any
 
 import pyarrow.csv as pa_csv
 
+from .audit import AuditLog
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql
@@ -34,6 +35,7 @@ from .central.service import PlatformMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
+from .git_service import GitMixin
 from .integrations.app_service import IntegrationsMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore
@@ -46,7 +48,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin):
+class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -65,6 +67,17 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
             self._auth = Authenticator(client_id, interactive=not self.headless)
         return self._auth
+
+    @property
+    def audit(self) -> AuditLog:
+        """This PC's audit trail (audit.py): one line per call that changes or runs something."""
+        if getattr(self, "_audit_log", None) is None:
+            self._audit_log = AuditLog(self.root / "audit", app="agent" if self.headless else "desktop")
+        return self._audit_log
+
+    def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
+        """The newest audit lines, newest first, and whether the chain is intact."""
+        return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}
 
     @property
     def fabric(self) -> FabricClient:
@@ -117,7 +130,8 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         return self.kernel.stop()
 
     def app_settings(self) -> dict[str, Any]:
-        return {**app_settings.load(), "policy_file": str(app_settings.policy_path())}
+        return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
+                "policy_problems": app_settings.policy_problems()}
 
     def save_app_settings(self, changes: dict[str, Any]) -> dict[str, Any]:
         if "kernel_process" in changes and bool(changes["kernel_process"]) != isinstance(self.kernel, ProcessKernel):
@@ -141,6 +155,31 @@ class Service(IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMixin, MetaMi
         self.auth.fabric_token()
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
+
+    def readiness_check(self) -> list[dict[str, Any]]:
+        """Home's Ready to work list. Reads only, and never opens a sign-in window."""
+        from . import readiness
+        try:
+            user = self.auth.signed_in_user()
+        except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
+            user = None
+        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        if user and fabric is None:
+            user = None  # the saved sign-in has expired: the row offers Sign in
+
+        def capacities() -> list[dict[str, Any]]:
+            token = self.auth.silent_token(CAPACITY_SCOPES)
+            if not token:
+                raise PermissionError("not consented")
+            return FabricClient(lambda: token).list_capacities()
+
+        return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings())
+
+    def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
+        """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
+        from . import readiness
+        from .onelake import FileStore
+        return readiness.write_test(FileStore(self.auth.storage_token), workspace_id, lakehouse_id, workspace_name)
 
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self.fabric.list_workspaces()

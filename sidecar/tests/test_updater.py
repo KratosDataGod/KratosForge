@@ -135,9 +135,10 @@ def test_no_stable_release_yet_follows_preview(monkeypatch, settings_dirs):
 def test_download_app_follows_preview_without_a_stable_release(monkeypatch, settings_dirs, tmp_path):
     import urllib.error
     seen = serve(monkeypatch, {"/stable/": urllib.error.HTTPError("u", 404, "Not Found", {}, None),
-                               "/latest/fabric-desktop.exe": b"MZ..." + SHA.encode()})
+                               "/latest/fabric-desktop.exe": b"MZ..." + SHA.encode(),
+                               "/latest/version.json": json.dumps({"commit": SHA}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
-    assert "/latest/" in seen[-1][0]
+    assert all("/latest/" in url for url, _ in seen[1:])
 
 
 def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
@@ -148,12 +149,25 @@ def test_preview_channel_does_not_fall_back(monkeypatch, settings_dirs):
 
 
 def test_download_app_checks_the_build(monkeypatch, tmp_path):
-    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"..."})
+    # A release from before checksums: its version.json names the build but gives no checksum.
+    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode() + b"...", "version.json": json.dumps({"commit": SHA}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 0
 
 
+def test_download_app_refuses_when_the_checksum_cant_be_read(monkeypatch, tmp_path, capsys):
+    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode()})  # no version.json
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+    assert "Could not read build 0123456's checksum" in capsys.readouterr().out
+
+
+def test_download_app_waits_while_the_release_names_another_build(monkeypatch, tmp_path, capsys):
+    other = json.dumps({"commit": "f" * 40, "exe_sha256": "0" * 64}).encode()
+    serve(monkeypatch, {"fabric-desktop.exe": b"MZ..." + SHA.encode(), "version.json": other})
+    assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
+
+
 def test_download_app_refuses_a_stale_copy(monkeypatch, tmp_path, capsys):
-    seen = serve(monkeypatch, {"fabric-desktop.exe": b"MZ...old build..."})
+    seen = serve(monkeypatch, {"fabric-desktop.exe": b"MZ...old build...", "version.json": json.dumps({"commit": SHA}).encode()})
     assert updater.download_app(str(tmp_path / "new.exe"), SHA) == 1
     exe = [url for url, _ in seen if "fabric-desktop.exe" in url]
     assert len(exe) == 2 and "nocache=" in exe[1]

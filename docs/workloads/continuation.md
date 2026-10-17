@@ -49,7 +49,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - 2026-10-16, #72 after merging main: 456 passed, 2 skipped; UI tests 6 passed.
 - 2026-10-16, stage 2: `tests/test_incidents.py` 20 passed, five runs in a row (8 evaluators racing on one backend open one incident). Full suite after merging main at `f456edd`: 505 passed, 2 skipped.
 
-- 2026-10-17, stage 2.3A: `tests/test_incidents.py` 39 passed. Full suite: FULLSUITE.
+- 2026-10-17, stage 2.3A: `tests/test_incidents.py` 39 passed. Full suite on `6919e40`: 543 passed, 2 skipped; UI tests pass.
 
 ## External dependencies and blockers
 

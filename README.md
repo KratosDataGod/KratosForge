@@ -39,13 +39,16 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
+| [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
 | [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why Fabric Desktop by KratosBI is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
 | [docs/architecture.md](docs/architecture.md) | How the app, the sidecar and OneLake fit together |
+| [docs/architecture/ai-integration.md](docs/architecture/ai-integration.md) | Using your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client) with Fabric Desktop by KratosBI: architecture, permissions, plan |
 | [docs/xray-fixes.md](docs/xray-fixes.md) | Each Estate X-ray finding: what it means, what the app's fix button does, and how to fix it by hand in Fabric |
 | [docs/agent.md](docs/agent.md) | The headless agent: identity setup, `agent.toml`, installing on Linux (systemd or container) and Windows, operating it, and what to verify on your tenant |
 | [docs/enterprise-roadmap.md](docs/enterprise-roadmap.md) | The enterprise local execution assessment: feature inventory, gap analysis, architecture changes, roadmap milestones M0 to M6 and work items |
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
+| [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |

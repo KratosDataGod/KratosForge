@@ -37,6 +37,7 @@ nav = [
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Troubleshooting" = "troubleshooting.md" },
+    { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
   ] },
   { "Servers" = [
@@ -51,9 +52,20 @@ nav = [
     { "Prove: continuation note" = "prove/continuation.md" },
     { "Workload operations plan" = "workloads/plan.md" },
     { "Workloads: continuation note" = "workloads/continuation.md" },
+    { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
+    { "Enterprise backlog" = "product/enterprise-backlog.md" },
+    { "Enterprise decisions" = "product/implementation-decisions.md" },
+    { "Release readiness" = "product/release-readiness.md" },
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },
+    { "AI integration" = [
+      { "Architecture" = "architecture/ai-integration.md" },
+      { "Backlog" = "product/ai-integration-backlog.md" },
+      { "Decisions" = "product/ai-integration-decisions.md" },
+      { "Security" = "product/ai-integration-security.md" },
+      { "Compatibility" = "product/ai-integration-compatibility.md" },
+    ] },
     { "UI guidelines" = "ui-guidelines.md" },
   ] },
 ]

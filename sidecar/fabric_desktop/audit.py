@@ -41,7 +41,7 @@ GENESIS = "0" * 64
 # is added here on purpose.
 READ_ONLY = frozenset("""
 access_find_person access_lakehouse access_review access_who_can_read all_schedules all_shortcuts app_settings
-audit_log benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
+audit_log telemetry_status benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
 governance_applicability governance_overview governance_policy governance_resolve governance_version history
 incidents_list kernel_complete kernel_info kernel_variables mesh_about mesh_map mesh_overview
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result

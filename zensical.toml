@@ -57,6 +57,13 @@ nav = [
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },
+    { "AI integration" = [
+      { "Architecture" = "architecture/ai-integration.md" },
+      { "Backlog" = "product/ai-integration-backlog.md" },
+      { "Decisions" = "product/ai-integration-decisions.md" },
+      { "Security" = "product/ai-integration-security.md" },
+      { "Compatibility" = "product/ai-integration-compatibility.md" },
+    ] },
     { "UI guidelines" = "ui-guidelines.md" },
   ] },
 ]

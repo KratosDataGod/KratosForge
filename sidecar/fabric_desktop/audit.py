@@ -41,7 +41,8 @@ GENESIS = "0" * 64
 # is added here on purpose.
 READ_ONLY = frozenset("""
 access_find_person access_lakehouse access_review access_who_can_read all_schedules all_shortcuts app_settings
-audit_log benchmark_notebooks catalog catalog_tables cost_report endorsements environment fabric_runs history
+audit_log benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
+governance_applicability governance_overview governance_policy governance_resolve governance_version history
 incidents_list kernel_complete kernel_info kernel_variables mesh_about mesh_map mesh_overview
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result
 meta_freshness meta_git_status meta_health meta_key_lookup meta_key_notebook meta_keys meta_model_plan
@@ -58,6 +59,7 @@ workload_actions workload_detail workload_preflight workloads_list workspace_mar
 xray_vacuum_preview
 sql_analyze sql_compat_profiles sql_dialects sql_format
 git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_ops git_path_info git_repos git_scan git_settings git_status side_by_side_writes
+local_query_status
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

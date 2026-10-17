@@ -28,7 +28,7 @@ const OUTCOME_PILL = { succeeded: "pass", failed: "fail", cancelled: "neu", time
 
 const integ = { status: null, activity: null, watching: false, shown: new Set() };
 
-function when(seconds) {
+function integWhen(seconds) {
   if (!seconds) return "Never";
   const d = new Date(seconds * 1000);
   const mins = Math.round((Date.now() - d) / 60000);
@@ -143,7 +143,7 @@ function toolsCard(status, refresh) {
     h("td", {}, h("b", {}, c.name), h("div", { class: "muted-text small" }, c.kind_label, " ", untestedTag(c.kind))),
     h("td", {}, c.transport === "http" ? "HTTP" : "stdio"),
     h("td", {}, permissionPills(c.grants), c.workspaces.length ? h("div", { class: "muted-text small" }, `${c.workspaces.length} workspaces only`) : null),
-    h("td", { class: "nowrap" }, when(c.last_used_at)),
+    h("td", { class: "nowrap" }, integWhen(c.last_used_at)),
     h("td", { class: "nowrap" },
       btn("Test", null, () => testTool(c), "tool link small"),
       btn("Edit", null, () => editTool(status, c, refresh), "tool link small"),
@@ -374,7 +374,7 @@ function activityCard(rows, status) {
     rows.length ? h("div", { class: "integ-scroll" }, h("table", { class: "list" },
       h("thead", {}, h("tr", {}, h("th", {}, "Time"), h("th", {}, "Tool"), h("th", {}, "Request"), h("th", {}, "Decision"), h("th", {}, "Result"), h("th", { class: "n" }, "Took"))),
       h("tbody", {}, rows.map((r) => h("tr", {},
-        h("td", { class: "nowrap" }, when(Date.parse(r.at) / 1000)), h("td", {}, r.client || (r.client_id ? r.client_id : "Unknown tool")),
+        h("td", { class: "nowrap" }, integWhen(Date.parse(r.at) / 1000)), h("td", {}, r.client || (r.client_id ? r.client_id : "Unknown tool")),
         h("td", {}, titles[r.capability] || r.capability, h("div", { class: "muted-text small" }, [r.channel, target(r)].filter(Boolean).join(" · "))),
         h("td", {}, CALL_DECISION[r.decision] || r.decision),
         h("td", {}, result(r)),

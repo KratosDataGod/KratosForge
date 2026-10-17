@@ -61,8 +61,8 @@ Inside the platform:
 
 | Who | Can change |
 | --- | --- |
-| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, the list of admins, and every request |
-| **A domain's owners** (set on the domain) | Their domain's glossary terms |
+| **Platform admins** | Domains, business key tables, landing zone sources, shared glossary terms, governance policies, the list of admins, and every request |
+| **A domain's owners** (set on the domain) | Their domain's glossary terms, and which governance policies apply to their domain (tightening only) |
 | **A data product's owner** | Who else may read their product (access requests) |
 | **Everyone** | Catalog text (descriptions, tags, classification), their own products and links, and requests |
 
@@ -78,6 +78,7 @@ The rail's **Platform** page is the central team's home, and the same screens sh
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
 - **Domains** and **Glossary:** your organization's domains and shared terms. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
+- **Governance:** the organization's governance policies, their versions, where each applies and why. See [Governance policies](governance.md).
 - **Requests:** what domain teams asked for, and what was decided.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).
 

@@ -60,4 +60,4 @@ def sweep(root: Path, days: int, dry_run: bool = False, now: float | None = None
                         d.rmdir()
                     except OSError:
                         pass  # not empty
-    return {"days": days, "removed": [str(p.relative_to(root)) for p in old], "bytes": total, "dry_run": dry_run}
+    return {"days": days, "removed": [p.relative_to(root).as_posix() for p in old], "bytes": total, "dry_run": dry_run}

@@ -14,7 +14,7 @@ select * from monthly order by month limit 12; -- trailing
 
 
 def test_every_dialect_is_listed_and_only_spark_and_duckdb_run_here():
-    assert list(sql_dialects.DIALECTS) == ["spark", "warehouse", "sqldb", "duckdb"]
+    assert list(sql_dialects.DIALECTS) == ["spark", "warehouse", "endpoint", "sqldb", "duckdb"]
     assert [d["id"] for d in [sql_dialects.get(k) for k in sql_dialects.DIALECTS] if d["runs_here"]] == ["spark", "duckdb"]
     assert sql_dialects.get(None)["id"] == "spark"
     with pytest.raises(ValueError, match="Unknown SQL dialect"):
@@ -103,4 +103,6 @@ def test_the_page_can_call_the_new_methods(tmp_path):
     reply = server.handle(service, '{"id": 1, "method": "sql_format", "params": {"query": "select 1 a", "dialect": "spark"}}')
     assert reply == {"id": 1, "result": {"sql": "SELECT\n  1 AS a", "changed": True, "warning": ""}}
     labels = server.handle(service, '{"id": 2, "method": "sql_dialects"}')["result"]
-    assert [d["label"] for d in labels] == ["Spark SQL (Lakehouse)", "Fabric Warehouse (T-SQL)", "Fabric SQL database (T-SQL)", "DuckDB (this PC)"]
+    assert [d["label"] for d in labels] == ["Spark SQL (Lakehouse)", "Fabric Warehouse (T-SQL)",
+                                              "Fabric SQL analytics endpoint (T-SQL)", "Fabric SQL database (T-SQL)",
+                                              "DuckDB (this PC)"]

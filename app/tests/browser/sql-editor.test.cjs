@@ -2,7 +2,7 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
 const path = require("node:path");
-const { playwright, openApp } = require("./harness.cjs");
+const { playwright, openApp, sqlRunMocks } = require("./harness.cjs");
 
 const LH = { workspace_id: "ws1", lakehouse_id: "lh1", name: "Sales" };
 const SHOTS = process.env.SCREENSHOT_DIR;
@@ -26,11 +26,11 @@ before(async () => {
     mocks: {
       list_tables: () => ({ dbo: ["sales", "customers"], finance: ["budget"] }),
       table_columns: ({ table }) => COLUMNS[table] || [],
-      run_sql: ({ query, dialect }) => {
+      ...sqlRunMocks(({ query, dialect }) => {
         runs.push({ query, dialect });
-        if (/boom/i.test(query)) throw new Error("ValueError: Could not read the query: Invalid expression / Unexpected token. Line 1, Col: 8.");
-        return { columns: [{ name: "x", type: "int64" }], rows: [[1], [null]], row_count: 2, seconds: 0.01 };
-      },
+        if (/boom/i.test(query)) throw new Error("Could not read the query: Invalid expression / Unexpected token. Line 1, Col: 8.");
+        return { columns: [{ name: "x", type: "int64" }], rows: [[1], [null]] };
+      }),
     },
   });
   await app.page.evaluate((lh) => openSqlQuery(lh), LH);

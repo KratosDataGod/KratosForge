@@ -59,6 +59,8 @@ const PREVIEW_FEATURES = {
   incidents: "Incidents",
   agents: "Agents",
   integrations: "External AI tools",
+  releases: "Release records",
+  lineage: "Column lineage",
 };
 
 function previewShown() {

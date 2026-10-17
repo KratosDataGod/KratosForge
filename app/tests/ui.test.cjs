@@ -562,6 +562,19 @@ test("an incident goes to the routes that match it, else the default, never the 
   assert.match(ctx.incRoutes({ team: "finance", criticality: "critical" }, cfg), /default/);
 });
 
+test("a release record says where its files stood in Git in one line", () => {
+  const src = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function releaseCommitText\([\s\S]*?\n}\n/)[0]}; this.f = releaseCommitText;`, ctx);
+  const sha = "8c1d0e7aa1b2c3d4e5f60718293a4b5c6d7e8f90";
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: "main", dirty: false, pushed: true }), "commit 8c1d0e7 on main, pushed");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: null, dirty: false, pushed: false }), "commit 8c1d0e7, not pushed");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: sha, branch: "main", dirty: true, pushed: true }), "commit 8c1d0e7 on main, with uncommitted changes");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: null }), "not in Git");
+  assert.strictEqual(ctx.f({ receipt_id: "x", commit: null, dirty: false }), "nothing committed yet");
+  assert.strictEqual(ctx.f({ receipt_id: null }), "not recorded");
+});
+
 // The pure helpers at the top of debugging.js.
 function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");

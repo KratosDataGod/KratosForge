@@ -22,6 +22,7 @@ nav = [
   { "Home" = "README.md" },
   { "Get started" = [
     { "Install" = "install.md" },
+    { "Back up and restore" = "backup.md" },
     { "Enterprise install" = "enterprise-install.md" },
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },

@@ -277,7 +277,8 @@ EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
 CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
                "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
                "Output is capped at 100,000 characters; images and HTML are left out.",
-               "Running other notebooks (%run, notebookutils.notebook.run) is refused.")
+               "Running other notebooks (%run, notebookutils.notebook.run) is refused.",
+               "Code over 20,000 characters (for a notebook, all its code cells) is refused: the approval shows it in full.")
 
 
 def _executions() -> list[Capability]:

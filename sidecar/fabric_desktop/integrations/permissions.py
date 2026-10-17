@@ -38,7 +38,7 @@ APPROVAL_WAIT_SECONDS = 60.0
 WHERE = "Fabric Desktop by KratosBI > Settings > Integrations"
 _TARGET_KEYS = ("workspace_id", "lakehouse_id", "item_id", "name", "notebook", "table", "id", "execution_id")
 _CONTENT_KEYS = ("code", "query", "cells", "source")
-MAX_CONTENT = 20_000  # characters of code shown; anything cut says so
+MAX_CONTENT = 20_000  # characters of code the approval can show; longer is refused, never cut
 
 
 def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) -> dict[str, Any]:
@@ -52,10 +52,13 @@ def summary(cap: Capability, client: dict[str, Any], arguments: dict[str, Any]) 
             if isinstance(value, list) and all(isinstance(v, str) for v in value):  # a notebook's code cells
                 value = "\n\n".join(f"# ---- cell {n} of {len(value)}\n{v}" for n, v in enumerate(value, 1))
             text = redact_secrets(value if isinstance(value, str) else repr(value))
-            out["content"] = {"kind": key, "text": text[:MAX_CONTENT]}
             if len(text) > MAX_CONTENT:
-                out["content"]["text"] += f"\n\n[{len(text) - MAX_CONTENT:,} more characters not shown]"
-                out["content"]["truncated"] = True
+                # Never cut: code past the cut would run without being shown.
+                what = "notebook" if key == "cells" else "query" if key == "query" else "code"
+                raise IntegrationError("too_large", f"This {what} is too long to show for approval ({len(text):,} characters, "
+                                       f"limit {MAX_CONTENT:,}). Run it in Fabric Desktop by KratosBI instead.",
+                                       details={"characters": len(text), "limit": MAX_CONTENT})
+            out["content"] = {"kind": key, "text": text}
             break
     return out
 

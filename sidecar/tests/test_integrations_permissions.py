@@ -208,13 +208,17 @@ def test_bound_arguments_are_shown_hashed_and_bound_for_pre_approved_calls_too(s
     assert code_of(reg, "ext_bound", client["id"], {"name": "n", "cells": ["x"]}) == "invalid_input"
 
 
-def test_long_code_says_it_was_cut(store):
+def test_code_too_long_to_show_is_refused_before_asking(store):
+    # Never cut: code past the cut would be approved without being seen.
     reg = registry(store, wait=0.05)
     client = enabled_client(store, grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
     with pytest.raises(IntegrationError) as err:
         reg.invoke(None, "ext_run", {"code": "x" * 25_000}, ctx(client["id"]))
-    content = store.approval(err.value.details["approval_id"])["summary"]["content"]
-    assert content["truncated"] is True and content["text"].endswith("[5,000 more characters not shown]")
+    assert err.value.code == "too_large" and err.value.message == (
+        "This code is too long to show for approval (25,000 characters, limit 20,000). "
+        "Run it in Fabric Desktop by KratosBI instead.")
+    assert store.approvals("") == []
+    assert code_of(reg, "ext_run", client["id"], {"code": "x" * 20_000}) == "approval_required"
 
 
 def test_requests_expire_and_revoking_drops_them(store):

@@ -323,6 +323,19 @@ def test_notebook_approval_shows_every_code_cell_and_is_bound_to_them(svc, store
     assert out["state"] == "succeeded" and out["result"]["cells"][0]["outputs"][0]["text"].strip() == "something else"
 
 
+def test_notebook_too_long_to_show_is_refused_before_asking(svc, store):
+    r = reg(store)
+    client, _ = store.add_client("Claude Code", "claude-code", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    svc.notebooks.save("long", [{"type": "code", "source": "x = 1\n" + "# filler\n" * 2_500},
+                                {"type": "code", "source": "print('hidden at the end')"}], LH)
+    with pytest.raises(IntegrationError) as e:
+        r.invoke(svc, "fabric_desktop_run_notebook", {"name": "long", "workspace_id": "ws1"}, ctx(client["id"]))
+    assert e.value.code == "too_large"
+    assert e.value.message.startswith("This notebook is too long to show for approval (")
+    assert e.value.message.endswith("characters, limit 20,000). Run it in Fabric Desktop by KratosBI instead.")
+    assert store.approvals("") == [] and svc._integration_executions.list() == []
+
+
 def test_notebook_changed_while_waiting_for_approval_is_refused(svc, store):
     r = reg(store, wait=10)
     client, _ = store.add_client("Claude Code", "claude-code", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])

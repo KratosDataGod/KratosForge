@@ -8,7 +8,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 
 | # | Capability | Today | Owner | Next PR |
 | --- | --- | --- | --- | --- |
-| 1 | Large-table execution within machine limits | Partial: 1.1 to 1.4 merged, 1.5 built | This plan | 1.5 in review; 1.3's run dialog after a mockup |
+| 1 | Large-table execution within machine limits | Partial: 1.1 to 1.5 merged | This plan | 1.3's run dialog after a mockup |
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
@@ -200,7 +200,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 ## Delivery sequence
 
 1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71), **5.1** engine (#73), **5.2** engine (#75), **8.3** engine (#76). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
-2. **1.5** (built, in review).
+2. **1.5** (merged in #87).
 3. **4.1** once D2 is answered.
 4. **5.3** rollback, **8.2**, **4.2**, **4.3**, **7.3**.
 
@@ -231,6 +231,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | Date | Change |
 | --- | --- |
 | 2026-10-17 | #73, #75 and #76 merged. Stage 1.5 built: full loads in batches (`[load] batch_by`), one commit. Git operations, Source Control screens and branch and pull request work (5.3's Git part) moved to the Git-native development program; promote rollback stays here. |
+| 2026-10-17 | #87 (stage 1.5) merged. Release records read Git through the Git-native program's layer (`git.repo.Repository`, #85) instead of their own `git` calls; nothing a person sees changes. |
 | 2026-10-16 | Stage 8.3 engine part built: column lineage from configuration. |
 | 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |
 | 2026-10-16 | #56, #58, #61, #64, #66, #69, #70 and #71 merged; stage 8.1 built ([PR #71](https://github.com/KratosDataGod/fabric-desktop/pull/71)). |

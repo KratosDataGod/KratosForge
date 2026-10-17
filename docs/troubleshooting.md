@@ -15,6 +15,7 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "The engine download doesn't match the checksum its release gives" or "...is a different build from the one its release names" | The download didn't match what the release says it should be, so it wasn't installed. Usually a new build was being published at that moment; rarely, a proxy changed the file. | Wait a few minutes, then **Retry**. If it keeps happening, report it with the log under the message. |
 | "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
+| "The local engine stopped answering, so the app restarted it" | A quick request (opening a notebook, reading variables, checking a running cell) had no answer for 60 seconds, so the app ended the engine instead of freezing. Notebook variables are gone. | Run the notebook's cells again. If it keeps happening, report it with the request named in the details and `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. |
 
 ## Signing in
 

@@ -21,9 +21,10 @@ import requests
 from deltalake.exceptions import TableNotFoundError
 
 from . import access as access_mod
+from . import capacity as capacity_mod
 from . import costs as costs_mod
 from . import shortcuts as shortcuts_mod
-from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
+from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
 from .fabric_api import FabricClient
 from .meta import impact
 from .meta import restore as restore_mod
@@ -117,39 +118,53 @@ class EstateMixin:
         self._save_settings(cost=cfg)  # type: ignore[attr-defined]
         return cfg
 
-    def _env_capacities(self) -> dict[str, dict[str, Any]]:
-        """The capacity each environment's workspace is on, read only when already signed in."""
+    def capacity_health(self, refresh: bool = False) -> dict[str, Any]:
+        """The capacity each environment's workspace is on and whether it is running (read only).
+
+        Uses a reading from the last hour unless ``refresh``; never asks for a sign-in or consent.
+        Readings that fail now keep the last good one, labeled with its age."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            return {}
-        # Only when Capacity.Read.All was already granted: the cost view never asks for consent.
+        except Exception:  # noqa: BLE001 - no metadata project: nothing to show
+            return {"observed_at": None, "environments": [], "partial": False}
+        path = self.root / "capacity_observations.json"  # type: ignore[attr-defined]
+        cached = capacity_mod.load(path)
+        envs = {env: dict(project.environments.get(env, {})) for env in ENVIRONMENTS}
+        now = dt.datetime.now(dt.timezone.utc)
+        if cached and not refresh and [e.get("workspace_id") for e in cached.get("environments", [])] == \
+                [cfg.get("workspace_id") for cfg in envs.values()]:
+            fresh = [e | capacity_mod.freshness(e, now) for e in cached["environments"]]
+            if not any(e["stale"] for e in fresh):
+                return cached | {"environments": fresh}
+
+        def silent(scopes: list[str]) -> str | None:
+            try:
+                return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 - no client configured: signed out
+                return None
+
+        fabric_token = silent(FABRIC_SCOPES)
+        get_workspace = FabricClient(lambda: fabric_token).get_workspace if fabric_token else None
+        list_caps = None
+        if fabric_token:
+            cap_token = silent(CAPACITY_SCOPES)
+
+            def list_caps() -> list[dict[str, Any]]:
+                if not cap_token:
+                    raise PermissionError("Capacity.Read.All not granted")
+                return FabricClient(lambda: cap_token).list_capacities()
+        doc = capacity_mod.merge_cached(capacity_mod.observe(envs, get_workspace, list_caps, now), cached, now)
         try:
-            token = self.auth.silent_token(CAPACITY_SCOPES)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
-            token = None
-        if not token:
-            return {}
-        fabric = FabricClient(lambda: token)
-        cache = getattr(self, "_capacity_cache", None)
-        if cache is None:
-            try:
-                cache = {c["id"]: c for c in fabric.list_capacities()}
-            except Exception:  # noqa: BLE001
-                return {}
-            self._capacity_cache = cache
-        out = {}
-        for env in ENVIRONMENTS:
-            ws = project.environments.get(env, {}).get("workspace_id")
-            if not ws:
-                continue
-            try:
-                cap = cache.get(fabric.get_workspace(ws).get("capacityId") or "")
-            except Exception:  # noqa: BLE001
-                continue
-            if cap:
-                out[env] = {"name": cap.get("displayName"), "sku": cap.get("sku"), "id": cap.get("id")}
-        return out
+            capacity_mod.save(path, doc)
+        except OSError:
+            pass  # shown anyway; only the offline copy is lost
+        return doc
+
+    @staticmethod
+    def _env_capacities(doc: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """The capacity each environment's workspace is on, for the cost view: {env: {name, sku, id}}."""
+        return {e["env"]: {"name": e["capacity"].get("name"), "sku": e["capacity"].get("sku"), "id": e["capacity"].get("id")}
+                for e in doc.get("environments", []) if e.get("capacity")}
 
     def cost_report(self, days: int = 30) -> dict[str, Any]:
         """Capacity use and cost of every run in the last ``days``, and what running on this PC avoided.
@@ -160,8 +175,12 @@ class EstateMixin:
         fabric = self.fabric_runs(limit=500, refresh=False)  # type: ignore[attr-defined]
         writes = self.history(limit=100000)  # type: ignore[attr-defined]
         rows = costs_mod.activities(meta["runs"], fabric, writes, cfg)
-        return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities()) | {
-            "unavailable": meta.get("unavailable", {})}
+        try:
+            caps = self.capacity_health()
+        except Exception:  # noqa: BLE001 - cost works without it
+            caps = {"observed_at": None, "environments": [], "partial": True}
+        return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities(caps)) | {
+            "unavailable": meta.get("unavailable", {}), "capacities": caps}
 
     # ---- OneLake shortcuts
 

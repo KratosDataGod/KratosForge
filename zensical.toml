@@ -34,6 +34,7 @@ nav = [
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
+    { "Capacity of each environment" = "finops/capacity.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Source control" = "source-control.md" },
     { "Working across teams" = "teams.md" },

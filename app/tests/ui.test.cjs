@@ -344,6 +344,137 @@ test("side by side pairs removed and added lines and keeps context on both sides
   assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
 });
 
+// The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
+function sqlEditorHelpers() {
+  const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- the editor ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
+    sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
+    sqlChosenText });`, ctx);
+  return ctx;
+}
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const SQL_TABLES = [{ schema: "dbo", name: "sales" }, { schema: "dbo", name: "customers" }, { schema: "finance", name: "budget" },
+  { schema: "finance", name: "sales" }];
+
+test("the SQL editor knows four dialects and only Spark SQL and DuckDB run on this PC", () => {
+  const { SQL_DIALECTS, SQL_WORDS, sqlDialect } = sqlEditorHelpers();
+  assert.deepStrictEqual(Object.keys(SQL_DIALECTS), ["spark", "warehouse", "sqldb", "duckdb"]);
+  assert.deepStrictEqual(Object.keys(SQL_DIALECTS).filter((d) => SQL_DIALECTS[d].runsHere), ["spark", "duckdb"]);
+  assert.strictEqual(sqlDialect(undefined), "spark");  // a tab saved before dialects existed
+  assert.strictEqual(sqlDialect("oracle"), "spark");
+  assert.ok(SQL_WORDS.warehouse.keywords.includes("top") && !SQL_WORDS.spark.keywords.includes("top"));
+  assert.ok(SQL_WORDS.spark.functions.includes("date_format") && SQL_WORDS.warehouse.functions.includes("dateadd"));
+});
+
+test("names are quoted the way each dialect quotes them, only when needed", () => {
+  const { sqlQuoteIdent, sqlTableName } = sqlEditorHelpers();
+  assert.strictEqual(sqlQuoteIdent("amount"), "amount");
+  assert.strictEqual(sqlQuoteIdent("Region Name"), "`Region Name`");
+  assert.strictEqual(sqlQuoteIdent("we`ird"), "`we``ird`");
+  assert.strictEqual(sqlQuoteIdent("Region Name", "warehouse"), "[Region Name]");
+  assert.strictEqual(sqlQuoteIdent("a]b", "sqldb"), "[a]]b]");
+  assert.strictEqual(sqlQuoteIdent("Region Name", "duckdb"), '"Region Name"');
+  assert.strictEqual(sqlTableName("dbo", "sales"), "sales");
+  assert.strictEqual(sqlTableName("finance", "Budget 2026", "warehouse"), "finance.[Budget 2026]");
+});
+
+test("strings and comments are not SQL to complete in", () => {
+  const { sqlMask, sqlStatementAt } = sqlEditorHelpers();
+  const text = "SELECT 'a;b' -- c;d\nFROM t; SELECT 2 /* x; */";
+  assert.strictEqual(sqlMask(text).text.length, text.length);
+  assert.ok(!sqlMask(text).text.includes("a;b") && !sqlMask(text).text.includes("c;d"));
+  assert.ok(sqlMask(text, 9).inert, "inside the string");
+  assert.ok(sqlMask(text, 17).inert, "inside the line comment");
+  assert.ok(!sqlMask(text, 24).inert, "in FROM t");
+  assert.ok(sqlMask("SELECT 'abc", 11).inert, "an unclosed string");
+  assert.strictEqual(sqlStatementAt(text, 24).text, "SELECT 'a;b' -- c;d\nFROM t");
+  assert.strictEqual(sqlStatementAt(text, 30).text, " SELECT 2 /* x; */");
+});
+
+test("table references are found with their aliases, across joins, comma lists, subqueries and CTEs", () => {
+  const { sqlTableRefs } = sqlEditorHelpers();
+  const refs = (sql) => plain(sqlTableRefs(sql));
+  assert.deepStrictEqual(refs("SELECT * FROM sales s JOIN dbo.customers AS c ON c.id = s.id LEFT JOIN `finance`.`sales` fs USING (id)").refs, [
+    { parts: ["sales"], name: "sales", alias: "s" },
+    { parts: ["dbo", "customers"], name: "customers", alias: "c" },
+    { parts: ["finance", "sales"], name: "sales", alias: "fs" }]);
+  assert.deepStrictEqual(refs("SELECT * FROM sales, customers c WHERE 1 = 1").refs.map((r) => [r.name, r.alias]),
+    [["sales", null], ["customers", "c"]]);
+  assert.deepStrictEqual(refs("SELECT * FROM (SELECT 1 x) AS d JOIN range(10) r ON 1=1").refs, [{ parts: [], name: null, alias: "d" }]);
+  const cte = refs("WITH m AS (SELECT * FROM sales), n AS (SELECT 1) SELECT * FROM m");
+  assert.deepStrictEqual(cte.ctes, ["m", "n"]);
+  assert.deepStrictEqual(refs("SELECT * FROM [Sales Data] WHERE x = 1").refs[0].name, "Sales Data");
+  assert.deepStrictEqual(refs("INSERT INTO target SELECT * FROM src").refs.map((r) => r.name), ["target", "src"]);
+});
+
+test("completion knows when it follows a dot, and which tables the statement names", () => {
+  const { sqlCompletionContext } = sqlEditorHelpers();
+  const ctx = plain(sqlCompletionContext("SELECT s.am FROM sales s", 11));
+  assert.deepStrictEqual([ctx.from, ctx.partial, ctx.qualifier], [9, "am", ["s"]]);
+  assert.strictEqual(ctx.refs[0].alias, "s");
+  const fromCtx = sqlCompletionContext("SELECT * FROM sa", 16);
+  assert.deepStrictEqual([fromCtx.partial, fromCtx.qualifier, fromCtx.previous], ["sa", null, "from"]);
+  assert.strictEqual(sqlCompletionContext("SELECT 'sa", 10), null, "inside a string");
+  assert.deepStrictEqual(plain(sqlCompletionContext("SELECT * FROM `finance`.bu", 26).qualifier), ["finance"]);
+  // Only the statement at the cursor counts.
+  assert.deepStrictEqual(plain(sqlCompletionContext("SELECT * FROM a x; SELECT x. FROM b x", 28).refs.map((r) => r.name)), ["b"]);
+});
+
+test("a reference resolves to the lakehouse table, preferring dbo for a bare name", () => {
+  const { sqlResolveTable } = sqlEditorHelpers();
+  assert.deepStrictEqual(plain(sqlResolveTable(["SALES"], SQL_TABLES)), { schema: "dbo", name: "sales" });
+  assert.deepStrictEqual(plain(sqlResolveTable(["finance", "sales"], SQL_TABLES)), { schema: "finance", name: "sales" });
+  assert.deepStrictEqual(plain(sqlResolveTable(["Lakehouse", "finance", "budget"], SQL_TABLES)), { schema: "finance", name: "budget" });
+  assert.strictEqual(sqlResolveTable(["nope"], SQL_TABLES), null);
+});
+
+test("completion options: columns after an alias, tables after FROM, everything otherwise", () => {
+  const { sqlCompletionContext, sqlCompletionOptions, sqlTablesNeeded } = sqlEditorHelpers();
+  const cols = { sales: [{ name: "amount", type: "double" }, { name: "Region Name", type: "string" }], customers: [{ name: "region", type: "string" }] };
+  const columnsOf = (t) => cols[t.name];
+  const at = (sql, pos = sql.length, dialect = "spark") => {
+    const ctx = sqlCompletionContext(sql, pos);
+    return { ctx, options: plain(sqlCompletionOptions(ctx, dialect, SQL_TABLES, columnsOf)) };
+  };
+  const alias = at("SELECT c. FROM sales s JOIN customers c ON 1=1", 9);
+  assert.deepStrictEqual(alias.options.map((o) => o.label), ["region"]);
+  assert.deepStrictEqual(plain(sqlTablesNeeded(alias.ctx, SQL_TABLES)), [{ schema: "dbo", name: "customers" }]);
+  const quoted = at("SELECT s. FROM sales s", 9, "warehouse").options.find((o) => o.label === "Region Name");
+  assert.strictEqual(quoted.apply, "[Region Name]");
+  assert.deepStrictEqual(at("SELECT * FROM finance.").options.map((o) => o.label), ["budget", "sales"]);
+  const from = at("SELECT * FROM s").options;
+  assert.ok(from.find((o) => o.label === "sales").boost > from.find((o) => o.label === "SELECT").boost);
+  assert.ok(!from.some((o) => o.type === "property"), "no columns where a table goes");
+  const general = at("SELECT a FROM sales s WHERE r").options;
+  for (const label of ["amount", "Region Name", "s", "sales", "finance", "WHERE", "COUNT"]) {
+    assert.ok(general.some((o) => o.label === label), label);
+  }
+  assert.ok(!general.some((o) => o.label === "region"), "customers isn't in this statement");
+  assert.ok(at("SELECT * FROM t", 15, "warehouse").options.some((o) => o.label === "TOP"));
+});
+
+test("Run uses the selection when there is one, otherwise the whole query", () => {
+  const { sqlChosenText } = sqlEditorHelpers();
+  assert.strictEqual(sqlChosenText("SELECT 1; SELECT 2", 10, 18), "SELECT 2");
+  assert.strictEqual(sqlChosenText("SELECT 1; SELECT 2", 4, 4), "SELECT 1; SELECT 2");
+});
+
+test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  assert.ok(!page.includes('h("textarea"'), "no textarea editor");
+  assert.match(page, /createSqlEditor\(/);
+  assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
+  for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder"]) {
+    assert.match(cm, new RegExp(`${name}:\\(\\)=>`), `codemirror.js exports ${name}; rebuild it with npm run build`);
+  }
+});
+
 test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
   const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
   const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]

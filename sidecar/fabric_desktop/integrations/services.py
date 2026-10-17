@@ -208,6 +208,18 @@ def get_notebook_environment(svc: Any, ctx: CallContext, name: str) -> dict[str,
                                                                   nb.get("workspace"))}
 
 
+def validate_pipeline(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_validate(text=definition)
+
+
+def inspect_pipeline(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_inspect(text=definition)
+
+
+def export_pipeline(svc: Any, ctx: CallContext, definition: str, format: str = "") -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_export(text=definition, format=format or None)
+
+
 def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
     nb = svc.notebooks.load(name)
     return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))

@@ -238,7 +238,7 @@ by = "07:00"          # and one by 7:00 each day, this PC's clock
 envs = ["prod"]
 ```
 
-Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). Each late or failed table is posted once. The app checks at startup and every 10 minutes while it's open.
+Late tables show on Home and in the bell. To get them in Teams, **Settings > Notifications > Teams alerts** (or **Set up Teams alerts** on the card) takes the address of a Teams Workflows webhook ("Post to a channel when a webhook request is received"). The app checks at startup and every 10 minutes while it's open. Late and failed tables become [incidents](user-guide.md#incidents-preview) (Preview), shared with everyone who can read the environment, and each new incident is posted once, and again when it recovers. An environment that a running [agent](agent.md#incidents-preview) already checks is left to the agent, so Teams hears about a problem once. With preview features hidden, each late or failed table is posted once, as before.
 
 ### Reliability objectives (Preview)
 

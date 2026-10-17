@@ -213,31 +213,36 @@ The SQL query tab works like Fabric's. Open it with **SQL query** on a lakehouse
 1. The **Explorer** lists the lakehouse's tables. Click a table to run `SELECT * FROM <table> LIMIT 100`. Click **▸** next to it to see its columns; click a column to type its name where the cursor is.
 2. Pick the SQL you are writing in the dialect list next to **Run** (see below), then write it using the names Fabric uses: `SELECT * FROM sales`, or `schema.table` for schemas other than `dbo`.
 3. **Run**, or **Ctrl+Enter**. Select some text first to run just that.
-4. Results show the first 1,000 rows, with how many rows there were and how long it took.
+4. Results show the first page of rows (1,000 by default), with how many rows there were and how long it took. **Next ›** and **‹ Previous** move through the rest without running the query again; **Stop** ends a query that is still running. See [Running SQL queries on this PC](sql-execution.md) for states, limits and what a query may do.
 
 | Button | What it does |
 | --- | --- |
 | **Format SQL** | Lays out the selection, or the whole query: one clause per line, nested queries and CTEs indented, keywords in capitals. See [Format SQL](#format-sql). |
-| **Copy** | Copies the shown rows, tab-separated, for pasting into Excel |
-| **Download CSV** | Saves the full result to your Downloads folder |
+| **Copy** | Copies the rows on the current page, tab-separated, for pasting into Excel |
+| **Export ▾** | Saves the full result as CSV or Parquet in your Downloads folder, streamed with progress and **Cancel**; never replaces a file. See [Export](sql-execution.md#export) |
 | **Save as table** | Writes the full result to the lakehouse as a Delta table you name. If the table already exists, it asks before replacing it |
 | **Open in notebook** | Turns the query into `lakehouse.sql(...)` in a new notebook (Spark SQL only) |
 | **+** or **New SQL query** | Adds a query tab. Double-click a tab to rename it. |
 
-How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Queries only read; nothing in the lakehouse changes unless you **Save as table**. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
+How it works: sqlglot translates your Spark SQL to DuckDB SQL, and DuckDB reads only the columns and files it needs from OneLake. Dates and times are worked out in UTC, as in Fabric's Spark, whatever this PC's time zone, so `year()` and `date_format()` give the same answer here as in Fabric. Each query runs in a process of its own with a time and memory limit (**Settings › SQL queries**). Queries only read; nothing in the lakehouse changes unless you **Save as table**. A query that would change a lakehouse table, a file on this PC or Fabric is refused before anything runs, and one that changes only its own session (a temp view) asks first. Query tabs, with their SQL and dialect, are kept per lakehouse between launches.
 
 ### Dialects
 
-Each Fabric engine has its own SQL, so each query tab has a dialect. It sets the highlighting, the suggestions and how **Format SQL** reads the query.
+Each Fabric engine has its own SQL, so each query tab has a dialect. It sets the highlighting, the suggestions, how **Format SQL** reads the query and which engine the [compatibility check](sql-compatibility.md) uses.
 
 | Dialect | Runs on this PC? |
 | --- | --- |
 | **Spark SQL (Lakehouse)**, the default | Yes, translated to DuckDB. What you write is what a Fabric notebook's `%%sql` or a lakehouse SQL query takes. |
-| **Fabric Warehouse (T-SQL)** | No. It is highlighted, suggested and formatted here; run it in the Warehouse. |
+| **Fabric Warehouse (T-SQL)** | No. It is highlighted, suggested, formatted and checked here; run it in the Warehouse. |
+| **Fabric SQL analytics endpoint (T-SQL)** | No, as for Warehouse. Lakehouse tables are read-only through the endpoint. |
 | **Fabric SQL database (T-SQL)** | No, as for Warehouse. |
 | **DuckDB (this PC)** | Yes, as written. Use it for DuckDB features; Fabric doesn't run DuckDB SQL. |
 
 A query that runs here is not proof that it runs, or gives the same answer, in a Fabric Warehouse or SQL database: DuckDB is a different engine. That's why T-SQL isn't run on this PC.
+
+### Compatibility (preview)
+
+As you type, the query is checked against the engine picked in the dialect list, without running it: things that engine doesn't support are underlined, and the **Compatibility** panel beside the editor lists every finding with why, what to do, its confidence and its Microsoft source. **Export JSON** saves the report. See [SQL compatibility check](sql-compatibility.md).
 
 ### Editor
 

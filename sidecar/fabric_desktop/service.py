@@ -18,7 +18,7 @@ from .audit import AuditLog
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql, sql_dialects, sql_format
+from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -38,6 +38,7 @@ from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
 from .git_service import GitMixin
+from .pipeline_service import PipelineMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
 from .kernel_proc import ProcessKernel
@@ -51,7 +52,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin):
+class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -461,6 +462,86 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceM
     def sql_format(self, query: str, dialect: str = "spark") -> dict[str, Any]:
         """Format SQL without running it; the original comes back with a warning when that isn't safe."""
         return sql_format.format_sql(query, dialect)
+
+    def sql_analyze(self, query: str, target: str = "spark") -> dict[str, Any]:
+        """Check SQL against a Fabric engine's documented rules, without running it or calling Fabric."""
+        return sqlcompat.analyze(query, target)
+
+    def sql_compat_profiles(self) -> dict[str, Any]:
+        """What each engine supports, the rule set's version and the rules, for the panel and the docs."""
+        return {"rule_version": sqlcompat.RULE_VERSION, "profiles": sqlcompat.profiles(),
+                "rules": [{"id": r.id, "category": r.category, "targets": list(r.targets), "confidence": r.confidence,
+                           "severity": r.severity} for r in sqlcompat.RULES.values()]}
+
+    def sql_compat_export(self, query: str, target: str = "spark", name: str = "") -> dict[str, Any]:
+        """Write the compatibility report, with the SQL it is about, as JSON in the Downloads folder.
+
+        Never replaces a file: a name that is taken gets a number."""
+        report = sqlcompat.analyze(query, target)
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        stem = "".join(ch for ch in (name or "SQL") if ch.isalnum() or ch in " -_").strip()[:60] or "SQL"
+        base = f"{stem} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
+        text = sqlcompat.report_json(report, query)
+        for n in range(1, 1000):
+            path = folder / (f"{base}.json" if n == 1 else f"{base} ({n}).json")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(text)
+            except FileExistsError:
+                continue
+            return {"path": str(path), "outcome": report["outcome"]["status"], "counts": report["counts"]}
+        raise ValueError("Couldn't find a free file name in Downloads for the report.")
+
+    # Managed runs (SQL-003, sql_exec.py): each query in a process of its own, with Stop, a time
+    # limit, a memory limit, pages read from a snapshot and streamed export. run_sql below stays for
+    # older callers (external tools, integrations) and returns the first rows in one call.
+
+    @property
+    def sql_runs(self) -> sql_exec.SqlExecutions:
+        if getattr(self, "_sql_runs", None) is None:
+            self._sql_runs = sql_exec.SqlExecutions(
+                self.root, token=lambda: self.auth.storage_token(), audit=self._audit_sql_run,
+                schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]))
+        return self._sql_runs
+
+    def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+        auth = getattr(self, "_auth", None)  # only an account already signed in; never sign in here
+        who = (auth.signed_in_user() or "") if auth is not None else ""
+        tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
+        self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
+
+    def sql_start(self, query: str, lakehouse_ref: dict[str, Any], dialect: str = "spark",
+                  allow: list[str] | None = None) -> dict[str, Any]:
+        """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
+        lakehouse writes and Fabric changes are never allowed here (sql_policy.py)."""
+        return self.sql_runs.start(query, lakehouse_ref, dialect, allow)
+
+    def sql_status(self, execution: str) -> dict[str, Any]:
+        return self.sql_runs.status(execution)
+
+    def sql_executions(self) -> list[dict[str, Any]]:
+        """This session's runs, newest first: states and timings, never the SQL."""
+        return self.sql_runs.recent()
+
+    def sql_page(self, execution: str, offset: int = 0, limit: int | None = None) -> dict[str, Any]:
+        try:
+            return self.sql_runs.page(execution, offset, limit)
+        except sql_exec.RerunNeeded as exc:
+            return {"id": execution, "rerun_needed": True, "message": str(exc)}
+
+    def sql_cancel(self, execution: str) -> dict[str, Any]:
+        """Stop one run: ends that run's own process and nothing else."""
+        return self.sql_runs.cancel(execution)
+
+    def sql_export(self, execution: str, format: str = "csv", name: str = "") -> dict[str, Any]:
+        return self.sql_runs.export(execution, format, name)
+
+    def sql_export_status(self, export: str) -> dict[str, Any]:
+        return self.sql_runs.export_status(export)
+
+    def sql_export_cancel(self, export: str) -> dict[str, Any]:
+        return self.sql_runs.export_cancel(export)
 
     def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark",
                 sandbox: bool = False) -> dict[str, Any]:

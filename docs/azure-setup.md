@@ -69,6 +69,12 @@ A policy file that sets everything an organization usually wants:
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
+| `sql_max_concurrent` | 1 to 8 (default `2`) | SQL page queries that run at once; more wait in a queue ([SQL execution](sql-execution.md#limits)) |
+| `sql_memory_limit_percent` | 10 to 90 (default `60`) | Share of the PC's memory one SQL page query may use; more spills to the temp folder |
+| `sql_page_rows` | 100 to 10000 (default `1000`) | Rows per page of SQL page results |
+| `sql_result_retention_hours` | 0 to 168 (default `24`; `0` keeps them until the app closes) | How long a finished SQL page query's result is kept for paging and export |
+| `sql_temp_dir` | A full folder path (default: the app's data folder) | Where SQL page queries spill data and keep results |
+| `sql_time_limit_minutes` | 0 to 1440 (default `10`; `0` for no limit) | Minutes an SQL page query may run before it's stopped |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
 | `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
 | `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
@@ -115,7 +121,7 @@ Using security groups for these roles makes [working across teams](teams.md) muc
 | Extra | What to set up | Used by |
 | --- | --- | --- |
 | **Secrets in notebooks** | An Azure Key Vault; give people the **Key Vault Secrets User** role on it; may need your own app registration with the Azure Key Vault permission ([permissions.md](permissions.md#what-each-feature-uses)) | `notebookutils.credentials.getSecret` on the PC |
-| **Teams alerts** | In a Teams channel, add the **Workflows** template "Post to a channel when a webhook request is received" and copy its address | **Settings > Notifications** or Freshness on an entity: late and failed tables are posted to the channel |
+| **Teams alerts** | In a Teams channel, add the **Workflows** template "Post to a channel when a webhook request is received" and copy its address | **Settings > Notifications** or Freshness on an entity: new incidents (late and failed tables) are posted to the channel |
 | **OneLake shortcuts to ADLS Gen2 or Amazon S3** | A cloud connection in Fabric (**Settings > Manage connections and gateways**) | **OneLake > Shortcuts > New shortcut** |
 | **OneLake security (data access roles)** | Turn on OneLake security on the lakehouse in Fabric | **OneLake > Access** table-level roles |
 | **A headless agent on a server** | A managed identity (no app registration), or an app registration with a certificate; the **Service principals can use Fabric APIs** tenant setting; Contributor on the workspaces | [agent.md](agent.md) |

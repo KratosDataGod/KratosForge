@@ -360,7 +360,7 @@ function cellResults(cell) {
     parts.push(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "outputs_hidden", false) },
       `Output hidden (${cell.outputs.length} item${cell.outputs.length === 1 ? "" : "s"}). Click to show.`));
   } else {
-    cell.outputs.forEach((o) => parts.push(renderOutput(o)));
+    cell.outputs.forEach((o) => parts.push(renderOutput(o, cell)));
   }
   return parts;
 }
@@ -855,8 +855,9 @@ document.addEventListener("keydown", (e) => {
 
 // ---------- outputs ----------
 
-function renderOutput(o) {
+function renderOutput(o, cell) {
   if (o.type === "stream" || o.type === "text") return h("div", { class: "output" }, h("pre", {}, o.text));
+  if (o.type === "error" && cell && limitStop(o)) return limitOutput(o, cell);
   if (o.type === "error") {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),
       o.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", {}, o.traceback)) : null);
@@ -867,6 +868,24 @@ function renderOutput(o) {
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
   return h("div", { class: "output" }, h("pre", {}, JSON.stringify(o)));
+}
+
+// A cell stopped by a limit from Settings (kernel_proc.py): "time" (interrupted, variables kept)
+// or "memory" (its process ended, variables cleared).
+function limitStop(o) {
+  if (o.ename === "TimeLimit") return "time";
+  if (o.ename !== "KernelStopped" || !/^Stopped: .*limit set in Settings/.test(o.evalue || "")) return null;
+  return /the memory limit/.test(o.evalue) ? "memory" : "time";
+}
+
+function limitOutput(o, cell) {
+  const kind = limitStop(o);
+  const [head, ...rest] = o.evalue.split(/(?<=limit set in Settings\.) /);
+  return h("div", { class: "output error limit-stop" }, h("b", {}, head), rest.length ? h("div", {}, rest.join(" ")) : null,
+    h("div", { class: "row" },
+      kind === "time" ? btn("Run again without the limit", "play", () => runCell(cell, { timeLimit: false }), "tool outline small") : null,
+      kind === "memory" && typeof depsOn === "function" && depsOn() ? btn("Run stale cells", "restart", () => runStale(state.notebook), "tool outline small") : null,
+      btn("Open Settings", "settings", () => go("settings"), "tool outline small")));
 }
 
 // HTML output runs in a sandboxed frame with no access to the app, sized to its content.
@@ -1065,7 +1084,7 @@ function renderInspect(o, numeric) {
 
 // ---------- running cells ----------
 
-async function runCell(cell) {
+async function runCell(cell, { timeLimit = true } = {}) {
   if (cell.type !== "code") return true;
   if (nbWhere(state.notebook).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1085,7 +1104,8 @@ async function runCell(cell) {
   const started = performance.now();
   let ok = false;
   try {
-    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: state.notebook.lakehouse, notebook: state.notebook.name });
+    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: state.notebook.lakehouse, notebook: state.notebook.name,
+      ...(timeLimit ? {} : { time_limit: false }) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
       cell.count = snap.execution_count;
@@ -1096,6 +1116,8 @@ async function runCell(cell) {
     }
     cell.status = snap.status;
     ok = snap.status === "ok";
+    // Its process ended (a crash, Stop, the memory limit): variables are gone.
+    if ((snap.outputs || cell.outputs).some((o) => o.ename === "KernelStopped")) depsRestarted();
   } catch (err) {
     if (stopRequested) {
       cell.status = "stopped";

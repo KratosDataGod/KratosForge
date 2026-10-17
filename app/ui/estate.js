@@ -193,34 +193,143 @@ function costPanel() {
   return panel;
 }
 
+// Every CU and cost figure is a classified measurement (sidecar measurement.py): measured,
+// estimated, scenario or unknown. The badge says which, and clicking the figure shows how it was worked out.
+const MEASURE_KIND = {
+  measured: ["Measured", "pass", "Read from a source that observed it."],
+  estimated: ["Estimated", "wrn", "Worked out from the assumptions below, not read from Fabric's billing."],
+  scenario: ["Scenario", "cus", "What it would have used if it had run differently. Nothing was charged or saved for certain."],
+  unknown: ["Unknown", "neu", "Not enough reliable information. It is left out of totals, not counted as 0."],
+};
+
+function measureBadge(m) {
+  const [label, cls, why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const badge = h("span", { class: `pill-s ${cls}`, title: why }, label);
+  return m?.complete === false && m.classification !== "unknown"
+    ? [badge, h("span", { class: "pill-s neu", title: m.reason || "Some runs' figures aren't known" }, "Incomplete")] : badge;
+}
+
+function measureValue(m, cur) {
+  if (!m || m.value === null || m.value === undefined) return "Not known";
+  if (m.unit === "currency") return m.value && m.value < 0.01 ? `under ${money(0.01, cur)}` : money(m.value, cur);
+  if (m.unit === "cu_hours") return cuHours(m.value);
+  if (m.unit === "cu_seconds") return `${Math.round(m.value).toLocaleString()} CU-s`;
+  if (m.unit === "percent") return `${m.value < 0.1 && m.value > 0 ? "<0.1" : Number(m.value).toFixed(1)}%`;
+  return String(m.value);
+}
+
+// A figure with its badge; click it to see how it was worked out.
+function measureFigure(title, m, cur) {
+  return h("button", { class: "measure-fig", title: "How this was worked out", onclick: (ev) => { ev.stopPropagation(); measureDialog(title, m, cur); } },
+    measureValue(m, cur), " ", measureBadge(m));
+}
+
+function measureDialog(title, m, cur) {
+  const [label, , why] = MEASURE_KIND[m?.classification] || MEASURE_KIND.unknown;
+  const list = (items) => items && items.length ? h("ul", { class: "text" }, items.map((x) => h("li", {}, x))) : null;
+  const methods = m.methods || (m.method ? [m.method] : []);
+  const sources = m.sources || (m.source ? [m.source] : []);
+  const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
+  const period = m.period && (m.period.start || m.period.end)
+    ? `${m.period.start ? new Date(m.period.start).toLocaleString() : "?"} to ${m.period.end ? new Date(m.period.end).toLocaleString() : "now"}` : "";
+  showDialog(title, h("div", { class: "scroll" },
+    h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
+    h("table", { class: "list compact" }, h("tbody", {},
+      row("Classification", label),
+      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
+      row("Worked out as", methods.join("; ")),
+      row("Source", sources.join(", ")),
+      row("Period", period),
+      row("Runs counted", m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : ""),
+      row("Not known", m.reason || ""))),
+    m.assumptions?.length ? [h("p", { class: "text" }, h("b", {}, "Assumptions")), list(m.assumptions)] : null,
+    h("p", { class: "muted-text small" }, "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
+  [btn("Close", null, closeDialog, "tool outline")]);
+}
+
+// ---------- capacity of each environment (FINOPS-002, read only) ----------
+
+// Running, not running or unknown; or why it couldn't be read.
+function capacityStatus(e) {
+  if (e.access !== "ok") return h("span", { class: "pill-s neu", title: e.action || "" }, e.access_text);
+  const [label, cls] = { running: ["Running", "pass"], not_running: ["Not running", "fail"] }[e.status] || ["Unknown", "neu"];
+  return h("span", { class: `pill-s ${cls}`, title: e.status_text }, label);
+}
+
+function capacityName(e) {
+  const c = e.capacity;
+  if (!c) return e.capacity_id ? h("span", { class: "mono small", title: "Capacity id from the workspace" }, e.capacity_id) : null;
+  return h("span", {}, h("b", {}, c.name || c.id), [c.sku, c.region || e.region].filter(Boolean).length
+    ? h("span", { class: "muted-text" }, ` · ${[c.sku, c.region || e.region].filter(Boolean).join(" · ")}`) : null);
+}
+
+function capacityAge(e) {
+  if (!e.observed_at) return null;
+  return h("span", { class: "muted-text small" }, "Read ", when(e.observed_at), e.cached ? ` (${e.read_error.toLowerCase()} now)` : "",
+    e.stale ? [" ", h("span", { class: "pill-s wrn", title: "Older than an hour: press Refresh" }, "Stale")] : null);
+}
+
+// One line for an environment card: the capacity and whether it is running.
+function capacityLine(e) {
+  if (!e || e.access === "no_workspace") return null;
+  return h("div", { class: "capacity-line" }, icon("gauge", 14), h("span", { class: "muted-text small" }, "Capacity"),
+    capacityName(e), capacityStatus(e), capacityAge(e));
+}
+
+function capacityStrip(doc) {
+  const rows = (doc?.environments || []).filter((e) => e.access !== "no_workspace");
+  const refresh = async (button) => {
+    button.disabled = true;
+    const res = await attempt(() => rpc("capacity_health", { refresh: true }), "Capacities not read");
+    if (res) render();
+    button.disabled = false;
+  };
+  if (!rows.length) return null;
+  return h("div", { class: "card pad capacity-strip" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Capacities"),
+      h("span", { class: "muted-text small" }, "Read only, with your sign-in. Running doesn't mean there's room: how busy a capacity is shows in Fabric's Capacity Metrics app."),
+      btn("Refresh", "sync", (ev) => refresh(ev.currentTarget), "tool outline small")),
+    h("table", { class: "list compact" }, h("tbody", {}, rows.map((e) => h("tr", {},
+      h("td", {}, h("b", {}, ENV_LABEL[e.env] || e.env), h("div", { class: "muted-text small" }, e.workspace_name || "")),
+      h("td", {}, capacityName(e) || h("span", { class: "muted-text" }, "Not known")),
+      h("td", {}, capacityStatus(e)),
+      h("td", { class: "small" }, e.access === "ok" ? e.status_text : e.action, e.cached ? h("div", { class: "muted-text" }, e.action) : null),
+      h("td", {}, capacityAge(e)))))));
+}
+
 function costBody(r) {
   const cur = r.settings.currency;
-  const stat = (value, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, value), h("span", { class: "k" }, label),
+  const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
     sub ? h("span", { class: "k" }, sub) : null);
   const t = r.total;
+  const ev = t.evidence;
   const daysChip = (d) => h("button", { class: `chip${costPage.days === d ? " on" : ""}`, onclick: () => { costPage.days = d; render(); } }, `${d} days`);
   const unavailable = Object.entries(r.unavailable || {});
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
   return [
     h("div", { class: "row wrap cost-head" }, daysChip(7), daysChip(30), daysChip(90), h("span", { class: "spacer" }),
       h("span", { class: "muted-text small" }, `${money(r.settings.price_per_cu_hour, cur)} per CU hour · Python ${r.settings.python_cu} CU · Spark ${r.settings.spark_cu} CU`),
       btn("Prices", "gauge", () => costSettingsDialog(r.settings), "tool outline small")),
     h("div", { class: "cmp-stats" },
-      stat(money(t.cost, cur), "Fabric capacity used", `${cuHours(t.cu_hours)} · ${t.fabric_runs} run${t.fabric_runs === 1 ? "" : "s"}`),
-      stat(t.saved || !t.saved_cu_hours ? money(t.saved, cur) : `under ${money(0.01, cur)}`, "Saved by running on this PC",
-        `${cuHours(t.saved_cu_hours)} · ${t.local_runs} run${t.local_runs === 1 ? "" : "s"}`),
-      r.by_env.filter((e) => e.capacity_share !== null && e.capacity_share !== undefined && e.fabric_runs).map((e) =>
-        stat(`${e.capacity_share < 0.1 ? "<0.1" : e.capacity_share.toFixed(1)}%`, `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
+      stat(measureFigure("Fabric capacity used", ev.fabric_cost, cur), "Fabric capacity used",
+        h("span", {}, measureFigure("Fabric capacity used, in CU hours", ev.fabric_job_cu, cur), ` · ${plural(t.fabric_runs, "run")}`)),
+      stat(measureFigure("Fabric use avoided on this PC", ev.avoided_cost, cur), "Fabric use avoided on this PC",
+        h("span", {}, measureFigure("Fabric use avoided on this PC, in CU hours", ev.avoided_cu, cur), ` · ${plural(t.local_runs, "run")}`)),
+      r.by_env.filter((e) => e.capacity_share_evidence && e.capacity_share_evidence.classification !== "unknown" && e.fabric_runs).map((e) =>
+        stat(measureFigure(`Share of ${e.capacity || "the"} capacity`, e.capacity_share_evidence, cur), `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
+    capacityStrip(r.capacities),
+    t.unknown_runs ? h("p", { class: "muted-text small" }, `${t.unknown_runs === 1 ? "1 run's" : `${t.unknown_runs} runs'`} capacity use isn't known (still running, or no run time recorded). They are left out of the totals, not counted as 0.`) : null,
     r.by_item.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Saved on this PC"].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Avoided on this PC"].map((c) => h("th", {}, c)))),
       h("tbody", {}, r.by_item.slice(0, 60).map((x) => h("tr", {},
         h("td", {}, h("b", {}, x.name || x.kind), h("div", { class: "muted-text small" }, x.kind)),
         h("td", {}, ENV_LABEL[x.env] || x.env || ""),
-        h("td", { class: "n" }, x.runs), h("td", { class: "n" }, took(x.seconds)),
-        h("td", { class: "n" }, x.fabric_runs ? `${money(x.cost, cur)} · ${cuHours(x.cu_hours)}` : ""),
-        h("td", { class: "n" }, x.local_runs ? (x.saved ? money(x.saved, cur) : x.saved_cu_hours ? `under ${money(0.01, cur)}` : "") : "")))))
+        h("td", { class: "n" }, x.runs), h("td", { class: "n" }, x.seconds ? took(x.seconds) : "Not known"),
+        h("td", { class: "n" }, x.fabric_runs ? measureFigure(`${x.name || x.kind}: Fabric capacity used`, x.evidence.fabric_cost, cur) : ""),
+        h("td", { class: "n" }, x.local_runs ? measureFigure(`${x.name || x.kind}: Fabric use avoided on this PC`, x.evidence.avoided_cost, cur) : "")))))
       : h("p", { class: "muted-text" }, `Nothing ran in the last ${r.days} days.`),
-    h("p", { class: "muted-text small" }, "Estimates: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
-      "Session start-up in Fabric isn't counted. Fabric's Capacity Metrics app has the billed numbers.",
+    h("p", { class: "muted-text small" }, "Estimated: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
+      "Scenario: what runs on this PC would have used as Python notebooks in Fabric. Session start-up in Fabric and OneLake reads and writes aren't counted. Click a figure to see how it was worked out; Fabric's Capacity Metrics app has the CU your capacity recorded.",
       unavailable.length ? ` Left out: ${unavailable.map(([env, why]) => `${ENV_LABEL[env]} (${why})`).join(", ")}.` : ""),
   ];
 }

@@ -28,6 +28,9 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
            "platform_delete_source", "platform_landing", "platform_landing_files", "platform_requests", "platform_request",
            "platform_decide", "platform_withdraw", "platform_revoke", "platform_overview", "platform_products",
+           "governance_overview", "governance_policy", "governance_version", "governance_create", "governance_save_draft",
+           "governance_discard_draft", "governance_publish", "governance_set_status", "governance_assign",
+           "governance_unassign", "governance_applicability", "governance_resolve",
            "mesh_overview", "mesh_set_project", "mesh_save_product", "mesh_delete_product", "mesh_publish", "mesh_save_link",
            "mesh_delete_link", "mesh_resolve_links", "mesh_about", "mesh_save_about", "meta_set_designation",
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
@@ -43,7 +46,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_versions", "meta_compare", "meta_promote_impact", "meta_quarantine", "meta_replay",
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
-           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings",
+           "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -77,6 +80,11 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
 from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E402
 
 METHODS |= INTEGRATION_METHODS
+
+# Local data projects (localdata_service.py): SQL over files on this PC.
+from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
+
+METHODS |= LOCAL_DATA_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

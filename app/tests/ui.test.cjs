@@ -314,3 +314,20 @@ test("side by side pairs removed and added lines and keeps context on both sides
   assert.deepStrictEqual({ ...gitSplitPath("notebooks/load.ipynb") }, { name: "load.ipynb", dir: "notebooks" });
   assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
 });
+
+test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
+    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
+  const ctx = {};
+  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
+  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
+  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
+  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
+  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
+  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+});

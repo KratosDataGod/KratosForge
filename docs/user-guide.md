@@ -241,11 +241,16 @@ The Platform page (Preview) is the central data team's home, and where every oth
 | **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
 | **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
+| **Governance** | The organization's governance policies: search them, read each version, see where each applies and why ([Governance](#governance)) |
 | **Requests** | Waiting, decided and your own requests: key tables, sources, and access to data products. **Approve** does what was asked |
 | **Audit** | Every change in the catalog and who made it |
 | **Settings** | Where each environment's platform is ([Platform settings](#platform-settings)) and the platform's admins |
 
 Whoever creates the platform in Fabric becomes its first admin. Admins add other admins on **Settings**; a platform always keeps at least one.
+
+### Governance
+
+**Platform > Governance** (Preview) holds the standards your organization defines once for every project: naming, schemas, data quality, classification, ownership, data contracts and deployment readiness. Platform admins choose **New policy**, edit the draft, and **Publish** it as a version that never changes afterwards; editing again makes a new draft. A policy applies where it's assigned: the whole enterprise, a domain, a project or one table. Domain owners can assign policies to their own domains. A policy marked mandatory can only be made stricter below where it's assigned. Open a policy and choose **Where it applies**, then **Explain** next to a project, to see each step that decided what it gets. A project can tighten or add policies in its own `governance.toml`. Details in [Governance policies](governance.md).
 
 ## Fabric
 
@@ -262,7 +267,7 @@ Monitor has two halves.
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Workloads** (Preview): everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off.
-- **Cost** (Preview): what runs in Fabric cost in capacity units (CU hours) and money, and what running on this PC saved, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. These are estimates from run time; Fabric's Capacity Metrics app has the billed numbers.
+- **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. Fabric's Capacity Metrics app has the CU your capacity recorded. See [Capacity and cost evidence](finops/cost-evidence.md).
 
 **In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Workloads always uses the whole page.
 

@@ -44,6 +44,16 @@ test("a run says where it ran: Fabric, an agent or this PC", () => {
   assert.strictEqual(ctx.ranOn({}), "This PC");
 });
 
+test("an engine ended for not answering says so, and that variables were cleared", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const out = ctx.friendlyError(raw);
+  assert.match(out.text, /restarted it\. Notebook variables were cleared/);
+  assert.strictEqual(out.details, raw);
+});
+
 test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
   const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
   const ctx = {};
@@ -177,4 +187,122 @@ test("an approval request shows the code and decides only through the engine", (
   const body = src.slice(src.indexOf("function approvalBody"), src.indexOf("async function decide"));
   assert.match(body, /s\.content \? h\("pre"/);
   assert.match(src, /rpc\("integrations_decide", \{ approval_id: a\.id, approve \}\)/);
+});
+
+test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
+  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+});
+
+// Accessibility (FD-139): checks that need no browser.
+test("every icon-only button has a name a screen reader can say", () => {
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    const line = (i) => `${name}:${src.slice(0, i).split("\n").length}`;
+    for (const m of src.matchAll(/h\("button",\s*\{([^{}]*)\},\s*icon\([^()]*\)\s*\)/g)) {
+      if (!/aria-label|title/.test(m[1])) missing.push(line(m.index));
+    }
+    for (const m of src.matchAll(/\bbtn\((?:null|""|''),\s*"[^"]+",[^;]*/g)) {
+      if (!/aria-label|title/.test(m[0])) missing.push(line(m.index));
+    }
+  }
+  assert.deepStrictEqual(missing, []);
+});
+
+test("the page has a skip link and labelled controls", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<a class="skip-link" href="#view">/);
+  assert.match(html, /<main id="view"[^>]*tabindex="-1"/);
+  for (const m of html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)) {
+    const text = m[2].replace(/<[^>]+>/g, "").trim();
+    assert.ok(/aria-label="[^"]+"/.test(m[1]) || /\w{2,}/.test(text), `unnamed button: ${m[0]}`);
+  }
+  for (const m of html.matchAll(/<input\b[^>]*>/g)) {
+    const before = html.slice(0, m.index);
+    const inLabel = before.lastIndexOf("<label") > before.lastIndexOf("</label>");
+    assert.ok(inLabel || /aria-label=/.test(m[0]), `unlabelled input: ${m[0]}`);
+  }
+});
+
+test("dialogs are modal for keyboard users and focus shows", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  for (const m of app.matchAll(/role: "dialog"[^)]*/g)) assert.match(m[0], /"aria-modal": "true"/);
+  assert.match(app, /function trapFocus\(/);
+  assert.match(app, /dialogFocus\.opener/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /^:focus-visible \{ outline: 2px/m);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*, \*::before, \*::after/);
+});
+
+test("a lakehouse name Fabric would refuse is caught before it's sent", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function lakehouseNameProblem\([\s\S]*?\n}\n/)[0]}; this.check = lakehouseNameProblem;`, ctx);
+  assert.strictEqual(ctx.check("TPCH_Benchmark"), "");
+  assert.match(ctx.check("TPC-H_Benchmark"), /For example TPC_H_Benchmark\./);
+  assert.match(ctx.check("1st lake"), /For example LH_1st_lake\./);
+  assert.match(ctx.check("x".repeat(257)), /256/);
+});
+
+test("Fabric refusing a name reads as a name problem, not an app crash", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const raw = 'FabricError: POST https://api.fabric.microsoft.com/v1/workspaces/w/lakehouses failed with 400: {"errorCode":"InvalidInput","moreDetails":[{"errorCode":"InvalidParameter","message":"Artifact request failed due to invalid input. Error: DisplayName is Invalid for ArtifactType. DisplayName: <pi>TPC-H_Benchmark</pi>"}]}';
+  assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
+});
+
+test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
+  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+});
+
+function gitHelpers() {
+  const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- state ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  return ctx;
+}
+
+const gitStatus = (over = {}) => ({ branch: "main", commit: "abc1234def", ahead: 0, behind: 0, merging: false,
+  staged: [], unstaged: [], untracked: [], conflicts: [], ...over });
+
+test("the branch pill shows the branch and what's ahead or behind", () => {
+  const { gitPillText } = gitHelpers();
+  assert.strictEqual(gitPillText(gitStatus()), "main");
+  assert.strictEqual(gitPillText(gitStatus({ ahead: 2, behind: 1 })), "main ↑2 ↓1");
+  assert.strictEqual(gitPillText(gitStatus({ branch: null })), "abc1234", "a detached head shows the commit");
+  assert.strictEqual(gitPillText(gitStatus({ branch: null, commit: null })), "No commits");
+  assert.strictEqual(gitPillText(null), "");
+});
+
+test("the commit button says what it will commit, and refuses with conflicts", () => {
+  const { gitCommitLabel } = gitHelpers();
+  assert.strictEqual(gitCommitLabel(gitStatus({ staged: [{}] })), "Commit 1 staged file to main");
+  assert.strictEqual(gitCommitLabel(gitStatus({ staged: [{}, {}] })), "Commit 2 staged files to main");
+  assert.strictEqual(gitCommitLabel(gitStatus({ unstaged: [{}], untracked: [{}] })), "Stage all and commit 2 files to main");
+  assert.strictEqual(gitCommitLabel(gitStatus()), "Nothing to commit");
+  assert.strictEqual(gitCommitLabel(gitStatus({ merging: true, conflicts: [{}] })), "Fix the conflicts to commit");
+  assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
+});
+
+test("side by side pairs removed and added lines and keeps context on both sides", () => {
+  const { gitSideBySide, gitSplitPath } = gitHelpers();
+  const rows = gitSideBySide([{ header: "@@ -1,3 +1,3 @@", lines: [
+    { kind: " ", text: "a" }, { kind: "-", text: "b" }, { kind: "-", text: "c" }, { kind: "+", text: "B" }, { kind: " ", text: "d" }] }]);
+  assert.strictEqual(rows[0].header, "@@ -1,3 +1,3 @@");
+  assert.strictEqual(rows[1].left.text, "a"); assert.strictEqual(rows[1].right.text, "a");
+  assert.strictEqual(rows[2].left.text, "b"); assert.strictEqual(rows[2].right.text, "B");
+  assert.strictEqual(rows[3].left.text, "c"); assert.strictEqual(rows[3].right, null);
+  assert.strictEqual(rows[4].left.text, "d");
+  assert.deepStrictEqual({ ...gitSplitPath("notebooks/load.ipynb") }, { name: "load.ipynb", dir: "notebooks" });
+  assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
 });

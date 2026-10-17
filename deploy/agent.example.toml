@@ -37,6 +37,20 @@ max_backoff_seconds = 1800
 # enabled = true
 # seconds = 300
 # digest_over = 5                        # more changes than this at once: one Teams digest
+# quiet_hours = "22:00-06:00"            # hold messages until then (this machine's clock)
+# quiet_except = ["critical"]            # sent even in quiet hours
+# escalate_after_minutes = 60            # still open and unacknowledged: post to escalate_to
+# escalate_to = "on-call"                # a route name below
+#
+# [[incidents.route]]                    # a channel for some incidents; others go to alerts.teams_webhook_env
+# name = "sales"
+# webhook_env = "SALES_TEAMS_WEBHOOK"    # the variable holding the webhook, never the address
+# teams = ["sales"]                      # also: owners, criticality, kinds, envs
+#
+# [[incidents.route]]
+# name = "on-call"
+# webhook_env = "ONCALL_TEAMS_WEBHOOK"
+# criticality = ["critical"]
 
 # [pipeline]                             # take run requests from Fabric pipelines (docs/agent.md)
 # enabled = true

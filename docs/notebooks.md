@@ -177,7 +177,7 @@ For either, choose **Repeat** (Every day, Some days of the week, or Every few mi
 
 ## Side by side (Preview)
 
-Turn on **Side by side** in the ribbon and **Run all** runs the notebook on this PC, then in Fabric, and shows the time of each and whether both wrote the same tables (rows, columns and a checksum of every row). The TPC-H benchmark notebooks test it at scale. See [Side by side: this PC vs Fabric](side-by-side.md).
+Turn on **Side by side** in the ribbon and **Run all** runs the notebook on this PC, then in Fabric, and shows the time of each and whether both wrote the same tables (rows, columns and a checksum of every row). Both runs write your real tables, so it lists the tables it will overwrite and asks first; **Prove** is the sandboxed way. The TPC-H benchmark notebooks test it at scale. See [Side by side: this PC vs Fabric](side-by-side.md).
 
 ## Prove this notebook (Preview)
 

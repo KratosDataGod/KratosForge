@@ -45,7 +45,7 @@ LOAD_MODES = ("full", "incremental", "scd1", "scd2")
 LOGIC_KEYS = ("source", "load", "contract", "clean", "derive", "check", "hooks", "step", "scd", "lookup", "keys")
 # Settings that change how a run reads its source, never the rows it writes: changing one isn't a
 # logic change, so it doesn't ask whether to rebuild.
-OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"))
+OPERATIONAL_KEYS = (("source", "new_files_only"), ("load", "memory_guard"), ("load", "batch_by"))
 CUSTOM_RULES = ("owner", "custom_code_owner", "custom_code_test", "key_not_null", "key_unique",
                 "surrogate_keys")
 ENVIRONMENTS = ("dev", "test", "prod")
@@ -423,6 +423,24 @@ def source_columns(project: Project, e: Entity) -> set[str]:
     return cols
 
 
+def _batch_by_problems(e: Entity) -> list[str]:
+    """[load] batch_by: a column the source gives as is, on a full or incremental load of a Delta source."""
+    s = e.spec
+    col = s.get("load", {}).get("batch_by")
+    if col is None:
+        return []
+    src = s.get("source", {})
+    if not isinstance(col, str) or col not in e.columns:
+        return [f"{e.name}: load batch_by names one contract column"]
+    if e.mode not in ("full", "incremental"):
+        return [f"{e.name}: load batch_by works for full and incremental loads; dimensions are merged by key"]
+    if not any(k in src for k in ("table", "link", "entity")) or "custom" in s.get("step", {}):
+        return [f"{e.name}: load batch_by needs a Delta source (table, link or entity) and no custom step"]
+    if col in e.derived or col in e.hook_adds or col in e.mode_columns():
+        return [f"{e.name}: load batch_by must be a column the source has, not one this entity makes"]
+    return []
+
+
 def validate(project: Project, today: dt.date | None = None) -> list[str]:
     """The save gate. Every problem in the project; an empty list means it is clean."""
     today = today or dt.date.today()
@@ -466,6 +484,7 @@ def validate(project: Project, today: dt.date | None = None) -> list[str]:
                           f"lakehouse Files area and use a relative path")
         errors += freshness_mod.problems(e.name, s, ENVIRONMENTS)
         errors += objectives_mod.problems(e.name, s, ENVIRONMENTS)
+        errors += _batch_by_problems(e)
         own_drift = s.get("contract", {}).get("drift")
         if own_drift is not None and own_drift not in DRIFT_POLICIES:
             errors.append(f"{e.name}: contract drift must be one of {', '.join(DRIFT_POLICIES)}")

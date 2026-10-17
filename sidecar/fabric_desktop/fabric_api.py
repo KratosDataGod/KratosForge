@@ -136,6 +136,11 @@ class FabricClient:
             body["description"] = description
         return self._wait(self._request("POST", f"/workspaces/{workspace_id}/lakehouses", json=body))
 
+    def delete_lakehouse(self, workspace_id: str, lakehouse_id: str) -> None:
+        """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
+        harness calls this, for lakehouses it created itself."""
+        self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 

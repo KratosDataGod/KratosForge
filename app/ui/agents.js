@@ -94,6 +94,39 @@ function agVersion(a) {
     note ? h("div", { class: `small ${a.version_compare === "older" ? "inc-escalated" : "muted-text"}` }, note) : null);
 }
 
+const AG_IDENTITY = { service_principal: "a service principal", managed_identity: "a managed identity", user: "a user's cached sign-in" };
+
+// One schedule in an overlap: "agent etl-01 (hourly, every 60 minutes)" or "a schedule on this PC
+// (daily at 06:00)". This PC's schedules have generated ids, so they go by when they run.
+function agPlace(s) {
+  const text = s.text ? `${s.text.charAt(0).toLowerCase()}${s.text.slice(1)}` : "";
+  if (s.place === "pc") return `a schedule on this PC${text ? ` (${text})` : ""}`;
+  return `agent ${s.agent}${s.state === "offline" ? ", which stopped reporting," : ""} (${[s.schedule, text].filter(Boolean).join(", ")})`;
+}
+
+// "Scheduled in two places": schedules in different places that run the same table. Each place has
+// its own queue, so both run it; table leases only stop them writing at the same moment.
+function agOverlaps(out) {
+  const items = out.overlaps || [];
+  const unknown = out.unknown || [];
+  if (!items.length && !unknown.length && out.pc_schedules_read !== false) return null;
+  const lines = items.map((o) => {
+    const [a, b] = o.schedules;
+    const what = o.entities ? o.entities.join(", ") : "Every table";
+    return h("li", {}, `${what} in ${envName(o.env)} runs on ${agPlace(a)} and on ${agPlace(b)}. `,
+      o.entities && o.entities.length === 1 ? "Both write the same table." : "Both write the same tables.");
+  });
+  const unsaid = [...new Set(unknown.map((u) => u.agent))];
+  return h("div", { class: "ag-overlap" },
+    items.length ? h("b", {}, "Scheduled in two places") : null,
+    items.length ? h("ul", {}, lines) : null,
+    items.length ? h("p", { class: "small" }, "Give each table's schedule to one place. ",
+      btn("Review schedules", null, () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small")) : null,
+    unsaid.length ? h("p", { class: "small muted-text" }, `Can't tell what ${unsaid.join(", ")} ${unsaid.length === 1 ? "schedules" : "schedule"}: `,
+      `${unsaid.length === 1 ? "it is" : "they are"} an older version that doesn't say which tables ${unsaid.length === 1 ? "its" : "their"} schedules run.`) : null,
+    out.pc_schedules_read === false ? h("p", { class: "small muted-text" }, "This PC's schedules couldn't be read, so they weren't compared.") : null);
+}
+
 function openAgent(name) {
   agPage.name = name;
   go("agent");
@@ -130,6 +163,7 @@ async function loadAgents(box) {
       h("p", { class: "muted-text small grow" }, "Each agent writes a status file in every environment it serves; this page reads those files. Nothing here starts, stops or changes an agent."),
       btn("Refresh", "sync", () => loadAgents(box), "tool outline")),
     h("div", { class: "wl-sources inc-watchers" }, sources),
+    agOverlaps(out),
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
       h("thead", {}, h("tr", {}, ["Agent", "State", "Serves", "Doing now", "Next scheduled", "Last 10 jobs", "Checks incidents", "Version"].map((c) => h("th", {}, c)))),
       h("tbody", {}, rows.map((a) => h("tr", { class: `click${a.state === "stopped" ? " inc-done" : ""}`, onclick: () => openAgent(a.agent) },
@@ -161,7 +195,9 @@ async function renderAgent() {
   }
   agPage.detail = a;
   renderChrome();  // the breadcrumb names it
-  const facts = [a.host ? `Server ${a.host}` : "", `Version ${a.version || "unknown"}${a.version_compare === "older" ? ` (this app is ${out.app_version})` : ""}`,
+  const facts = [a.host ? `Server ${a.host}` : "",
+    a.owner ? `Owner ${a.owner}` : "owner" in a ? "No owner set in agent.toml" : "",
+    AG_IDENTITY[a.identity] ? `Signs in as ${AG_IDENTITY[a.identity]}` : "", `Version ${a.version || "unknown"}${a.version_compare === "older" ? ` (this app is ${out.app_version})` : ""}`,
     a.started_at ? `Started ${relTime(a.started_at)}` : "", `Last heartbeat ${relTime(a.heartbeat_at)}`,
     a.status_seconds ? `Reports every ${a.status_seconds} s` : ""].filter(Boolean);
   setView(h("div", { class: "page wl-page" },
@@ -185,8 +221,11 @@ function agRuns(a, e) {
   return h("div", { class: "inc-what" },
     h("div", {}, p.enabled ? `Pipeline jobs for ${(p.entities || []).join(", ") || "every entity"} · ${e.concurrency || 1} at a time · backfill ${p.allow_backfill ? "allowed" : "not allowed"}`
       : "Doesn't take pipeline jobs"),
-    scheds.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Schedule", "Next", ""].map((c) => h("th", {}, c)))),
-      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id), h("td", {}, s.next ? agAt(s.next) : "None"),
+    scheds.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Schedule", "Runs", "Next", ""].map((c) => h("th", {}, c)))),
+      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id),
+        h("td", { class: Array.isArray(s.entities) ? null : "muted-text" }, !Array.isArray(s.entities) ? "Doesn't say (an older version)"
+          : s.entities.join(", ") || "Every table"),
+        h("td", {}, s.next ? agAt(s.next) : "None"),
         h("td", { class: a.state === "live" ? "muted-text" : "reason" }, a.state === "live" ? ""
           : s.next && new Date(s.next) < new Date() ? "Missed; runs once when the agent is back" : "Won't run while it is down")))))
       : h("p", { class: "muted-text" }, "No schedules here."));

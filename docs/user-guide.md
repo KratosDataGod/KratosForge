@@ -344,10 +344,12 @@ An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. E
 
 **State.** An agent is **Running** while its reports arrive on time. It shows **Stopped reporting** once the time it promised to report again has passed. That means it stopped without saying so: a crash, a power cut or a lost network. It shows **Stopped** when it shut down cleanly. For a stopped or silent agent, everything shown is its last report as it was, labelled with when it was written, so its jobs show as unknown rather than as running.
 
-**The agent page** shows, for each environment:
+**Scheduled in two places.** Each agent and this PC keep their own queue, so when two of them schedule the same table, both run it. Table leases only stop them writing at the same moment. Above the list, **Scheduled in two places** names each table that is scheduled both on an agent and on this PC, or on two agents, in the same environment, with both schedules. Give each table's schedule to one place; **Review schedules** opens this PC's schedules. It changes no schedule itself. A cleanly stopped agent isn't counted. An agent that stopped reporting still is, because it runs a missed schedule when it is back. An older agent that doesn't say which tables its schedules run is listed as one that can't be compared, never as running every table.
+
+**The agent page** shows its owner and how it signs in (a service principal, a managed identity or a user's cached sign-in) when its `agent.toml` says so, and, for each environment:
 
 - what the agent runs: pipeline jobs and which entities, how many at a time, and whether backfill is allowed;
-- its schedules and when each runs next;
+- its schedules, the tables each runs, and when each runs next;
 - what it was doing;
 - whether it checks incidents.
 

@@ -20,7 +20,7 @@ Last updated: 2026-10-16.
 | FD-110 Quick-call limit for the side-by-side write check | `claude/prove-quick-sbs-writes` | #114 | Merged |
 | FD-110 Notebook cell time and memory limits | `claude/prove-kernel-limits` | #115 | Merged |
 | 5 Variable history, watches, hidden state (45, 46, 48) | `claude/prove-variable-history` | #129 | Merged |
-| 5 Failure replay bundles: save (47) | `claude/prove-replay-bundles` | see GitHub | Draft until Chris reacts to mockup board 9 |
+| 5 Failure replay bundles: save (47) | `claude/prove-replay-bundles` | #142 | Draft until Chris reacts to mockup board 9 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 

@@ -67,6 +67,21 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | Fabric schedule or Run in Fabric fails with 403 | You aren't Contributor on the workspace, or your organization's own app registration lacks `Item.Execute.All`. | Ask for Contributor, or an admin adds the permission and you sign in again ([permissions.md](permissions.md#using-your-own-app-registration)). |
 | A scheduled run on this PC didn't happen | The PC was off, asleep or nobody was signed in to Windows; or the app was signed out. | Use a Fabric schedule for runs that must happen. Monitor > Schedules shows each run and why it was skipped. |
 
+## Source control
+
+| What you see | What it means | What to do |
+| --- | --- | --- |
+| "Git isn't installed on this PC" | The app uses your own Git and couldn't find it. | Install [Git for Windows](https://git-scm.com/download/win) (it includes Git Credential Manager), then reopen Source control. |
+| "Git couldn't sign in" | Git Credential Manager has no sign-in for that server, or it was cancelled. The app never asks for a password itself. | Run `git fetch` once in a terminal in that folder to sign in, or check **Repository settings > Signing in**. For Azure DevOps, check that your account can read the project. |
+| "You don't have permission" | You're signed in, but that account can't read or push to the repository or branch. | Ask the repository owner for access, or check that Git Credential Manager is using the right account. |
+| "The SSH key was refused" or "The server's SSH key isn't known yet" | Your key isn't loaded in the SSH agent, or this is the first connection to the server. The app doesn't answer SSH prompts. | Run `ssh-add` for your key, then `ssh -T git@github.com` (or your server) once in a terminal and accept the host key. |
+| "The remote has commits you don't have" | Someone pushed first. | **Pull**, then push again. |
+| "Your branch and the remote have both moved on" | A fast-forward pull isn't possible. | **Pull > Merge**, or keep working and merge later. |
+| "This branch is protected" | The server refuses direct pushes to it. | Push to a new branch and **Create pull request**. |
+| "Git needs your name and email" | No identity is set for commits. | **Repository settings > Your name on commits**. |
+| "Commit blocked: this looks like a secret" | The secret check found a key, token or password in a staged file. | Move the value to Key Vault or a variable library, or **It isn't a secret, commit** if it's a false alarm. See [Secrets are checked](source-control.md#secrets-are-checked-before-every-commit). |
+| "Another Git operation is still running" | A fetch, pull or push is still going in that repository. | Wait for it, or **Cancel** it in the band at the top of the page. |
+
 ## Still stuck
 
 1. Open the bell and expand **Details** on the error.

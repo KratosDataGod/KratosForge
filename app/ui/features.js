@@ -52,6 +52,7 @@ const PREVIEW_FEATURES = {
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",
+  sourceControl: "Source control",
 };
 
 function previewShown() {

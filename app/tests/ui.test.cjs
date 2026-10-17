@@ -136,3 +136,46 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2, 3, 4]), "2, 3 and 4");
   assert.strictEqual(depsList([2]), "2");
 });
+
+function gitHelpers() {
+  const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- state ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  return ctx;
+}
+
+const gitStatus = (over = {}) => ({ branch: "main", commit: "abc1234def", ahead: 0, behind: 0, merging: false,
+  staged: [], unstaged: [], untracked: [], conflicts: [], ...over });
+
+test("the branch pill shows the branch and what's ahead or behind", () => {
+  const { gitPillText } = gitHelpers();
+  assert.strictEqual(gitPillText(gitStatus()), "main");
+  assert.strictEqual(gitPillText(gitStatus({ ahead: 2, behind: 1 })), "main ↑2 ↓1");
+  assert.strictEqual(gitPillText(gitStatus({ branch: null })), "abc1234", "a detached head shows the commit");
+  assert.strictEqual(gitPillText(gitStatus({ branch: null, commit: null })), "No commits");
+  assert.strictEqual(gitPillText(null), "");
+});
+
+test("the commit button says what it will commit, and refuses with conflicts", () => {
+  const { gitCommitLabel } = gitHelpers();
+  assert.strictEqual(gitCommitLabel(gitStatus({ staged: [{}] })), "Commit 1 staged file to main");
+  assert.strictEqual(gitCommitLabel(gitStatus({ staged: [{}, {}] })), "Commit 2 staged files to main");
+  assert.strictEqual(gitCommitLabel(gitStatus({ unstaged: [{}], untracked: [{}] })), "Stage all and commit 2 files to main");
+  assert.strictEqual(gitCommitLabel(gitStatus()), "Nothing to commit");
+  assert.strictEqual(gitCommitLabel(gitStatus({ merging: true, conflicts: [{}] })), "Fix the conflicts to commit");
+  assert.strictEqual(gitCommitLabel(gitStatus({ merging: true })), "Commit the merge to main");
+});
+
+test("side by side pairs removed and added lines and keeps context on both sides", () => {
+  const { gitSideBySide, gitSplitPath } = gitHelpers();
+  const rows = gitSideBySide([{ header: "@@ -1,3 +1,3 @@", lines: [
+    { kind: " ", text: "a" }, { kind: "-", text: "b" }, { kind: "-", text: "c" }, { kind: "+", text: "B" }, { kind: " ", text: "d" }] }]);
+  assert.strictEqual(rows[0].header, "@@ -1,3 +1,3 @@");
+  assert.strictEqual(rows[1].left.text, "a"); assert.strictEqual(rows[1].right.text, "a");
+  assert.strictEqual(rows[2].left.text, "b"); assert.strictEqual(rows[2].right.text, "B");
+  assert.strictEqual(rows[3].left.text, "c"); assert.strictEqual(rows[3].right, null);
+  assert.strictEqual(rows[4].left.text, "d");
+  assert.deepStrictEqual({ ...gitSplitPath("notebooks/load.ipynb") }, { name: "load.ipynb", dir: "notebooks" });
+  assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
+});

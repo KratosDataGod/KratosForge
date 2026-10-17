@@ -60,7 +60,13 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
-           "notebook_dependencies"}
+           "notebook_dependencies",
+           "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
+           "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
+           "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
+           "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
+           "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
+           "git_path_info", "git_notebook_info"}
 
 
 def handle(service: Service, line: str) -> dict:

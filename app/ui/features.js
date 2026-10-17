@@ -42,6 +42,7 @@ const PREVIEW_FEATURES = {
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",
+  replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",
   shortcuts: "OneLake shortcuts",

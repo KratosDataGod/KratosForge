@@ -646,3 +646,45 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// The pure helpers at the top of replay.js.
+function replayHelpers() {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- the button and the dialog ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { replayCells, replayInputLines, replayEnvironmentLine });`, ctx);
+  return ctx;
+}
+
+test("a replay bundle sends the cells up to the failed one, with only that cell's output", () => {
+  const { replayCells } = replayHelpers();
+  const cells = [{ type: "code", source: "a = 1", meta: {}, count: 1, outputs: [{ type: "text", text: "data" }], id: "x" },
+    { type: "markdown", source: "# m", meta: {}, outputs: [] },
+    { type: "code", source: "1/0", meta: {}, count: 2, outputs: [{ type: "error", ename: "ZeroDivisionError" }] },
+    { type: "code", source: "later", meta: {}, count: 3, outputs: [] }];
+  const out = JSON.parse(JSON.stringify(replayCells(cells, 2)));
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out[0], { type: "code", source: "a = 1", meta: {}, count: 1 });
+  assert.strictEqual(out[1].count, null);
+  assert.deepStrictEqual(out[2].outputs, [{ type: "error", ename: "ZeroDivisionError" }]);
+});
+
+test("the replay dialog lists inputs and the environment plainly", () => {
+  const { replayInputLines, replayEnvironmentLine } = replayHelpers();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(replayInputLines({
+    tables: [{ table: "bronze.events", version: 41 }, { table: "dbo.out", version: null, created: true }],
+    files: [{ path: "Files/raw/fx.csv", sha256: "9f2c0a1b2c3d" }, { path: "Files/x.csv", sha256: null }] }))), [
+    "bronze.events at Delta version 41", "dbo.out: created by the notebook, so a replay starts without it",
+    "Files/raw/fx.csv (SHA-256 9f2c0a1b…)", "Files/x.csv (changed after it was read, so no SHA-256)"]);
+  assert.strictEqual(replayEnvironmentLine({ python: "3.11.9", packages: { polars: "1.9.0" },
+    kernel: { process: true, limits: { cell_seconds: 3600, memory_bytes: null } } }),
+  "Python 3.11.9, polars 1.9.0, kernel in its own process, 60 min cell limit");
+});
+
+test("Save replay bundle is a Preview feature, offered only under a cell that failed on this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /replay: "Failure replay bundles"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="debugging.js"><\/script>\s*<script src="replay.js"><\/script>/);
+  assert.match(src, /cell\.status !== "error" \|\| nbWhere\(nb\)\.fabric/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayOffer\(cell\)/);
+});

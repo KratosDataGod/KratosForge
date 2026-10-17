@@ -127,6 +127,18 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 
 None of these run for notebooks that run in Fabric.
 
+### Failure replay bundles (Preview)
+
+When a cell fails on this PC, **Save replay bundle** under its error saves a file someone else (or you, later) can use to run the notebook again up to that cell, against the same inputs. The dialog shows exactly what goes in before anything is saved:
+
+- **Always included:** the code of the cells up to the failed one; each table the cells read, with the Delta version they read; each file under `Files/` they read, with its SHA-256; Python, the versions of the packages the cells import, and whether the kernel runs in its own process with which limits; and the error, with anything that looks like a secret and your home folder's path removed.
+- **Workspace and lakehouse IDs:** included unless you untick them. Untick them to share the bundle outside your organization.
+- **A sample of the input data:** off unless you tick it. Up to 1,000 rows of each table, read at the version the cells read. The bundle then holds your data, so share it only with people allowed to see it. Your organization can turn this option off (`allow_replay_samples` in the [policy file](azure-setup.md)).
+
+The bundle is a `.zip` saved to your Downloads folder as a new file each time (`bundle.json`, plus `samples/` when you include a sample). A table's version is recorded the first time a cell reads it since the kernel started; for a table the notebook writes before reading, it's the version before that write. Code that looks like it holds a secret is removed from the bundle, so a replay may fail there.
+
+A bundle also lists what it can't promise: cells that hadn't run, ran in a different order or ran again after the failure; a file that changed on this PC after a cell read it (it has no SHA-256); and reads that didn't go through `lakehouse` (`read_table`, `sql`, `read_csv` and the like), which aren't recorded. Opening a bundle and replaying it, with tables read at the bundle's versions and writes going to a sandbox as in a proof, comes next.
+
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.

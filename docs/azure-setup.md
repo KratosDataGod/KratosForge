@@ -60,6 +60,7 @@ A policy file that sets everything an organization usually wants:
 | Key | Values | Effect |
 | --- | --- | --- |
 | `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
+| `allow_replay_samples` | `true` (default) or `false` | `false` takes "A sample of the input data" out of the Save replay bundle dialog, so a replay bundle never holds lakehouse rows. Code, input versions and the error with secrets removed are still saved |
 | `allowed_tenants` | A list of tenant (directory) IDs | People can only sign in with accounts from these tenants. Any other account is signed out again with a message. Leave it out to allow any |
 | `auto_update` | `true` (default) or `false` | `false` stops the app updating itself, so you roll out builds yourself ([Enterprise install](enterprise-install.md)) |
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |

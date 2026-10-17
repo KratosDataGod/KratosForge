@@ -19,8 +19,8 @@ Last updated: 2026-10-16.
 | Plan: AI from the developer's own tools (stage 8) | `claude/prove-ai-rescope` | #97 | Merged |
 | FD-110 Quick-call limit for the side-by-side write check | `claude/prove-quick-sbs-writes` | #114 | Merged |
 | FD-110 Notebook cell time and memory limits | `claude/prove-kernel-limits` | #115 | Merged |
-| 5 Variable history, watches, hidden state (45, 46, 48) | `claude/prove-variable-history` | #129 | Draft until Chris reacts to mockup board 8 |
-| `side_by_side_writes` gets the quick-call limit | `claude/prove-quick-sbs-writes` | see GitHub | Open for review |
+| 5 Variable history, watches, hidden state (45, 46, 48) | `claude/prove-variable-history` | #129 | Merged |
+| 5 Failure replay bundles: save (47) | `claude/prove-replay-bundles` | see GitHub | Draft until Chris reacts to mockup board 9 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -66,4 +66,4 @@ None yet.
 
 ## Next action
 
-Stage 5 next: failure replay bundles (47); breakpoints (44) build on the stage 4 kernel process. Variable history (45), watches (46) and hidden state (48) are in #129 (`app/ui/debugging.js`; watches run in `notebook.Kernel._watch`). Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: per-profile virtual environments (needs Chris's decision on where packages come from). After FinOps #117 merges, add its cost classification (`classification`, optional `measurement`, docs/finops/cost-evidence.md) to the receipt schema. When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Stage 5 next: open and replay a bundle (47, second half: Create > Open replay bundle binds the proof runtime with the bundle's versions as pins, runs to the failed cell, says whether the error reproduced, and offers the sample or the latest version when a pinned version was vacuumed); then breakpoints (44) on the stage 4 kernel process. Saving bundles is `replay.py`, `app/ui/replay.js` and the read recorder in `lakehouse.py` (`reads`, cleared on kernel restart). Variable history (45), watches (46) and hidden state (48) are in #129 (`app/ui/debugging.js`; watches run in `notebook.Kernel._watch`). Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: per-profile virtual environments (needs Chris's decision on where packages come from). FinOps #117 has merged: add its cost classification (`classification`, optional `measurement`, docs/finops/cost-evidence.md) to the receipt schema. When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

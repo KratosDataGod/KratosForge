@@ -11,6 +11,7 @@ import os
 import sys
 from typing import IO
 
+from .redact import secrets
 from .service import Service
 
 METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
@@ -60,7 +61,13 @@ METHODS = {"environment", "sign_in", "sign_out", "app_settings", "save_app_setti
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
-           "notebook_dependencies"}
+           "notebook_dependencies", "side_by_side_writes",
+           "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
+           "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
+           "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
+           "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
+           "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
+           "git_path_info", "git_notebook_info"}
 
 
 def handle(service: Service, line: str) -> dict:
@@ -74,9 +81,10 @@ def handle(service: Service, line: str) -> dict:
     try:
         return {"id": req_id, "result": getattr(service, method)(**req.get("params", {}))}
     except Exception as exc:  # report every failure to the UI rather than dying
+        # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            return {"id": req_id, "error": str(exc)}
-        return {"id": req_id, "error": f"{type(exc).__name__}: {exc}"}
+            return {"id": req_id, "error": secrets(str(exc))}
+        return {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:

@@ -12,7 +12,11 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod watchdog;
+use watchdog::Reply;
+
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
+const SIDECAR_STUCK: &str = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it.";
 
 /// Startup check and updater, run with the user's Python before the sidecar starts.
 const UPDATER: &str = include_str!("updater.py");
@@ -49,11 +53,51 @@ fn release_tag() -> &'static str {
 /// needs, built and (once a certificate is set up) code-signed by CI, so the PC's own
 /// Python and its unsigned packages are not involved. Stable falls back to Preview
 /// ("latest") while no build has been promoted, as the updater does.
-fn engine_urls() -> Vec<String> {
-    let tags: &[&str] = if release_tag() == "stable" { &["stable", "latest"] } else { &["latest"] };
-    tags.iter()
-        .map(|tag| format!("https://github.com/KratosDataGod/fabric-desktop/releases/download/{tag}/fabric-desktop-engine.zip"))
-        .collect()
+fn engine_tags() -> &'static [&'static str] {
+    if release_tag() == "stable" { &["stable", "latest"] } else { &["latest"] }
+}
+
+fn release_file(tag: &str, file: &str) -> String {
+    format!("https://github.com/KratosDataGod/fabric-desktop/releases/download/{tag}/{file}")
+}
+
+/// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
+/// Windows looks in this exe's folder first, so a curl.exe saved next to it (in Downloads, say)
+/// would run instead.
+fn system_tool(name: &str) -> PathBuf {
+    let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+    PathBuf::from(root).join("System32").join(name)
+}
+
+/// The SHA-256 of a file, as lowercase hex.
+fn sha256_file(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Checks a downloaded engine zip against its release's version.json, which CI writes after the
+/// files: the zip's SHA-256 must be the one it gives. Releases from before checksums give none;
+/// those are accepted, and the build check after unpacking still runs. Returns the build the
+/// release names, if any.
+fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<String>, String> {
+    let commit = release["commit"].as_str().filter(|c| c.len() == 40 && c.bytes().all(|b| b.is_ascii_hexdigit()));
+    match release["engine_sha256"].as_str() {
+        Some(expected) if expected.eq_ignore_ascii_case(actual_sha256) => Ok(commit.map(str::to_owned)),
+        Some(_) => Err("The engine download doesn't match the checksum its release gives, so it wasn't installed. \
+             A new build may be being published; try again in a few minutes."
+            .into()),
+        None => Ok(commit.map(str::to_owned)),
+    }
 }
 
 /// Release builds run the bundled engine; local builds, and anyone who sets
@@ -200,11 +244,16 @@ impl Sidecar {
             return Err(self.exited());
         }
 
-        let mut line = String::new();
-        let read = self.stdout.read_line(&mut line).map_err(|e| e.to_string())?;
-        if read == 0 {
-            return Err(self.exited());
-        }
+        let line = match watchdog::read_reply(&mut self.stdout, &self.child, watchdog::limit(method))
+            .map_err(|e| e.to_string())?
+        {
+            Reply::Line(line) => line,
+            Reply::Closed => return Err(self.exited()),
+            Reply::TimedOut => return Err(format!(
+                "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
+                 run the notebook's cells again. Details are in {}",
+                watchdog::QUICK_SECONDS, self.log.display())),
+        };
         let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
         if let Some(error) = response.get("error") {
             return Err(error.as_str().unwrap_or("Unknown sidecar error").to_string());
@@ -233,7 +282,10 @@ async fn rpc(
     let sidecar = guard.as_mut().expect("sidecar started");
     let first_call = sidecar.next_id == 1;
     let result = sidecar.call(&method, params.unwrap_or_else(|| json!({})));
-    if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+    if matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK)) {
+        // Ended by the time limit: the next call starts a fresh one.
+        *guard = None;
+    } else if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
         *guard = None;
         if first_call {
             // It would not even start: have the next startup check load the engine again
@@ -326,30 +378,63 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let root = engine_root();
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     let zip = root.join("download.zip");
+    let release_json = root.join("version.json");
     let staging = root.join(".new");
     let nocache = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
 
     say("Downloading the engine (Python and its packages, about 150 MB)…");
     let mut result = Err(String::new());
-    for url in engine_urls() {
-        let mut curl = Command::new("curl.exe");
+    let mut release = Value::Null;
+    for tag in engine_tags() {
+        let mut curl = Command::new(system_tool("curl.exe"));
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
         curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
-            .arg(format!("{url}?nocache={nocache}"));
+            .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
         result = run_tool(curl, "download the engine");
         if result.is_ok() {
+            // Its checksum comes from the same release, fetched after the zip: CI uploads
+            // version.json last, so it never names a zip older than the one just downloaded.
+            let mut curl = Command::new(system_tool("curl.exe"));
+            curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
+                       "Cache-Control: no-cache", "-o"])
+                .arg(&release_json)
+                .arg(format!("{}?nocache={nocache}", release_file(tag, "version.json")));
+            result = run_tool(curl, "read the engine's checksum");
+            release = std::fs::read_to_string(&release_json)
+                .ok()
+                .and_then(|text| serde_json::from_str(text.trim_start_matches('\u{feff}')).ok())
+                .unwrap_or(Value::Null);
+            let _ = std::fs::remove_file(&release_json);
+            if result.is_ok() && !release.is_object() {
+                result = Err("Could not read the engine's checksum: the release's version.json isn't valid.".into());
+            }
             break;
         }
     }
-    result?;
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(&zip);
+        return Err(e);
+    }
+    say("Checking the download…");
+    let sha = sha256_file(&zip)?;
+    let named = match check_engine_zip(&sha, &release) {
+        Ok(named) => named,
+        Err(e) => {
+            let _ = std::fs::remove_file(&zip);
+            return Err(e);
+        }
+    };
+    if release["engine_sha256"].is_null() {
+        say("This release gives no engine checksum (it was published before checksums); checking its build instead.");
+    }
 
     say("Unpacking the engine…");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    let mut tar = Command::new("tar.exe");
+    let mut tar = Command::new(system_tool("tar.exe"));
     tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
     run_tool(tar, "unpack the engine")?;
     let _ = std::fs::remove_file(&zip);
@@ -360,7 +445,14 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         .ok_or("The engine download has no engine.json, so it is not a Fabric Desktop by KratosBI engine.")?;
     let commit = info["commit"].as_str().unwrap_or_default().to_string();
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let _ = std::fs::remove_dir_all(&staging);
         return Err("The engine download does not say which build it is.".into());
+    }
+    if named.as_deref().is_some_and(|n| n != commit) {
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err("The engine download is a different build from the one its release names, so it wasn't installed. \
+             A new build may be being published; try again in a few minutes."
+            .into());
     }
     let dest = root.join(&commit);
     let _ = std::fs::remove_dir_all(&dest);
@@ -430,7 +522,7 @@ fn open_in_browser(url: &Url) -> Result<(), String> {
         return Err(format!("Not opening {url}"));
     }
     let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("rundll32");
+        let mut c = Command::new(system_tool("rundll32.exe"));
         c.args(["url.dll,FileProtocolHandler", url.as_str()]);
         c
     } else {
@@ -816,7 +908,7 @@ fn open_link(url: String) -> Result<(), String> {
         "https" => open_in_browser(&url),
         "mailto" => {
             let mut cmd = if cfg!(windows) {
-                let mut c = Command::new("rundll32");
+                let mut c = Command::new(system_tool("rundll32.exe"));
                 c.args(["url.dll,FileProtocolHandler", url.as_str()]);
                 c
             } else {
@@ -859,4 +951,47 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Fabric Desktop");
+}
+
+#[cfg(test)]
+mod integrity_tests {
+    use super::*;
+
+    const BUILD: &str = "13cd5dfa54ee4be7c066919bd3828eda3e5c1326";
+
+    #[test]
+    fn hashes_a_file_as_lowercase_hex() {
+        let path = std::env::temp_dir().join(format!("fd-sha-{}", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        let sha = sha256_file(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(sha, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+
+    #[test]
+    fn an_engine_matching_its_release_checksum_is_accepted() {
+        let release = json!({ "commit": BUILD, "engine_sha256": "AB".repeat(32) });
+        assert_eq!(check_engine_zip(&"ab".repeat(32), &release), Ok(Some(BUILD.to_string())));
+    }
+
+    #[test]
+    fn an_engine_not_matching_its_release_checksum_is_refused() {
+        let release = json!({ "commit": BUILD, "engine_sha256": "ab".repeat(32) });
+        let err = check_engine_zip(&"cd".repeat(32), &release).unwrap_err();
+        assert!(err.contains("doesn't match the checksum"), "{err}");
+    }
+
+    #[test]
+    fn a_release_from_before_checksums_still_names_its_build() {
+        let release = json!({ "commit": BUILD, "notes": "first stable" });
+        assert_eq!(check_engine_zip(&"cd".repeat(32), &release), Ok(Some(BUILD.to_string())));
+        assert_eq!(check_engine_zip(&"cd".repeat(32), &json!({ "commit": "not-a-commit" })), Ok(None));
+    }
+
+    #[test]
+    fn windows_tools_run_from_system32() {
+        let tool = system_tool("curl.exe");
+        assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
+        assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
 }

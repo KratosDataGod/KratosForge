@@ -8,6 +8,8 @@ The same file as every other IT setting (app_settings.policy_path(), usually
     integrations_max_permissions    the permission categories a tool may be given, for example
                                     ["READ_METADATA", "READ_DATA"] (default: all that are offered)
     integrations_http               false: the local HTTP API can't be switched on (default: allowed)
+    receipt_redactions              parts of a receipt every export leaves out (the enterprise
+                                    program's key, PR #84); external tools' exports honour it too
 
 Nothing an external tool sends can change these: they are read from the file on every check.
 """
@@ -20,7 +22,7 @@ from typing import Any
 from .. import app_settings
 from .registry import PERMISSIONS
 
-KEYS = ("integrations", "integrations_max_permissions", "integrations_http")
+KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "receipt_redactions")
 
 
 def _read() -> dict[str, Any]:
@@ -58,3 +60,14 @@ def current() -> dict[str, Any]:
             out["problems"].append("integrations_http should be true or false")
             out["http"] = False
     return out
+
+
+def receipt_redactions() -> list[str]:
+    """The receipt parts IT requires every export to leave out. An unreadable value hides them all."""
+    from ..receipts import REDACTIONS
+    value = _read().get("receipt_redactions")
+    if value is None:
+        return []
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return [v for v in value if v in REDACTIONS]
+    return list(REDACTIONS)  # fail closed

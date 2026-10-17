@@ -77,6 +77,9 @@ class PermissionAuthorizer:
             return False, f"Your organization doesn't allow external tools {cap.permission}."
         if client is None or cap.permission not in client["grants"]:
             return False, f"This tool hasn't been given {cap.permission}. The person can add it in {WHERE}."
+        if cap.permission == "EXECUTE_LOCAL_CODE" and client["workspaces"]:
+            # Code runs with the person's sign-in, which reaches every workspace they can open.
+            return False, "A tool limited to some workspaces can't run code: code would reach every workspace you can."
         return True, ""
 
     def _client(self, ctx: CallContext | None) -> dict[str, Any] | None:

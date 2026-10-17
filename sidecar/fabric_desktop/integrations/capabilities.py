@@ -146,7 +146,7 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.validate_notebook, artifact_types=("Notebook",), timeout=60,
             resource="fabric-desktop://notebooks/{name}/validation"),
     ]
-    caps += _prove()
+    caps += _prove() + _executions() + _prove_actions()
     for cap in caps:
         reg.register(cap)
 
@@ -220,4 +220,118 @@ def _prove() -> list[Capability]:
             schema({"id": ID}, ["id"]), record,
             "READ_METADATA", services.get_side_by_side, limitations=PROVE_LIMIT, timeout=30,
             resource="fabric-desktop://side-by-side/{id}"),
+    ]
+
+
+WAIT = {"wait_seconds": {"type": "number", "minimum": 0, "maximum": 120, "default": 30,
+                         "description": "How long to wait for the result before returning the execution id."}}
+EXECUTION = schema({"id": STR, "kind": STR, "state": {"enum": ["queued", "running", "succeeded", "failed", "cancelled", "timed_out"]},
+                    "seconds": {"type": "number"}, "result": {}, "error": {"type": "object"}}, ["id", "state"], extra=True)
+OPT_ID = {"type": "string", "maxLength": 100, "pattern": r"^[A-Za-z0-9\-]*$", "default": ""}
+EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
+CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
+               "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
+               "Output is capped at 100,000 characters; images and HTML are left out.")
+
+
+def _executions() -> list[Capability]:
+    """Running things for an external tool (executions.py). SQL only reads; code always asks."""
+    return [
+        Capability(
+            "fabric_desktop_execute_sql", "Run a SQL query",
+            "Runs one read-only Spark SQL (or DuckDB SQL) query over a lakehouse's tables on this PC and returns "
+            "up to max_rows rows. SELECT only; local files, extensions and the network can't be reached from it.",
+            schema({"workspace_id": ID, "lakehouse_id": ID,
+                    "query": {"type": "string", "minLength": 1, "maxLength": 100_000},
+                    "max_rows": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100},
+                    **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 600, "default": 120}},
+                   ["workspace_id", "lakehouse_id", "query"]),
+            EXECUTION, "READ_DATA", services.execute_sql, approval="ask", artifact_types=("Lakehouse",),
+            limitations=("One statement per call. Reads tables at their current version.",), timeout=660),
+        Capability(
+            "fabric_desktop_execute_python", "Run Python",
+            "Runs Python on this PC in a fresh process, optionally with a lakehouse attached (as a notebook cell "
+            "would run). The person approves every run in Fabric Desktop by KratosBI, seeing the code.",
+            schema({"code": {"type": "string", "minLength": 1, "maxLength": 100_000},
+                    "workspace_id": OPT_ID, "lakehouse_id": OPT_ID,
+                    **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 3600, "default": 300}},
+                   ["code"]),
+            EXECUTION, "EXECUTE_LOCAL_CODE", services.execute_python, read_only=False, approval="always",
+            limitations=CODE_LIMITS, timeout=3600),
+        Capability(
+            "fabric_desktop_run_notebook", "Run a notebook on this PC",
+            "Runs a saved notebook's code cells in order on this PC in a fresh process, stopping at the first "
+            "error, and returns each cell's output. The person approves every run. Running in Fabric isn't offered.",
+            schema({"name": NAME, "workspace_id": OPT_ID | {"description": "The workspace of the notebook's lakehouse."},
+                    **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 3600, "default": 900}},
+                   ["name"]),
+            EXECUTION, "EXECUTE_LOCAL_CODE", services.run_notebook, read_only=False, approval="always",
+            artifact_types=("Notebook",), limitations=CODE_LIMITS + ("A notebook that writes tables stops at that cell.",),
+            timeout=3600),
+        Capability(
+            "fabric_desktop_get_execution_status", "Get execution status",
+            "The state of an execution you started, and its result once finished. wait_seconds waits for it to finish.",
+            schema({"execution_id": EXECUTION_ID, "wait_seconds": {"type": "number", "minimum": 0, "maximum": 60, "default": 0}},
+                   ["execution_id"]),
+            EXECUTION, "READ_METADATA", services.get_execution_status, timeout=70),
+        Capability(
+            "fabric_desktop_get_execution_logs", "Get execution logs",
+            "The log lines of an execution you started.",
+            schema({"execution_id": EXECUTION_ID, **PAGING}, ["execution_id"]), paged_output(STR),
+            "READ_METADATA", services.get_execution_logs, timeout=15),
+        Capability(
+            "fabric_desktop_list_executions", "List executions",
+            "Executions you started, newest first, with their states (no results).",
+            schema(dict(PAGING)), paged_output(EXECUTION),
+            "READ_METADATA", services.list_executions, timeout=15),
+        Capability(
+            "fabric_desktop_cancel_execution", "Cancel an execution",
+            "Stops an execution you started: interrupts it, then ends its process.",
+            schema({"execution_id": EXECUTION_ID}, ["execution_id"]), EXECUTION,
+            "EXECUTE_LOCAL_CODE", services.cancel_execution, read_only=False, timeout=30),
+    ]
+
+
+def _prove_actions() -> list[Capability]:
+    """Prove this notebook's actions. Starting a proof publishes a copy of the notebook to Fabric and
+    deleting outputs deletes files in OneLake; neither permission is offered to external tools in
+    this release, so both are listed as unavailable with the reason."""
+    proof_id = schema({"id": ID}, ["id"])
+    return [
+        Capability(
+            "fabric_desktop_start_proof", "Start a proof",
+            "Proves a notebook: runs it on this PC and as a copy in Fabric, then compares every table it writes.",
+            schema({"name": NAME}, ["name"]), schema({"id": STR, "state": STR}, ["id"], extra=True),
+            "MODIFY_FABRIC_ARTIFACTS", services.start_proof, read_only=False, approval="always",
+            locations=("this_pc", "fabric"), artifact_types=("Notebook",), timeout=120,
+            limitations=("Publishes a copy of the notebook to Fabric and runs it there.",)),
+        Capability(
+            "fabric_desktop_cancel_proof", "Cancel a proof",
+            "Stops a running proof.",
+            proof_id, schema({"cancelled": {"type": "boolean"}}, ["cancelled"], extra=True),
+            "EXECUTE_LOCAL_CODE", services.cancel_proof, read_only=False, approval="always", timeout=60),
+        Capability(
+            "fabric_desktop_verify_proof_table", "Verify a proof table again",
+            "Compares one table of a finished proof again under other rules (tolerance, key columns, ignored "
+            "columns), without running anything. Returns example rows that differ, so it needs READ_DATA.",
+            schema({"id": ID, "table": {"type": "string", "minLength": 1, "maxLength": 300},
+                    "rules": {"type": "object", "default": {}}, "offset": {"type": "integer", "minimum": 0, "default": 0}},
+                   ["id", "table"]),
+            schema({"table": STR, "result": STR, "level": STR}, ["table"], extra=True),
+            "READ_DATA", services.verify_proof_table, approval="ask", locations=("fabric",), timeout=600),
+        Capability(
+            "fabric_desktop_delete_proof_outputs", "Delete a proof's outputs",
+            "Deletes the files a proof wrote under Files/ in the lakehouse. The record and receipt stay.",
+            proof_id, schema({"deleted": STR}, ["deleted"], extra=True),
+            "WRITE_ONELAKE", services.delete_proof_outputs, read_only=False, destructive=True, approval="always",
+            locations=("fabric",), timeout=300),
+        Capability(
+            "fabric_desktop_export_receipt", "Export a receipt",
+            "A readable report of a receipt (markdown, HTML or JSON). Parts in hide, and any your organization "
+            "requires, are left out. Without hiding values it includes example rows, so it needs READ_DATA.",
+            schema({"id": ID, "format": {"enum": ["markdown", "html", "json"], "default": "markdown"},
+                    "hide": {"type": "array", "items": {"enum": ["identity", "locations", "values", "machine"]}, "default": []}},
+                   ["id"]),
+            schema({"format": STR, "text": STR, "hidden": {"type": "array"}}, ["format", "text"], extra=True),
+            "READ_DATA", services.export_receipt, approval="ask", timeout=60),
     ]

@@ -16,7 +16,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 005 | Permissions and approval framework | P0 | MISSING | 002 | [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102) | Draft PR; 17 tests |
 | 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
-| 007 | External execution interface | P1 | PARTIAL | 005 | | Planned |
+| 007 | External execution interface | P1 | PARTIAL | 005 | (this PR) | Draft PR; 31 tests |
 | 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | | Planned |
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |
@@ -67,6 +67,8 @@ Built in the requested order, with one change: the capability registry (003) com
 
 - **Evidence.** Kernel with start, poll, interrupt and stop (`notebook.py`, `kernel_proc.py`); SQL engine; Prove's own status pattern. No execution ids outside Prove.
 - **Plan.** `integrations/executions.py`: ids, states, logs, capped output, timeouts, cancellation; SQL read-only and sandboxed (DuckDB `enable_external_access = false`); Python and notebooks in a process kernel only; approval every call.
+- **Built.** `integrations/executions.py` (ExecutionManager, records on disk, wait/timeout/cancel), `sql.run(sandbox=True)` and `Service.run_sql(sandbox=True)`, seven capabilities (execute SQL, execute Python, run notebook, status, logs, list, cancel) and Prove's five actions with their real permissions. Code gets only a storage token and can't write tables through the engine; workspace-limited tools can't run code.
+- **Limitations.** Notebooks run on this PC only. Per-cell memory limits wait for the Prove program's work. No state is kept between Python runs. The approval for a notebook run names the notebook rather than showing its code.
 
 ### PR-AI-008: Connection experience
 

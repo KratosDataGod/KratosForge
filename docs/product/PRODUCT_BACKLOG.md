@@ -30,6 +30,7 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Enterprise governance foundation | GOV-001..005, FD-129 (moved from Enterprise readiness on 2026-10-17) | Its project thread |
 | Administration and FinOps sprint | FINOPS-001..005 | Its project thread |
 | Local Fabric pipeline execution | ORCH-001..010 | Its project thread |
+| Local data engine and OneLake publishing | FD-LDE-001..020 | Its project thread; tracked here as PB-099, with overlaps noted on PB-015, PB-019..PB-024, PB-067 and PB-079 |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,
@@ -56,7 +57,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 <!-- BEGIN GENERATED: summary -->
 | Category | P0 | P1 | P2 | P3 | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| [Local Development and Execution](#local-development-and-execution) | 0 | 3 | 2 | 0 | 5 |
+| [Local Development and Execution](#local-development-and-execution) | 0 | 3 | 3 | 0 | 6 |
 | [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 5 | 3 | 9 |
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 3 | 8 |
@@ -68,7 +69,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 1 | 7 | 2 | 0 | 10 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **2** | **28** | **47** | **9** | **86** |
+| **Total** | **2** | **28** | **48** | **9** | **87** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -86,6 +87,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
+| [PB-099](#pb-099) | Local data engine and OneLake publishing program | P2 | Local data engine and OneLake publishing | XL | In progress |
 
 ### PB-012
 
@@ -143,7 +145,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** spark.sql MERGE/UPDATE/DELETE and DeltaTable merge executed through delta-rs on the PC, with the Fabric Delta profile check, behind a Preview flag.
 - **Current-state evidence:** spark_local.py raises for MERGE, UPDATE, DELETE; meta/engine.py already merges with delta-rs for metadata runs
 - **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04)
-- **Dependencies:** [PB-012](#pb-012)
+- **Dependencies:** [PB-012](#pb-012), Overlaps FD-LDE-005 local Delta Lake (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** Prove (Prove plan (local Spark coverage))
 - **Acceptance criteria:**
     - The parity suite covers MERGE with matched/not-matched clauses, UPDATE and DELETE
@@ -165,6 +167,21 @@ review moves it to Accepted; a merge alone does neither.
     - A notebook's profile installs the same versions on the PC that its Fabric Environment declares
     - The app can attach a notebook to an existing Environment item
     - Drift between PC and Fabric versions is shown before a run
+
+### PB-099
+
+**Local data engine and OneLake publishing program** · P2 (score 2.3) · XL · confidence Low · In progress
+
+- **Problem:** Local files and SQL transformations can't be developed in a persistent local engine and published to OneLake with validation, publish history and incremental sync, without Fabric capacity.
+- **Proposed capability:** Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. That thread's audit maps which existing components and programs each story reuses.
+- **Current-state evidence:** DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py); Thread started 2026-10-17; audit in progress
+- **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
+- **Dependencies:** none
+- **Owner:** Local data engine and OneLake publishing (FD-LDE-001..020)
+- **Merged duplicates:** Overlaps PB-021..PB-025 and PB-020 (SQL sprint: SQL editor, dialect, execution, connectivity, local Warehouse); Overlaps PB-015 (local Delta writes), PB-019 (incremental), PB-067 (large datasets), PB-050/PB-090 (FinOps), PB-079 (TOML job runner) and the metadata framework
+- **Acceptance criteria:**
+    - As defined in FD-LDE-001..020 by its owning thread
+    - Each story's overlap with an existing item is resolved in that thread's audit before build
 
 ## SQL, Python, and Notebook Development
 
@@ -188,7 +205,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-006).
 - **Current-state evidence:** No local T-SQL engine in the repo
 - **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
-- **Dependencies:** [PB-022](#pb-022)
+- **Dependencies:** [PB-022](#pb-022), Overlaps FD-LDE-004 T-SQL compatibility and the local TDS endpoint story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** SQL development sprint (SQL-006)
 - **Acceptance criteria:**
     - As defined in SQL-006 by its owning thread
@@ -201,7 +218,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-001).
 - **Current-state evidence:** app/ui/app.js SQL page uses a textarea
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
-- **Dependencies:** none
+- **Dependencies:** Overlaps FD-LDE-003 local SQL target (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** SQL development sprint (SQL-001)
 - **Acceptance criteria:**
     - As defined in SQL-001 by its owning thread
@@ -214,7 +231,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-002).
 - **Current-state evidence:** sql.py translates with sqlglot without a compatibility report
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
-- **Dependencies:** none
+- **Dependencies:** Overlaps FD-LDE-004 T-SQL compatibility (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** SQL development sprint (SQL-002)
 - **Acceptance criteria:**
     - As defined in SQL-002 by its owning thread
@@ -227,7 +244,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-003).
 - **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
-- **Dependencies:** none
+- **Dependencies:** Overlaps FD-LDE-003 local SQL target (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** SQL development sprint (SQL-003)
 - **Acceptance criteria:**
     - As defined in SQL-003 by its owning thread
@@ -240,7 +257,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-004).
 - **Current-state evidence:** No TDS or ODBC client in sidecar/constraints.txt
 - **Inventory features:** [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
-- **Dependencies:** [PB-021](#pb-021)
+- **Dependencies:** [PB-021](#pb-021), Overlaps the local TDS endpoint story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** SQL development sprint (SQL-004)
 - **Acceptance criteria:**
     - As defined in SQL-004 by its owning thread
@@ -318,7 +335,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A lookback window and soft- or hard-delete handling per entity.
 - **Current-state evidence:** meta/engine.py watermark comparison; docs/scale-and-operations-plan.md capability 3
 - **Inventory features:** [FEAT-META-02](FEATURE_INVENTORY.md#feat-meta-02)
-- **Dependencies:** none
+- **Dependencies:** Overlaps the incremental MERGE story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** Staged roadmap (FD-117)
 - **Acceptance criteria:**
     - A late row inside the lookback lands exactly once
@@ -347,7 +364,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.
 - **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py
 - **Inventory features:** [FEAT-META-06](FEATURE_INVENTORY.md#feat-meta-06)
-- **Dependencies:** none
+- **Dependencies:** Overlaps the large datasets story (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** Staged roadmap (FD-114)
 - **Acceptance criteria:**
     - The run dialog shows the estimate before a large run (after a mockup)
@@ -374,7 +391,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A product decision: expose jobs in the app, or keep them a CLI and agent feature and document it so.
 - **Current-state evidence:** jobs.py, cli.py preview/run; no UI caller of preview_job or run_job
 - **Inventory features:** [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11)
-- **Dependencies:** none
+- **Dependencies:** Overlaps FD-LDE-006 local data transformations (Local data engine and OneLake publishing thread, PB-099); owners being mapped in that thread's audit
 - **Owner:** Master product (unassigned)
 - **Acceptance criteria:**
     - Decision recorded in docs/product/implementation-decisions.md

@@ -748,7 +748,7 @@ on quality.
 - **Docs:** [docs/architecture.md](../architecture.md)
 - **Known limitations:** Writes Delta features Fabric reads; newer Delta features are refused rather than written.
 - **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#54](https://github.com/KratosDataGod/fabric-desktop/pull/54)
-- **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-003](PRODUCT_BACKLOG.md#pb-003)
+- **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-003](PRODUCT_BACKLOG.md#pb-003), [PB-099](PRODUCT_BACKLOG.md#pb-099)
 - **Recommended next action:** Keep; verify MERGE on OneLake in the live test.
 
 ### FEAT-NB-01
@@ -921,7 +921,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_local.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** No UI; Monitor labels its history as 'Notebook write' (inference). No managed-table write guard (inference).
-- **Backlog:** [PB-079](PRODUCT_BACKLOG.md#pb-079)
+- **Backlog:** [PB-079](PRODUCT_BACKLOG.md#pb-079), [PB-099](PRODUCT_BACKLOG.md#pb-099)
 - **Recommended next action:** Decide: expose jobs in the app or mark them a CLI/agent feature and document so (PB-079).
 
 ### FEAT-SQL-01
@@ -937,7 +937,7 @@ on quality.
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Plain textarea, no autocomplete or formatting. Read-only. Download CSV re-runs the query. No cancel.
 - **Owning workstream:** SQL development sprint
-- **Backlog:** [PB-021](PRODUCT_BACKLOG.md#pb-021), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-023](PRODUCT_BACKLOG.md#pb-023)
+- **Backlog:** [PB-021](PRODUCT_BACKLOG.md#pb-021), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-023](PRODUCT_BACKLOG.md#pb-023), [PB-099](PRODUCT_BACKLOG.md#pb-099)
 - **Recommended next action:** Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.
 
 ### FEAT-SQL-02

@@ -1410,7 +1410,8 @@
       "next_action": "Keep; verify MERGE on OneLake in the live test.",
       "backlog": [
         "PB-002",
-        "PB-003"
+        "PB-003",
+        "PB-099"
       ]
     },
     {
@@ -1918,7 +1919,8 @@
       ],
       "next_action": "Decide: expose jobs in the app or mark them a CLI/agent feature and document so (PB-079).",
       "backlog": [
-        "PB-079"
+        "PB-079",
+        "PB-099"
       ]
     },
     {
@@ -1966,7 +1968,8 @@
       "backlog": [
         "PB-021",
         "PB-022",
-        "PB-023"
+        "PB-023",
+        "PB-099"
       ]
     },
     {

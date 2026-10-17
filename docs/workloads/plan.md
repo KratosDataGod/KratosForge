@@ -296,7 +296,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 ### D. Cross-location execution management
 
 **31. Execution location directory** · Missing · Stage 1 (this PC and Fabric workspaces), Stage 5 (agents) · *Dep roadmap (agent records)*
-- Enhancement: locations from deployments now; agents from `agents/<name>.json` later. Acceptance: an agent with no recent heartbeat shows "last seen", not "online". Validation: U, UI. PR: —
+- Enhancement: locations from deployments now; agents from `agents/<name>.json` later. Acceptance: an agent with no recent heartbeat shows "last seen", not "online". Validation: U, UI. PR: 5A (Monitor > Agents)
 
 **32. Placement recommendations** · Missing · Stage 8 · *Dep Prove (placement)*
 - Enhancement: show Prove's recommendation with its evidence on the workload page. PR: —
@@ -314,10 +314,10 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: —
 
 **37. Agent enrollment and inventory** · Enhance · Stage 5 · *Dep roadmap*
-- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: —
+- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: 5A (version, environments, what it runs; owner and identity type need fields the status record doesn't have yet)
 
 **38. Agent health and heartbeat** · Missing · Stage 2.3, Stage 5 · *Dep roadmap (heartbeat records)*
-- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident; version and capability in stage 5)
+- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident), 5A (version compared with the app)
 
 **39. Execution recovery guidance** · Enhance · Stage 1 (failed runs), Stage 5
 - Today: the agent recovers jobs whose worker died (`jobqueue.recover`); PC schedules skip when locked. Enhancement: guided retry for failed runs now; PC shutdown, agent loss, expired credentials and interrupted Fabric runs in stage 5. Validation: U. PR: —
@@ -485,4 +485,5 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-16 | Stage 2.1/2.2 built: W2 revised to a conditional-write JSON document per environment; agent evaluation opt-in; `freshness_alerts.json` import dropped. |
 | 2026-10-17 | #72 and #74 merged. Stage 2.3 split into 2.3A (engine) and 2.3B (screens, after Chris reacts to mockup boards 5 and 6). FD-122/123/124 and governance views assigned to this program by the enterprise program. |
 | 2026-10-17 | #79 (2.3A) merged. 2.3B built after Chris's go: Monitor > Incidents, incident page, incidents on the workload page; agents publish their incident settings (no webhooks) in their status records. Moving the app's own freshness alerts onto incidents is split out as 2.3C. |
+| 2026-10-17 | Stage 5A (FD-122): Monitor > Agents and the agent page, read-only over the status records; mockup boards 7 and 8. Overlap warnings (item 36) and the queue view across locations (item 34) follow. |
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |

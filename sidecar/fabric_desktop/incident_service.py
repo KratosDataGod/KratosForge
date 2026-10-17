@@ -11,13 +11,14 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from . import __version__
 from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
-from .workloads.agents import read_status
+from .workloads.agents import agent_state, fleet, read_status
 from .workloads.notify import Outbox, send, single
 
 
@@ -61,16 +62,27 @@ class IncidentMixin:
         now = dt.datetime.now(dt.timezone.utc)
         out = []
         for r in records:
-            try:
-                stale = dt.datetime.fromisoformat(str(r.get("stale_after")).replace("Z", "+00:00"))
-                live = stale.tzinfo is not None and now < stale
-            except ValueError:
-                live = False
-            state = "stopped" if r.get("state") == "stopped" else "live" if live else "offline"
+            state = agent_state(r, now)
             inc = r.get("incidents") if isinstance(r.get("incidents"), dict) else None  # None: an agent too old to say
             out.append({"agent": r.get("agent"), "host": r.get("host"), "version": r.get("version"), "state": state,
                         "heartbeat_at": r.get("heartbeat_at"), "incidents": inc})
         return {"readable": True, "agents": sorted(out, key=lambda a: str(a["agent"]))}
+
+    def agents_list(self) -> dict[str, Any]:
+        """Every agent serving this project's environments, from the status records they write
+        (read only; nothing here reaches an agent). Each environment says whether it could be read."""
+        now = dt.datetime.now(dt.timezone.utc)
+        by_env: dict[str, list[dict[str, Any]]] = {}
+        envs = []
+        for env in ENVIRONMENTS:
+            try:
+                by_env[env] = read_status(self._incident_log(env).backend)
+            except Exception as exc:  # noqa: BLE001
+                state, message = model.classify_error(exc)
+                envs.append({"env": env, "count": None, "observation": model.observation("Agents", state, detail=message)})
+                continue
+            envs.append({"env": env, "count": len(by_env[env]), "observation": model.observation("Agents", "live", model.now())})
+        return {"envs": envs, "agents": fleet(by_env, now, __version__), "app_version": __version__}
 
     def incidents_summary(self, workload: str = "") -> dict[str, Any]:
         """Active incidents per environment, for the environment chips and a workload's page. With

@@ -57,6 +57,7 @@ const PREVIEW_FEATURES = {
   sourceControl: "Source control",
   workloads: "Workloads",
   incidents: "Incidents",
+  agents: "Agents",
   integrations: "External AI tools",
 };
 

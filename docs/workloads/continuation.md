@@ -16,6 +16,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | --- | --- | --- | --- |
 | `claude/workload-incident-screens-4su03b` | #125 (2.3B) | Monitor > Incidents, incident page, workload page card, agent incident settings in status records | Ready for review |
 | `claude/workload-freshness-incidents-4su03b` | 2.3C | The app checks incidents every 10 minutes for environments no running agent checks; bell and Teams alerts come from incidents | Open, merge after #125 |
+| `claude/workload-agents-4su03b` | 5A | Monitor > Agents and the agent page (FD-122), stacked on 2.3C | Draft, waiting on Chris's reaction to boards 7 and 8 |
 
 ## Completed backlog items
 
@@ -24,6 +25,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 ## Work in progress
 
 - 2.3B (#125) ready for review; merge main into it once #122 lands. 2.3C built on top of it: `incidents_watch` checks each environment in one of three modes (agent: a live agent with incidents on checks it, the app only reads; app: the app evaluates and posts to Teams; unreadable). With Preview features hidden the old per-table freshness alerts stay as they were.
+- 5A (FD-122) built as a draft: `agents_list` RPC over `workloads/agents.py` `fleet`, `app/ui/agents.js`. Read-only. Next in stage 5: overlap warning (board 7's "Scheduled in two places", item 36; needs agent schedules to name their entities), the queue view across locations (item 34), then FD-124 multi-worker.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
@@ -62,7 +64,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Next action
 
-Keep #125 and 2.3C green and merge main into them once #122 lands. Then FD-122 agent operations dashboard (stage 5, mockup first; the roadmap thread owns agent status records), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
+Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chris reacts to boards 7 and 8, adjust 5A and mark it ready. Then the rest of stage 5 (overlap warnings, queue view across locations; the roadmap thread owns agent status records, so ask it before adding fields), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
 
 ## Resume prompt
 

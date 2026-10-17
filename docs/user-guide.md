@@ -255,7 +255,7 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 The Fabric page is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
 
-It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\\FabricDesktop\\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
 ## Monitor
 
@@ -345,7 +345,7 @@ When a tool asks for something that needs you, a prompt opens over whatever page
 | --- | --- |
 | **How tools connect** | The MCP command tools start, and the **Local HTTP API** switch for tools that call `http://127.0.0.1:47615` instead (this PC only, with a token per tool). |
 | **Connected tools** | Each tool with what it may do and when it last asked. **Edit** changes its permissions, limits it to some workspaces (it then can't run code) or makes a new HTTP token. **Revoke** stops it at once. |
-| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\\FabricDesktop\\integrations\\audit`. |
+| **Recent activity** | Every request each tool made, refused ones included: what it asked for, what was decided (allowed, approved by you, refused, denied by you, not answered) and how it ended. Code, queries and table data aren't kept. **Check the trail** confirms no line was changed or removed. The full trail, for your IT team, is in `%LOCALAPPDATA%\FabricDesktop\integrations\audit`. |
 
 Code a tool runs gets a process of its own that's ended afterwards. It can read the attached lakehouse but can't write tables or get other sign-in tokens, and its output has anything that looks like a password or token removed. SQL from a tool can only read. Setup for each tool, workflows and instructions to paste into it: [Connect your AI tool](ai/README.md). Details for developers and IT: [AI integration](architecture/ai-integration.md), [security](product/ai-integration-security.md).
 
@@ -380,7 +380,7 @@ Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type
 
 ### Audit trail
 
-Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\\FabricDesktop\\audit\\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
 
 Each line says:
 
@@ -401,7 +401,7 @@ To read it, or to check that no line was changed or removed since it was written
 fabric-desktop audit --limit 20                      # the newest 20 lines
 fabric-desktop audit --action meta_promote           # only promotes
 fabric-desktop audit --verify                        # exit code 1 if the chain is broken
-fabric-desktop audit --folder D:\\agent\\audit --verify # an agent's trail
+fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
 ```
 
 The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

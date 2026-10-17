@@ -155,3 +155,11 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2, 3, 4]), "2, 3 and 4");
   assert.strictEqual(depsList([2]), "2");
 });
+
+test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
+  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+});

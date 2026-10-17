@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ...`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | support-bundle`."""
 
 from __future__ import annotations
 
@@ -33,6 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    bundle = sub.add_parser("support-bundle", help="save a zip of versions, settings sources and recent logs, "
+                                                   "with secrets and personal details taken out")
+    bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
+    bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -40,6 +44,12 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "agent":
         raise SystemExit(_agent(args))
+    if args.command == "support-bundle":
+        from pathlib import Path
+
+        from .support_bundle import create
+        print(create(Path(args.out), agent_home=Path(args.agent_home) if args.agent_home else None))
+        return
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
         return

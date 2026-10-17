@@ -1,6 +1,7 @@
 """UDF_Platform: the User Data Functions item that is the platform's API in Fabric.
 
-Its source is core.py followed by one small function per operation. Each function opens the
+Its source is core.py and policy.py, run as a module of their own, followed by one small
+function per operation. Each function opens the
 SQL_Platform connection (alias "platform") and records changes as the person who called it,
 taken from Fabric's own context, never from what the caller says. Report buttons in the
 Catalog app (translytical task flows) call the save_* functions, which return text.
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from pathlib import Path
 
 ALIAS = "platform"
@@ -360,13 +362,144 @@ def shortcut_rules(sqlDB: fn.FabricSqlConnection) -> dict:
 def save_shortcut_rules(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, rules: dict) -> dict:
     return _run(sqlDB, "save_shortcut_rules", ctx, rules=rules)
 
+
+# ---- governance policies (policy.py)
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def ensure_policy_schema(sqlDB: fn.FabricSqlConnection) -> list:
+    return _run(sqlDB, "ensure_policy_schema")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def create_policy(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, policy: dict) -> dict:
+    return _run(sqlDB, "create_policy", ctx, policy=policy)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_policy_draft(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, policy: dict,
+                      note: str = "") -> dict:
+    return _run(sqlDB, "save_policy_draft", ctx, id=id, policy=policy, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def discard_policy_draft(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str) -> dict:
+    return _run(sqlDB, "discard_policy_draft", ctx, id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def publish_policy(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, note: str = "") -> dict:
+    return _run(sqlDB, "publish_policy", ctx, id=id, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def set_policy_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, status: str,
+                      note: str = "") -> dict:
+    return _run(sqlDB, "set_policy_status", ctx, id=id, status=status, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_policies(sqlDB: fn.FabricSqlConnection, query: str = "", category: str = "", status: str = "") -> list:
+    return _run(sqlDB, "list_policies", query=query, category=category, status=status)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def get_policy(sqlDB: fn.FabricSqlConnection, id: str) -> dict:
+    return _run(sqlDB, "get_policy", id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policy_history(sqlDB: fn.FabricSqlConnection, id: str, limit: int = 200) -> list:
+    return _run(sqlDB, "policy_history", id=id, limit=limit)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policy_version(sqlDB: fn.FabricSqlConnection, id: str, version: int) -> dict:
+    return _run(sqlDB, "policy_version", id=id, version=version)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def save_assignment(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, policy: str, scope: str,
+                    target: str = "", settings: dict = None, note: str = "") -> dict:
+    return _run(sqlDB, "save_assignment", ctx, policy=policy, scope=scope, target=target, settings=settings or {},
+                note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def remove_assignment(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, policy: str, scope: str,
+                      target: str = "") -> list:
+    return _run(sqlDB, "remove_assignment", ctx, policy=policy, scope=scope, target=target)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def list_assignments(sqlDB: fn.FabricSqlConnection, policy: str = "", scope: str = "", target: str = "") -> list:
+    return _run(sqlDB, "list_assignments", policy=policy, scope=scope, target=target)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policy_applicability(sqlDB: fn.FabricSqlConnection, id: str) -> dict:
+    return _run(sqlDB, "policy_applicability", id=id)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def resolve_policies(sqlDB: fn.FabricSqlConnection, project: str = "", entity: str = "", domain: str = "",
+                     subdomain: str = "", local: list = None, context: dict = None, today: str = "") -> dict:
+    return _run(sqlDB, "resolve_policies", project=project, entity=entity, domain=domain, subdomain=subdomain,
+                local=local or [], context=context or {}, today=today)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policy_snapshot(sqlDB: fn.FabricSqlConnection, policies: list = None) -> dict:
+    return _run(sqlDB, "policy_snapshot", policies=policies or None)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policy_options(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "policy_options")
+
 '''
 
 
 def function_app() -> str:
-    """The function app's Python source: the platform logic, then the functions."""
-    core = (Path(__file__).with_name("core.py")).read_text(encoding="utf-8")
-    return core.replace("from __future__ import annotations\n", "") + _WRAPPERS
+    """The function app's Python source: the platform logic (core.py, then policy.py), then the functions.
+
+    The logic runs in a module of its own inside the app, so the functions below, which share
+    its operations' names, never replace the ones it calls itself (claim_admin calls whoami)."""
+    here = Path(__file__).parent
+    core = (here / "core.py").read_text(encoding="utf-8")
+    # policy.py uses core's names; in one module they're already there, so its import of them goes.
+    policy = re.sub(r"from \.core import \([^)]*\)\n", "", (here / "policy.py").read_text(encoding="utf-8"))
+    policy = policy.replace("from __future__ import annotations\n", "")
+    logic = core + "\n\n# " + "-" * 60 + " policy.py\n" + policy
+    return ("import types as _types\n\n"
+            f"_SOURCE = {logic!r}\n"
+            "_platform = _types.ModuleType(\"platform_logic\")\n"
+            "exec(compile(_SOURCE, \"platform_logic.py\", \"exec\"), _platform.__dict__)\n"
+            "Db, PlatformError, OPERATIONS = _platform.Db, _platform.PlatformError, _platform.OPERATIONS\n"
+            + _WRAPPERS)
 
 
 def definition(workspace_id: str, sql_database_id: str) -> dict[str, str]:

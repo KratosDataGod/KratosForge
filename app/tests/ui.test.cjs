@@ -54,6 +54,17 @@ test("an engine ended for not answering says so, and that variables were cleared
   assert.strictEqual(out.details, raw);
 });
 
+test("a cell stopped by a limit from Settings is recognised, and other errors aren't", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function limitStop\([\s\S]*?\n}\n/)[0]}; this.limitStop = limitStop;`, ctx);
+  assert.strictEqual(ctx.limitStop({ ename: "TimeLimit", evalue: "Stopped: this cell ran longer than the 1 hour limit set in Settings." }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: the notebook used more than 8 GB, the memory limit set in Settings. Its process was ended." }), "memory");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "Stopped: this cell ran longer than the 15 minute limit set in Settings and didn't stop when interrupted" }), "time");
+  assert.strictEqual(ctx.limitStop({ ename: "KernelStopped", evalue: "The notebook's Python process stopped (exit code 3)" }), null);
+  assert.strictEqual(ctx.limitStop({ ename: "ValueError", evalue: "the memory limit set in Settings" }), null);
+});
+
 test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
   const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
   const ctx = {};
@@ -444,4 +455,32 @@ test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () 
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder"]) {
     assert.match(cm, new RegExp(`${name}:\\(\\)=>`), `codemirror.js exports ${name}; rebuild it with npm run build`);
   }
+});
+
+test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
+    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
+  const ctx = {};
+  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
+  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
+  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
+  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
+  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
+  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+});
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });

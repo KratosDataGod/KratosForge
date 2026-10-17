@@ -1,5 +1,6 @@
 # Moves the Stable channel to the build now on the Preview channel ("latest"). Everyone on
-# Stable (the default) updates to it at their next launch and sees these notes as What's new.
+# Stable (the default) updates to it at their next launch and sees these notes as What's new,
+# above the build's last 30 days of changes (version.json "history", written by CI).
 name: Promote to stable
 
 on:
@@ -27,7 +28,7 @@ jobs:
           gh release download latest --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The latest release has no build commit"; exit 1; }
-          # Keep the build's checksums; only the notes change.
+          # Keep the build's checksums and its month of history; only the notes change.
           jq --arg notes "$NOTES" '.notes = $notes' version.json > version.new && mv version.new version.json
           if gh release view stable > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release: while it was missing,

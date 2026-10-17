@@ -111,9 +111,25 @@ def test_channel_defaults_to_stable_and_policy_wins(settings_dirs):
 
 def test_latest_release_reads_the_channels_version_json(monkeypatch, settings_dirs):
     seen = serve(monkeypatch, {"/stable/version.json": json.dumps({"commit": SHA, "notes": "Settings page"}).encode()})
-    assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "note": ""}
+    assert updater.latest_release() == {"commit": SHA, "error": None, "channel": "stable", "notes": "Settings page", "history": [], "note": ""}
     assert "nocache=" in seen[0][0] and seen[0][1] == "no-cache"
     assert not any("api.github.com" in url for url, _ in seen)
+
+
+def test_latest_release_passes_on_the_months_history(monkeypatch, settings_dirs):
+    history = [{"date": "2026-10-17", "title": "SQL editor", "pr": 118, "commit": SHA},
+               {"date": "2026-10-16", "title": "  Direct push  ", "pr": None, "commit": SHA},
+               {"date": "yesterday", "title": "Bad date and PR", "pr": True, "commit": "abc"},
+               {"title": ""}, "not an item", {"pr": 5}]
+    serve(monkeypatch, {"/stable/version.json": json.dumps({"commit": SHA, "notes": "n", "history": history}).encode()})
+    assert updater.latest_release()["history"] == [
+        {"date": "2026-10-17", "title": "SQL editor", "pr": 118, "commit": SHA},
+        {"date": "2026-10-16", "title": "Direct push", "pr": None, "commit": SHA},
+        {"date": None, "title": "Bad date and PR", "pr": None, "commit": None}]
+
+
+def test_release_history_ignores_anything_but_a_list():
+    assert updater.release_history(None) == [] and updater.release_history({"title": "x"}) == []
 
 
 def test_preview_channel_follows_latest(monkeypatch, settings_dirs):

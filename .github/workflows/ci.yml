@@ -222,6 +222,10 @@ jobs:
       id-token: write      # build provenance: signs the attestation with this workflow's identity
       attestations: write
     steps:
+      # Full history of main for What's new (.github/scripts/whats_new.py).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: fabric-desktop-windows
@@ -254,10 +258,12 @@ jobs:
           # What's new for Preview: the pull request's title (a merge commit's body), else the commit subject.
           NOTES=$(gh api "repos/$GH_REPO/commits/$GITHUB_SHA" --jq '.commit.message' | awk 'NR==1{s=$0} NR>2&&!b&&NF{b=$0} END{print (s ~ /^Merge pull request/ && b) ? b : s}')
           # Checksums let the app refuse a cut-off or mixed-up download before installing it.
-          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" \
+          # Everything that reached main in the last 30 days, which What's new lists under the notes.
+          python3 .github/scripts/whats_new.py "$GITHUB_SHA" > history.json
+          jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
-            '{commit: $commit, notes: $notes, exe_sha256: $exe, engine_sha256: $engine}' > version.json
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
           BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an

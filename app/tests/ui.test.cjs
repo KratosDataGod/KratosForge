@@ -331,3 +331,19 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });
+
+test("What's new lists the month's history and drops notes that only repeat its newest item", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function whatsNewItems\([\s\S]*?\n}\n/)[0]}; this.items = whatsNewItems;`, ctx);
+  const history = [{ title: "SQL editor", pr: 118 }, { title: "Policies", pr: 119 }, { title: " " }, null];
+  const preview = ctx.items("SQL editor", history);
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain([preview.lines, preview.items.map((i) => i.title)]), [[], ["SQL editor", "Policies"]]);
+  const stable = ctx.items("- New SQL page\n- Policies for admins", history);
+  assert.deepStrictEqual(plain(stable.lines), ["New SQL page", "Policies for admins"]);
+  assert.deepStrictEqual(plain(ctx.items("Old build", undefined)), { lines: ["Old build"], items: [] });
+  const dialog = src.slice(src.indexOf("function showWhatsNew"), src.indexOf("function whatsNewItems"));
+  assert.match(dialog, /items\.slice\(0, 10\)/);
+  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/fabric-desktop/);
+});

@@ -57,7 +57,7 @@ Click your initial at the top right:
 | **Settings** | Opens [Settings](#settings) |
 | **Help and user guide** | Opens this guide |
 | **Report a problem** | See [Report a problem](#report-a-problem) |
-| **What's new** | The release notes of the build you're running |
+| **What's new** | The release notes of the build you're running, and everything new in the 30 days before it |
 | Build and channel | Which build you're on, and Stable or Preview |
 | **Sign out** | Forgets your sign-in on this PC, in the app and in the embedded Fabric pages. Notebooks and settings stay. |
 
@@ -353,7 +353,9 @@ Code a tool runs gets a process of its own that's ended afterwards. It can read 
 
 ## Updates
 
-Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed. You can open it again from the account menu.
+Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed: the build's own notes, then everything that reached the app in the 30 days before that build, newest first. The 10 newest show; **Show more** lists the rest, each with a link to its pull request. A link at the bottom opens Fabric Desktop by KratosBI on GitHub. You can open What's new again from the account menu.
+
+![What's new, with the 10 newest changes and Show more](images/whats-new.png)
 
 There are two channels:
 

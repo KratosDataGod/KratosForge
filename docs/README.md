@@ -1,6 +1,6 @@
-# Fabric Desktop documentation
+# Fabric Desktop by KratosBI documentation
 
-Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
 
 ## Start here
 
@@ -48,7 +48,7 @@ Fabric Desktop runs Microsoft Fabric data engineering work on your own PC (noteb
 
 ## What is tested and what isn't
 
-Fabric Desktop is new, and it's honest about what has been proven.
+Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 
 **Tested on every build**, by automated tests on Windows and Linux, against local Delta tables:
 
@@ -72,6 +72,7 @@ Fabric Desktop is new, and it's honest about what has been proven.
 | Prove this notebook (isolated PC vs Fabric runs, verification, receipts) | Notebook ribbon |
 | New notebook from a template | Create |
 | Run notebooks in their own process | Settings > Preview features |
+| Cell dependencies and Run stale cells | Notebook ribbon (View and Run tabs) |
 | Cost | Monitor |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |

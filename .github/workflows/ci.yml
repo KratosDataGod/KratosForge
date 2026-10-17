@@ -180,5 +180,5 @@ jobs:
             gh release edit latest --notes "$BODY"
           else
             gh release create latest fabric-desktop.exe fabric-desktop-engine.zip version.json \
-              --title "Fabric Desktop (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
+              --title "Fabric Desktop by KratosBI (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi

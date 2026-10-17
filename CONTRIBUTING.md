@@ -1,4 +1,4 @@
-# Contributing to Fabric Desktop
+# Contributing to Fabric Desktop by KratosBI
 
 Thanks for helping. There are several ways in, and most don't need code.
 

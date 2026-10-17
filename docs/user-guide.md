@@ -1,6 +1,6 @@
-# Fabric Desktop user guide
+# Fabric Desktop by KratosBI user guide
 
-Fabric Desktop runs your data work on your own PC and keeps the results in Microsoft Fabric's OneLake. It looks and works like Fabric, so most pages will feel familiar. This guide walks through every page: what it is for, how to use it, and what happens behind it.
+Fabric Desktop by KratosBI runs your data work on your own PC and keeps the results in Microsoft Fabric's OneLake. It looks and works like Fabric, so most pages will feel familiar. This guide walks through every page: what it is for, how to use it, and what happens behind it.
 
 The app's **Learn more** links open the sections of this page. Two areas have their own, longer guides:
 
@@ -60,7 +60,7 @@ Click your initial at the top right:
 1. **Sign in** with your work account, the same one you use for Fabric. Windows often signs you in with no prompt. There's no app ID to ask anyone for.
 2. **Open a lakehouse** from **OneLake** or **Workspaces** to browse its tables and files, or query them with SQL.
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
-4. **Set up a metadata project** (Data mesh in the left rail) when you want Fabric Desktop to build and run your medallion layers for you.
+4. **Set up a metadata project** (Data mesh in the left rail) when you want Fabric Desktop by KratosBI to build and run your medallion layers for you.
 
 Home shows a **Get started** list with these steps until you have a metadata project. Each step has a **Start** button and gets a tick when done. **Hide** removes the list.
 
@@ -140,7 +140,7 @@ Every item in every workspace you can open: lakehouses, warehouses, notebooks, s
 - **Type** narrows by item type, grouped as Fabric groups them (Data, Insights, Processes, Solutions, Configurations). Pick a group or open it to pick one type. **Clear** resets it.
 - **Click a column heading** to sort by it; click again to reverse.
 - **Star** an item to make it a favorite. Fabric has no public API for its own favorites, so these are kept on this PC.
-- **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. Fabric Desktop's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
+- **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. Fabric Desktop by KratosBI's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
 - **Layer** shows which metadata layer a lakehouse is, when it belongs to your metadata project.
 - **Environments** on the left (**All**, **Dev**, **Test**, **Prod**) shows only that environment's items, and **Location** marks each item's environment. See [Environments and solutions](#environments-and-solutions).
 - **Group by** puts the list under headings: **Environment**, **Solution**, or **Solution, then environment**. Click a heading to open or close it; the first one starts open. Your choice is kept on this PC.
@@ -190,7 +190,7 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop builds and runs them. Its tabs are in five groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in five groups:
 
 | Group | Tabs |
 | --- | --- |
@@ -233,7 +233,7 @@ It signs in with your Windows account when that is the same work account you use
 
 Monitor has two halves.
 
-**From Fabric Desktop** (top) has four panels:
+**From Fabric Desktop by KratosBI** (top) has four panels:
 
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Workloads** (Preview): everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
@@ -286,7 +286,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 
 | Section | What's there |
 | --- | --- |
-| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
+| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide every feature tagged Preview. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
@@ -301,14 +301,14 @@ Each environment shows whether it uses a Platform workspace in Fabric or, until 
 
 ## Updates
 
-Fabric Desktop checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed. You can open it again from the account menu.
+Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed. You can open it again from the account menu.
 
 There are two channels:
 
 - **Stable** (the default): builds that have been checked and released.
 - **Preview**: every new build as soon as it's ready. For testers; things may change or break.
 
-A channel change takes effect the next time Fabric Desktop starts. More detail, including where files are kept, is in [install.md](install.md#updates).
+A channel change takes effect the next time Fabric Desktop by KratosBI starts. More detail, including where files are kept, is in [install.md](install.md#updates).
 
 ## Preview features
 
@@ -318,7 +318,7 @@ The [documentation home](README.md#what-is-tested-and-what-isnt) says what is te
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; Fabric Desktop adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; Fabric Desktop by KratosBI adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 
@@ -326,4 +326,4 @@ Ideas and feature requests go to the ideas forum instead: see [Submitting ideas]
 
 ## For IT admins
 
-Setting Fabric Desktop up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
+Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).

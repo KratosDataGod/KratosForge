@@ -142,6 +142,7 @@ async function startProof(nb) {
   if (!(await ensureSignedIn())) return;
   const rules = p.rules || {};
   const run = await attempt(() => rpc("prove_start", { ...notebookPayload(), rules }), "Could not start the proof");
+  if (run) depsRestarted();  // it restarts the kernel (deps.js)
   if (!run) return;
   nb.dirty = false;
   p.record = run;

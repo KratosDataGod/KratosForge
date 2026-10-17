@@ -21,6 +21,11 @@
     [alerts]
     teams_webhook_env = "FABRIC_DESKTOP_TEAMS_WEBHOOK"
 
+    [incidents]                           # optional (Preview): one incident per problem, shared with the app
+    enabled = true                        # evaluate the run log of each environment; off when left out
+    seconds = 300                         # how often
+    digest_over = 5                       # more changes than this in one evaluation: one Teams digest
+
     [pipeline]                            # optional: take run requests from Fabric pipelines
     enabled = true
     environments = ["prod"]               # whose LH_Meta mailbox to read; agent.environments if left out
@@ -100,6 +105,14 @@ class PipelineConfig:
 
 
 @dataclass(frozen=True)
+class IncidentsConfig:
+    """``[incidents]``: evaluate each environment's run log and keep its incident list (workloads/incidents.py)."""
+    enabled: bool = False
+    seconds: float = 300.0
+    digest_over: int = 5
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     path: Path
     name: str
@@ -120,6 +133,7 @@ class AgentConfig:
     log_level: str = "INFO"
     schedules: list[Schedule] = field(default_factory=list)
     pipeline: PipelineConfig = field(default_factory=PipelineConfig)
+    incidents: IncidentsConfig = field(default_factory=IncidentsConfig)
 
     @property
     def teams_webhook(self) -> str:
@@ -186,7 +200,8 @@ def load(path: Path | str | None = None) -> AgentConfig:
 
 def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors = _secret_keys(raw, "")
-    agent, auth, retry, alerts, pipe = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline"))
+    agent, auth, retry, alerts, pipe, inc = (raw.get(k) or {} for k in ("agent", "auth", "retry", "alerts", "pipeline",
+                                                                      "incidents"))
     project = agent.get("project", "")
     if not project:
         errors.append("agent.project: the metadata project folder is required")
@@ -228,6 +243,11 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"))
+    if not isinstance(inc.get("enabled", False), bool):
+        errors.append("incidents.enabled: true or false")
+    incidents = IncidentsConfig(enabled=inc.get("enabled") is True,
+                                seconds=number(inc, "seconds", 300, 30, "incidents"),
+                                digest_over=int(number(inc, "digest_over", 5, 1, "incidents")))
     cfg = AgentConfig(
         path=Path(path), name=str(agent.get("name") or socket.gethostname()),
         home=Path(agent["home"]) if agent.get("home") else default_home(),
@@ -241,7 +261,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
         max_backoff_seconds=number(retry, "max_backoff_seconds", 1800, 0, "retry"),
         workspaces=[str(w) for w in agent.get("workspaces") or []],
         teams_webhook_env=str(alerts.get("teams_webhook_env", "")),
-        log_level=str(agent.get("log_level", "INFO")).upper(), schedules=schedules, pipeline=pipeline)
+        log_level=str(agent.get("log_level", "INFO")).upper(), schedules=schedules, pipeline=pipeline,
+        incidents=incidents)
     if errors:
         raise ConfigError(path, errors)
     return cfg

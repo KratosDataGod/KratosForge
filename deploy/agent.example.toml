@@ -33,6 +33,11 @@ max_backoff_seconds = 1800
 [alerts]
 # teams_webhook_env = "FABRIC_DESKTOP_TEAMS_WEBHOOK"  # post failed and given-up jobs to Teams
 
+# [incidents]                            # Preview: keep each environment's incidents (docs/agent.md)
+# enabled = true
+# seconds = 300
+# digest_over = 5                        # more changes than this at once: one Teams digest
+
 # [pipeline]                             # take run requests from Fabric pipelines (docs/agent.md)
 # enabled = true
 # environments = ["prod"]                # whose LH_Meta mailbox to read; default: agent.environments

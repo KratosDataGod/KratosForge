@@ -1,6 +1,6 @@
 # Notebooks and SQL
 
-Notebooks in Fabric Desktop look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
+Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
 
 ## Your first notebook
 
@@ -25,7 +25,7 @@ Notebooks in Fabric Desktop look and work like Fabric's, but every cell runs in 
 
 Notebooks are `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks`. They stay on your PC until you publish them.
 
-Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
+Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop by KratosBI doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
 
 ## The lakehouse module
 
@@ -99,6 +99,16 @@ from pyspark.sql import functions as F
 Printed output shows while a cell runs. Code stuck inside a library call can't always be interrupted; the app then offers **Restart kernel**.
 
 **Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process, a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
+
+### Cell dependencies and stale outputs (Preview)
+
+**View > Dependencies** shows under each code cell what it depends on, read from its code: the variables it uses and which cell defined them, the tables and `Files/` paths it reads and which cell wrote them, what it writes, and which later cells use it. Names no cell defines are listed, so a typo or a missing import shows before you run. A dependency you know about but the code doesn't show can be declared in the cell's metadata as `depends_on` (a list of cell ids).
+
+A cell gets a **Stale** tag when its output may not match the code above it: its code changed since it ran, a cell it depends on is stale or ran again after it, or the kernel restarted. Cells that use `exec`, `%run` or `from x import *` can depend on anything, so they're stale after any change above them. Cells that haven't run aren't counted.
+
+**Run > Run stale cells** runs the stale cells again, in order. If any of them writes a table or file, installs packages or calls the network, it asks first and lists what each does, and offers to run only the cells before the first one.
+
+Dependencies come from reading the code, not from watching it run. A cell can still depend on something reading can't see (a value read from a file another program changed, a global set inside a function from a library), so **Run all** remains the way to be sure.
 
 **What output looks like:**
 

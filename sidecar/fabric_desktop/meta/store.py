@@ -37,7 +37,12 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
     "watermarks": {"entity": pl.String, "value": pl.String, "run_id": pl.String, "at": pl.String},
     "schema_history": {"entity": pl.String, "run_id": pl.String, "change": pl.String, "columns": pl.String,
                        "at": pl.String},
-    "deployments": {"env": pl.String, "version": pl.String, "source_env": pl.String, "at": pl.String},
+    # A promote's release record (meta/release.py): the commit, whether the files matched it, the
+    # engine, and the full receipt. Older rows don't have these columns and read as empty.
+    "deployments": {"env": pl.String, "version": pl.String, "source_env": pl.String, "at": pl.String,
+                    "commit": pl.String, "branch": pl.String, "dirty": pl.Boolean, "pushed": pl.Boolean,
+                    "engine_version": pl.String, "lock_hash": pl.String, "by": pl.String,
+                    "receipt_id": pl.String, "receipt": pl.String},
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},

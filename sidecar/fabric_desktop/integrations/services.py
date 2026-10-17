@@ -23,6 +23,7 @@ from ..fabric_run import compute_check
 from .core import CallContext, IntegrationError, redact_secrets
 
 MAX_PAGE = 500
+ALL = 100_000  # services that take a limit: ask for everything, then page here so total is right
 
 
 def page(rows: list[Any], offset: int = 0, limit: int = 100) -> dict[str, Any]:
@@ -178,3 +179,62 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
         out["dependencies"] = {"error": redact_secrets(str(exc))}
     out["ok"] = bool(runs["local"].get("ok"))
     return out
+
+
+# ---- Prove this notebook: plans, proofs, receipts and side-by-side runs, as metadata
+
+def _metadata_only(record: dict[str, Any]) -> dict[str, Any]:
+    """A proof, side-by-side run or receipt without data: cell outputs (which can print rows) are
+    left out and the example rows of a verification are hidden (receipts.REDACTIONS "values")."""
+    from ..receipts import redact
+    out = redact(record, ["values"])
+    for side in ("pc", "local"):
+        cells = (out.get(side) or {}).get("cells")
+        if isinstance(cells, dict):
+            for cell in cells.values():
+                if isinstance(cell, dict):
+                    cell.pop("outputs", None)
+    out.pop("_cancel", None)
+    return out
+
+
+def get_notebook_dependencies(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    return {"name": name, "dependencies": svc.notebook_dependencies(svc.notebooks.load(name)["cells"])}
+
+
+def get_notebook_environment(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    nb = svc.notebooks.load(name)
+    return {"name": name, "environment": svc.notebook_environment(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"),
+                                                                  nb.get("workspace"))}
+
+
+def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    nb = svc.notebooks.load(name)
+    return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))
+
+
+def list_proofs(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
+    rows = svc.prove_list(name or None, limit=ALL)
+    return page([_metadata_only(r) for r in rows], offset, limit)
+
+
+def get_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the proof id
+    return _metadata_only(svc.prove_status(id))
+
+
+def list_receipts(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    return page(svc.receipts_list(name or None, limit=ALL), offset, limit)
+
+
+def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the receipt id
+    got = svc.receipt_get(id)
+    return {"id": got["id"], "receipt": _metadata_only(got["receipt"]), "hidden": ["values"]}
+
+
+def list_side_by_side(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
+    rows = svc.side_by_side_list(name or None, limit=ALL)
+    return page([_metadata_only(r) for r in rows], offset, limit)
+
+
+def get_side_by_side(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the run id
+    return _metadata_only(svc.side_by_side_status(id))

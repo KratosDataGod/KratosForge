@@ -17,8 +17,8 @@ Built in the requested order, with one change: the capability registry (003) com
 | 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103) | Draft PR; 39 tests, including the SDK client over Streamable HTTP against a real server and the engine starting the child process |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104) | Draft PR; 23 tests |
 | 007 | External execution interface | P1 | PARTIAL | 005 | [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105) | Draft PR; 31 tests |
-| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | (this PR) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
-| 009 | Reusable agent instructions | P1 | MISSING | 002 | | Planned |
+| 008 | Connection experience (Settings > Integrations) | P1 | MISSING | 005, mockup | [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106) | Draft PR; 6 engine tests, 3 UI checks, checked in a browser against a real engine |
+| 009 | Reusable agent instructions | P1 | MISSING | 002 | (this PR) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | | Planned |
 | 011 | Compatibility and conformance testing | P1 | MISSING | 004 | | Planned |
 | 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | | Interface only |
@@ -79,6 +79,9 @@ Built in the requested order, with one change: the capability registry (003) com
 ### PR-AI-009: Reusable agent instructions
 
 - **Plan.** `docs/ai/`: vendor-neutral instructions and workflow templates (also served as MCP prompts), and configuration examples for Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot, and any MCP client, each marked tested or untested.
+- **Built.** Six workflows in `integrations/prompts.py` (explore a lakehouse, review a notebook, prepare a proof, investigate a proof, answer with SQL, check the metadata project), served as MCP prompts and written out in [docs/ai/workflows.md](../ai/workflows.md); [docs/ai/README.md](../ai/README.md) with the setup for each tool, generated from the same code as the app's **Copy setup**; [docs/ai/agent-instructions.md](../ai/agent-instructions.md) to paste into `AGENTS.md`, `CLAUDE.md`, Cursor rules or Copilot instructions. Prompts only describe tool calls; they read nothing, run nothing and need no permission.
+- **Tests.** Prompts render and refuse missing or unknown arguments; every tool a prompt or the instructions name exists; prompts don't suggest actions the tools can't take; `prompts/list` and `prompts/get` through the SDK client; the docs carry each prompt and each setup exactly as the code has them.
+- **Limitations.** Every AI tool's setup is **Untested**: no tool has been run against it. Prompt arguments are free text (capped at 500 characters) placed into the steps; a prompt is a suggestion to the AI tool, not a control.
 
 ### PR-AI-010: Audit and observability
 

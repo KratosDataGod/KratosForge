@@ -45,7 +45,7 @@ def placements(by_env: dict[str, list[dict[str, Any]]], pc: list[dict[str, Any]]
                 continue
             for s in r.get("schedules") or []:
                 row = {"env": env, "place": "agent", "agent": name, "state": state, "schedule": s.get("id"),
-                       "text": _text(s.get("when")), "next": s.get("next")}
+                       "text": _text(s.get("when")), "next": s.get("next"), "shared": s.get("shared") is True}
                 if not isinstance(s.get("entities"), list):
                     unknown.append(row)
                     continue
@@ -72,13 +72,16 @@ def _shared(a: list[str] | None, b: list[str] | None) -> list[str] | None | bool
 
 def overlaps(by_env: dict[str, list[dict[str, Any]]], pc: list[dict[str, Any]], now: Any) -> dict[str, Any]:
     """Every pair of schedules in different places that run a table in common, per environment.
-    Two schedules on the same agent, or both on this PC, share one queue, so they aren't reported."""
+    Two schedules on the same agent, or both on this PC, share one queue, so they aren't reported;
+    nor is one schedule that agents share through the mailbox (shared_schedules.py)."""
     known, unknown = placements(by_env, pc, now)
     found = []
     for i, a in enumerate(known):
         for b in known[i + 1:]:
             if a["env"] != b["env"] or (a["place"], a["agent"]) == (b["place"], b["agent"]):
                 continue
+            if a.get("shared") and b.get("shared") and a["schedule"] == b["schedule"]:
+                continue  # one schedule shared through the mailbox: each due time runs once
             shared = _shared(a["entities"], b["entities"])
             if shared is False:
                 continue

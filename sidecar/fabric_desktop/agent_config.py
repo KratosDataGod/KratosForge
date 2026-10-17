@@ -42,11 +42,13 @@
     entities = ["silver.*", "gold.*"]     # optional allowlist; a request for anything else is rejected
     allow_backfill = false                # full rebuilds and cascades from a pipeline
     poll_seconds = 30
+    claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
 
     [[schedule]]
     id = "prod-nightly"
     env = "prod"
     daily = ["02:00"]                     # or every_minutes = 15, or weekly = { days = [...], times = [...] }
+    shared = false                        # true: shared with other agents through the mailbox (Preview)
 
 Secrets never go in this file: a certificate is a path, a secret or webhook is the name of an
 environment variable that holds it.
@@ -54,6 +56,7 @@ environment variable that holds it.
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import socket
@@ -102,6 +105,7 @@ class Schedule:
     config: dict[str, Any]  # the same shape local_schedules.next_run reads
     backfill: str = ""
     when: dict[str, Any] = field(default_factory=dict)  # as written: {"kind": "cron"|"daily"|"weekly", ...}
+    shared: bool = False  # each due time goes to the mailbox as one request any agent may claim
 
 
 @dataclass(frozen=True)
@@ -113,6 +117,7 @@ class PipelineConfig:
     allow_backfill: bool = False
     poll_seconds: float = 30.0
     retention_days: float = 14.0
+    claim: str = "always"  # or "when_free": only claim a request while a worker is free
 
 
 @dataclass(frozen=True)
@@ -233,7 +238,14 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
         return None
     del fabric_cfg  # validated; the agent keeps local time, as Task Scheduler does
     entities = [str(e) for e in raw.get("entities") or []]
-    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule)
+    shared = raw.get("shared", False)
+    if not isinstance(shared, bool):
+        errors.append(f"{where}: shared is true or false")
+        return None
+    if shared and len(sid) > 40:
+        errors.append(f"{where}: a shared schedule's id is at most 40 characters")
+        return None
+    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule, shared)
 
 
 def load(path: Path | str | None = None) -> AgentConfig:
@@ -291,7 +303,24 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               entities=[str(e) for e in pipe.get("entities") or []],
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
-                              retention_days=number(pipe, "retention_days", 14, 1, "pipeline"))
+                              retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
+                              claim=str(pipe.get("claim", "always")))
+    if pipeline.claim not in ("always", "when_free"):
+        errors.append('pipeline.claim: "always" or "when_free"')
+    for s in schedules:
+        if not s.shared:
+            continue
+        where = f"schedule {s.id}"
+        if not pipeline.enabled or s.env not in pipeline.environments:
+            errors.append(f"{where}: a shared schedule goes through the {s.env} mailbox; enable [pipeline] for {s.env}")
+        if s.backfill and not pipeline.allow_backfill:
+            errors.append(f"{where}: a shared backfill needs pipeline.allow_backfill = true")
+        if pipeline.entities:
+            if not s.entities:
+                errors.append(f"{where}: list its entities; pipeline.entities only takes {', '.join(pipeline.entities)}")
+            refused = [e for e in s.entities if not any(fnmatch.fnmatchcase(e, p) for p in pipeline.entities)]
+            if refused:
+                errors.append(f"{where}: {', '.join(refused)} isn't in pipeline.entities")
     if not isinstance(inc.get("enabled", False), bool):
         errors.append("incidents.enabled: true or false")
     routes = _routes(inc.get("route") or [], errors)

@@ -20,7 +20,7 @@ Record, contract 1::
                    "routes": [{"name", "teams", "owners", "criticality", "kinds", "envs"}]},  # no webhooks
      "counts": {"queued": 0, "running": 1, ...},           # this environment's jobs
      "running": [{"job_id", "source", "attempts", "entities", "started_at"}],
-     "schedules": [{"id", "next", "entities", "when"}],     # this environment's schedules; entities [] = all,
+     "schedules": [{"id", "next", "entities", "when", "shared"}],  # this environment's schedules; entities [] = all,
                                                             # when = {"kind": "cron", "every_minutes"} | {"kind":
                                                             # "daily", "times"} | {"kind": "weekly", "times", "weekdays"}
      "recent": [{"job_id", "state", "source", "finished_at", "error"}]}  # the last 10 finished
@@ -75,7 +75,7 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
                      "entities": j["payload"].get("entities") or [], "started_at": _iso(j["started_at"])}
                     for j in running],
         "schedules": [{"id": s.id, "next": _iso(queue.schedule_next(s.id)), "entities": list(s.entities),
-                       "when": dict(s.when)} for s in cfg.schedules if s.env == env],
+                       "when": dict(s.when), "shared": s.shared} for s in cfg.schedules if s.env == env],
         "recent": [{"job_id": j["id"], "state": j["state"], "source": j["source"],
                     "finished_at": _iso(j["finished_at"]), "error": (j["error"] or "")[:300] or None}
                    for j in finished[:RECENT]],

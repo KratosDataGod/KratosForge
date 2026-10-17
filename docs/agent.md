@@ -90,6 +90,8 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `pipeline.allow_backfill` | false | Let pipelines ask for full rebuilds and cascades |
 | `pipeline.poll_seconds` | 30 | How often to look for new requests |
 | `pipeline.retention_days` | 14 | When finished requests are removed |
+| `pipeline.claim` | `"always"` | `"when_free"` (Preview): take a new request only while a worker is free, so a busy agent leaves it for one that isn't. See [Shared schedules](#shared-schedules-preview) |
+| `schedule.shared` | false | (Preview) Share this schedule with other agents through the mailbox, so each due time runs once. See [Shared schedules](#shared-schedules-preview) |
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
 | `incidents.digest_over` | 5 | More changes than this in one evaluation go to Teams as one digest |
@@ -306,6 +308,30 @@ A final status never changes again. Fields may be added within version 1; reader
 - **Deadlines.** A request not started by its `deadline`, including one waiting for a retry, is `expired` and its job is cancelled.
 - **Housekeeping.** Finished requests and their status and cancel files are removed after `pipeline.retention_days`.
 
+### Shared schedules (Preview)
+
+Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md).
+
+```toml
+[pipeline]
+enabled = true
+environments = ["prod"]
+claim = "when_free"          # optional: a busy agent leaves new requests for one with a free worker
+
+[[schedule]]
+id = "prod-hourly"           # the same id, env, entities and times on every agent that shares it
+env = "prod"
+entities = ["silver.orders"]
+every_minutes = 60
+shared = true
+```
+
+- **How it works.** When a shared schedule is due, each agent tries to create `requests/sched-<id>-<slot>.json` in the environment's mailbox with `If-None-Match: *`. Only the first create lands. The request is then claimed like any pipeline request, so one agent runs it. The `<slot>` comes from the due time in UTC, for example `sched-prod-hourly-20270115T0900Z`.
+- **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
+- **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`.
+- **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, and its id is at most 40 characters. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, as today. Moving it to another agent is the next step in [Multiple workers](workloads/multi-worker.md). Monitor > Agents doesn't warn about a schedule that agents share this way.
+
 ## Verify on your tenant
 
 Nothing here has run against a live Fabric tenant yet. Before Prod, check these on a Dev workspace (roadmap M0):
@@ -318,11 +344,12 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
 
 7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
+8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
 
 ## Limits in this version
 
 - Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
-- One agent per queue. Two agents on different machines each keep their own queue; table leases still stop them from writing the same table at once, but nothing stops both from running the same schedule. Give each environment's schedules to one agent. A shared queue is roadmap M3.
+- One agent per queue. Two agents on different machines each keep their own queue. Table leases still stop them writing the same table at once, but nothing stops both from running the same schedule, unless it is a [shared schedule](#shared-schedules-preview) (Preview, untested on a tenant). Otherwise, give each environment's schedules to one agent.
 - The desktop app and runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn.
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.

@@ -18,6 +18,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | `claude/workload-agent-fields-4su03b` | agent fields | `owner`, `identity`, and each schedule's `entities` and `when` in agent status records (agreed with the roadmap thread) | Ready, on #136 |
 | `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
 | `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
+| `claude/workload-multi-worker-4su03b` | FD-124 part 1 | Shared schedules through the mailbox and `claim = "when_free"`, off by default, untested on a tenant | Draft, on 5C |
 
 ## Completed backlog items
 
@@ -25,7 +26,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Next action: FD-124 multi-worker, designed in [multi-worker.md](multi-worker.md) and agreed with the roadmap thread on 2026-10-17. A card asks Chris whether to build it now, off by default and labelled untested, or to wait for roadmap 7.1's tenant run. 5C (item 34) shows an agent's queued jobs as a count (the record doesn't list them) and lists only Fabric work this app started; a run Task Scheduler started on this PC isn't listed while it runs (the run log records it when it finishes). 5B (item 36) compares agent and PC schedules by table, not by time window, and doesn't compare Fabric schedules yet.
+- Next action: FD-124 part 2, takeover from an agent that stopped reporting (multi-worker.md point 3), after Chris answers the card on building FD-124 now or waiting for roadmap 7.1's tenant run. Part 1 (shared schedules, `when_free`) is the draft after #145.
 - The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.

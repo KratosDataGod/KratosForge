@@ -20,7 +20,8 @@ allowlist). ``deadline`` is the latest time the run may start; past it the reque
 ``submitted_by`` is free text the pipeline sets, recorded as given.
 
 Each request is claimed by creating its status file with ``If-None-Match: *``, so one agent takes
-it however many poll the mailbox; the job id is the request id's dedupe key in the agent's queue,
+it however many poll the mailbox (with ``[pipeline] claim = "when_free"``, only while it has a worker
+free, so a busy agent leaves the request for one that isn't); the job id is the request id's dedupe key in the agent's queue,
 so a crash between claiming and queueing doesn't run it twice. Status states:
 
     accepted   queued on the agent        running    a worker holds it
@@ -117,8 +118,10 @@ class Mailbox:
 
     def __init__(self, agent: Any, control: Callable[[str], Any], environments: list[str],
                  entities: list[str] | None = None, allow_backfill: bool = False, retention_days: float = 14,
-                 known_entities: Callable[[], set[str]] | None = None, log: logging.Logger | None = None):
+                 known_entities: Callable[[], set[str]] | None = None, log: logging.Logger | None = None,
+                 claim: str = "always"):
         self.agent, self.environments = agent, list(environments)
+        self.claim = claim  # "when_free": leave new requests for an agent with a worker free
         self.entities, self.allow_backfill = list(entities or []), allow_backfill
         self.retention = retention_days * 86400
         self._control_for = control
@@ -177,6 +180,8 @@ class Mailbox:
             with self._lock:
                 status, stored = self._read(env, f"status/{rid}.json")
                 if stored is None:
+                    if self.claim == "when_free" and not self.agent.has_free_worker():
+                        continue  # another agent with room takes it; this one looks again next poll
                     self._claim(env, rid)
                 elif status and status.get("agent") == self.agent.config.name and status.get("state") not in FINAL:
                     self._sync(env, rid, status, stored)

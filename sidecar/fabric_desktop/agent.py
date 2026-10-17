@@ -24,7 +24,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
-from . import agent_status
+from . import agent_status, shared_schedules
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .dataops_service import post_teams
@@ -70,7 +70,7 @@ class Agent:
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
-                                   p.retention_days, known_entities=self.runtime.entity_names)
+                                   p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim)
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""
@@ -173,20 +173,47 @@ class Agent:
 
     def tick_schedules(self) -> list[str]:
         """Enqueue every schedule that is due. A schedule missed while the agent was down runs once
-        when it starts again, not once per missed time."""
+        when it starts again, not once per missed time. A shared schedule is written to its
+        environment's mailbox instead (shared_schedules.py), so one agent of those sharing it runs it."""
         fired = []
         now = self.clock()
         for s in self.config.schedules:
             due = self.queue.schedule_next(s.id)
             if due is None or due <= now:
                 if due is not None:
-                    self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
-                                 dedupe_key=f"schedule:{s.id}")
+                    if s.shared:
+                        self._submit_shared(s, due, now)
+                    else:
+                        self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
+                                     dedupe_key=f"schedule:{s.id}")
                     fired.append(s.id)
-                nxt = next_run(s.config, dt.datetime.fromtimestamp(now))
+                nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
+                if nxt is None:
+                    local = next_run(s.config, dt.datetime.fromtimestamp(now))
+                    nxt = _epoch(local) if local is not None else None
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, _epoch(nxt))
+                    self.queue.set_schedule_next(s.id, nxt)
         return fired
+
+    def _submit_shared(self, s: Any, due: float, now: float) -> None:
+        """One request for this due time in the mailbox, unless another agent wrote it first or its
+        deadline passed. A mailbox that can't be reached is logged; the agents that can reach it run it."""
+        try:
+            rid, outcome = shared_schedules.submit(self._control(s.env), s, due, now, self.config.name)
+        except Exception as exc:
+            self._controls.pop(s.env, None)
+            self.log.warning("couldn't write the shared schedule's request", extra=fields(
+                schedule=s.id, env=s.env, error=f"{type(exc).__name__}: {exc}"))
+            return
+        self.log.info({"created": "shared schedule requested", "exists": "shared schedule already requested",
+                       "late": "shared schedule past its deadline; not requested"}[outcome],
+                      extra=fields(schedule=s.id, env=s.env, request_id=rid))
+
+    def has_free_worker(self) -> bool:
+        """Whether a request claimed now would start at once: fewer jobs running or queued here than workers."""
+        busy = len([f for f in self._running.values() if not f.done()])
+        queued = sum(self.queue.counts(env).get("queued", 0) for env in self.config.environments)
+        return busy + queued < self.config.concurrency
 
     # ---- doing work
 

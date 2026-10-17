@@ -1116,6 +1116,28 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .git-choice { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
 .git-nb:empty { display: none; }
 
+/* Platform > Governance */
+.gov-two { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px; align-items: start; margin-top: 12px; }
+.gov-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.gov-versions { display: flex; flex-direction: column; overflow: hidden; }
+.gov-versions .pad-s { padding: 12px 14px; }
+.gov-version { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 0; border-top: 1px solid var(--border-soft); background: none; text-align: left; cursor: pointer; }
+.gov-version:hover { background: var(--hover); }
+.gov-version.on { background: var(--accent-soft); }
+.gov-kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 13px; }
+.gov-kv dt { color: var(--muted); }
+.gov-kv dd { margin: 0; }
+.dialog:has(.gov-form) { max-width: 860px; }
+.gov-form { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; min-height: 0; padding-right: 4px; }
+.gov-form .row > .field { min-width: 0; }
+.gov-form td input, .gov-form td select { width: 100%; min-height: 28px; padding: 0 6px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
+.gov-form .field textarea { padding: 6px 8px; border: 1px solid var(--border-input); border-radius: 4px; font: inherit; resize: vertical; }
+.gov-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.gov-side { position: sticky; top: 0; }
+.card.notice { background: #fffaf0; border-color: #f3c27a; }
+.wrn-text { color: #8a5300; }
+@media (max-width: 900px) { .gov-two { grid-template-columns: minmax(0, 1fr); } }
+
 /* Settings > Integrations (integrations.js) */
 .integ-tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
 .integ-tool { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: left; cursor: pointer; }

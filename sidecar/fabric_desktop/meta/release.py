@@ -1,8 +1,8 @@
 """Where a project's files stand in Git, and the release record a promote writes.
 
-Git is read with the person's own ``git`` command: no new sign-in, no token, no network. Ahead
-and behind are counted against the upstream branch as of the last fetch, so a status never
-prompts for credentials or waits on a server. Only files that count toward the metadata version
+Git is read through the Git layer (``fabric_desktop.git``) with the person's own ``git``
+command: no new sign-in, no token, no network. Ahead and behind are counted against the upstream
+branch as of the last fetch, so a status never prompts for credentials or waits on a server. Only files that count toward the metadata version
 (``Project.version``) make the project "uncommitted": local data, caches and
 ``environments.toml`` (deployment settings) don't.
 
@@ -18,32 +18,19 @@ from __future__ import annotations
 import getpass
 import hashlib
 import importlib.metadata as md
-import os
 import platform
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
 from .. import __version__, receipts
+from ..git import cli
+from ..git.cli import GitError
+from ..git.repo import Repository
 from .project import _IGNORED, _UNVERSIONED, Project
 
 # The packages the engine's results depend on; their versions make up the lock hash.
 ENGINE_PACKAGES = ("deltalake", "duckdb", "polars", "pyarrow")
 MAX_CHANGES = 200
-TIMEOUT = 15
-
-
-def _git(cwd: Path, *args: str) -> str | None:
-    """``git`` output, or None when it fails. Never prompts and never takes a lock."""
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0", LC_ALL="C")
-    try:
-        out = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, timeout=TIMEOUT, env=env,
-                             stdin=subprocess.DEVNULL, check=False,
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return out.stdout.decode("utf-8", "replace") if out.returncode == 0 else None
 
 
 def _counts(rel: str) -> bool:
@@ -53,56 +40,41 @@ def _counts(rel: str) -> bool:
 
 
 def status(root: Path | str) -> dict[str, Any]:
-    """Branch, commit, upstream, ahead/behind and uncommitted files for the project folder."""
-    root = Path(root)
-    if not shutil.which("git"):
+    """Branch, commit, upstream, ahead/behind and uncommitted files for the project folder, read
+    through the Git layer (``git.repo.Repository``)."""
+    root = Path(root).resolve()
+    if not cli.git_path():
         return {"available": False, "repo": False,
                 "message": "Git isn't installed on this PC, so releases can't name a commit."}
-    top = _git(root, "rev-parse", "--show-toplevel")
-    if top is None:
+    try:
+        repo = Repository(root)
+        git = repo.status()
+    except GitError:
         return {"available": True, "repo": False,
                 "message": "The project folder isn't in a Git repository, so releases can't name a commit."}
-    top_path = Path(top.strip())
-    commit = (_git(root, "rev-parse", "--verify", "-q", "HEAD") or "").strip() or None
-    branch = (_git(root, "symbolic-ref", "--short", "-q", "HEAD") or "").strip() or None
-    upstream = (_git(root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") or "").strip() or None
-    ahead = behind = None
-    if upstream and commit:
-        counts = (_git(root, "rev-list", "--left-right", "--count", "HEAD...@{u}") or "").split()
-        if len(counts) == 2:
-            ahead, behind = int(counts[0]), int(counts[1])
-    raw = _git(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".") or ""
-    try:
-        prefix = root.resolve().relative_to(top_path.resolve()).as_posix()
-        prefix = "" if prefix == "." else prefix
-    except ValueError:
-        prefix = ""
-    changes, entries = [], raw.split("\0")
-    i = 0
-    while i < len(entries):
-        entry = entries[i]
-        i += 1
-        if len(entry) < 4:
-            continue
-        code, path = entry[:2], entry[3:]
-        if code[0] in "RC":  # a rename or copy is followed by its old path
-            i += 1
-        rel = path[len(prefix) + 1:] if prefix and path.startswith(prefix + "/") else path
-        if _counts(rel):
-            changes.append({"path": rel, "state": _state(code)})
-    pushed = bool(commit and upstream and ahead == 0)
+    prefix = root.relative_to(repo.root).as_posix() if root.is_relative_to(repo.root) else ""
+    prefix = "" if prefix == "." else prefix
+    changes: dict[str, str] = {}
+    for kind in ("conflicts", "staged", "unstaged", "untracked"):
+        for entry in git[kind]:
+            path = entry["path"]
+            if prefix and not path.startswith(prefix + "/"):
+                continue  # outside the project folder
+            rel = path[len(prefix) + 1:] if prefix else path
+            if _counts(rel):
+                changes.setdefault(rel, "conflict" if kind == "conflicts" else _STATES.get(entry["state"], "changed"))
+    commit, branch, upstream = git["commit"], git["branch"], git["upstream"]
+    ahead, behind = (git["ahead"], git["behind"]) if upstream else (None, None)
+    rows = [{"path": p, "state": st} for p, st in changes.items()]
     return {"available": True, "repo": True, "branch": branch, "commit": commit, "upstream": upstream,
-            "ahead": ahead, "behind": behind, "dirty": bool(changes), "changes": changes[:MAX_CHANGES],
-            "change_count": len(changes), "pushed": pushed, "message": _summary(branch, commit, upstream, ahead,
-                                                                                  behind, len(changes))}
+            "ahead": ahead, "behind": behind, "dirty": bool(rows), "changes": rows[:MAX_CHANGES],
+            "change_count": len(rows), "pushed": bool(commit and upstream and ahead == 0),
+            "message": _summary(branch, commit, upstream, ahead, behind, len(rows))}
 
 
-def _state(code: str) -> str:
-    if code == "??":
-        return "new"
-    c = code.replace(" ", "")[:1]
-    return {"M": "changed", "A": "added", "D": "deleted", "R": "renamed", "C": "copied", "U": "conflict",
-            "T": "changed"}.get(c, "changed")
+# The Git layer's words for a file's state, in the words a release record has always used.
+_STATES = {"untracked": "new", "modified": "changed", "type changed": "changed", "added": "added",
+           "deleted": "deleted", "renamed": "renamed", "copied": "copied"}
 
 
 def _summary(branch, commit, upstream, ahead, behind, changed) -> str:
@@ -188,17 +160,19 @@ def deployment_columns(body: dict[str, Any]) -> dict[str, Any]:
 def committed(root: Path | str, folder: str, suffix: str = "") -> dict[str, str] | None:
     """The files under ``folder`` (project-relative) as the last commit has them, {path: text},
     or None when the project isn't in Git or nothing is committed."""
-    root = Path(root)
-    if not shutil.which("git") or _git(root, "rev-parse", "--verify", "-q", "HEAD") is None:
+    root = Path(root).resolve()
+    repo = _repo(root)
+    if repo is None or repo.head() is None:
         return None
-    listing = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--", folder)
-    if listing is None:
+    try:
+        listing = cli.text(root, ["ls-tree", "-r", "-z", "--name-only", "HEAD", "--", folder], read_only=True)
+    except GitError:
         return None
     out = {}
     for rel in filter(None, listing.split("\0")):
         if suffix and not rel.endswith(suffix):
             continue
-        text = _git(root, "show", f"HEAD:./{rel}")
+        text = _at_head(repo, root / rel)
         if text is not None:
             out[rel] = text.replace("\r\n", "\n")
     return out
@@ -206,7 +180,23 @@ def committed(root: Path | str, folder: str, suffix: str = "") -> dict[str, str]
 
 def committed_file(path: Path | str) -> str | None:
     """One file as the last commit has it, or None (not in Git, never committed, no Git)."""
-    path = Path(path)
-    if not shutil.which("git"):
+    path = Path(path).resolve()
+    repo = _repo(path.parent)
+    return _at_head(repo, path) if repo is not None else None
+
+
+def _repo(folder: Path) -> Repository | None:
+    if not cli.git_path() or not folder.is_dir():
         return None
-    return _git(path.parent, "show", f"HEAD:./{path.name}")
+    try:
+        return Repository(folder)
+    except GitError:
+        return None
+
+
+def _at_head(repo: Repository, path: Path) -> str | None:
+    try:
+        f = repo.file_at("HEAD", str(path))
+    except GitError:
+        return None
+    return None if f["binary"] or f["truncated"] else f["text"]

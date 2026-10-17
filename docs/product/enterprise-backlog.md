@@ -23,7 +23,7 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | 11 | FD-139 Accessibility fixes | Enterprise procurement requirement | none |
 | 12 | FD-130 Permission checks before writes | Separation of duties | FD-125 |
 | 13 | FD-129 Exception requests and history | Builds on exceptions.toml | FD-125 |
-| 14 | FD-137 Opt-in telemetry | Needs a decision on the destination | Decision T1 |
+| 14 | FD-137 Opt-in telemetry | Chris chose telemetry (2026-10-17); built, waits on the Application Insights resource | D-E8 |
 | 15 | FD-102b Content Security Policy | Defense in depth; notebook output frames need care | FD-102a |
 
 ## All items
@@ -63,7 +63,7 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-134 | P2 | Project templates | DUPLICATE | Git-native | |
 | FD-135 | P2 | Extension packaging | DUPLICATE | Git-native | |
 | FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94) (draft) |
-| FD-137 | P1 | Opt-in telemetry | MISSING (decision T1) | This program | |
+| FD-137 | P1 | Opt-in telemetry | PARTIAL | This program | |
 | FD-138 | P1 | Diagnostic support bundles | PARTIAL | This program | |
 | FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/fabric-desktop/pull/92) |
 | FD-140 | P0 | Pilot readiness | PARTIAL | This program | this PR ([release-readiness.md](release-readiness.md)) |
@@ -109,7 +109,7 @@ Split in two so each change is reviewable on its own.
 
 ### FD-105 Configuration policies (P0)
 
-- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` (waits on D-C1).
+- **Built in #90:** `auto_update`, `allow_fabric_runs` (the `allowed_compute` criterion), `allowed_tenants`, and reporting of ignored keys in Settings. Still open: `allowed_hosts`, `local_retention_days` (with FD-131b), `telemetry` and `telemetry_connection_string` (FD-137).
 - **Acceptance criteria:** new policy keys, each with a test: `auto_update` (on/off), `allowed_compute` (this PC, Fabric or both), `allowed_hosts` (endpoints the app may call beyond Microsoft's), `local_retention_days`, `telemetry` (off by default, FD-137). A malformed policy file or unknown key is reported in Settings instead of silently ignored. Documented in [azure-setup.md](../azure-setup.md).
 - **Existing code:** `app_settings.py`.
 
@@ -142,7 +142,8 @@ Split in two so each change is reviewable on its own.
 
 ### FD-137 Opt-in telemetry (P1)
 
-- **Decision T1 (Chris):** where telemetry goes (Azure Monitor Application Insights in a KratosBI subscription, or none). Until then, nothing is built. Defaults: off, policy can force off, no customer data, the payload is shown before sending.
+- **Decision T1 (Chris, 2026-10-17):** telemetry, to Azure Monitor Application Insights (D-E8).
+- **Acceptance criteria:** off by default; policy can force it off (or on, with the organization's own destination); no customer data; Settings shows the exact text before it's sent; turning it off deletes what's waiting; the agent never sends. Done in the FD-137 pull request except a real send, which needs KratosBI's Application Insights resource and the `TELEMETRY_CONNECTION_STRING` repository variable (Chris).
 
 ### FD-138 Diagnostic support bundles (P1)
 

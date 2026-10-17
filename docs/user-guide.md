@@ -355,3 +355,31 @@ Ideas and feature requests go to the ideas forum instead: see [Submitting ideas]
 ## For IT admins
 
 Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
+
+### Audit trail
+
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+
+Each line says:
+
+| Field | What it holds |
+| --- | --- |
+| `at`, `seconds` | When it started (UTC) and how long it took |
+| `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
+| `who`, `tenant` | The account signed in to the app, and its tenant |
+| `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
+| `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+
+Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
+
+To read it, or to check that no line was changed or removed since it was written:
+
+```powershell
+fabric-desktop audit --limit 20                      # the newest 20 lines
+fabric-desktop audit --action meta_promote           # only promotes
+fabric-desktop audit --verify                        # exit code 1 if the chain is broken
+fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
+```
+
+The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

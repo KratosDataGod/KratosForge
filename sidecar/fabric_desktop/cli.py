@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | support-bundle | backup | restore | live-test ...`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore`."""
 
 from __future__ import annotations
 
@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> None:
                                                    "with secrets and personal details taken out")
     bundle.add_argument("--out", default=".", help="folder to save it in (default: here)")
     bundle.add_argument("--agent-home", help="also include this agent's log (its FABRIC_DESKTOP_HOME)")
+    trail = sub.add_parser("audit", help="show this PC's audit trail, or check that no line was changed or removed")
+    trail.add_argument("--verify", action="store_true", help="check the hash chain and exit 1 if it is broken")
+    trail.add_argument("--limit", type=int, default=50, help="how many of the newest lines to show (default 50)")
+    trail.add_argument("--action", default="", help="only this action, such as meta_promote")
+    trail.add_argument("--folder", help="the audit folder (default: this PC's, or an agent home's audit folder)")
     args = parser.parse_args(argv)
 
     if args.command == "serve":
@@ -67,6 +72,8 @@ def main(argv: list[str] | None = None) -> None:
         from .support_bundle import create
         print(create(Path(args.out), agent_home=Path(args.agent_home) if args.agent_home else None))
         return
+    if args.command == "audit":
+        raise SystemExit(_audit(args))
     if args.command in ("backup", "restore"):
         raise SystemExit(_backup(args))
     if args.command == "run-schedule":
@@ -106,6 +113,9 @@ def _agent(args: argparse.Namespace) -> int:
     agent = Agent(config)
     if args.agent_command == "enqueue":
         result: object = agent.enqueue(args.env, args.entities, args.backfill, args.cascade, source="cli")
+        agent.audit.record(
+            "agent_enqueue", "ok", 0.0, {"env": args.env, "entities": args.entities, "backfill": args.backfill,
+                                         "cascade": args.cascade, "agent": config.name})
     else:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))
@@ -176,6 +186,21 @@ def _live_test(args: argparse.Namespace) -> int:
     return {"passed": 0, "failed": 1}.get(result["outcome"], 2)
 
 
+def _audit(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from .audit import AuditLog
+    from .service import data_dir
+    log = AuditLog(Path(args.folder) if args.folder else data_dir() / "audit")
+    if args.verify:
+        result = log.verify()
+        print(json.dumps(result, indent=2))
+        return 0 if result["ok"] else 1
+    for entry in log.recent(args.limit, args.action):
+        print(json.dumps(entry, default=str))
+    return 0
+
+
 def _run_schedule(schedule_id: str, trigger: str) -> None:
     """No console and no one watching: log to a file, never open a sign-in window."""
     import sys
@@ -183,7 +208,17 @@ def _run_schedule(schedule_id: str, trigger: str) -> None:
     from .server import _log_file
     if sys.stdout is None or sys.stderr is None or sys.executable.lower().endswith("pythonw.exe"):
         sys.stdout = sys.stderr = _log_file()
-    result = Service(headless=True).run_schedule(schedule_id, trigger)
+    import time
+    service = Service(headless=True)
+    started = time.monotonic()
+    result = service.run_schedule(schedule_id, trigger)
+    try:
+        service.audit.record("run_schedule", "error" if result.get("status") == "failed" else "ok",
+                             time.monotonic() - started, {"schedule_id": schedule_id, "trigger": trigger},
+                             who=(service._auth.signed_in_user() or "") if service._auth else "",
+                             error=str(result.get("error") or result.get("message") or "") if result.get("status") == "failed" else "")
+    except Exception as exc:  # noqa: BLE001 - the run's own result matters more than its audit line
+        print(f"audit: {type(exc).__name__}: {exc}")
     print(json.dumps(result, default=str))
     raise SystemExit(0 if result["status"] != "failed" else 1)
 

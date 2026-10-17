@@ -14,6 +14,7 @@ from typing import Any
 
 import pyarrow.csv as pa_csv
 
+from .audit import AuditLog
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql
@@ -65,6 +66,17 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         if self._auth is None or getattr(self._auth, "client_id", client_id) != client_id:
             self._auth = Authenticator(client_id, interactive=not self.headless)
         return self._auth
+
+    @property
+    def audit(self) -> AuditLog:
+        """This PC's audit trail (audit.py): one line per call that changes or runs something."""
+        if getattr(self, "_audit_log", None) is None:
+            self._audit_log = AuditLog(self.root / "audit", app="agent" if self.headless else "desktop")
+        return self._audit_log
+
+    def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
+        """The newest audit lines, newest first, and whether the chain is intact."""
+        return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}
 
     @property
     def fabric(self) -> FabricClient:

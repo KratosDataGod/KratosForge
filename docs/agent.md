@@ -328,9 +328,9 @@ shared = true
 
 - **How it works.** When a shared schedule is due, each agent tries to create `requests/sched-<id>-<slot>.json` in the environment's mailbox with `If-None-Match: *`. Only the first create lands. The request is then claimed like any pipeline request, so one agent runs it. The `<slot>` comes from the due time in UTC, for example `sched-prod-hourly-20270115T0900Z`.
 - **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
-- **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`.
-- **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, and its id is at most 40 characters. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
-- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, as today. Moving it to another agent is the next step in [Multiple workers](workloads/multi-worker.md). Monitor > Agents doesn't warn about a schedule that agents share this way.
+- **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
+- **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, as today. Moving it to another agent is the next step in [Multiple workers](workloads/multi-worker.md). Monitor > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
 
 ## Verify on your tenant
 

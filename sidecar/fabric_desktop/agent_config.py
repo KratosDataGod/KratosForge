@@ -245,6 +245,10 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
     if shared and len(sid) > 40:
         errors.append(f"{where}: a shared schedule's id is at most 40 characters")
         return None
+    minutes = raw.get("every_minutes")
+    if shared and minutes is not None and (isinstance(minutes, bool) or not isinstance(minutes, int) or minutes < 1):
+        errors.append(f"{where}: a shared schedule's every_minutes is a whole number of at least 1")  # slots are named to the minute
+        return None
     return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule, shared)
 
 

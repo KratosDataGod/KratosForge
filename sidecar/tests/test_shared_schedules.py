@@ -168,6 +168,7 @@ def test_the_status_record_says_a_schedule_is_shared(tmp_path, project):
     ("every_minutes = 60\nshared = true\nbackfill = \"full\"", "enabled = true", "needs pipeline.allow_backfill"),
     ("every_minutes = 60\nshared = true", 'enabled = true\nentities = ["silver.*"]', "isn't in pipeline.entities"),
     ("every_minutes = 60", 'enabled = true\nclaim = "sometimes"', 'pipeline.claim: "always" or "when_free"'),
+    ("every_minutes = 1.5\nshared = true", "enabled = true", "whole number of at least 1"),
 ])
 def test_shared_schedule_settings_are_checked(tmp_path, project, schedule, pipeline, error):
     with pytest.raises(agent_config.ConfigError) as exc:

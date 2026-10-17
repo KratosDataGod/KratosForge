@@ -27,6 +27,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | Document | What it covers |
 | --- | --- |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
+| [docs/backup.md](docs/backup.md) | Backing up and restoring what the app keeps only on your PC, without sign-in tokens |
 | [docs/azure-setup.md](docs/azure-setup.md) | Configuring Fabric for an organization: tenant settings, sign-in policies, the optional policy file, workspaces, capacity and access |
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |

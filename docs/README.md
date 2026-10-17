@@ -7,6 +7,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | I want to | Read |
 | --- | --- |
 | Install the app on my PC | [Install](install.md) |
+| Back up my PC's notebooks and settings | [Back up and restore](backup.md) |
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
@@ -22,6 +23,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Document | For | What it covers |
 | --- | --- | --- |
 | [install.md](install.md) | Everyone | Requirements, download, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
+| [backup.md](backup.md) | Everyone | Backing up and restoring notebooks, settings, schedules and history on a PC |
 | [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |

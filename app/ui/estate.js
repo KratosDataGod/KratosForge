@@ -247,6 +247,56 @@ function measureDialog(title, m, cur) {
   [btn("Close", null, closeDialog, "tool outline")]);
 }
 
+// ---------- capacity of each environment (FINOPS-002, read only) ----------
+
+// Running, not running or unknown; or why it couldn't be read.
+function capacityStatus(e) {
+  if (e.access !== "ok") return h("span", { class: "pill-s neu", title: e.action || "" }, e.access_text);
+  const [label, cls] = { running: ["Running", "pass"], not_running: ["Not running", "fail"] }[e.status] || ["Unknown", "neu"];
+  return h("span", { class: `pill-s ${cls}`, title: e.status_text }, label);
+}
+
+function capacityName(e) {
+  const c = e.capacity;
+  if (!c) return e.capacity_id ? h("span", { class: "mono small", title: "Capacity id from the workspace" }, e.capacity_id) : null;
+  return h("span", {}, h("b", {}, c.name || c.id), [c.sku, c.region || e.region].filter(Boolean).length
+    ? h("span", { class: "muted-text" }, ` · ${[c.sku, c.region || e.region].filter(Boolean).join(" · ")}`) : null);
+}
+
+function capacityAge(e) {
+  if (!e.observed_at) return null;
+  return h("span", { class: "muted-text small" }, "Read ", when(e.observed_at), e.cached ? ` (${e.read_error.toLowerCase()} now)` : "",
+    e.stale ? [" ", h("span", { class: "pill-s wrn", title: "Older than an hour: press Refresh" }, "Stale")] : null);
+}
+
+// One line for an environment card: the capacity and whether it is running.
+function capacityLine(e) {
+  if (!e || e.access === "no_workspace") return null;
+  return h("div", { class: "capacity-line" }, icon("gauge", 14), h("span", { class: "muted-text small" }, "Capacity"),
+    capacityName(e), capacityStatus(e), capacityAge(e));
+}
+
+function capacityStrip(doc) {
+  const rows = (doc?.environments || []).filter((e) => e.access !== "no_workspace");
+  const refresh = async (button) => {
+    button.disabled = true;
+    const res = await attempt(() => rpc("capacity_health", { refresh: true }), "Capacities not read");
+    if (res) render();
+    button.disabled = false;
+  };
+  if (!rows.length) return null;
+  return h("div", { class: "card pad capacity-strip" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Capacities"),
+      h("span", { class: "muted-text small" }, "Read only, with your sign-in. Running doesn't mean there's room: how busy a capacity is shows in Fabric's Capacity Metrics app."),
+      btn("Refresh", "sync", (ev) => refresh(ev.currentTarget), "tool outline small")),
+    h("table", { class: "list compact" }, h("tbody", {}, rows.map((e) => h("tr", {},
+      h("td", {}, h("b", {}, ENV_LABEL[e.env] || e.env), h("div", { class: "muted-text small" }, e.workspace_name || "")),
+      h("td", {}, capacityName(e) || h("span", { class: "muted-text" }, "Not known")),
+      h("td", {}, capacityStatus(e)),
+      h("td", { class: "small" }, e.access === "ok" ? e.status_text : e.action, e.cached ? h("div", { class: "muted-text" }, e.action) : null),
+      h("td", {}, capacityAge(e)))))));
+}
+
 function costBody(r) {
   const cur = r.settings.currency;
   const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
@@ -267,6 +317,7 @@ function costBody(r) {
         h("span", {}, measureFigure("Fabric use avoided on this PC, in CU hours", ev.avoided_cu, cur), ` · ${plural(t.local_runs, "run")}`)),
       r.by_env.filter((e) => e.capacity_share_evidence && e.capacity_share_evidence.classification !== "unknown" && e.fabric_runs).map((e) =>
         stat(measureFigure(`Share of ${e.capacity || "the"} capacity`, e.capacity_share_evidence, cur), `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
+    capacityStrip(r.capacities),
     t.unknown_runs ? h("p", { class: "muted-text small" }, `${t.unknown_runs === 1 ? "1 run's" : `${t.unknown_runs} runs'`} capacity use isn't known (still running, or no run time recorded). They are left out of the totals, not counted as 0.`) : null,
     r.by_item.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Avoided on this PC"].map((c) => h("th", {}, c)))),

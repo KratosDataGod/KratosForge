@@ -143,6 +143,31 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         self.auth.storage_token()
         return {"user": self.auth.signed_in_user(), "tenant": self.auth.signed_in_tenant()}
 
+    def readiness_check(self) -> list[dict[str, Any]]:
+        """Home's Ready to work list. Reads only, and never opens a sign-in window."""
+        from . import readiness
+        try:
+            user = self.auth.signed_in_user()
+        except Exception:  # noqa: BLE001 - no client ID yet: shown as not signed in
+            user = None
+        fabric = self._quiet_fabric() if user else None  # type: ignore[attr-defined]
+        if user and fabric is None:
+            user = None  # the saved sign-in has expired: the row offers Sign in
+
+        def capacities() -> list[dict[str, Any]]:
+            token = self.auth.silent_token(CAPACITY_SCOPES)
+            if not token:
+                raise PermissionError("not consented")
+            return FabricClient(lambda: token).list_capacities()
+
+        return readiness.checks(user, fabric.list_workspaces if fabric else list, capacities, self.app_settings())
+
+    def readiness_write_test(self, workspace_id: str, lakehouse_id: str, workspace_name: str) -> dict[str, Any]:
+        """Write, read back and delete one small file in a lakehouse's Files area (asked for first)."""
+        from . import readiness
+        from .onelake import FileStore
+        return readiness.write_test(FileStore(self.auth.storage_token), workspace_id, lakehouse_id, workspace_name)
+
     def list_workspaces(self) -> list[dict[str, Any]]:
         return self.fabric.list_workspaces()
 

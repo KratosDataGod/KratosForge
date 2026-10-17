@@ -259,6 +259,107 @@ async function renderSettings() {
   if (state.view === "settings" && previewShown()) notify.before(platform);
 }
 
+// ---------- Ready to work (Home): can this PC do real work yet? ----------
+
+const READY_MARK = { ok: ["ok", "Ready"], fail: ["error", "Needs attention"], warn: ["warning", "Worth a look"],
+  wait: ["info", "Not checked yet"] };
+
+function readinessFix(row, rerun) {
+  const fixes = {
+    sign_in: ["Sign in", async () => { if (await signIn()) render(); }],
+    retry: ["Check again", rerun],
+    workspaces: ["Open Workspaces", () => go("workspaces")],
+    capacity: ["How to get capacity", () => invoke("open_doc", { page: row.doc }).catch(() => {})],
+    settings: ["Open Settings", () => go("settings")],
+  };
+  const fix = fixes[row.fix];
+  return fix ? btn(fix[0], null, fix[1], row.status === "fail" ? "tool primary small" : "tool outline small") : null;
+}
+
+function readinessRow(row, rerun, extra = null) {
+  const [mark, label] = READY_MARK[row.status] || READY_MARK.wait;
+  return h("li", { class: `ready-row ${row.status}` },
+    h("span", { class: "ready-mark", role: "img", "aria-label": label }, icon(mark, 18)),
+    h("div", { class: "grow" }, h("b", {}, row.title), h("div", { class: "muted-text small" }, row.text),
+      row.status !== "ok" && row.status !== "wait" ? h("div", { class: "row" }, readinessFix(row, rerun)) : null),
+    extra);
+}
+
+function writeTestDialog(done) {
+  const wsSelect = h("select", {}, h("option", { value: "" }, "Loading workspaces..."));
+  const lhSelect = h("select", { disabled: true }, h("option", { value: "" }, "Pick a workspace first"));
+  const why = h("div", { class: "muted-text small" });
+  const start = btn("Write and delete the test file", null, async () => {
+    const ws = wsSelect.selectedOptions[0];
+    start.disabled = true;
+    const result = await attempt(() => rpc("readiness_write_test",
+      { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace_name: ws.textContent }), "Write test");
+    closeDialog();
+    if (result) done(result);
+  }, "tool primary", { disabled: true });
+  const canGo = () => { start.disabled = !(wsSelect.value && lhSelect.value); };
+  wsSelect.addEventListener("change", async () => {
+    lhSelect.disabled = true;
+    lhSelect.replaceChildren(h("option", { value: "" }, "Loading lakehouses..."));
+    const lakehouses = await attempt(() => rpc("list_lakehouses", { workspace_id: wsSelect.value }), "Lakehouses") || [];
+    lhSelect.replaceChildren(...(lakehouses.length ? lakehouses.map((l) => h("option", { value: l.id }, l.displayName))
+      : [h("option", { value: "" }, "No lakehouses in this workspace")]));
+    lhSelect.disabled = !lakehouses.length;
+    canGo();
+  });
+  lhSelect.addEventListener("change", canGo);
+  showDialog("Test a write to OneLake", h("div", { class: "stack" },
+    h("p", {}, "This writes one small file to the lakehouse you pick, reads it back and deletes it. No table is touched."),
+    h("label", { class: "field" }, "Workspace", wsSelect),
+    h("label", { class: "field" }, "Lakehouse", lhSelect),
+    h("div", { class: "callout small" }, "Writes Files/_fabric_desktop_check/write-test.txt, then deletes that folder. ",
+      "Workspaces whose name says Prod aren't offered."), why),
+    [btn("Cancel", null, closeDialog, "tool outline"), start]);
+  rpc("list_workspaces").then((spaces) => {
+    const usable = spaces.filter((w) => w.capacityId && !/(^|[^a-z])(prod|prd|production)([^a-z]|$)/i.test(w.displayName));
+    wsSelect.replaceChildren(h("option", { value: "" }, usable.length ? "Pick a workspace" : "No Dev or Test workspace on a capacity"),
+      ...usable.map((w) => h("option", { value: w.id }, w.displayName)));
+  }).catch((err) => { why.textContent = friendlyError(err).text; });
+}
+
+function readinessCard() {
+  let hidden = false;
+  try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
+  if (hidden) return null;
+  const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
+  let writeRow = null;
+  const draw = (rows, checkedAt) => {
+    const all = writeRow ? [...rows, writeRow] : rows;
+    const good = all.filter((r) => r.status === "ok").length;
+    const head = h("div", { class: "row" }, h("h2", { class: "grow", id: "ready-title" }, "Ready to work"),
+      h("span", { class: "muted-text small" }, `${good} of ${rows.length + 1} ready`),
+      btn("Check again", null, run, "tool outline small"),
+      btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
+    if (rows.every((r) => r.status === "ok") && writeRow?.status === "ok") {
+      box.replaceChildren(h("div", { class: "row" }, icon("ok", 18), h("b", { class: "grow" }, "Ready to work."),
+        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small")));
+      return;
+    }
+    const capacityOk = rows.find((r) => r.key === "capacity")?.status === "ok";
+    const write = writeRow || { key: "write", title: "Writing to OneLake", status: "wait",
+      text: capacityOk ? "Not checked. It writes a small test file, so it waits until you ask."
+        : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
+    const tester = btn("Test a write", null, () => writeTestDialog((r) => { writeRow = r; draw(rows, "just now"); }),
+      "tool outline small", { disabled: capacityOk ? null : true });
+    box.replaceChildren(head,
+      h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
+      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, write.status === "ok" ? null : tester)),
+      h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
+  };
+  async function run() {
+    box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));
+    const rows = await attempt(() => rpc("readiness_check"), "Ready to work");
+    if (rows) draw(rows, new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  }
+  run();
+  return box;
+}
+
 // ---------- Get started (Home, until there's a metadata project) ----------
 
 function markDone(step) {

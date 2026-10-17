@@ -77,6 +77,7 @@ Home answers "what happened since I was last here". From the top:
 | Section | What it shows |
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. |
+| **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
 | **Running now** | What this app is running, here or in Fabric. |
@@ -86,6 +87,23 @@ Home answers "what happened since I was last here". From the top:
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
+
+### Ready to work
+
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window.
+
+| Check | Ready when | If not |
+| --- | --- | --- |
+| **Local engine** | The engine starts on this PC | You wouldn't see Home; the startup window explains |
+| **Signed in** | Your sign-in is saved and still works | **Sign in** |
+| **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
+| **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
+| **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
+| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+
+**Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
 ### Estate X-ray (Preview)
 

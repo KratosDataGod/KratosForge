@@ -960,14 +960,14 @@
         "preview": false
       },
       "limitations": [
-        "Items matched by display name (inference)",
+        "Items matched by display name (fabric_api.py save_notebook)",
         "The setup cell pip-installs sqlglot in Fabric",
         "notebooks.md says %%sql notebooks publish as Spark; code converts them (inference)"
       ],
       "prs": [
         31
       ],
-      "next_action": "Match the Fabric item by recorded id, not display name, so a rename doesn't duplicate (PB-018).",
+      "next_action": "Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).",
       "backlog": [
         "PB-002",
         "PB-018",
@@ -1009,10 +1009,10 @@
         "preview": true
       },
       "limitations": [
-        "cancel_fabric_run has no UI caller and no test",
+        "Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray",
         "UI requires an attached lakehouse"
       ],
-      "next_action": "Expose cancel (engine method exists with no UI) and include in the tenant smoke test.",
+      "next_action": "Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.",
       "backlog": [
         "PB-002",
         "PB-043"

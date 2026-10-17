@@ -122,6 +122,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Launch to about 5,000 people needs evidence the core flows work on a real tenant.",
+      "package": "docs/product/pr-ready/PB-002.md",
       "computed": {
         "benefit": 3.45,
         "cost": 2.0,
@@ -427,6 +428,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.",
+      "package": "docs/product/pr-ready/PB-010.md",
       "computed": {
         "benefit": 2.2,
         "cost": 1.0,
@@ -523,6 +525,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.",
+      "package": "docs/product/pr-ready/PB-013.md",
       "computed": {
         "benefit": 3.2,
         "cost": 2.0,
@@ -719,7 +722,8 @@
       "problem": "Publishing finds the Fabric notebook by display name, so a rename in either place makes a duplicate.",
       "capability": "Record the Fabric item id on first publish and update that item afterwards.",
       "evidence": [
-        "fabric_run.py publish lookup by displayName (inference from code reading)"
+        "fabric_api.py save_notebook matches an existing notebook by displayName",
+        "workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it"
       ],
       "features": [
         "FEAT-FAB-06"
@@ -742,6 +746,7 @@
       "effort": "S",
       "confidence": "Medium",
       "state": "Proposed",
+      "package": "docs/product/pr-ready/PB-018.md",
       "computed": {
         "benefit": 2.7,
         "cost": 2.0,
@@ -1545,21 +1550,22 @@
       "id": "PB-043",
       "title": "Cancel a Fabric run from the app",
       "category": "Fabric Integration and Deployment",
-      "problem": "Runs started in Fabric can't be cancelled from the app although the engine method exists.",
-      "capability": "A Cancel action in Monitor and the tray for running Fabric jobs started here.",
+      "problem": "A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.",
+      "capability": "A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.",
       "evidence": [
-        "cancel_fabric_run has no UI caller and no test"
+        "cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act",
+        "app/ui/workloads.js offers cancel through workload actions"
       ],
       "features": [
         "FEAT-FAB-07"
       ],
       "acceptance": [
-        "Cancel stops the Fabric job and the run shows Cancelled",
-        "A test covers the engine call"
+        "Cancel in Monitor > Runs and the tray stops the Fabric job and the run shows Cancelled",
+        "A test covers cancel_fabric_run"
       ],
       "scores": {
         "developer_value": 3,
-        "cu_reduction": 4,
+        "cu_reduction": 3,
         "enterprise_value": 2,
         "differentiation": 1,
         "strategic_alignment": 3,
@@ -1571,11 +1577,12 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "package": "docs/product/pr-ready/PB-043.md",
       "computed": {
-        "benefit": 2.65,
+        "benefit": 2.45,
         "cost": 1.0,
-        "score": 2.65,
-        "priority": "P1"
+        "score": 2.45,
+        "priority": "P2"
       }
     },
     {
@@ -1610,6 +1617,7 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "package": "docs/product/pr-ready/PB-044.md",
       "computed": {
         "benefit": 2.3,
         "cost": 1.0,
@@ -1861,6 +1869,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.",
+      "package": "docs/product/pr-ready/PB-051.md",
       "computed": {
         "benefit": 2.7,
         "cost": 2.0,
@@ -2591,6 +2600,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.",
+      "package": "docs/product/pr-ready/PB-071.md",
       "computed": {
         "benefit": 2.45,
         "cost": 1.0,
@@ -2798,6 +2808,7 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "package": "docs/product/pr-ready/PB-077.md",
       "computed": {
         "benefit": 2.45,
         "cost": 1.0,
@@ -2837,6 +2848,7 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.",
+      "package": "docs/product/pr-ready/PB-078.md",
       "computed": {
         "benefit": 2.45,
         "cost": 1.0,

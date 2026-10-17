@@ -128,7 +128,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | 3 | 2 | 5 | 2 | 5 | 2 | 2 | 3.45 | 2.0 | 2.76 | blocker | M | High | none | Master product (unassigned) |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | 3 | 1 | 5 | 1 | 5 | 2 | 2 | 3.1 | 2.0 | 2.48 | blocker | S | High | none | Enterprise readiness |
 
-### P1 (29 items)
+### P1 (28 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -143,7 +143,6 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-096](PRODUCT_BACKLOG.md#pb-096) | Run the AI client checklist for each named tool | 3 | 1 | 3 | 3 | 4 | 1 | 1 | 2.75 | 1.0 | 2.75 | none | S | High | PB-095 | Bring your own AI integration |
 | [PB-014](PRODUCT_BACKLOG.md#pb-014) | AST-based compatibility analyzer with an Unknown outcome | 4 | 4 | 3 | 4 | 5 | 3 | 2 | 3.9 | 2.5 | 2.73 | none | M | Medium | PB-013 | Prove |
 | [PB-022](PRODUCT_BACKLOG.md#pb-022) | Fabric SQL dialect compatibility analyzer | 4 | 4 | 3 | 4 | 5 | 3 | 2 | 3.9 | 2.5 | 2.73 | none | M | Medium | none | SQL development sprint |
-| [PB-043](PRODUCT_BACKLOG.md#pb-043) | Cancel a Fabric run from the app | 3 | 4 | 2 | 1 | 3 | 1 | 1 | 2.65 | 1.0 | 2.65 | none | S | High | none | Master product (unassigned) |
 | [PB-098](PRODUCT_BACKLOG.md#pb-098) | One list of engine methods | 2 | 1 | 4 | 2 | 4 | 1 | 1 | 2.6 | 1.0 | 2.6 | none | S | Medium | PB-095 | Bring your own AI integration |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | 4 | 2 | 3 | 2 | 5 | 2 | 2 | 3.2 | 2.0 | 2.56 | required | M | High | none | Master product (unassigned) |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | 2 | 1 | 4 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | required | S | High | none | Master product (unassigned) |
@@ -162,13 +161,14 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-072](PRODUCT_BACKLOG.md#pb-072) | Long engine calls stop blocking the app | 4 | 1 | 4 | 1 | 4 | 4 | 3 | 2.95 | 3.5 | 1.48 | required | L | Medium | PB-071 | Master product (unassigned) |
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 
-### P2 (46 items)
+### P2 (47 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-067](PRODUCT_BACKLOG.md#pb-067) | Bounded-memory runs: run dialog and orphan-file cleanup | 4 | 4 | 3 | 3 | 4 | 3 | 2 | 3.6 | 2.5 | 2.52 | none | M | High | none | Staged roadmap |
 | [PB-088](PRODUCT_BACKLOG.md#pb-088) | Capacity inventory and health | 2 | 4 | 5 | 3 | 4 | 3 | 2 | 3.6 | 2.5 | 2.52 | none | M | Medium | PB-050 | Administration and FinOps sprint |
 | [PB-094](PRODUCT_BACKLOG.md#pb-094) | Measure the process kernel, not the engine | 3 | 3 | 2 | 2 | 4 | 2 | 1 | 2.75 | 1.5 | 2.48 | none | S | Medium | none | Prove |
+| [PB-043](PRODUCT_BACKLOG.md#pb-043) | Cancel a Fabric run from the app | 3 | 3 | 2 | 1 | 3 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-077](PRODUCT_BACKLOG.md#pb-077) | User and agent docs match the code | 3 | 1 | 3 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | none | S | High | none | Master product (unassigned) |
 | [PB-021](PRODUCT_BACKLOG.md#pb-021) | SQL editor with IntelliSense and formatting | 5 | 2 | 3 | 3 | 4 | 3 | 2 | 3.45 | 2.5 | 2.42 | none | M | High | none | SQL development sprint |
 | [PB-068](PRODUCT_BACKLOG.md#pb-068) | Key lookups without reading whole key tables | 3 | 4 | 4 | 2 | 4 | 3 | 2 | 3.45 | 2.5 | 2.42 | none | M | High | none | Staged roadmap |

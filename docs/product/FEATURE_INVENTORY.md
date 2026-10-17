@@ -76,7 +76,7 @@ on quality.
 2. **Four capabilities are built but unreachable:** the TOML job runner, column lineage, reliability
    objectives and agent status records. A text search of `app/ui` at `b7b04cc` found no caller for
    30 of the 275 methods in the engine's allowlist, including `meta_preflight`, `meta_lineage`,
-   `cancel_fabric_run`, the six incident methods, `platform_revoke`, `receipts_list` and
+   the six incident methods, `platform_revoke`, `receipts_list` and
    `run_job`. Some may be called through computed names, so treat 30 as an upper bound.
 3. **One feature gives wrong answers:** the compute check flags notebooks that use
    `notebookutils.variableLibrary` as Fabric-only, although they run on the PC (FEAT-NB-07).
@@ -144,8 +144,8 @@ on quality.
 | [FEAT-FAB-02](#feat-fab-02) | Workspaces page and item listing | Implemented | Partially Verified | Workspaces | Keep; offer actions beyond Open for non-lakehouse items when their workstreams add them. |
 | [FEAT-FAB-03](#feat-fab-03) | Create lakehouses | Implemented | Partially Verified | Create, Home, workspace page, command bar | Keep. |
 | [FEAT-FAB-05](#feat-fab-05) | Embedded Fabric portal and Monitoring hub | Implemented | Unverified | Fabric, Monitor | Restrict in-view navigation to Fabric hosts and add cargo test to CI (PB-071). |
-| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Match the Fabric item by recorded id, not display name, so a rename doesn't duplicate (PB-018). |
-| [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Expose cancel (engine method exists with no UI) and include in the tenant smoke test. |
+| [FEAT-FAB-06](#feat-fab-06) | Publish notebooks to Fabric | Implemented | Partially Verified | Notebook ribbon > Publish to OneLake | Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018). |
+| [FEAT-FAB-07](#feat-fab-07) | Run in Fabric | Implemented | Partially Verified | Notebook ribbon (Runs on: Fabric) (Preview) | Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test. |
 | [FEAT-FAB-09](#feat-fab-09) | Fabric Environment items and Spark settings | Missing | Unverified | None | Plan with the Prove program's environment profiles (FD-109) once the package-source decision is made (PB-016). |
 | [FEAT-FAB-12](#feat-fab-12) | Fabric workspace Git integration | Planned | Unverified | None | Owned by the Git-native program (Phase 2). |
 | [FEAT-FAB-13](#feat-fab-13) | Deployment pipelines and item-definition deploy | Planned | Unverified | None | Owned by the Git-native program (Phase 3, FD-120); reuse metadata promote gates. |
@@ -582,10 +582,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/fabric_run.py`, `sidecar/fabric_desktop/cloud_service.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_notebook_publish.py`, `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** Items matched by display name (inference). The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
+- **Known limitations:** Items matched by display name (fabric_api.py save_notebook). The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
 - **Pull requests and issues:** [#31](https://github.com/KratosDataGod/fabric-desktop/pull/31)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-018](PRODUCT_BACKLOG.md#pb-018), [PB-077](PRODUCT_BACKLOG.md#pb-077)
-- **Recommended next action:** Match the Fabric item by recorded id, not display name, so a rename doesn't duplicate (PB-018).
+- **Recommended next action:** Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).
 
 ### FEAT-FAB-07
 
@@ -598,9 +598,9 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/cloud_service.py`, `sidecar/fabric_desktop/fabric_api.py`, `app/ui/app.js`
 - **Tests:** `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
-- **Known limitations:** cancel_fabric_run has no UI caller and no test. UI requires an attached lakehouse.
+- **Known limitations:** Cancel is reachable only as a workload action in Monitor > Workloads, not from Monitor > Runs or the tray. UI requires an attached lakehouse.
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-043](PRODUCT_BACKLOG.md#pb-043)
-- **Recommended next action:** Expose cancel (engine method exists with no UI) and include in the tenant smoke test.
+- **Recommended next action:** Offer Cancel in Monitor > Runs and the tray (PB-043) and include in the tenant smoke test.
 
 ### FEAT-FAB-08
 

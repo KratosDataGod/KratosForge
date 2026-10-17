@@ -60,7 +60,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 5 | 3 | 9 |
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 3 | 8 |
-| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 2 | 4 | 0 | 6 |
+| [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 0 | 6 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 0 | 3 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 2 | 6 | 0 | 8 |
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 2 | 5 | 0 | 7 |
@@ -68,7 +68,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 1 | 7 | 2 | 0 | 10 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **2** | **29** | **46** | **9** | **86** |
+| **Total** | **2** | **28** | **47** | **9** | **86** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -113,6 +113,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned) (FD-111 (analyzer is separate, PB-014))
 - **Mandatory (required):** Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof.
+- **Implementation package:** [pr-ready/PB-013.md](pr-ready/PB-013.md)
 - **Acceptance criteria:**
     - compute_check reports a variableLibrary notebook as able to run on the PC
     - A %%sql MERGE, UPDATE or DELETE cell ends with a 'skipped on this PC' status and Run all stops
@@ -453,6 +454,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ORC-02](FEATURE_INVENTORY.md#feat-orc-02)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Implementation package:** [pr-ready/PB-044.md](pr-ready/PB-044.md)
 - **Acceptance criteria:**
     - Finished jobs older than the retention are removed on start
     - fabric-desktop agent requeue <id> moves a dead job back to queued
@@ -508,7 +510,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-040](#pb-040) | Fabric workspace Git integration | P2 | Git-native development | L | Proposed |
 | [PB-041](#pb-041) | Deployment preview and item deploy | P2 | Git-native development | L | Proposed |
 | [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Proposed |
-| [PB-043](#pb-043) | Cancel a Fabric run from the app | P1 | Master product (unassigned) | S | Proposed |
+| [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Proposed |
 | [PB-051](#pb-051) | Fabric REST client resilience | P1 | Master product (unassigned) | S | Proposed |
 
 ### PB-018
@@ -517,10 +519,11 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Publishing finds the Fabric notebook by display name, so a rename in either place makes a duplicate.
 - **Proposed capability:** Record the Fabric item id on first publish and update that item afterwards.
-- **Current-state evidence:** fabric_run.py publish lookup by displayName (inference from code reading)
+- **Current-state evidence:** fabric_api.py save_notebook matches an existing notebook by displayName; workload_service.py _record_notebook_item already records the item id after publish, but publish doesn't use it
 - **Inventory features:** [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Implementation package:** [pr-ready/PB-018.md](pr-ready/PB-018.md)
 - **Acceptance criteria:**
     - Renaming the local notebook and publishing again updates the same Fabric item
     - A deleted Fabric item is recreated with a note
@@ -569,17 +572,18 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-043
 
-**Cancel a Fabric run from the app** · P1 (score 2.65) · S · confidence High · Proposed
+**Cancel a Fabric run from the app** · P2 (score 2.45) · S · confidence High · Proposed
 
-- **Problem:** Runs started in Fabric can't be cancelled from the app although the engine method exists.
-- **Proposed capability:** A Cancel action in Monitor and the tray for running Fabric jobs started here.
-- **Current-state evidence:** cancel_fabric_run has no UI caller and no test
+- **Problem:** A Fabric run started here can be cancelled only as a workload action in Monitor > Workloads (Preview); Monitor > Runs and the activity tray, where people watch the run, offer no Cancel.
+- **Proposed capability:** A Cancel action on running Fabric jobs in Monitor > Runs and the tray, reusing cancel_fabric_run.
+- **Current-state evidence:** cloud_service.py cancel_fabric_run is called only from workload_service.py workload_act; app/ui/workloads.js offers cancel through workload actions
 - **Inventory features:** [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Implementation package:** [pr-ready/PB-043.md](pr-ready/PB-043.md)
 - **Acceptance criteria:**
-    - Cancel stops the Fabric job and the run shows Cancelled
-    - A test covers the engine call
+    - Cancel in Monitor > Runs and the tray stops the Fabric job and the run shows Cancelled
+    - A test covers cancel_fabric_run
 
 ### PB-051
 
@@ -592,6 +596,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.
+- **Implementation package:** [pr-ready/PB-051.md](pr-ready/PB-051.md)
 - **Acceptance criteria:**
     - GETs retry on 500/502/503/504 with backoff; writes don't retry unless idempotent
     - A 401 refreshes once and retries
@@ -814,6 +819,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-10](FEATURE_INVENTORY.md#feat-shl-10), [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04), [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
+- **Implementation package:** [pr-ready/PB-077.md](pr-ready/PB-077.md)
 - **Acceptance criteria:**
     - Every mismatch listed in the package is corrected
     - zensical build --strict passes
@@ -829,6 +835,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.
+- **Implementation package:** [pr-ready/PB-078.md](pr-ready/PB-078.md)
 - **Acceptance criteria:**
     - Every feature the docs call Preview has an id or the docs say why not
     - A UI test lists docs-Preview features against the ids
@@ -1202,6 +1209,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.
+- **Implementation package:** [pr-ready/PB-010.md](pr-ready/PB-010.md)
 - **Acceptance criteria:**
     - Every claim in security.md matches the code at the time of the PR
     - The hosts list matches every host in fabric_api.py, auth.py, updater.py and main.rs
@@ -1275,6 +1283,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Master product (unassigned) (FD-101, FD-140)
 - **Mandatory (blocker):** Launch to about 5,000 people needs evidence the core flows work on a real tenant.
 - **Merged duplicates:** Ten-flow smoke test (honest review, 2026-10-16); Running the FD-101 harness once (enterprise readiness)
+- **Implementation package:** [pr-ready/PB-002.md](pr-ready/PB-002.md)
 - **Acceptance criteria:**
     - Ten flows pass or have recorded defects
     - The inventory's verification moves only for flows that passed
@@ -1361,6 +1370,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.
+- **Implementation package:** [pr-ready/PB-071.md](pr-ready/PB-071.md)
 - **Acceptance criteria:**
     - cargo test runs on windows-latest on every PR
     - Existing Rust tests pass or failures are fixed

@@ -15,6 +15,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md) and [Data mesh](data-mesh.md) |
 | Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
+| Prove the app works with my tenant before a pilot | [Live testing](live-testing.md) |
 | Suggest a feature or vote on one | [Submitting ideas](ideas.md) |
 
 ## All documents
@@ -34,6 +35,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
+| [live-testing.md](live-testing.md) | Admins, maintainers | The live test: checking sign-in, the Fabric API, OneLake and Delta against a workspace set aside for tests, with cleanup and a report |
 | [ideas.md](ideas.md) | Everyone | Posting ideas, voting, and how ideas are prioritized and shipped |
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
 | [agent.md](agent.md) | Platform owners | The headless agent on Windows or Linux servers |
@@ -45,6 +47,8 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
 | [workloads/plan.md](workloads/plan.md) | Contributors, platform owners | The workload operations program: managing workloads on PCs, agents and Fabric; stages and all 100 backlog items ([continuation note](workloads/continuation.md)) |
+| [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
+| [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
 | [why-fabric-desktop.md](why-fabric-desktop.md) | Everyone | Why it exists: the Power BI model for data engineering |
 | [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md) | Contributors | Setting up, rules for changes, pull requests |
 

@@ -27,7 +27,7 @@ class Service:
     def poll_cell(self, run_id):
         return {}
 
-    def run_sql(self, sql, lakehouse_ref=None):
+    def run_sql(self, query, lakehouse_ref=None):  # the real RPC's parameter name
         return {"rows": []}
 
     def meta_promote(self, env, target, entities=None):
@@ -42,7 +42,7 @@ def test_calls_that_change_or_run_something_are_recorded_with_who_and_outcome(tm
     s = Service(tmp_path)
     call(s, "list_workspaces")
     call(s, "poll_cell", run_id="r1")
-    call(s, "run_sql", sql="SELECT secret_col FROM customers", lakehouse_ref={"workspace_id": "ws1", "lakehouse_id": "lh1"})
+    call(s, "run_sql", query="SELECT secret_col FROM customers", lakehouse_ref={"workspace_id": "ws1", "lakehouse_id": "lh1"})
     call(s, "meta_promote", env="test", target="prod", entities=["sales"])
     rows = s.audit.recent()
     assert [r["action"] for r in rows] == ["meta_promote", "run_sql"]  # newest first; reads not recorded
@@ -50,7 +50,7 @@ def test_calls_that_change_or_run_something_are_recorded_with_who_and_outcome(tm
     assert promote["outcome"] == "error" and JWT not in promote["error"] and "[removed]" in promote["error"]
     assert promote["target"] == {"env": "test", "target": "prod", "entities": ["sales"]}
     assert sql["outcome"] == "ok" and sql["who"] == "ann@contoso.com" and sql["tenant"] == "tenant-1"
-    assert sql["target"]["sql"] == "(given)"  # queries and code are never recorded
+    assert sql["target"]["query"] == "(given)"  # queries and code are never recorded
     assert sql["target"]["lakehouse_ref"] == {"workspace_id": "ws1", "lakehouse_id": "lh1"}
     assert "customers" not in json.dumps(rows)
 
@@ -94,7 +94,7 @@ def test_an_audit_problem_never_fails_the_call(tmp_path, capsys):
         def record(self, *a, **k):
             raise OSError("disk full")
     s.audit = Broken()
-    reply = call(s, "run_sql", sql="SELECT 1")
+    reply = call(s, "run_sql", query="SELECT 1")
     assert reply["result"] == {"rows": []}
     assert "could not record run_sql" in capsys.readouterr().err
 
@@ -121,3 +121,9 @@ def test_the_real_service_keeps_its_trail_in_its_own_folder(tmp_path):
     out = service.audit_log()
     assert out["check"]["ok"] and out["entries"][0]["app"] == "desktop"
     assert out["folder"] == str(tmp_path / "audit")
+
+
+def test_every_name_that_carries_code_or_queries_is_left_out():
+    params = {"code": "x = 1", "sql": "SELECT 1", "query": "SELECT 2", "statement": "DELETE FROM t", "table": "t"}
+    assert audit.target(params) == {"code": "(given)", "sql": "(given)", "query": "(given)",
+                                    "statement": "(given)", "table": "t"}

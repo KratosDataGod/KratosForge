@@ -150,7 +150,7 @@ def _storage_token() -> str:
 def _listen() -> None:
     """Answers from the engine come on stdin. The engine keeps it open while it runs; when it
     closes (the app quit or the engine was ended), this run ends too rather than going on unwatched."""
-    for line in sys.stdin:
+    for line in _engine:
         try:
             _replies.put(json.loads(line))
         except ValueError:
@@ -158,8 +158,32 @@ def _listen() -> None:
     os._exit(3)
 
 
+def _take_stdin() -> Any:
+    """Move the engine's pipe off stdin and give stdin the null device.
+
+    _listen keeps a read pending on the pipe while the query runs. On Windows, while a read is
+    pending on a synchronous pipe, anything else that asks about that handle (a library checking
+    whether stdin is a terminal, as imports do) waits for the read, which only ends when the engine
+    writes. The worker then froze before saying anything. Nothing else ever sees the pipe now."""
+    engine = os.fdopen(os.dup(0), "r", encoding="utf-8")
+    null = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(null, 0)
+    os.close(null)
+    if sys.platform == "win32":
+        import ctypes
+        import msvcrt
+        ctypes.windll.kernel32.SetStdHandle(-10, msvcrt.get_osfhandle(0))  # STD_INPUT_HANDLE
+    sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - stdin for the process's life
+    return engine
+
+
+_engine: Any = None
+
+
 def main() -> None:
-    line = sys.stdin.readline()
+    global _engine
+    _engine = _take_stdin()
+    line = _engine.readline()
     try:
         job = json.loads(line)
     except ValueError:

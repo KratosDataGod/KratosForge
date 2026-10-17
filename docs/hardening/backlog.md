@@ -11,7 +11,7 @@ Priority:
 
 Complexity is S (under a day, one module), M (a few modules, new tests), L (cross-cutting or needs a manual Windows check).
 
-**Owner** is the program that owns the code. "Hardening" means this program builds it; other owners were told through the project's coordinator. **Waits on** names what must land first. "Open stack" means the open PRs #134, #125, #127, #133, #124 and #132, which change `service.py`, `server.py`, `app_settings.py`, `audit.py`, `app.js`, `updater.py`, `ci.yml` and `promote.yml`.
+**Owner** is the program that owns the code. "Hardening" means this program builds it; other owners were told through the project's coordinator. **Waits on** names what must land first. "Open stack" meant PRs #134, #125, #127, #133, #124 and #132, which change `service.py`, `server.py`, `app_settings.py`, `audit.py`, `app.js`, `updater.py`, `ci.yml` and `promote.yml`. They merged at 9715e28, so items that waited only on them are unblocked.
 
 ## P0
 

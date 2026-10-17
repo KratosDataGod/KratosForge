@@ -1,6 +1,6 @@
 # Hardening findings register
 
-Confirmed issues from the enterprise hardening audit of Fabric Desktop by KratosBI. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"). Line numbers refer to that commit.
+Confirmed issues from the enterprise hardening audit of Fabric Desktop by KratosBI. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
 
 How to read this register:
 
@@ -225,7 +225,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-7 | `.github/workflows/promote.yml` | Require the commit to promote; `sha256sum -c` against `version.json`; protected environment; copy SBOMs |
 | SH-8 | `.github/workflows/codex-review.yml:353-397`, `docs.yml:419-436` | Pin by SHA; move `pages`/`id-token` to the deploy job; pin zensical |
 | SH-9 | `deploy/windows/install-agent.ps1:78`, `src/updater.py:268-275` | Install with `-c constraints.txt`; set an explicit ACL on `%ProgramData%\FabricDesktop` (unverified on Windows) |
-| DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count; stream SQL results. SQL-003 (#134) replaces the desktop SQL path with paged execution |
+| DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count for entity previews. The desktop SQL page has paged, memory-limited execution since SQL-003 (#134, merged); `export_sql_csv` and external-tool SQL still materialize |
 | DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake) |
 | UI-2 | `app/ui/prove.js:155-165`, `sidebyside.js:54-58` | Cap attempts, stop on "not found", guard against two loops for one run |
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
@@ -235,7 +235,7 @@ No Critical issue was confirmed. Twelve are High.
 | DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only |
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
-| SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003 moves SQL; notebooks already use `start_cell`) |
+| SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`) |
 | SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
 | UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |

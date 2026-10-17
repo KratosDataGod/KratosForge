@@ -15,6 +15,7 @@ An evidence-based review of Fabric Desktop by KratosBI's code, done to make it d
 - Claims were checked by running code, not by reading docs. The engine suite ran in full (1,345 passed, 2 skipped, 87% line coverage on Linux with Python 3.13; CI uses 3.12 on Windows and Linux). The UI suite ran (45 passed). The Rust watchdog tests were run by hand (5 passed).
 - Defects were reproduced with scripts against local Delta tables (delta-rs 1.6.6, Polars 2.0.0), temporary folders and mocked HTTP. Each finding says whether it was reproduced or read from the code.
 - Nothing was run against a Fabric tenant. No finding claims live Fabric behavior.
+- **Re-checked at `main` 9715e28** (2026-10-17 22:54Z, after #118, #120 to #122, #124, #125, #127 to #130 and #132 to #134 merged). Every finding still applies at that commit. SQL-003 (#134) gave the SQL page paged, cancellable execution with a memory limit, which covers the desktop half of DI-5 and SH-11; the external-tool SQL path (EN-4) and entity previews are unchanged.
 
 ## A. Scorecard
 

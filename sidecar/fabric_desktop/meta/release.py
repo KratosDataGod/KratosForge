@@ -183,3 +183,30 @@ def deployment_columns(body: dict[str, Any]) -> dict[str, Any]:
             "engine_version": env["engine_version"], "lock_hash": env["lock_hash"],
             "by": (body.get("identity") or {}).get("user"),
             "receipt_id": receipts.receipt_id(body), "receipt": receipts.canonical(body).decode("utf-8")}
+
+
+def committed(root: Path | str, folder: str, suffix: str = "") -> dict[str, str] | None:
+    """The files under ``folder`` (project-relative) as the last commit has them, {path: text},
+    or None when the project isn't in Git or nothing is committed."""
+    root = Path(root)
+    if not shutil.which("git") or _git(root, "rev-parse", "--verify", "-q", "HEAD") is None:
+        return None
+    listing = _git(root, "ls-tree", "-r", "-z", "--name-only", "HEAD", "--", folder)
+    if listing is None:
+        return None
+    out = {}
+    for rel in filter(None, listing.split("\0")):
+        if suffix and not rel.endswith(suffix):
+            continue
+        text = _git(root, "show", f"HEAD:./{rel}")
+        if text is not None:
+            out[rel] = text.replace("\r\n", "\n")
+    return out
+
+
+def committed_file(path: Path | str) -> str | None:
+    """One file as the last commit has it, or None (not in Git, never committed, no Git)."""
+    path = Path(path)
+    if not shutil.which("git"):
+        return None
+    return _git(path.parent, "show", f"HEAD:./{path.name}")

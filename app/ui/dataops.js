@@ -122,9 +122,12 @@ function promoteImpact(source, target) {
     }
     box.replaceWith(h("div", { class: "promote-impact dataops" },
       h("b", {}, "What this promote changes"),
-      changed.map((t) => h("div", { class: "row" }, h("span", { class: "pill-s wrn" }, "Logic changed"), h("span", { class: "mono grow" }, t.entity),
+      changed.map((t) => [h("div", { class: "row" }, h("span", { class: "pill-s wrn" }, "Logic changed"), h("span", { class: "mono grow" }, t.entity),
         h("span", { class: "muted-text small" }, `last ran ${relTime(t.last_run)}`),
-        btn(`Compare ${ENV_LABEL[source]} with ${ENV_LABEL[target]}`, "flow", () => compareDialog(t.entity, target, source), "tool link small"))),
+        btn(`Compare ${ENV_LABEL[source]} with ${ENV_LABEL[target]}`, "flow", () => compareDialog(t.entity, target, source), "tool link small")),
+        // The settings that changed since the version promoted there, by meaning (meta/diff.py).
+        (t.changes || []).length ? h("ul", { class: "gate-list small" }, t.changes.slice(0, 6).map((c) => h("li", {}, c.text)),
+          t.changes.length > 6 ? h("li", { class: "muted-text" }, `and ${t.changes.length - 6} more`) : null) : null]),
       fresh.length ? h("div", { class: "muted-text small" }, `Never run in ${ENV_LABEL[target]} yet: ${fresh.map((t) => t.entity).join(", ")}`) : null));
   }).catch(() => box.remove());
   return box;

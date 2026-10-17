@@ -53,6 +53,7 @@ const PREVIEW_FEATURES = {
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
+  workloads: "Workloads",
 };
 
 function previewShown() {

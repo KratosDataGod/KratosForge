@@ -92,6 +92,11 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
 | `incidents.digest_over` | 5 | More changes than this in one evaluation go to Teams as one digest |
+| `incidents.quiet_hours` | none | `"22:00-06:00"` on this machine's clock: messages wait until the hours end |
+| `incidents.quiet_except` | `["critical"]` | Criticalities that are sent even in quiet hours |
+| `incidents.escalate_after_minutes` | 0 (never) | Post incidents still open and unacknowledged after this long to `escalate_to` |
+| `incidents.escalate_to` | none | The name of the route escalations go to; required with `escalate_after_minutes` |
+| `[[incidents.route]]` | none | A Teams channel for some incidents: `name`, `webhook_env`, and filters (see below) |
 
 Then check it. This validates the file and the project and gets a token for Fabric and for OneLake:
 
@@ -194,13 +199,38 @@ With `[incidents] enabled = true`, every `incidents.seconds` the agent reads eac
 | Needs a decision | A table's newest finished run stopped for schema drift or quarantined rows | Its newest finished run went through |
 | Late | Its [freshness promise](metadata-guide.md#freshness-promises) is missed in this environment | A successful run is recent enough |
 | Objective missed | Fewer of its recent runs succeeded than its [objective](metadata-guide.md#reliability-objectives-preview) asks | The rate is back up |
+| Agent offline | Another agent's status record (`agents/<name>.json`) went past its `stale_after` without saying it stopped | It reports again, or says it stopped |
 | Can't evaluate | The run log couldn't be read (offline, no access, `LH_Meta` missing) | It can be read again |
 
-"Can't evaluate" is about reading, never about a workload: while it is open, workload incidents in that environment stay as they were instead of being marked recovered. A new failure of a table with an open incident counts as another occurrence of it. Someone who resolves an incident by hand doesn't see it again for the same failed run, only for a new one.
+"Can't evaluate" is about reading, never about a workload: while it is open, workload incidents in that environment stay as they were instead of being marked recovered. The same holds for agent records: if `agents/` can't be listed, agent-offline incidents stay as they are. An agent never reports itself offline; another agent or the app has to notice it. An agent stopped cleanly (`state = "stopped"`) isn't offline.
+
+A failed run's incident carries a **likely category** matched from the error text: Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized, with whether a retry alone usually helps. It is a hint for where to look, never a diagnosis; the run's own error is the evidence. A new failure of a table with an open incident counts as another occurrence of it. Someone who resolves an incident by hand doesn't see it again for the same failed run, only for a new one.
 
 With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert is unchanged.
 
-The file keeps every open incident and the last 200 resolved ones. Each has `id`, `key` (kind, workload, environment), `kind`, `workload`, `name`, `env`, `title`, `text`, `evidence` (run id and start time, or the freshness or objective numbers), `state` (`open`, `acknowledged` or `resolved`), `opened_at`, `last_seen_at`, `occurrences`, `opened_by`, `owner` (the entity's declared owner), who acknowledged and resolved it and when, `resolution` (`recovered`, `cleared` or `resolved` by hand) and `notes`. Contract 1; fields may be added.
+Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped.
+
+```toml
+[incidents]
+enabled = true
+quiet_hours = "22:00-06:00"
+escalate_after_minutes = 60
+escalate_to = "on-call"
+
+[[incidents.route]]
+name = "sales"
+webhook_env = "SALES_TEAMS_WEBHOOK"
+teams = ["sales"]
+
+[[incidents.route]]
+name = "on-call"
+webhook_env = "ONCALL_TEAMS_WEBHOOK"
+criticality = ["critical"]
+```
+
+During quiet hours, messages for incidents whose criticality isn't in `quiet_except` wait in the outbox and go out when the hours end, marked **Held during quiet hours since** when they happened. Escalations are never held. An incident still `open` (nobody acknowledged it) `escalate_after_minutes` after it opened is marked escalated once, with a note, however many agents evaluate; the escalation route gets one **Escalated** message. Escalation doesn't page anyone by itself: it is a Teams post to the channel you name.
+
+The file keeps every open incident and the last 200 resolved ones. Each has `id`, `key` (kind, workload, environment), `kind`, `workload`, `name`, `env`, `title`, `text`, `evidence` (run id and start time, or the freshness or objective numbers), `state` (`open`, `acknowledged` or `resolved`), `opened_at`, `last_seen_at`, `occurrences`, `opened_by`, `owner` (the entity's declared owner), `team`, `criticality`, `classification` (failed runs), `escalated_at` and `escalated_to`, who acknowledged and resolved it and when, `resolution` (`recovered`, `cleared` or `resolved` by hand) and `notes`. Contract 1; fields may be added.
 
 ## Run from a Fabric pipeline
 
@@ -284,7 +314,7 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 5. Status records: `LH_Meta/Files/_fabric_desktop/agents/<name>.json` appears within `status_seconds` of starting the agent, its `heartbeat_at` moves on, and `state` is `stopped` after `systemctl stop` (or stopping the Windows service).
 6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
 
-7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards.
+7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
 
 ## Limits in this version
 
@@ -294,5 +324,5 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
 - Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
-- Incidents (Preview) cover metadata tables only, and the app has no incident screens yet; read `incidents.json`, or call `incidents_list`. Late tables can also still be posted by the app's own freshness alerts, so a team using both may see a late table twice. Routing per team, quiet periods, escalation and a missing-heartbeat incident are not built yet.
+- Incidents (Preview) cover metadata tables only, and the app has no incident screens yet; read `incidents.json`, or call `incidents_list`. Late tables can also still be posted by the app's own freshness alerts, so a team using both may see a late table twice. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

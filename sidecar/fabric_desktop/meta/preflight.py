@@ -33,14 +33,20 @@ class Estimate:
     def text(self) -> str:
         rows = f"{self.rows:,}" if self.exact_rows else f"at least {self.rows:,}"
         return (f"about {rows} rows in {self.files} of {self.files_total} file{'s' if self.files_total != 1 else ''} "
-                f"({_mb(self.bytes_on_disk)} on disk, {_mb(self.memory_bytes)} in memory)")
+                f"({mb(self.bytes_on_disk)} on disk, {mb(self.memory_bytes)} in memory)")
+
+    def part(self, rows: int) -> "Estimate":
+        """The same read, limited to ``rows`` of its rows (one batch of a batched load)."""
+        share = rows / self.rows if self.rows else 1.0
+        return Estimate(files=self.files, files_total=self.files_total, rows=rows,
+                        bytes_on_disk=int(self.bytes_on_disk * share), memory_bytes=int(self.memory_bytes * share))
 
     def to_dict(self) -> dict[str, Any]:
         return {"files": self.files, "files_total": self.files_total, "rows": self.rows, "exact_rows": self.exact_rows,
                 "bytes_on_disk": self.bytes_on_disk, "memory_bytes": self.memory_bytes}
 
 
-def _mb(n: int) -> str:
+def mb(n: int) -> str:
     return f"{n / 1024 ** 3:.1f} GB" if n >= 1024 ** 3 else f"{max(n / 1024 ** 2, 0.1):.1f} MB"
 
 
@@ -112,6 +118,6 @@ def too_big(est: Estimate, available: int | None) -> str:
     if available is None or est.memory_bytes * HEADROOM <= available:
         return ""
     return (f"this run would read {est.text()}, and with the steps after the read that needs about "
-            f"{_mb(int(est.memory_bytes * HEADROOM))}, but this machine has {_mb(available)} free. "
-            f"Load it in smaller pieces (an incremental load with a watermark, or fewer columns), run it in Fabric, "
+            f"{mb(int(est.memory_bytes * HEADROOM))}, but this machine has {mb(available)} free. "
+            f"Load it in smaller pieces (batch_by under [load], an incremental load with a watermark, or fewer columns), run it in Fabric, "
             f"or set memory_guard = false under [load] to try anyway")

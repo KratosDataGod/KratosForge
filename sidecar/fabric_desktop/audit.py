@@ -58,6 +58,7 @@ shortcut_rules side_by_side_list side_by_side_status table_columns wizard_previe
 workload_actions workload_detail workload_preflight workloads_list workspace_marks xray xray_adopt_plan
 xray_vacuum_preview
 git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_ops git_path_info git_repos git_scan git_settings git_status side_by_side_writes
+local_query_status
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

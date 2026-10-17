@@ -12,6 +12,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
+| Query a folder of data files with SQL on my PC | [Local data projects](local-data.md) |
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
@@ -33,6 +34,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [security.md](security.md) | Admins, security reviewers | The threat model: what is protected, trust boundaries, how updates are checked, and what is still open |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
+| [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [finops/capacity.md](finops/capacity.md) | Engineers, platform owners | The capacity each environment is on, whether it is running, and what to do when it can't be read |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
@@ -54,6 +56,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md), [AI tool test checklist](product/ai-integration-client-checklist.md)) |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [enterprise-roadmap.md](enterprise-roadmap.md) | Platform owners | Milestones for running at enterprise scale |
+| [local-data-engine-plan.md](local-data-engine-plan.md) | Contributors, platform owners | The local data engine program FD-LDE-001 to 020: audit, implementation matrix, owners, PR plan |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |
 | [git-integration-plan.md](git-integration-plan.md) | Contributors | The Git integration program: assessment, Phase 1 (Git foundation, done), Fabric workspace Git, deployment and extensions |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
@@ -107,6 +110,8 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Data products for everyone | OneLake > Data products |
 | Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
 | Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Workloads, Home |
+
+**Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 
 **Source control** (Preview) is Git on your PC and doesn't call Fabric. Its tests run real Git against local repositories on every build; it hasn't yet been tried with Git Credential Manager and SSH on many PCs and servers ([source-control.md](source-control.md)).
 

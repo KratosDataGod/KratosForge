@@ -81,6 +81,11 @@ from .integrations.app_service import METHODS as INTEGRATION_METHODS  # noqa: E4
 
 METHODS |= INTEGRATION_METHODS
 
+# Local data projects (localdata_service.py): SQL over files on this PC.
+from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
+
+METHODS |= LOCAL_DATA_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

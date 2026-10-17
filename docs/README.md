@@ -38,6 +38,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [xray-fixes.md](xray-fixes.md) | Engineers | Each Estate X-ray finding and how to fix it |
 | [agent.md](agent.md) | Platform owners | The headless agent on Windows or Linux servers |
 | [architecture.md](architecture.md) | Contributors | How the app, the engine and OneLake fit together |
+| [architecture/ai-integration.md](architecture/ai-integration.md) | Contributors, admins | External AI tools through MCP and a local API, with no AI in the app: architecture, permissions, security ([backlog](product/ai-integration-backlog.md), [decisions](product/ai-integration-decisions.md), [security](product/ai-integration-security.md), [compatibility](product/ai-integration-compatibility.md)) |
 | [ui-guidelines.md](ui-guidelines.md) | Contributors | Where new features go in the UI |
 | [enterprise-roadmap.md](enterprise-roadmap.md) | Platform owners | Milestones for running at enterprise scale |
 | [scale-and-operations-plan.md](scale-and-operations-plan.md) | Platform owners | Staged plan for large tables, ingestion, releases, pipelines, lineage and monitoring |

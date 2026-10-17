@@ -52,7 +52,7 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-123 | P1 | Incident management | DUPLICATE | [Workloads](../workloads/plan.md) | #74 |
 | FD-124 | P1 | Multi-worker execution | DUPLICATE | [Workloads](../workloads/plan.md) | |
 | FD-125 | P0 | Execution auditing | PARTIAL | This program | [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
-| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | |
+| FD-126 | P1 | Backup and disaster recovery | MISSING | This program | [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91) |
 | FD-127 | P1 | Data contracts | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | |
 | FD-128 | P1 | Lineage and impact | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | #76 (open) |
 | FD-129 | P1 | Governance exceptions | PARTIAL | This program | |
@@ -66,7 +66,7 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-137 | P1 | Opt-in telemetry | MISSING (decision T1) | This program | |
 | FD-138 | P1 | Diagnostic support bundles | PARTIAL | This program | |
 | FD-139 | P1 | Accessibility | PARTIAL | This program | |
-| FD-140 | P0 | Pilot readiness | PARTIAL | This program | |
+| FD-140 | P0 | Pilot readiness | PARTIAL | This program | this PR ([release-readiness.md](release-readiness.md)) |
 
 ## Items this program owns
 

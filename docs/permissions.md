@@ -143,6 +143,25 @@ The agent runs with nobody signed in, so it can't use a person's sign-in. A **ma
 
 Schedules on a PC (Windows Task Scheduler) are different: they run as the person who set them up, with their saved sign-in, and need nothing here.
 
+## External AI tools
+
+People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool never receives a token and works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. Integrations are off until the person switches them on, and IT can keep them off.
+
+Each connected tool gets some of these categories, in alphabetical order:
+
+| Category | Lets the tool | In this release |
+| --- | --- | --- |
+| `DEPLOY_TO_FABRIC` | Publish, promote and deploy | Not offered |
+| `EXECUTE_LOCAL_CODE` | Run Python and notebooks on the PC, as the person | Offered; the person approves every run |
+| `MANAGE_CONNECTIONS` | Manage connections and credentials | Never offered |
+| `MODIFY_FABRIC_ARTIFACTS` | Create or change Fabric items | Not offered |
+| `READ_DATA` | Read rows: previews and query results | Offered; asks first unless the person pre-approves it for that tool |
+| `READ_METADATA` | Read names, structure, schemas, checks and run status | Offered; every connected tool has it |
+| `WRITE_LOCAL_FILES` | Create and change notebooks in the notebook folder on the PC | Offered; asks first unless pre-approved |
+| `WRITE_ONELAKE` | Write tables and files in OneLake | Not offered |
+
+Policy keys `integrations`, `integrations_http` and `integrations_max_permissions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off or cap the categories. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
+
 ## Keeping this page right
 
 When code asks for a new scope (`sidecar/fabric_desktop/auth.py`) or the agent needs a new role, add it to the tables here in its alphabetical place, in the same pull request, and say whether Microsoft's sign-in is expected to cover it.

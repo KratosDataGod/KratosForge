@@ -71,6 +71,9 @@ class Capability:
     timeout: float = 60.0
     # Whether this capability can be called with no service behind it (status, capability list).
     needs_service: bool = True
+    # Answered for any caller while integrations are on, connected or not (the capability list,
+    # so a tool that isn't connected yet can see why nothing else is available).
+    public: bool = False
 
     def describe(self) -> dict[str, Any]:
         """The capability as a client sees it."""
@@ -79,7 +82,7 @@ class Capability:
                 "permission": self.permission, "read_only": self.read_only, "destructive": self.destructive,
                 "approval": self.approval, "locations": list(self.locations), "artifact_types": list(self.artifact_types),
                 "status": self.status, "reason": self.reason, "limitations": list(self.limitations),
-                "version": self.version, "source": self.source, "timeout_seconds": self.timeout}
+                "version": self.version, "source": self.source, "timeout_seconds": self.timeout, "public": self.public}
 
 
 class Authorizer(Protocol):
@@ -239,7 +242,8 @@ class Registry:
         if cap.status == "unavailable":
             raise IntegrationError("unavailable", f"{cap.title} isn't available: {cap.reason}")
         args = validate(cap.input_schema, arguments)
-        self.authorizer.check(cap, args, ctx)
+        self.authorizer.check(cap, args, ctx)  # may wait for the person's approval
+        ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
         if cap.needs_service and service is None:
             raise IntegrationError("unavailable", "The Fabric Desktop by KratosBI engine isn't running here.")

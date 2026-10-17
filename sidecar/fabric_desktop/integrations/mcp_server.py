@@ -184,7 +184,13 @@ def run_stdio(client_id: str = "") -> None:
     """``fabric-desktop mcp``: serve MCP on stdin and stdout until the client closes the pipe."""
     from mcp.server.stdio import stdio_server
 
-    server = build_server(service_factory=_engine_service, client_id=client_id)
+    from ..service import data_dir
+    from .permissions import PermissionAuthorizer
+    from .store import IntegrationStore
+
+    registry = default_registry()
+    registry.authorizer = PermissionAuthorizer(IntegrationStore.at(data_dir()))
+    server = build_server(registry, service_factory=_engine_service, client_id=client_id)
 
     async def main() -> None:
         async with stdio_server() as (read_stream, write_stream):

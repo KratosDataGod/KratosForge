@@ -12,8 +12,8 @@ Built in the requested order, with one change: the capability registry (003) com
 | --- | --- | --- | --- | --- | --- | --- |
 | 001 | Stable application service interfaces | P0 | PARTIAL | | [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99) | Draft PR; 42 tests |
 | 003 | Capability registry | P0 | MISSING | 001 | [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100) | Draft PR; 24 tests |
-| 002 | MCP server (read-only) | P0 | MISSING | 003 | (this PR) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
-| 005 | Permissions and approval framework | P0 | MISSING | 002 | | Planned |
+| 002 | MCP server (read-only) | P0 | MISSING | 003 | [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101) | Draft PR; 12 protocol tests (in-memory both eras, real stdio process) |
+| 005 | Permissions and approval framework | P0 | MISSING | 002 | (this PR) | Draft PR; 17 tests |
 | 004 | Local API (REST + MCP over HTTP) | P0 | MISSING | 005 | | Planned |
 | 006 | Project context and metadata resources | P1 | PARTIAL | 005 | | Planned |
 | 007 | External execution interface | P1 | PARTIAL | 005 | | Planned |

@@ -43,6 +43,9 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | --- | --- |
 | `integrations` | `false` turns external AI integration off on this PC; the switch in Settings shows "Set by your organization" |
 | `integrations_max_permissions` | The permission categories clients may be granted, for example `["READ_METADATA", "READ_DATA"]`; anything else can't be granted |
+| `integrations_http` | `false` stops the local HTTP API being switched on |
+
+A value of the wrong type fails closed: integrations off, or only `READ_METADATA`, or no HTTP.
 
 ## Residual risks
 

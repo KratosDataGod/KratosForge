@@ -68,6 +68,9 @@ A policy file that sets everything an organization usually wants:
 | `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
 | `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
+| `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
+| `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
+| `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
 
 A key that is misspelled or has the wrong kind of value (`"false"` in quotes instead of `false`) is ignored, and **Settings > Help and about** lists what was ignored and why. Check there after you push a new file.
 

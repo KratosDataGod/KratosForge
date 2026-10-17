@@ -159,17 +159,28 @@ def test_cancelling_a_call_tells_the_handler_to_stop():
 
 
 def test_the_real_stdio_process_speaks_mcp(tmp_path):
-    env = dict(os.environ, LOCALAPPDATA=str(tmp_path), HOME=str(tmp_path), PYTHONPATH=os.pathsep.join(sys.path))
-    params = StdioServerParameters(command=sys.executable, args=["-m", "fabric_desktop.cli", "mcp", "--client", "cl_stdio"],
-                                   env=env)
+    from fabric_desktop.integrations.store import IntegrationStore
+    store = IntegrationStore.at(tmp_path / "FabricDesktop")
+    store.set_setting("enabled", True)
+    client, _ = store.add_client("Test tool", grants=["READ_METADATA"])
+    env = dict(os.environ, LOCALAPPDATA=str(tmp_path), HOME=str(tmp_path), ProgramData=str(tmp_path),
+               PYTHONPATH=os.pathsep.join(sys.path))
+
+    def params(client_id):
+        return StdioServerParameters(command=sys.executable, args=["-m", "fabric_desktop.cli", "mcp", "--client", client_id],
+                                     env=env)
 
     async def go():
-        async with Client(params, mode="legacy") as c:
+        async with Client(params(client["id"]), mode="legacy") as c:
             names = {t.name for t in (await c.list_tools()).tools}
             assert "fabric_desktop_get_status" in names
             status = await c.call_tool("fabric_desktop_get_status", {})
             assert status.structured_content["signed_in"] is False
-            assert status.structured_content["caller"] == {"client_id": "cl_stdio", "channel": "mcp-stdio"}
+            assert status.structured_content["caller"] == {"client_id": client["id"], "channel": "mcp-stdio"}
+        async with Client(params("cl_unknown"), mode="legacy") as c:
+            assert {t.name for t in (await c.list_tools()).tools} == {"fabric_desktop_list_capabilities"}
+            out = await c.call_tool("fabric_desktop_get_status", {})
+            assert out.structured_content["error"]["code"] == "permission_denied"
     run(go)
 
 

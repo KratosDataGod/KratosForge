@@ -6,10 +6,10 @@ import json
 import polars as pl
 import pytest
 from deltalake import DeltaTable
+from test_large_tables import DAY1, DAY2, Setup, entity, rows
 
 from fabric_desktop.meta import Engine, Project, batches
 from fabric_desktop.meta.project import validate
-from test_large_tables import DAY1, DAY2, Setup, entity, rows
 
 DAYS = [DAY1 + dt.timedelta(days=i) for i in range(6)]
 
@@ -122,7 +122,8 @@ def test_a_full_rebuild_keeps_rows_the_source_lost_as_the_unbatched_rebuild_does
     for name, batched in (("one", False), ("many", True)):
         s = setup(tmp_path, name, batched, load='mode = "incremental"\nwatermark = "modified"')
         assert run(s, batch_rows=200).status == "ok"
-        s.source(rows(range(0, 300), DAY1, amount=5), mode="overwrite")  # the source now has 300 rows
+        s.source(rows(range(150), DAYS[0], amount=5), mode="overwrite")  # the source now has 300 rows
+        s.source(rows(range(150, 300), DAYS[1], amount=5))
         res = run(s, batch_rows=200, day=DAY2, backfill="full")
         assert res.status == "ok", res.message
         out[name] = (s.table().drop("_loaded_at"), res)
@@ -147,7 +148,7 @@ def test_without_a_batch_size_it_comes_from_free_memory(tmp_path):
     engine = Engine(Project(s.root), s.store, DAY1)
     engine.available_memory = lambda: 1 << 30
     res = engine.run("bronze.events")
-    assert res.status == "ok" and "1 batch by modified, the largest 600 rows" in res.steps[0].detail
+    assert res.status == "ok" and res.steps[0].name == "read"  # it all fits in one batch: one ordinary read
     assert engine.preflight("bronze.events")["batch_by"] == "modified"
 
 
@@ -178,7 +179,7 @@ def test_the_plan_groups_consecutive_values_and_never_splits_one():
 
 
 @pytest.mark.parametrize("free, expected", [(None, batches.DEFAULT_BATCH_ROWS), (1 << 20, batches.MIN_BATCH_ROWS),
-                                            (12 << 30, 12 * (1 << 30) // 2 // 3 // 40)])
+                                            (12 << 30, int(12 * (1 << 30) * 0.5 / 3 / 40))])
 def test_rows_per_batch_follow_free_memory(free, expected):
     from fabric_desktop.meta.preflight import Estimate
     est = Estimate(files=1, files_total=1, rows=1_000_000, bytes_on_disk=0, memory_bytes=40_000_000)

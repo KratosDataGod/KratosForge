@@ -23,8 +23,10 @@ from . import preflight
 
 DEFAULT_BATCH_ROWS = 2_000_000  # when free memory can't be told
 MIN_BATCH_ROWS = 50_000  # below this the per-batch overhead (a scan, the key MERGE) dominates
-# A batch may use this share of free memory, with preflight.HEADROOM for the copies the steps make:
-# the writer still holds the previous batch's row groups while the next one is read.
+# The share of free memory a batch's estimate, times preflight.HEADROOM, may take. Measured on a
+# 60M-row lineitem-shaped load (17 columns, a derived column, a check): the run peaked at about 3
+# times the largest batch's estimate, so 0.5 keeps it near half the free memory
+# (examples/benchmark/batched_loads.py).
 MEMORY_SHARE = 0.5
 
 

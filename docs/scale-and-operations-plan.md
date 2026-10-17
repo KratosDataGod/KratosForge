@@ -125,12 +125,23 @@ Effort: S (a day or less), M (a few days), L (a week or more). Risk is the chanc
 
 **1.5 Bounded memory for full loads and partitions.** Effort L, risk medium. Optional `[load] partition_by`, full rebuilds written per partition with a replace predicate, Polars streaming collection and delta-rs MERGE spill limits for loads bigger than memory. Measured against TPC-H scale factor 10. Depends on 1.3 (to know when to stream). Fabric guidance on partition sizes goes in the docs.
 
-*Built* (narrower than planned; the differences are listed below). `[load] batch_by = "<column>"` reads a Delta source in batches of that column's values: consecutive values, sorted, with as many rows in a batch as fit in half the free memory after the 3x headroom of 1.3 (`meta/batches.py`). Every step runs per batch on a worker thread, and the batches stream into `write_deltalake` through a one-slot queue, so the table is replaced in **one Delta commit** and a load that stops changes nothing. Applies to full loads and to an incremental entity's first load or full rebuild (which keeps rows whose keys the source lost, as before). The memory guard checks the largest batch. `unique` checks compare with earlier batches' values. Not done, with reasons:
+*Built* (narrower than planned; the differences are listed below). `[load] batch_by = "<column>"` reads a Delta source in batches of that column's values: consecutive values, sorted, with as many rows in a batch as fit in half the free memory after the 3x headroom of 1.3 (`meta/batches.py`); when everything fits in one batch the ordinary single read runs instead. Every step runs per batch on a worker thread, and the batches stream into `write_deltalake` through a one-slot queue, so the table is replaced in **one Delta commit** and a load that stops changes nothing. Applies to full loads and to an incremental entity's first load or full rebuild (which keeps rows whose keys the source lost, as before). The memory guard checks the largest batch. `unique` checks compare with earlier batches' values. Not done, with reasons:
 - No `partition_by` and no physical partitioning: the target table's layout is left alone, because changing a table's partitioning means rewriting all of it. Batching is a read strategy only.
 - No per-partition replace predicate: one streamed commit is atomic, which a commit per partition isn't.
 - No delta-rs MERGE spill limit: incremental MERGEs already read only new rows (1.1), so nothing to bound yet.
 - Measured on lineitem-shaped generated data, not TPC-H dbgen output: the DuckDB tpch extension needs a download this environment can't make.
 - A stopped load leaves Parquet files no table version uses; the app's Vacuum doesn't remove them yet (it would need delta-rs `vacuum(full=True)`).
+
+Measured with `examples/benchmark/batched_loads.py` on a 4-core, 15 GB machine (a full load with a derived column and a not-null check; local Delta tables, nothing on OneLake):
+
+| Rows | Read | Batches | Seconds | Peak memory |
+| --- | --- | --: | --: | --: |
+| 6M (scale 1) | whole source at once | - | 4.8 | 1,964 MB |
+| 6M | `batch_by`, batch size from free memory | 1, so one ordinary read | 4.7 | 1,949 MB |
+| 6M | `batch_by`, `--batch-rows 1000000` | 7 | 3.8 | 1,556 MB |
+| 60M (scale 10) | `batch_by`, batch size from free memory | 6, the largest 11.5M rows | 51.9 | 7,206 MB |
+
+At 60M rows the plan estimates the whole read at 13.0 GB in memory, so with the 3x headroom the memory guard stops a single read on this machine; it wasn't run. Both 6M-row ways wrote the same rows (a checksum over every row). Learned: delta-rs holds each record batch it is handed until it has written it, so handing it a whole batch as one record batch doubled peak memory (9.2 GB at 60M rows with 6.9M-row batches); 131,072-row record batches brought that to 4.6 GB.
 
 ### Capability 9: always-on monitoring (moved to the Workload management program)
 

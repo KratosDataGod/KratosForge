@@ -20,10 +20,19 @@ from typing import Any, Callable
 
 import polars as pl
 
-from . import keys as keys_mod
-from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
 from . import batches as batches_mod
+from . import keys as keys_mod
 from . import preflight
+from .project import (
+    SYSTEM_COLUMNS,
+    Entity,
+    GateError,
+    Project,
+    impact,
+    load_python,
+    run_order,
+    validate,
+)
 from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
 # A write that loses a Delta commit race re-reads the table and merges again, this many times.
@@ -311,7 +320,7 @@ class Engine:
                     self._migrate(e, res)
                 if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
                     df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
-                    df, bad = self._checks(e, df, res)
+                    df, _ = self._checks(e, df, res)
                     self._write(e, df, res, backfill)
                 self._record_files(e, res)
         except NothingNew as ex:  # nothing to do is a successful run
@@ -472,7 +481,8 @@ class Engine:
 
     def _run_batched(self, e: Entity, res: RunResult, backfill: str | None) -> bool:
         """Read, transform, check and write the source one batch at a time, replacing the table in
-        one Delta commit. False when the source is empty: the ordinary path handles that."""
+        one Delta commit. False when the source is empty or fits in one batch: the ordinary path
+        handles that, without the batched path's extra copy."""
         import queue
         import threading
 
@@ -491,6 +501,8 @@ class Engine:
             return False
         free = self.available_memory()
         plan = batches_mod.plan(counts, src_col, self.batch_rows or batches_mod.batch_rows(est, free))
+        if len(plan) == 1:
+            return False
         biggest = max(plan, key=lambda b: b.rows)
         if load.get("memory_guard", True) is not False:
             part = est.part(biggest.rows)
@@ -526,6 +538,7 @@ class Engine:
                 if rebuild and e.keys:
                     state["keys"].append(df.select(e.keys))
                 yield df.with_columns(stamp).to_arrow()
+                del df  # not held while the next batch is read
             if rebuild and e.keys:  # rows the table has whose keys the source no longer has stay, as before
                 old = self.store.scan(lh, e.schema, e.table, read_version)
                 seen = pl.concat(state["keys"]).unique()
@@ -535,10 +548,12 @@ class Engine:
                     state["kept"] += kept.height
                     yield kept.to_arrow()
 
-        # The batches are worked out on a thread of their own and handed to the Delta writer through
-        # a queue of one: the writer pulls rows from inside delta-rs, where the steps (which read and
-        # write Delta tables themselves) can't run, and the queue keeps one batch ahead at most.
+        # The batches are worked out on a thread of their own and handed to the Delta writer one at a
+        # time: the writer pulls rows from inside delta-rs, where the steps (which read and write Delta
+        # tables themselves) can't run. The next batch is started only when the writer asks for it, so
+        # one batch is in memory at a time, plus what the writer still holds of the one before.
         handoff: queue.Queue[Any] = queue.Queue(maxsize=1)
+        wanted = threading.Semaphore(0)
         stop, done = threading.Event(), object()
 
         def put(item: Any) -> bool:
@@ -550,10 +565,20 @@ class Engine:
                     continue
             return False
 
+        def asked() -> bool:
+            while not stop.is_set():
+                if wanted.acquire(timeout=0.2):
+                    return True
+            return False
+
         def produce() -> None:
             try:
-                for t in tables():
+                batches = tables()
+                while (t := next(batches, done)) is not done:
                     if not put(t):
+                        return
+                    t = None
+                    if not asked():
                         return
                 put(done)
             except BaseException as ex:  # a check that stops, an error in a hook: the commit never happens
@@ -582,7 +607,11 @@ class Engine:
             def record_batches():
                 item = first
                 while item is not done:
-                    yield from fit(item).to_batches()
+                    # Small record batches: delta-rs holds each one until written, so one per batch
+                    # would double the peak.
+                    yield from fit(item).to_batches(max_chunksize=131_072)
+                    item = None  # let go of the batch before the next one is worked out
+                    wanted.release()
                     item = take()
 
             tw = time.perf_counter()

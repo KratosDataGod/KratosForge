@@ -70,6 +70,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `agent.name` | host name | The worker's name in logs and run rows |
+| `agent.owner` | none | Who looks after this agent (a team or contact), shown in the app as written |
 | `agent.project` | required | The metadata project folder |
 | `agent.environments` | required | The environments this agent may run |
 | `agent.workspaces` | any | Workspace ids this agent may write to |
@@ -177,6 +178,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
+| `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
@@ -185,10 +187,10 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
-| `schedules` | This environment's schedules and when each fires `next` |
+| `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
 
-Fields may be added within contract 1; readers should ignore fields they don't know. A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
+Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
 
 ### Incidents (Preview)
 

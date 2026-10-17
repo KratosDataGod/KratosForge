@@ -22,6 +22,7 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import SYSTEM_COLUMNS, Entity, GateError, Project, impact, load_python, run_order, validate
+from . import batches as batches_mod
 from . import preflight
 from .store import LANDING_LAKEHOUSE, Store, lazy, open_table, read_table_uri
 
@@ -216,6 +217,10 @@ class Engine:
         self._evolved: list[str] = []
         self._replay_rows: pl.DataFrame | None = None
         self._held: list[pl.DataFrame] | None = None  # during a replay, rows that fail again wait here
+        # Rows per batch for [load] batch_by; None works it out from free memory (batches.py).
+        self.batch_rows: int | None = None
+        # During a batched load, the values unique checks have seen in earlier batches.
+        self._seen: dict[str, pl.Series] | None = None
 
     def _no_links(self, alias: str) -> str:
         raise CheckStop(f"link {alias} can't be resolved here: connect a platform, or pin its location for "
@@ -304,9 +309,10 @@ class Engine:
             with self.table_lock(e):
                 if backfill == "migrate":
                     self._migrate(e, res)
-                df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
-                df, bad = self._checks(e, df, res)
-                self._write(e, df, res, backfill)
+                if not (self._batched_applies(e, backfill) and self._run_batched(e, res, backfill)):
+                    df = self._replayed(e, res) if backfill == "replay" else self._transform(e, res, backfill)
+                    df, bad = self._checks(e, df, res)
+                    self._write(e, df, res, backfill)
                 self._record_files(e, res)
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
@@ -381,13 +387,18 @@ class Engine:
                 if why:
                     raise CheckStop(why)
             df = lf.select(keep).collect()
+        df, detail = self._renamed(src, df, detail)
+        res.rows_read = df.height
+        self._step(res, "read", t0, df.height, detail)
+        return df
+
+    @staticmethod
+    def _renamed(src: dict[str, Any], df: pl.DataFrame, detail: str) -> tuple[pl.DataFrame, str]:
         renames = {k: v for k, v in src.get("rename", {}).items() if k in df.columns}
         if renames:  # columns the source renamed, mapped back to the names the contract uses
             df = df.rename(renames)
             detail += "; renamed " + ", ".join(f"{k} to {v}" for k, v in renames.items())
-        res.rows_read = df.height
-        self._step(res, "read", t0, df.height, detail)
-        return df
+        return df, detail
 
     def _plan_read(self, e: Entity, full: bool) -> tuple[pl.LazyFrame, list[str], preflight.Estimate, str]:
         """A Delta source (table, link or entity) ready to read: the scan with its filter, the columns
@@ -436,8 +447,178 @@ class Engine:
         _, _, est, detail = self._plan_read(e, backfill == "full")
         free = self.available_memory()
         guard = e.spec.get("load", {}).get("memory_guard", True) is not False
+        if self._batched_applies(e, backfill):
+            col = e.spec["load"]["batch_by"]
+            return {"entity": name, "estimate": est.to_dict(), "detail": detail, "free_memory_bytes": free,
+                    "stop": "", "guard": guard, "batch_by": col,
+                    "note": f"read in batches by {col}: memory is needed per batch, and the largest batch is "
+                            "checked against free memory when the run starts"}
         return {"entity": name, "estimate": est.to_dict(), "detail": detail, "free_memory_bytes": free,
                 "stop": preflight.too_big(est, free) if guard else "", "guard": guard}
+
+    # ---- full loads in batches ([load] batch_by, batches.py)
+
+    def _batched_applies(self, e: Entity, backfill: str | None) -> bool:
+        """Whether this run replaces the table from a Delta source in batches: a full load, or an
+        incremental entity's first load or full rebuild, with [load] batch_by set."""
+        if not e.spec.get("load", {}).get("batch_by") or backfill in ("replay", "migrate"):
+            return False
+        src = e.spec.get("source", {})
+        if not any(k in src for k in ("table", "link", "entity")) or "custom" in e.spec.get("step", {}):
+            return False
+        if e.mode == "full" or (e.mode == "incremental" and backfill == "full"):
+            return True
+        return e.mode == "incremental" and not self.store.exists(self.lakehouse(e), e.schema, e.table)
+
+    def _run_batched(self, e: Entity, res: RunResult, backfill: str | None) -> bool:
+        """Read, transform, check and write the source one batch at a time, replacing the table in
+        one Delta commit. False when the source is empty: the ordinary path handles that."""
+        import queue
+        import threading
+
+        import pyarrow as pa
+
+        self._before_read(e, backfill)
+        t0 = time.perf_counter()
+        src, load = e.spec["source"], e.spec["load"]
+        col = load["batch_by"]
+        src_col = {v: k for k, v in (src.get("rename") or {}).items()}.get(col, col)
+        lf, keep, est, detail = self._plan_read(e, True)
+        if src_col not in keep:
+            raise CheckStop(f"batch_by {col}: the source has no column {src_col}")
+        counts = lf.group_by(src_col).len().collect(engine="streaming")
+        if not int(counts["len"].sum()):
+            return False
+        free = self.available_memory()
+        plan = batches_mod.plan(counts, src_col, self.batch_rows or batches_mod.batch_rows(est, free))
+        biggest = max(plan, key=lambda b: b.rows)
+        if load.get("memory_guard", True) is not False:
+            part = est.part(biggest.rows)
+            if preflight.too_big(part, free):
+                raise CheckStop(f"batch_by {col}: the batch {biggest.text()} alone holds {biggest.rows:,} rows, about "
+                                f"{preflight.mb(int(part.memory_bytes * preflight.HEADROOM))} with the steps after "
+                                f"the read, but this machine has {preflight.mb(free or 0)} free. Batch by a column "
+                                "with more values, run it in Fabric, or set memory_guard = false under [load] to try anyway")
+        self._step(res, "plan batches", t0, int(counts["len"].sum()),
+                   f"{detail}; {batches_mod.count(len(plan))} by {col}, the largest {biggest.rows:,} rows")
+        lh = self.lakehouse(e)
+        read_version = self.store.version(lh, e.schema, e.table)
+        rebuild = e.mode == "incremental" and read_version is not None
+        wm_col = load.get("watermark")
+        metadata = {"fabric_desktop_run_id": self.run_id, "fabric_desktop_metadata": self.project.version,
+                    "fabric_desktop_logic": self.project.fingerprint(e)}
+        state: dict[str, Any] = {"written": 0, "kept": 0, "wm": None, "keys": []}
+        mark = len(res.steps)
+        stamp = [pl.lit(self.run_id).alias("_run_id"), pl.lit(self.load_date).alias("_loaded_at")]
+
+        def tables():
+            for b in plan:
+                tb = time.perf_counter()
+                df = lf.filter(b.expr(src_col)).select(keep).collect(engine="streaming")
+                df, _ = self._renamed(src, df, "")
+                res.rows_read += df.height
+                self._step(res, "read", tb, df.height)
+                df, _ = self._checks(e, self._steps(e, df, res), res)
+                state["written"] += df.height
+                if wm_col and wm_col in df.columns and df.height:
+                    top = df[wm_col].max()
+                    state["wm"] = top if state["wm"] is None or (top is not None and top > state["wm"]) else state["wm"]
+                if rebuild and e.keys:
+                    state["keys"].append(df.select(e.keys))
+                yield df.with_columns(stamp).to_arrow()
+            if rebuild and e.keys:  # rows the table has whose keys the source no longer has stay, as before
+                old = self.store.scan(lh, e.schema, e.table, read_version)
+                seen = pl.concat(state["keys"]).unique()
+                old_counts = old.group_by(col).len().collect(engine="streaming")
+                for b in batches_mod.plan(old_counts, col, self.batch_rows or batches_mod.batch_rows(est, free)):
+                    kept = old.filter(b.expr(col)).join(seen.lazy(), on=e.keys, how="anti").collect(engine="streaming")
+                    state["kept"] += kept.height
+                    yield kept.to_arrow()
+
+        # The batches are worked out on a thread of their own and handed to the Delta writer through
+        # a queue of one: the writer pulls rows from inside delta-rs, where the steps (which read and
+        # write Delta tables themselves) can't run, and the queue keeps one batch ahead at most.
+        handoff: queue.Queue[Any] = queue.Queue(maxsize=1)
+        stop, done = threading.Event(), object()
+
+        def put(item: Any) -> bool:
+            while not stop.is_set():
+                try:
+                    handoff.put(item, timeout=0.2)
+                    return True
+                except queue.Full:
+                    continue
+            return False
+
+        def produce() -> None:
+            try:
+                for t in tables():
+                    if not put(t):
+                        return
+                put(done)
+            except BaseException as ex:  # a check that stops, an error in a hook: the commit never happens
+                put(ex)
+
+        def take() -> Any:
+            item = handoff.get()
+            if isinstance(item, BaseException):
+                failure.append(item)
+                raise item
+            return item
+
+        failure: list[BaseException] = []
+        self._seen = {}
+        worker = threading.Thread(target=produce, name=f"batches {e.name}", daemon=True)
+        worker.start()
+        try:
+            first = take()
+            schema = first.schema
+
+            def fit(t: pa.Table) -> pa.Table:  # every batch in the first one's columns and types
+                cols = [t.column(f.name).cast(f.type) if f.name in t.column_names else pa.nulls(t.num_rows, f.type)
+                        for f in schema]
+                return pa.Table.from_arrays(cols, schema=schema)
+
+            def record_batches():
+                item = first
+                while item is not done:
+                    yield from fit(item).to_batches()
+                    item = take()
+
+            tw = time.perf_counter()
+            try:
+                version = self.store.write_stream(lh, e.schema, e.table, pa.RecordBatchReader.from_batches(
+                    schema, record_batches()), metadata=metadata, read_version=read_version)
+            except Exception:
+                if failure:
+                    raise failure[0] from None
+                raise
+        finally:
+            stop.set()
+            worker.join()
+            self._seen = None
+            self._fold(res, mark)
+        if state["wm"] is not None:
+            self._advance_watermark(e, pl.DataFrame({wm_col: [state["wm"]]}), backfill)
+        res.rows_written, res.delta_version = state["written"], version
+        total = state["written"] + state["kept"]
+        info = (f"rebuilt: {state['written']} rows from the full source" if rebuild
+                else f"replaced with {plural(state['written'], 'row')}")
+        if state["kept"]:
+            info += f", kept {plural(state['kept'], 'row')} whose keys the source doesn't have"
+        self._step(res, "write", tw, total, f"{info} from {batches_mod.count(len(plan))}, in one Delta commit; "
+                                            f"Delta version {version}")
+        return True
+
+    def _fold(self, res: RunResult, mark: int) -> None:
+        """A batched load's per-batch steps, quality results and schema changes, as one each."""
+        res.steps[mark:] = [Step(*s) for s in batches_mod.fold_steps(res.steps[mark:])]
+        failed: dict[tuple[str, str], int] = {}
+        for r in self._dq:
+            failed[(r["check"], r["action"])] = failed.get((r["check"], r["action"]), 0) + r["failed"]
+        self._dq = [{"run_id": self.run_id, "entity": res.entity, "check": c, "failed": n, "action": a}
+                    for (c, a), n in failed.items()]
+        self._schema_changes = list({json.dumps(c, sort_keys=True): c for c in self._schema_changes}.values())
 
     def _tracks_files(self, e: Entity) -> bool:
         """Incremental and dimension loads from files read only files they haven't loaded (a full
@@ -584,6 +765,12 @@ class Engine:
         return out
 
     def _transform(self, e: Entity, res: RunResult, backfill: str | None) -> pl.DataFrame:
+        self._before_read(e, backfill)
+        df = self._read(e, res, backfill == "full")
+        return self._steps(e, df, res)
+
+    def _before_read(self, e: Entity, backfill: str | None) -> None:
+        """Decisions a run needs before it reads anything."""
         if e.mode == "scd2" and backfill != "migrate":
             existing = self.store.scan(self.lakehouse(e), e.schema, e.table)
             if existing is not None and "valid_from" not in existing.collect_schema().names():
@@ -595,8 +782,9 @@ class Engine:
             raise DecisionNeeded(
                 f"{e.name}'s logic changed since its last run. Rows already loaded were built with the old logic.",
                 ["none", "full"])
-        full = backfill == "full"
-        df = self._read(e, res, full)
+
+    def _steps(self, e: Entity, df: pl.DataFrame, res: RunResult) -> pl.DataFrame:
+        """Every step from the input contract to the output contract, on rows already read."""
         df = self._contract_in(e, df, res)
         df = self._keys(e, df, res)
         df = self._clean(e, df, res)
@@ -676,6 +864,12 @@ class Engine:
                     bad = bad | df[col].is_null()
                 if c.get("unique"):
                     bad = bad | (df[col].is_duplicated() & df[col].is_not_null())
+                    if self._seen is not None:  # a batched load: values earlier batches wrote count too
+                        seen = self._seen.get(col)
+                        if seen is not None:
+                            bad = bad | (df[col].is_in(seen.implode()) & df[col].is_not_null())
+                        self._seen[col] = pl.concat([seen, df[col].drop_nulls()]) if seen is not None \
+                            else df[col].drop_nulls()
             elif "exists_in" in c:
                 tgt, ref_col = c["exists_in"].rsplit(".", 1)
                 ref_e = self.project.entities[tgt]

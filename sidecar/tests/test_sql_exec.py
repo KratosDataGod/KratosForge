@@ -7,8 +7,10 @@ test reaches Fabric or OneLake.
 from __future__ import annotations
 
 import json
+import queue
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -223,7 +225,8 @@ def run_snapshot_mb(runs, run_id):
 # ---- Stop, time limit, queue
 
 def test_stop_ends_only_that_run(runs, lake):
-    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         run = runs.start(SLOW, lake)
         wait(runs, run["id"], ("running",))
@@ -237,6 +240,7 @@ def test_stop_ends_only_that_run(runs, lake):
         assert not runs._get(run["id"]).folder.exists()
     finally:
         bystander.kill()
+        bystander.wait(10)
 
 
 def test_the_time_limit_stops_a_run(tmp_path, lake):
@@ -267,13 +271,49 @@ def test_a_run_ends_when_the_engine_goes(tmp_path):
     job = {"query": SLOW, "dialect": "spark", "allow": ["read_only"], "token": "",
            "lakehouse": {"workspace_id": "w", "lakehouse_id": "l", "name": "LH"}, "work_dir": str(tmp_path),
            "out": str(tmp_path / "r.arrow"), "temp_dir": str(tmp_path / "spill")}
+    proc = worker(job)
+    try:
+        assert json.loads(read_line(proc))["event"] == "started"
+        proc.stdin.close()
+        assert proc.wait(20) == 3
+    finally:
+        proc.kill()
+        proc.wait(10)
+
+
+def test_a_finished_run_ends_its_process_while_the_engine_still_listens(tmp_path):
+    # The engine keeps stdin open until the process ends, so the worker must leave on its own.
+    job = {"query": "SELECT 42 AS answer", "dialect": "spark", "allow": ["read_only"],
+           "lakehouse": {"workspace_id": "w", "lakehouse_id": "l", "name": "LH"}, "work_dir": str(tmp_path),
+           "out": str(tmp_path / "r.arrow"), "temp_dir": str(tmp_path / "spill")}
+    proc = worker(job)
+    try:
+        events = [json.loads(read_line(proc))["event"] for _ in range(2)]
+        while events[-1] not in ("done", "error"):
+            events.append(json.loads(read_line(proc))["event"])
+        assert events[-1] == "done"
+        assert proc.wait(20) == 0
+    finally:
+        proc.kill()
+        proc.wait(10)
+
+
+def worker(job):
+    """A worker as the engine starts it: stdin stays open and nothing is inherited from pytest."""
     proc = subprocess.Popen([sys.executable, "-m", "fabric_desktop.sql_worker"], stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, text=True)
+                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
     proc.stdin.write(json.dumps(job) + "\n")
     proc.stdin.flush()
-    assert json.loads(proc.stdout.readline())["event"] == "started"
-    proc.stdin.close()
-    assert proc.wait(20) == 3
+    return proc
+
+
+def read_line(proc, seconds=60):
+    lines: queue.Queue = queue.Queue()
+    threading.Thread(target=lambda: lines.put(proc.stdout.readline()), daemon=True).start()
+    try:
+        return lines.get(timeout=seconds)
+    except queue.Empty:
+        raise AssertionError("the worker said nothing") from None
 
 
 # ---- export

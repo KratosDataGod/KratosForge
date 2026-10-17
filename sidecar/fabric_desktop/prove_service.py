@@ -418,6 +418,10 @@ class ProveMixin:
             kernel.unbind_proof()
         pc.update(meter.result())
         pc["status"] = status
+        if getattr(kernel, "limit_hit", ""):
+            pc["stopped_by"] = f"the {kernel.limit_hit} limit"
+        if hasattr(kernel, "limits"):
+            pc["limits"] = kernel.limits()
         log = kernel.finish_proof(modules)
         pc["log"] = log
         return log
@@ -554,7 +558,8 @@ class ProveMixin:
             inputs=record.get("inputs") or {},
             environment=record.get("environment") or {},
             machine=record.get("machine"),
-            runs={"pc": side(pc, ("status", "seconds", "cpu_seconds", "peak_memory_mb", "failed_cell", "measured")),
+            runs={"pc": side(pc, ("status", "seconds", "cpu_seconds", "peak_memory_mb", "failed_cell", "measured",
+                                    "stopped_by", "limits")),
                   "fabric": side(fab, ("status", "total_seconds", "job_seconds", "run_seconds", "start_seconds",
                                        "item_name", "job_id", "workspace_id", "message"))},
             outputs=[{k: v for k, v in t.items() if k != "rules"} for t in record.get("tables") or []],
@@ -568,7 +573,9 @@ class ProveMixin:
 def _verdict(record: dict[str, Any], rows: list[dict[str, Any]], problems: list[str]) -> dict[str, Any]:
     failed = [w for w, s in (("this PC", record["pc"]["status"]), ("Fabric", record["fabric"]["status"])) if s != "ok"]
     if failed:
-        return {"verdict": "failed", "text": f"The run failed on {' and '.join(failed)}, so the results can't be compared.",
+        stopped = record["pc"].get("stopped_by")
+        why = f" (stopped by {stopped})" if stopped and "this PC" in failed else ""
+        return {"verdict": "failed", "text": f"The run failed on {' and '.join(failed)}{why}, so the results can't be compared.",
                 "problems": problems}
     if problems:
         return {"verdict": "inconclusive", "text": "Inconclusive: " + problems[0], "problems": problems}

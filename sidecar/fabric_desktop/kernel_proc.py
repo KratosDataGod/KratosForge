@@ -9,6 +9,11 @@ stops answering times out instead of freezing the app.
 What the kernel needs from the engine it asks for: tokens from the person's sign-in, another
 notebook's cells, variable libraries, the managed-table check, and a proof's storage options.
 The lakehouse the engine has attached is passed to the kernel before each cell.
+
+Limits (Settings, Preview): a cell that runs longer than ``time_limit`` seconds is interrupted,
+keeping variables, and its process is ended if it doesn't stop within TIME_GRACE_SECONDS. A
+process that uses more than ``memory_limit`` bytes is ended. Memory is sampled every
+WATCH_SECONDS, so a sudden spike can go past the limit before it's seen.
 """
 
 from __future__ import annotations
@@ -20,12 +25,15 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from . import lakehouse
 
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
+WATCH_SECONDS = 1.0
+TIME_GRACE_SECONDS = 30.0
 
 
 class KernelGone(RuntimeError):
@@ -59,6 +67,11 @@ class ProcessKernel:
         self._ended: str = ""  # why the last process ended, shown on the cell it ended
         self.count = 0
         self.pid: int | None = None
+        self.time_limit: float | None = None  # seconds a cell may run; None for no limit
+        self.memory_limit: int | None = None  # bytes the process may use; None for no limit
+        self._started_at: float | None = None  # when the running cell started, if it has a time limit
+        self._interrupted_at: float | None = None
+        self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
 
     # ---- the process
 
@@ -73,6 +86,7 @@ class ProcessKernel:
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
+            threading.Thread(target=self._watch, args=(proc,), daemon=True, name="kernel-limits").start()
             self._proc = proc
             self._attached = object()
             if not ready.wait(60):
@@ -103,6 +117,54 @@ class ProcessKernel:
         for slot in list(self._waiting.values()):
             slot.setdefault("error", {"type": "KernelGone", "message": "The notebook's Python process stopped."})
             slot["done"].set()
+
+    def _watch(self, proc: subprocess.Popen[str]) -> None:
+        """Enforce the limits on ``proc`` for as long as it lives."""
+        while proc.poll() is None:
+            time.sleep(WATCH_SECONDS)
+            if proc is not self._proc:
+                return
+            if self.memory_limit and (memory_used(proc.pid) or 0) > self.memory_limit:
+                self.limit_hit = "memory"
+                self._end(proc, f"Stopped: the notebook used more than {_size(self.memory_limit)}, the memory limit "
+                                "set in Settings. Its process was ended, so variables were cleared.")
+                return
+            started, now = self._started_at, time.monotonic()
+            if not (self._running and started is not None and self.time_limit):
+                continue
+            if self._interrupted_at is None and now - started > self.time_limit:
+                self.limit_hit = "time"
+                self._interrupted_at = now
+                try:
+                    self._request("interrupt", timeout=ANSWER_SECONDS)
+                except (KernelGone, RuntimeError):
+                    pass
+            elif self._interrupted_at is not None and now - self._interrupted_at > TIME_GRACE_SECONDS:
+                self._end(proc, f"Stopped: this cell ran longer than the {_duration(self.time_limit)} limit set in "
+                                "Settings and didn't stop when interrupted, so its process was ended and variables were cleared.")
+                return
+
+    def _end(self, proc: subprocess.Popen[str], why: str) -> None:
+        with self._lock:
+            if proc is not self._proc or proc.poll() is not None:
+                return
+            self._ended = why
+            proc.kill()
+
+    def _limit_note(self, snap: dict[str, Any]) -> dict[str, Any]:
+        """A finished cell that was interrupted for running too long says so, in every snapshot of it."""
+        if self.limit_hit != "time" or snap.get("outputs") is None:
+            return snap
+        why = (f"Stopped: this cell ran longer than the {_duration(self.time_limit or 0)} limit set in Settings. "
+               "Variables from earlier cells are kept.")
+        note = {"type": "error", "ename": "TimeLimit", "evalue": why, "traceback": [why]}
+        outputs = list(snap["outputs"])
+        if note not in outputs:
+            outputs.append(note)
+        return {**snap, "status": "error", "outputs": outputs}
+
+    def limits(self) -> dict[str, Any]:
+        return {"cell_seconds": self.time_limit, "memory_bytes": self.memory_limit}
 
     def _gone(self, why: str) -> None:
         """The process ended: the cell it was running ends with the reason."""
@@ -167,15 +229,21 @@ class ProcessKernel:
 
     # ---- the Kernel interface
 
-    def start(self, code: str) -> dict[str, Any]:
+    def start(self, code: str, time_limit: bool = True) -> dict[str, Any]:
+        """Start ``code``. ``time_limit`` False runs this one cell without the cell time limit."""
         if self._running and self._proc is not None:
             snap = self.poll()
             if snap["status"] == "running":
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
         self._ended = ""
+        self.limit_hit = ""
+        self._interrupted_at = None
+        self._started_at = None
         self._sync_lakehouse()
         self._running = True
         self._last = {"status": "running", "execution_count": self.count + 1, "version": 0, "seconds": 0, "outputs": []}
+        if time_limit:
+            self._started_at = time.monotonic()
         try:
             snap = self._request("start", code=code, notebook_name=self.notebook_name)
         except KernelGone:
@@ -207,6 +275,10 @@ class ProcessKernel:
             self._last = {**snap, "outputs": self._last.get("outputs")}
         if snap["status"] != "running":
             self._running = False
+            self._started_at = None
+            snap = self._limit_note(snap)
+            if snap.get("outputs") is not None:
+                self._last = snap
         return snap
 
     def _stuck(self, known_version: int) -> dict[str, Any]:
@@ -282,6 +354,52 @@ class ProcessKernel:
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()
+
+
+def memory_used(pid: int) -> int | None:
+    """Bytes the process is using: private bytes on Windows, resident memory on Linux; None if unknown."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        class Counters(ctypes.Structure):  # PROCESS_MEMORY_COUNTERS_EX
+            _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                (n, ctypes.c_size_t) for n in ("PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                                               "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage",
+                                               "PagefileUsage", "PeakPagefileUsage", "PrivateUsage")]
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return None
+        try:
+            counters = Counters()
+            counters.cb = ctypes.sizeof(counters)
+            if not kernel32.K32GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return None
+            return int(counters.PrivateUsage)
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) * 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _size(n: int) -> str:
+    gb = n / 1024 ** 3
+    return f"{gb:g} GB" if gb >= 1 else f"{n / 1024 ** 2:.0f} MB"
+
+
+def _duration(seconds: float) -> str:
+    """As in "the 1 hour limit"."""
+    if seconds >= 3600 and seconds % 3600 == 0:
+        return f"{int(seconds // 3600)} hour"
+    if seconds >= 60:
+        return f"{seconds / 60:g} minute"
+    return f"{seconds:g} second"
 
 
 def _no(what: str) -> Callable[..., Any]:

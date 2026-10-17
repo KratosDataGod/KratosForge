@@ -204,6 +204,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .output.error { background: var(--danger-soft); }
 .output.error .ename { color: var(--danger); font-weight: 600; font-family: var(--mono); font-size: 13px; }
 .output.error details { margin-top: 6px; }
+.output.limit-stop { display: flex; flex-direction: column; gap: 4px; }
+.output.limit-stop .row { margin-top: 4px; }
 .output.error summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .output table { border-collapse: collapse; font-size: 13px; }
 .output th { text-align: left; padding: 6px 16px 6px 0; border-bottom: 1px solid var(--border); font-weight: 600; white-space: nowrap; }

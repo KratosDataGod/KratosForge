@@ -72,6 +72,7 @@ The update check uses GitHub's public API, which allows 60 checks an hour from o
 | `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` | The saved sign-in of the embedded Fabric pages, encrypted for your Windows account. |
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Attach it to a problem report if asked. |
+| `%LOCALAPPDATA%\FabricDesktop\files`, `staging`, `onelake-cache` | Local copies of lakehouse data: file previews, tables staged before a publish, files the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
 | `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |

@@ -15,6 +15,7 @@ from typing import Any
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql
@@ -74,6 +75,20 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
             self._audit_log = AuditLog(self.root / "audit", app="agent" if self.headless else "desktop")
         return self._audit_log
 
+    @property
+    def telemetry(self) -> Telemetry:
+        """Opt-in usage counts (telemetry.py); the agent never sends any."""
+        if getattr(self, "_telemetry", None) is None:
+            self._telemetry = Telemetry(self.root / "telemetry")
+        return self._telemetry
+
+    def telemetry_status(self) -> dict[str, Any]:
+        """Settings, Usage data: on or off, where it goes and the exact text waiting to be sent."""
+        return self.telemetry.status()
+
+    def telemetry_new_install_id(self) -> dict[str, Any]:
+        return {"install_id": self.telemetry.new_install_id()}
+
     def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
         """The newest audit lines, newest first, and whether the chain is intact."""
         return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}
@@ -95,6 +110,7 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
 
     def environment(self) -> dict[str, Any]:
         self._start_retention_sweep()
+        self._start_usage_send()
         user = tenant = None
         try:
             user = self.auth.signed_in_user()
@@ -123,6 +139,21 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
                 logging.getLogger(__name__).exception("Local copy cleanup failed")
 
         threading.Thread(target=run, name="retention-sweep", daemon=True).start()
+
+    def _start_usage_send(self) -> None:
+        """Once per engine start, in the background: send finished days of usage data, if it's on."""
+        if getattr(self, "_usage_sent", False) or self.headless:
+            return
+        self._usage_sent = True
+
+        def run() -> None:
+            import logging
+            try:
+                self.telemetry.send_due()
+            except Exception as exc:  # noqa: BLE001 - offline or blocked: the days wait for the next start
+                logging.getLogger(__name__).info("Usage data not sent: %s", type(exc).__name__)
+
+        threading.Thread(target=run, name="usage-send", daemon=True).start()
 
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
@@ -164,6 +195,8 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
                 old.close()
         else:
             app_settings.save(changes)
+        if "telemetry" in changes and not changes["telemetry"]:
+            self.telemetry.discard()
         return self.app_settings()
 
     def sign_out(self) -> dict[str, Any]:

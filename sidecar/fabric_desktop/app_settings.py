@@ -35,6 +35,10 @@ Keys:
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
                      metadata framework's download cache) are deleted after this many days unused;
                      0 keeps them (default 30)
+    telemetry        true to send daily usage counts (telemetry.py); off unless the person turns it on,
+                     and IT can fix it either way (default false)
+    telemetry_connection_string  IT only: an Application Insights connection string, so usage data
+                     goes to the organization's own Azure Monitor instead of KratosBI's
 
 policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
 """
@@ -52,12 +56,14 @@ from .auth import MICROSOFT_CLIENT_ID
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
-                            "allowed_tenants": [], "local_retention_days": 30}
+                            "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
+                            "telemetry_connection_string": ""}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allowed_tenants": list,
-                                            "local_retention_days": int}
-USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
+                                            "local_retention_days": int, "telemetry": bool,
+                                            "telemetry_connection_string": str}
+USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
 
@@ -117,6 +123,9 @@ def policy_problems() -> list[str]:
             problems.append("client_id isn't an app (client) ID")
         elif key == "local_retention_days" and value < 0:
             problems.append("local_retention_days can't be negative (0 keeps local copies)")
+        elif key == "telemetry_connection_string" and value and not _telemetry_target(value):
+            problems.append("telemetry_connection_string isn't an Application Insights connection string "
+                            "(InstrumentationKey=...;IngestionEndpoint=https://...)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
     return problems
@@ -127,6 +136,11 @@ def _typed(key: str, value: Any) -> bool:
     if TYPES[key] is int and isinstance(value, bool):
         return False
     return isinstance(value, TYPES[key])
+
+
+def _telemetry_target(text: str) -> bool:
+    from .telemetry import valid_connection_string
+    return valid_connection_string(text)
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -182,7 +196,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process"):
+        if key in ("show_preview", "kernel_process", "telemetry"):
             new = bool(new)
         if new in (None, ""):
             user.pop(key, None)

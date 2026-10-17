@@ -69,7 +69,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log"}
+           "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
 def handle(service: Service, line: str) -> dict:
@@ -91,7 +91,9 @@ def handle(service: Service, line: str) -> dict:
         else:
             reply = {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
     if audit.audited(method):
-        _audit(service, method, params, reply, time.monotonic() - started)
+        seconds = time.monotonic() - started
+        _audit(service, method, params, reply, seconds)
+        _count(service, method, reply, seconds)
     return reply
 
 
@@ -109,6 +111,16 @@ def _audit(service: Service, method: str, params: dict, reply: dict, seconds: fl
                    who=who, tenant=tenant, error=str(reply.get("error") or ""))
     except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
         print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
+    """Opt-in usage counts (telemetry.py): the action's name, whether it failed, how long it took."""
+    try:
+        usage = getattr(service, "telemetry", None)
+        if usage is not None:
+            usage.record(method, "error" not in reply, seconds, str(reply.get("error") or ""))
+    except Exception as exc:  # noqa: BLE001 - never fails the call
+        print(f"telemetry: could not count {method}: {type(exc).__name__}", file=sys.stderr)
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:

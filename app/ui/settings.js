@@ -228,6 +228,9 @@ async function renderSettings() {
       h("span", {}, s.kernel_process.value ? "On" : "Off")),
       s.kernel_process.source === "policy" ? "policy" : null) : null);
 
+  // Usage data (FD-137): off unless this person turns it on; telemetry.py in the engine.
+  const usage = await usageSection(s);
+
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
     settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
@@ -253,10 +256,62 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    account, updates, previews, notify, about));
+    account, updates, previews, usage, notify, about));
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);
+}
+
+// ---------- Usage data ----------
+
+const USAGE_WHERE = { kratosbi: "KratosBI's Application Insights", organization: "your organization's Application Insights" };
+
+async function usageSection(s) {
+  const u = await rpc("telemetry_status").catch(() => null);
+  if (!u) return null;
+  const locked = s.telemetry?.source === "policy";
+  const today = u.waiting.find((w) => w.day === u.today);
+  const actions = today ? Object.values(today.features).reduce((n, f) => n + f.count, 0) : 0;
+  const failures = today ? Object.values(today.features).reduce((n, f) => n + f.errors, 0) : 0;
+  const waiting = !u.on ? "Nothing (off)" : u.waiting.length
+    ? `${u.waiting.length} day${u.waiting.length === 1 ? "" : "s"}${today ? `; today so far ${actions} action${actions === 1 ? "" : "s"}, ${failures} failed` : ""}`
+    : "Nothing yet";
+  const toggle = h("label", { class: "switch" }, h("input", { type: "checkbox", checked: u.on ? true : null,
+    disabled: locked || !u.available ? true : null,
+    onchange: async (e) => { if (await saveSettings({ telemetry: e.target.checked })) { toast(e.target.checked ? "Usage data on" : "Usage data off; nothing waiting is sent"); render(); } } }),
+  h("span", {}, u.on ? "On" : "Off"));
+  return h("section", { class: "card pad" }, h("h2", {}, "Usage data ", previewTag()),
+    settingRow(`Share usage data with ${u.destination === "organization" ? "your organization" : "KratosBI"}`,
+      u.available
+        ? "Once a day, sends how often each action was used, how often it failed and how long it took, with the build and Windows version. Never your data, code, queries, file, table or workspace names, your account or your organization."
+        : "This build of Fabric Desktop by KratosBI has nowhere to send usage data, so it sends nothing.",
+      toggle, locked ? "policy" : null),
+    h("dl", { class: "about" },
+      h("dt", {}, "Goes to"), h("dd", {}, USAGE_WHERE[u.destination] || "Nowhere"),
+      h("dt", {}, "Last sent"), h("dd", {}, u.last_sent || "Never"),
+      h("dt", {}, "Waiting to send"), h("dd", {}, waiting),
+      u.install_id ? [h("dt", {}, "Install ID"), h("dd", { class: "mono" }, `${u.install_id} (random, not tied to you)`)] : null),
+    h("div", { class: "row wrap" },
+      btn("See what's sent", null, () => usageDialog(u), "tool outline"),
+      u.install_id ? btn("New install ID", null, async () => {
+        if (await attempt(() => rpc("telemetry_new_install_id"), "Not changed")) { toast("New install ID"); render(); }
+      }, "tool outline") : null,
+      btn("What's collected, field by field", null, () => invoke("open_doc", { page: "telemetry.md" }).catch(() => {}), "tool link")));
+}
+
+function usageDialog(u) {
+  const example = { name: "daily_usage", day: u.today, install_id: u.install_id || "(made when it's turned on)",
+    build: state.commit?.slice(0, 12) || "dev", channel: state.settings?.channel?.value || "stable", windows: "10.0.26100", python: state.python || "3.12",
+    features: { run_sql: { count: 9, errors: 0, seconds: 4.2 } }, errors: {} };
+  const text = JSON.stringify(u.waiting.length ? u.waiting : [example], null, 2);
+  showDialog("What's sent", h("div", { class: "setup" },
+    h("p", {}, u.waiting.length
+      ? `This is the exact text waiting to go to ${USAGE_WHERE[u.destination] || "nowhere"}. A day is sent once it's over.`
+      : "Nothing is waiting. This is an example of one day, in the exact shape that's sent."),
+    h("p", { class: "muted-text small" }, "Actions are the app's own names for them. A failure carries only its kind, never its message."),
+    h("textarea", { rows: 16, class: "mono", readonly: true }, text)),
+  [btn("Copy", null, () => copyText(text, "Usage data"), "tool outline"), h("span", { class: "spacer" }),
+    btn("Close", null, closeDialog, "tool primary")]);
 }
 
 // ---------- Ready to work (Home): can this PC do real work yet? ----------

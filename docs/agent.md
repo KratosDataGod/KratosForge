@@ -171,7 +171,7 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |

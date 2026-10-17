@@ -341,6 +341,24 @@ test("Incidents is a Preview feature on Monitor", () => {
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("incidents", h\("button"/);
 });
 
+test("Agents is a Preview feature on Monitor and only reads", () => {
+  const agents = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /agents: "Agents"/);
+  assert.match(agents, /id: "agents", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>\s*<script src="agents.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("agents", h\("button"/);
+  assert.deepStrictEqual([...agents.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).filter((m) => m !== "agents_list"), []);
+});
+
+test("an agent past its promised report never shows as running", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/const AG_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function agStatePill\([\s\S]*?\n}\n/)[0]}; this.pill = agStatePill;`, ctx);
+  assert.strictEqual(ctx.pill({ state: "offline" }).text, "Stopped reporting");
+  assert.strictEqual(ctx.pill({ state: "something new" }).text, "Stopped reporting");
+  assert.strictEqual(ctx.pill({ state: "live" }).text, "Running");
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};

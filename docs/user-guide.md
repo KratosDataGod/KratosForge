@@ -257,15 +257,16 @@ It signs in with your Windows account when that is the same work account you use
 
 Monitor has two halves.
 
-**From Fabric Desktop by KratosBI** (top) has five panels:
+**From Fabric Desktop by KratosBI** (top) has six panels:
 
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Workloads** (Preview): everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
 - **Incidents** (Preview): one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
+- **Agents** (Preview): every [agent](agent.md) that serves your environments, from the status each one reports. See [Agents](#agents-preview) below.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off.
 - **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. Fabric's Capacity Metrics app has the CU your capacity recorded. See [Capacity and cost evidence](finops/cost-evidence.md).
 
-**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Workloads and Incidents always use the whole page.
+**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Workloads, Incidents and Agents always use the whole page.
 
 ### Workloads (Preview)
 
@@ -320,6 +321,32 @@ An incident is one record per problem in an environment: a table whose last run 
 **The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
 
 **On a workload's page**, **Incidents** lists its active incidents in every environment.
+
+### Agents (Preview)
+
+An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
+
+**The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
+
+- the agent and its server;
+- its state;
+- the environments it serves;
+- what it is running and how much is queued;
+- its next scheduled run;
+- how its last 10 jobs went, with the newest error;
+- whether it checks [incidents](#incidents-preview);
+- its version compared with this app.
+
+**State.** An agent is **Running** while its reports arrive on time. It shows **Stopped reporting** once the time it promised to report again has passed. That means it stopped without saying so: a crash, a power cut or a lost network. It shows **Stopped** when it shut down cleanly. For a stopped or silent agent, everything shown is its last report as it was, labelled with when it was written, so its jobs show as unknown rather than as running.
+
+**The agent page** shows, for each environment:
+
+- what the agent runs: pipeline jobs and which entities, how many at a time, and whether backfill is allowed;
+- its schedules and when each runs next;
+- what it was doing;
+- whether it checks incidents.
+
+It also lists its last jobs. When the agent has stopped reporting or is older than the app, **What you can do** says what to check on its server. A stopped agent runs each missed schedule once when it starts again, and picks up any job it was running. An incident about an agent that stopped reporting has **Open agent**.
 
 ## Source control (Preview)
 

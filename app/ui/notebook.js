@@ -1103,6 +1103,8 @@ async function runCell(cell) {
     } else {
       cell.status = "error";
       cell.outputs = [{ type: "error", ename: "Kernel error", evalue: String(err) }];
+      // The engine was ended (stuck or crashed), and the kernel with it.
+      if (/^(The engine stopped answering|The Python sidecar stopped)/.test(String(err))) depsRestarted();
     }
     cell.seconds = (performance.now() - started) / 1000;
   }

@@ -44,6 +44,16 @@ test("a run says where it ran: Fabric, an agent or this PC", () => {
   assert.strictEqual(ctx.ranOn({}), "This PC");
 });
 
+test("an engine ended for not answering says so, and that variables were cleared", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const out = ctx.friendlyError(raw);
+  assert.match(out.text, /restarted it\. Notebook variables were cleared/);
+  assert.strictEqual(out.details, raw);
+});
+
 test("a failing workload's row shows the failed run, not a newer good one elsewhere", () => {
   const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
   const ctx = {};

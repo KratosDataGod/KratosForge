@@ -13,6 +13,7 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every Fabric Desktop by KratosBI window, then download `fabric-desktop.exe` again from the Releases page. |
 | "The engine could not be installed" | The engine download or unpack failed. The log is under the message. | Check the internet connection and disk space, then **Retry**. |
 | "The local engine stopped while doing this" | The Python engine crashed. It restarts on your next action. | Try again. If it keeps happening, report it; `%LOCALAPPDATA%\FabricDesktop\sidecar.log` has the reason. |
+| "The local engine stopped answering, so the app restarted it" | A quick request (opening a notebook, reading variables, checking a running cell) had no answer for 60 seconds, so the app ended the engine instead of freezing. Notebook variables are gone. | Run the notebook's cells again. If it keeps happening, report it with the request named in the details and `%LOCALAPPDATA%\FabricDesktop\sidecar.log`. |
 
 ## Signing in
 

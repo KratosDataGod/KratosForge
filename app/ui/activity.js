@@ -43,6 +43,7 @@ function runReason(r) {
 function friendlyError(err) {
   const raw = String(err?.message || err || "").trim();
   const known = [
+    [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],

@@ -12,7 +12,11 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod watchdog;
+use watchdog::Reply;
+
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
+const SIDECAR_STUCK: &str = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it.";
 
 /// Startup check and updater, run with the user's Python before the sidecar starts.
 const UPDATER: &str = include_str!("updater.py");
@@ -200,11 +204,16 @@ impl Sidecar {
             return Err(self.exited());
         }
 
-        let mut line = String::new();
-        let read = self.stdout.read_line(&mut line).map_err(|e| e.to_string())?;
-        if read == 0 {
-            return Err(self.exited());
-        }
+        let line = match watchdog::read_reply(&mut self.stdout, &self.child, watchdog::limit(method))
+            .map_err(|e| e.to_string())?
+        {
+            Reply::Line(line) => line,
+            Reply::Closed => return Err(self.exited()),
+            Reply::TimedOut => return Err(format!(
+                "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
+                 run the notebook's cells again. Details are in {}",
+                watchdog::QUICK_SECONDS, self.log.display())),
+        };
         let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
         if let Some(error) = response.get("error") {
             return Err(error.as_str().unwrap_or("Unknown sidecar error").to_string());
@@ -233,7 +242,10 @@ async fn rpc(
     let sidecar = guard.as_mut().expect("sidecar started");
     let first_call = sidecar.next_id == 1;
     let result = sidecar.call(&method, params.unwrap_or_else(|| json!({})));
-    if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+    if matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK)) {
+        // Ended by the time limit: the next call starts a fresh one.
+        *guard = None;
+    } else if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
         *guard = None;
         if first_call {
             // It would not even start: have the next startup check load the engine again

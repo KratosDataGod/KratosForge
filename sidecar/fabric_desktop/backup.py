@@ -11,8 +11,11 @@ holds a headless agent's queue and alert databases. It never holds:
   file that had something removed.
 
 Every file's SHA-256 is in ``manifest.json``. ``restore`` checks the whole zip before it writes
-anything, previews by default, and keeps a copy of each file it replaces, so a restore can be
-undone by hand. It adds and replaces files; it never deletes one.
+anything, previews by default, refuses while something has a database open, and keeps a copy of
+each file it replaces, so a restore can be undone by hand. It adds and replaces files and checks
+each one it writes against the manifest. The only files it takes away are a replaced database's
+``-wal``, ``-shm`` and ``-journal`` files, which would otherwise be replayed onto the restored
+database; they go into the safety folder beside the database's copy.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 import sqlite3
 import tempfile
 import zipfile
@@ -36,6 +40,8 @@ SKIP_DIRS = {"engine", "onelake-cache", "EBWebView", "logs", "schedule_locks", "
 SKIP_FILES = {"msal_cache.bin", "fabric-view-signin.bin"}
 SKIP_SUFFIXES = {".log", ".tmp", ".lock", ".pyc"}
 SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
+SQLITE_HEADER = b"SQLite format 3\x00"
+SQLITE_COMPANIONS = ("-wal", "-shm", "-journal")  # SQLite replays these onto the database they sit beside
 TEXT_SUFFIXES = {".json", ".jsonl", ".toml", ".ipynb", ".sql", ".py", ".md", ".txt", ".csv", ".yaml", ".yml"}
 SECRET_KEYS = {"teams_webhook"}
 AGENT_FILES = ("queue.sqlite3", "alerts.sqlite3")
@@ -50,7 +56,7 @@ def _skipped(rel: PurePosixPath) -> str | None:
         return "rebuilt by the app"
     if rel.name in SKIP_FILES:
         return "sign-in tokens are never backed up"
-    if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(("-wal", "-shm", "-journal")):
+    if rel.suffix.lower() in SKIP_SUFFIXES or rel.name.endswith(SQLITE_COMPANIONS):
         return "rebuilt by the app"
     return None
 
@@ -191,10 +197,56 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
         return manifest, problems
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _is_database(name: str, z: zipfile.ZipFile) -> bool:
+    if PurePosixPath(name).suffix.lower() in SQLITE_SUFFIXES:
+        return True
+    with z.open(name) as src:
+        return src.read(len(SQLITE_HEADER)) == SQLITE_HEADER
+
+
+def _in_use(path: Path) -> bool:
+    """Whether another connection has the database at ``path`` open. Exclusive locking mode makes
+    SQLite wait for every other connection, idle ones in WAL mode too, not only writers."""
+    try:
+        with path.open("rb") as f:
+            if f.read(len(SQLITE_HEADER)) != SQLITE_HEADER:
+                return False  # missing, empty or not a database: nothing can have it open as one
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    try:
+        db = sqlite3.connect(path, timeout=0.5, isolation_level=None)
+    except sqlite3.Error:
+        return True
+    try:
+        no_checkpoint = getattr(sqlite3, "SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE", None)
+        if no_checkpoint is not None and hasattr(db, "setconfig"):
+            db.setconfig(no_checkpoint, True)  # leave its WAL alone, so the safety copy keeps it
+        db.execute("PRAGMA locking_mode=EXCLUSIVE")
+        db.execute("BEGIN EXCLUSIVE")
+        db.execute("SELECT count(*) FROM sqlite_master").fetchall()
+        db.execute("ROLLBACK")
+        return False
+    except sqlite3.Error:
+        return True
+    finally:
+        db.close()
+
+
 def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, apply: bool = False,
             now: datetime | None = None) -> dict[str, Any]:
     """What restoring ``zip_path`` writes; with ``apply`` it writes it, after copying each file it
-    replaces into ``restore-safety``. Without ``apply`` nothing changes."""
+    replaces, and moving a replaced database's ``-wal``/``-shm``/``-journal``, into
+    ``restore-safety``. Without ``apply`` nothing changes."""
     manifest, problems = validate(zip_path)
     if problems:
         raise BackupError("This backup can't be restored:\n- " + "\n- ".join(problems))
@@ -210,21 +262,41 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
                               "cleaned": manifest.get("cleaned", [])}
     if not apply:
         return result
+    hashes = {entry["path"]: entry["sha256"] for entry in manifest["files"]}
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%d-%H%M%S")
     safety = data_dir / SAFETY / stamp
     with zipfile.ZipFile(zip_path) as z:
+        databases = {item["path"] for item in plan if _is_database(item["path"], z)}
+        busy = [item["to"] for item in plan if item["path"] in databases and _in_use(Path(item["to"]))]
+        if busy:  # checked for every database before any file changes
+            raise BackupError("Nothing was changed: another program has these databases open:\n- "
+                              + "\n- ".join(busy) + "\nClose Fabric Desktop by KratosBI and stop the agent, "
+                              "then run the restore again.")
+        moved = False
         for item in plan:
             dest = Path(item["to"])
-            if item["replaces"]:
-                keep = safety / item["path"]
-                keep.parent.mkdir(parents=True, exist_ok=True)
-                keep.write_bytes(dest.read_bytes())
             dest.parent.mkdir(parents=True, exist_ok=True)
             tmp = dest.with_name(dest.name + ".restoring")
             with z.open(item["path"]) as src:
                 tmp.write_bytes(src.read())
+            if _sha256(tmp) != hashes[item["path"]]:
+                tmp.unlink()
+                raise BackupError(f"{item['path']} didn't write correctly to {dest}; the restore stopped there. "
+                                  f"Files it already replaced are in {safety}.")
+            keep = safety / item["path"]
+            if item["replaces"]:
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                keep.write_bytes(dest.read_bytes())
+            if item["path"] in databases:  # a stale WAL would bring back what the backup doesn't hold
+                for suffix in SQLITE_COMPANIONS:
+                    companion = dest.with_name(dest.name + suffix)
+                    if companion.exists():
+                        keep.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.move(companion, keep.with_name(keep.name + suffix))
+                        moved = True
             tmp.replace(dest)
-    result.update(applied=True, safety=str(safety) if any(i["replaces"] for i in plan) else None)
+    kept = moved or any(i["replaces"] for i in plan)
+    result.update(applied=True, safety=str(safety) if kept else None)
     return result
 
 

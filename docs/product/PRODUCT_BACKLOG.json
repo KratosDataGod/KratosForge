@@ -3691,11 +3691,17 @@
       "effort": "XL",
       "confidence": "Low",
       "state": "In progress",
+      "priority_override": {
+        "priority": "P0",
+        "by": "Chris (product owner)",
+        "date": "2026-10-17",
+        "reason": "Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size"
+      },
       "computed": {
         "benefit": 4.6,
         "cost": 3.5,
         "score": 2.3,
-        "priority": "P2"
+        "priority": "P0"
       }
     }
   ]

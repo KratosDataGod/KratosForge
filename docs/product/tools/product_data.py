@@ -152,7 +152,9 @@ def computed(item: dict, scoring: dict) -> dict:
     benefit = sum(bw[k] * s[k] for k in BENEFITS) / sum(bw[k] for k in BENEFITS)
     cost = sum(cw[k] * s[k] for k in COSTS) / sum(cw[k] for k in COSTS)
     score = benefit * (6 - cost) / 5
-    if item["mandatory"] == "blocker":
+    if item.get("priority_override"):
+        priority = item["priority_override"]["priority"]
+    elif item["mandatory"] == "blocker":
         priority = "P0"
     elif score >= scoring["thresholds"]["P1"] or item["mandatory"] == "required":
         priority = "P1"
@@ -297,6 +299,9 @@ def render_backlog() -> None:
             out.append(f"- **Owner:** {i['owner']}" + (f" ({', '.join(i['source_refs'])})" if i.get("source_refs") else ""))
             if i["mandatory"] != "none":
                 out.append(f"- **Mandatory ({i['mandatory']}):** {i['mandatory_reason']}")
+            if i.get("priority_override"):
+                o = i["priority_override"]
+                out.append(f"- **Priority set by the product owner:** {o['priority']} ({o['by']}, {o['date']}): {o['reason']}")
             if i.get("duplicates"):
                 out.append("- **Merged duplicates:** " + "; ".join(i["duplicates"]))
             if i.get("prs"):
@@ -338,6 +343,12 @@ def render_roadmap() -> None:
     for i in mand:
         rows.append(f"| [{i['id']}](PRODUCT_BACKLOG.md#{i['id'].lower()}) | {_cell(i['title'])} | {i['mandatory']} | {i['computed']['score']} | {i['computed']['priority']} | {_cell(i['mandatory_reason'])} |")
     _replace(md, "mandatory", "\n".join(rows))
+    over = [i for i in items if i.get("priority_override")]
+    rows = ["| Id | Item | Computed score | Priority | Decided by | Reason |", "| --- | --- | ---: | --- | --- | --- |"]
+    for i in over:
+        o = i["priority_override"]
+        rows.append(f"| [{i['id']}](PRODUCT_BACKLOG.md#{i['id'].lower()}) | {_cell(i['title'])} | {i['computed']['score']} | {o['priority']} | {_cell(o['by'])}, {o['date']} | {_cell(o['reason'])} |")
+    _replace(md, "overrides", "\n".join(rows) if over else "None.")
     # Sequencing: an item that a higher-priority item depends on is built first, whatever its own score.
     by_id = {i["id"]: i for i in items}
     pulled: dict[str, tuple[str, str]] = {}

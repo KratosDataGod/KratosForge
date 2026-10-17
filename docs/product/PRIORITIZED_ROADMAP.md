@@ -25,7 +25,8 @@ The calculation:
 benefit  = weighted mean of the five benefit scores        (1 to 5)
 cost     = weighted mean of complexity and risk            (1 to 5)
 score    = benefit x (6 - cost) / 5                        (0.2 to 5)
-priority = P0 if mandatory is "blocker"
+priority = the product owner's decision, when one is recorded (priority_override)
+           else P0 if mandatory is "blocker"
            P1 if score >= 2.6, or mandatory is "required"
            P2 if score >= 1.8
            P3 otherwise
@@ -80,6 +81,17 @@ required items are never below P1, whatever their score. Each states why.
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | required | 1.47 | P1 | Defense in depth for a webview that renders user and notebook content. |
 <!-- END GENERATED: mandatory -->
 
+## Product-owner priority decisions
+
+The product owner can set an item's priority directly. The computed score stays visible so the
+trade-off is recorded, and the decision is stored in the item's `priority_override`.
+
+<!-- BEGIN GENERATED: overrides -->
+| Id | Item | Computed score | Priority | Decided by | Reason |
+| --- | --- | ---: | --- | --- | --- |
+| [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 2.3 | P0 | Chris (product owner), 2026-10-17 | Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size |
+<!-- END GENERATED: overrides -->
+
 ## Sequencing by dependency
 
 An item that a higher-priority item depends on has to be built first, whatever its own score. These
@@ -121,12 +133,13 @@ are sequenced by those programs; the order here is what the master product view 
 ## Ranking
 
 <!-- BEGIN GENERATED: ranking -->
-### P0 (2 items)
+### P0 (3 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | 3 | 2 | 5 | 2 | 5 | 2 | 2 | 3.45 | 2.0 | 2.76 | blocker | M | High | none | Master product (unassigned) |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | 3 | 1 | 5 | 1 | 5 | 2 | 2 | 3.1 | 2.0 | 2.48 | blocker | S | High | none | Enterprise readiness |
+| [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
 
 ### P1 (28 items)
 
@@ -161,7 +174,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-072](PRODUCT_BACKLOG.md#pb-072) | Long engine calls stop blocking the app | 4 | 1 | 4 | 1 | 4 | 4 | 3 | 2.95 | 3.5 | 1.48 | required | L | Medium | PB-071 | Master product (unassigned) |
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
 
-### P2 (48 items)
+### P2 (47 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -179,7 +192,6 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-040](PRODUCT_BACKLOG.md#pb-040) | Fabric workspace Git integration | 4 | 2 | 5 | 3 | 5 | 3 | 3 | 3.85 | 3.0 | 2.31 | none | L | High | none | Git-native development |
 | [PB-044](PRODUCT_BACKLOG.md#pb-044) | Agent queue pruning and dead-job requeue | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Master product (unassigned) |
 | [PB-062](PRODUCT_BACKLOG.md#pb-062) | Save a support bundle from Settings | 2 | 1 | 4 | 1 | 3 | 1 | 1 | 2.3 | 1.0 | 2.3 | none | S | High | none | Enterprise readiness |
-| [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
 | [PB-025](PRODUCT_BACKLOG.md#pb-025) | SQL object explorer | 4 | 1 | 3 | 1 | 3 | 2 | 1 | 2.55 | 1.5 | 2.29 | none | M | Medium | PB-024 | SQL development sprint |
 | [PB-023](PRODUCT_BACKLOG.md#pb-023) | Managed SQL execution with cancel and streaming | 4 | 3 | 3 | 2 | 4 | 3 | 2 | 3.25 | 2.5 | 2.27 | none | M | High | none | SQL development sprint |
 | [PB-047](PRODUCT_BACKLOG.md#pb-047) | Incident screens | 3 | 1 | 5 | 3 | 4 | 3 | 2 | 3.25 | 2.5 | 2.27 | none | M | High | none | Workload management |

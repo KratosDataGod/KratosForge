@@ -57,7 +57,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 <!-- BEGIN GENERATED: summary -->
 | Category | P0 | P1 | P2 | P3 | Total |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| [Local Development and Execution](#local-development-and-execution) | 0 | 3 | 3 | 0 | 6 |
+| [Local Development and Execution](#local-development-and-execution) | 1 | 3 | 2 | 0 | 6 |
 | [SQL, Python, and Notebook Development](#sql-python-and-notebook-development) | 0 | 1 | 5 | 3 | 9 |
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 3 | 8 |
@@ -69,7 +69,7 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 1 | 7 | 2 | 0 | 10 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **2** | **28** | **48** | **9** | **87** |
+| **Total** | **3** | **28** | **47** | **9** | **87** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -87,7 +87,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-014](#pb-014) | AST-based compatibility analyzer with an Unknown outcome | P1 | Prove | M | Proposed |
 | [PB-015](#pb-015) | Write semantics for MERGE, UPDATE and DELETE on this PC | P2 | Prove | L | Proposed |
 | [PB-016](#pb-016) | Reproducible environments and Fabric Environment items | P2 | Prove | L | Proposed |
-| [PB-099](#pb-099) | Local data engine and OneLake publishing program | P2 | Local data engine and OneLake publishing | XL | In progress |
+| [PB-099](#pb-099) | Local data engine and OneLake publishing program | P0 | Local data engine and OneLake publishing | XL | In progress |
 
 ### PB-012
 
@@ -170,7 +170,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-099
 
-**Local data engine and OneLake publishing program** · P2 (score 2.3) · XL · confidence Low · In progress
+**Local data engine and OneLake publishing program** · P0 (score 2.3) · XL · confidence Low · In progress
 
 - **Problem:** Local files and SQL transformations can't be developed in a persistent local engine and published to OneLake with validation, publish history and incremental sync, without Fabric capacity.
 - **Proposed capability:** Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. That thread's audit maps which existing components and programs each story reuses.
@@ -178,6 +178,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
 - **Dependencies:** none
 - **Owner:** Local data engine and OneLake publishing (FD-LDE-001..020)
+- **Priority set by the product owner:** P0 (Chris (product owner), 2026-10-17): Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size
 - **Merged duplicates:** Overlaps PB-021..PB-025 and PB-020 (SQL sprint: SQL editor, dialect, execution, connectivity, local Warehouse); Overlaps PB-015 (local Delta writes), PB-019 (incremental), PB-067 (large datasets), PB-050/PB-090 (FinOps), PB-079 (TOML job runner) and the metadata framework
 - **Acceptance criteria:**
     - As defined in FD-LDE-001..020 by its owning thread

@@ -68,8 +68,14 @@ class IntegrationError(Exception):
 # ---- secrets out of messages
 
 try:  # the enterprise program's redaction (PR #84); until it merges, the same core patterns here
+    from ..redact import secret_key
     from ..redact import secrets as redact_secrets  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - depends on merge order
+    def secret_key(name: object) -> bool:
+        key = str(name).lower().replace("-", "").replace("_", "")
+        return any(part in key for part in ("password", "passwd", "secret", "token", "apikey", "connectionstring",
+                                            "authorization", "sas"))
+
     _SECRET_PATTERNS = [
         (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), "[removed]"),
         (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1[removed]"),
@@ -85,12 +91,14 @@ except ImportError:  # pragma: no cover - depends on merge order
 
 
 def redact_result(value: Any) -> Any:
-    """Every string in a result, with secrets removed. Applied to every capability's result, so a
-    token that slipped into a notebook, a log line or a receipt doesn't leave through a tool."""
+    """Every string in a result, with secrets removed, and the text of every field named like a
+    secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
+    every capability's result, so a token that slipped into a notebook, a log line or a receipt
+    doesn't leave through a tool."""
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
-        return {k: redact_result(v) for k, v in value.items()}
+        return {k: "[removed]" if secret_key(k) and isinstance(v, str) else redact_result(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact_result(v) for v in value]
     return value

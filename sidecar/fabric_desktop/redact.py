@@ -4,6 +4,8 @@ Two levels:
 
 ``secrets(text)``   tokens, SAS signatures, keys and passwords. Used on every error message the
                     UI shows and every agent log line: nobody needs those to fix a problem.
+``secret_key(name)`` whether a field called ``name`` holds a secret, so structured output (log
+                    fields, capability results) blanks its value whatever the value looks like.
 ``for_support(text)`` also email addresses, the Windows user name in paths, and GUIDs (tenant,
                     workspace, item ids). Used on Report a problem and support bundles, which can
                     end up in a public GitHub issue.
@@ -28,6 +30,8 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token"
                 r"|id_token|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
+# Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
+_SECRET_KEYS = ("password", "passwd", "secret", "token", "apikey", "connectionstring", "authorization", "sas")
 _EMAIL = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+")
 _SLASH = r"(?:\\\\|\\|/)+"
 # Windows user names can hold spaces ("Ann Lee"), so a drive path's name runs to the next separator.
@@ -41,6 +45,12 @@ def secrets(text: str) -> str:
     for pattern, repl in _SECRETS:
         text = pattern.sub(repl, text)
     return text
+
+
+def secret_key(name: object) -> bool:
+    """Whether a field called ``name`` holds a secret: its text value is blanked, not pattern-matched."""
+    key = str(name).lower().replace("-", "").replace("_", "")
+    return any(part in key for part in _SECRET_KEYS)
 
 
 def for_support(text: str) -> str:

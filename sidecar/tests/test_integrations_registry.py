@@ -37,9 +37,10 @@ def test_every_core_capability_is_complete_and_valid():
             validate(d["input_schema"], {})
 
 
-def test_core_capabilities_are_read_only_until_permissions_exist():
+def test_anything_that_changes_or_runs_asks_first():
     for c in default_registry().all():
-        assert c.read_only and c.permission in ("READ_METADATA", "READ_DATA"), c.id
+        if not c.read_only or c.permission not in ("READ_METADATA", "READ_DATA"):
+            assert c.approval == "always" or c.id == "fabric_desktop_cancel_execution", c.id
 
 
 def test_the_requested_read_only_tools_exist():

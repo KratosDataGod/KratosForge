@@ -148,7 +148,17 @@ External execution reuses the engine's own paths:
 | `fabric_desktop_execute_python` | `ProcessKernel` (`kernel_proc.py`) | Always in a process of its own; timeout, interrupt then stop; output capped; approval every call |
 | `fabric_desktop_run_notebook` | Same kernel, cell by cell, as **Run all** does | Same as above; Fabric runs are not offered yet |
 
-Every execution gets a stable id, a state (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `timed_out`), logs, a capped result and timings. Calls wait a short time and otherwise return the id, so long work never blocks a client or the app. Cancellation works by id or by MCP's own cancel notification. Per-cell time and memory limits are being built by the Prove program; external executions will call them once merged.
+Every execution gets a stable id (`ex_...`), a state (`queued`, `running`, `succeeded`, `failed`, `cancelled`, `timed_out`), logs, a capped result and timings, kept in `<data>/integrations/executions/` (the last 200). A call waits up to `wait_seconds` (default 30) and otherwise returns the id; `fabric_desktop_get_execution_status` follows it and can wait for it. Past `timeout_seconds` an execution is interrupted, then its process is ended; `fabric_desktop_cancel_execution` and MCP's own cancel notification do the same. An execution is visible only to the tool that started it.
+
+Code an external tool runs is limited on purpose (`integrations/executions.py`):
+
+- It runs in a process kernel started for that execution and ended after it, never in the app's kernel. Nothing is kept between runs.
+- The kernel gets a storage token for the attached lakehouse and no other token; `notebookutils.credentials.getToken` for anything else is refused.
+- Writing lakehouse tables through the engine is refused, because OneLake writes aren't offered to external tools yet. A notebook that writes tables stops at that cell.
+- Output is capped at 100,000 characters, tables at 100 rows, images and HTML are left out, and every string has secrets removed.
+- A tool limited to some workspaces can't run code at all, because code runs with the person's sign-in, which reaches every workspace they can open.
+
+Prove this notebook's actions are registered with the permission they really need. Verifying a table again and exporting a receipt need `READ_DATA` and ask. Cancelling a proof needs `EXECUTE_LOCAL_CODE` and always asks. Starting a proof publishes a copy to Fabric (`MODIFY_FABRIC_ARTIFACTS`) and deleting a proof's outputs deletes OneLake files (`WRITE_ONELAKE`); neither category is offered in this release, so both are listed as unavailable with that reason. Receipt exports leave out the parts IT lists in `receipt_redactions`.
 
 ## 7. Resources and prompts
 

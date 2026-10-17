@@ -58,15 +58,42 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
 
 
-def run(query: str) -> pa.Table:
-    """Run every statement in ``query`` and return the last one's result."""
+READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)
+
+
+def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
+    """The one statement of a sandboxed query, if it only reads (SELECT, WITH ... SELECT, UNION)."""
+    if len(statements) != 1:
+        raise ValueError("Send one statement at a time.")
+    statement = statements[0]
+    if not isinstance(statement, READ_ONLY) or any(
+            isinstance(node, (exp.Insert, exp.Update, exp.Delete, exp.Merge, exp.Create, exp.Drop, exp.Alter,
+                              exp.Command, exp.Copy)) for node in statement.walk()):
+        raise PermissionError("Only queries that read (SELECT) can run here.")
+    return statement
+
+
+def run(query: str, sandbox: bool = False) -> pa.Table:
+    """Run every statement in ``query`` and return the last one's result.
+
+    ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
+    once the lakehouse tables are registered, so the query can't read local files, load
+    extensions or reach the network (external AI tools, integrations/executions.py)."""
     # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
     # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
     con = duckdb.connect()
     con.execute("SET TimeZone = 'UTC'")
     views: dict[str, str] = {}
     result = None
-    for statement in parse(query):
+    statements = parse(query)
+    if sandbox:
+        statements = [check_read_only(statements)]
+        bind_tables(statements[0], con, views)
+        con.execute("SET enable_external_access = false")
+        con.execute("SET lock_configuration = true")
+        result = con.execute(statements[0].sql("duckdb"))
+        statements = []
+    for statement in statements:
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
     if not result.description:

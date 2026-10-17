@@ -22,7 +22,8 @@ A program that can already run commands as you on this PC. It can read your file
 | --- | --- | --- |
 | Client reads a token or secret | No capability returns tokens, connection strings or credentials; results and errors pass through secret redaction; Python output is scanned for token-shaped strings | Registry, `invoke` |
 | Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout | Permissions, executions |
-| Client reads local files through SQL | External SQL is read-only and runs with DuckDB external access off and configuration locked | Executions |
+| Client reads local files through SQL | External SQL is one read-only statement and runs with DuckDB external access off and configuration locked | Executions |
+| Code reaches Fabric or writes OneLake | Code gets only a storage token; table writes through the engine are refused; workspace-limited tools can't run code | Executions, permissions |
 | Client reads data it shouldn't | Rows need `READ_DATA`; resources are schema-only; Fabric enforces the person's own access on every OneLake read | Permissions, resources |
 | Client writes to OneLake or changes Fabric | Not offered in the first release | Registry |
 | Client approves its own request | Approvals are decided only through the app's RPC; no MCP tool or REST endpoint changes permissions or approvals | Permissions |
@@ -50,5 +51,7 @@ A value of the wrong type fails closed: integrations off, or only `READ_METADATA
 ## Residual risks
 
 - A person can approve a harmful request. The approval screen shows the client, operation, target and code, but it can't judge intent.
+- Approved code runs as you. It gets a storage token, and code written to use that token directly (not through the engine) could write OneLake files. The approval screen shows the code in full; approve only what you've read.
+- Approving a notebook run shows the notebook's name, not its code. External tools can't change notebooks in this release, so the code is what you saved.
 - Token redaction recognises known shapes (JWTs, bearer headers, SAS signatures, key-value secrets); a secret in an unusual format can pass through.
 - Integration settings and approvals are files in your Windows profile; anything running as you can change them (see "What it does not protect against").

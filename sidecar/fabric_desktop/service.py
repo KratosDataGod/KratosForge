@@ -410,10 +410,10 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
 
     # SQL query page: Spark SQL over one lakehouse's tables, run on this PC.
 
-    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000) -> dict[str, Any]:
+    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query)
+        result = sql.run(query, sandbox=sandbox)
         columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],

@@ -23,6 +23,7 @@ category, and an extension can't replace a core capability.
 from __future__ import annotations
 
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -142,6 +143,9 @@ class Registry:
         self._lock = threading.RLock()
         self._listeners: list[Callable[[], None]] = []
         self.authorizer: Authorizer = authorizer or ReadOnlyAuthorizer()
+        # Called once per invoke with (ctx, capability id, permission, arguments, arrived at,
+        # seconds, error or None, execution id). IntegrationAudit.record in the servers.
+        self.audit: Callable[..., Any] | None = None
 
     # ---- registration
 
@@ -282,15 +286,45 @@ class Registry:
     # ---- calling
 
     def invoke(self, service: Any, cap_id: str, arguments: dict[str, Any] | None, ctx: CallContext) -> Any:
-        """The one way an external caller runs a capability. Raises IntegrationError."""
+        """The one way an external caller runs a capability. Raises IntegrationError. Every call,
+        whatever happens to it, gets an audit line when an audit sink is set (PR-AI-010)."""
+        arrived, clock = time.time(), time.monotonic()
         cap = self.get(cap_id)
+        error: IntegrationError | None = None
+        result: Any = None
+        try:
+            result = self._invoke(service, cap, cap_id, arguments, ctx)
+            return result
+        except IntegrationError as exc:
+            error = exc
+            raise
+        except Exception as exc:  # handlers raise IntegrationError via run_call; anything else is ours
+            error = IntegrationError("internal", f"{type(exc).__name__}: {exc}")
+            raise
+        finally:
+            if self.audit is not None:
+                execution = ""
+                for source in (result, arguments):
+                    if isinstance(source, dict) and isinstance(source.get("execution_id"), str):
+                        execution = source["execution_id"]
+                        break
+                try:
+                    self.audit(ctx, cap_id, cap.permission if cap else "", arguments, arrived,
+                               time.monotonic() - clock, error, execution)
+                except Exception as exc:  # noqa: BLE001 - a full disk mustn't fail the call; say so on stderr
+                    print(f"audit: could not record {cap_id}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+    def _invoke(self, service: Any, cap: Capability | None, cap_id: str, arguments: dict[str, Any] | None,
+                ctx: CallContext) -> Any:
         if cap is None:
             raise IntegrationError("not_found", f"There is no capability {cap_id!r}.",
                                    hint="Call fabric_desktop_list_capabilities to see what is available.")
         if cap.status == "unavailable":
             raise IntegrationError("unavailable", f"{cap.title} isn't available: {cap.reason}")
+        ctx.decision = ""
         args = validate(cap.input_schema, arguments)
         self.authorizer.check(cap, args, ctx)  # may wait for the person's approval
+        ctx.decision = ctx.decision or "allowed"
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
         if cap.needs_service and service is None:

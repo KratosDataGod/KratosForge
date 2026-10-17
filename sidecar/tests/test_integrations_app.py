@@ -42,20 +42,20 @@ def test_pending_is_empty_while_off(svc):
     assert pending["enabled"] and pending["pending"][0]["summary"]["content"]["text"] == "print(1)"
 
 
-def test_activity_has_approvals_and_executions(svc):
+def test_activity_comes_from_the_audit_trail_with_execution_state(svc):
+    from fabric_desktop.integrations.audit import IntegrationAudit
+    from fabric_desktop.integrations.core import CallContext, Caller
     svc.integrations_set_enabled(True)
     client = svc.integrations_add_client("Claude Code", "claude-code")["client"]
-    approval = ask(svc, svc.integration_store.client(client["id"]))
-    svc.integrations_decide(approval["id"], False)
     run = Execution("sql", client["id"], "SELECT 1", {"workspace_id": "ws1"}, 60)
     run.state, run.started_at, run.finished_at = "succeeded", 1.0, 2.5
     ExecutionManager(svc)._save(run)
-    rows = svc.integrations_activity()
-    kinds = {r["kind"]: r for r in rows}
-    assert kinds["approval"]["decision"] == "denied" and kinds["approval"]["client"] == "Claude Code"
-    assert kinds["execution"]["outcome"] == "succeeded" and kinds["execution"]["client"] == "Claude Code"
-    assert kinds["execution"]["request"] == "Run a SQL query"
-    assert "result" not in json.dumps(rows)
+    IntegrationAudit(svc.integration_store).record(
+        CallContext(Caller(client["id"], "mcp-stdio")), "fabric_desktop_execute_sql", "EXECUTE_LOCAL_CODE",
+        {"workspace_id": "ws1", "query": "SELECT 1"}, 1.0, 0.2, execution_id=run.id)
+    [row] = svc.integrations_activity()
+    assert (row["client"], row["decision"], row["outcome"], row["execution_state"]) == ("Claude Code", "allowed", "ok", "succeeded")
+    assert row["arguments"]["query"] == "(given)" and "result" not in json.dumps(row)
 
 
 def test_test_connection_starts_the_real_server(svc):

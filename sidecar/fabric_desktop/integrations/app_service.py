@@ -23,7 +23,7 @@ from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
            "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
-           "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_test"}
+           "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_audit_check", "integrations_test"}
 
 HTTP_START_SECONDS = 15
 
@@ -208,21 +208,24 @@ class IntegrationsMixin:
         enabled = store.settings()["enabled"] and rules["enabled"] is not False
         return {"enabled": enabled, "pending": store.approvals("pending") if enabled else []}
 
-    def integrations_activity(self, limit: int = 100) -> list[dict[str, Any]]:
-        """Recent requests that needed the person (approvals, whatever happened to them) and every
-        execution, newest first. The full record of every call is the audit log (PR-AI-010)."""
-        from .executions import ExecutionManager
-        names = {c["id"]: c["name"] for c in self.integration_store.clients(include_revoked=True)}
-        rows = [{"kind": "approval", "at": a["decided_at"] or a["created_at"], "client": a["client_name"], "client_id": a["client_id"],
-                 "request": a["title"], "target": a["summary"].get("target", {}), "decision": a["state"], "note": a["note"]}
-                for a in self.integration_store.approvals("", limit)]
-        for e in ExecutionManager(self).list(None, limit):
-            rows.append({"kind": "execution", "at": e.get("finished_at") or e.get("started_at") or e.get("created_at"),
-                         "client": names.get(e.get("client_id"), e.get("client_id")), "client_id": e.get("client_id"),
-                         "request": {"sql": "Run a SQL query", "python": "Run Python", "notebook": "Run a notebook"}.get(e.get("kind"), e.get("kind")),
-                         "target": e.get("target") or {}, "outcome": e.get("state"), "seconds": e.get("seconds"),
-                         "execution_id": e.get("id")})
-        return sorted(rows, key=lambda r: r["at"] or 0, reverse=True)[:limit]
+    def integrations_activity(self, limit: int = 100, client_id: str = "") -> list[dict[str, Any]]:
+        """Every call external tools made, newest first, from the audit trail (audit.py). Calls that
+        started an execution show where it got to."""
+        from .audit import IntegrationAudit
+        from .executions import KEEP_RECORDS, ExecutionManager
+        rows = IntegrationAudit(self.integration_store).recent(limit, client_id)
+        if any(row.get("execution_id") for row in rows):
+            states = {e["id"]: e.get("state") for e in ExecutionManager(self).list(None, KEEP_RECORDS)}
+            for row in rows:
+                if row.get("execution_id") in states:
+                    row["execution_state"] = states[row["execution_id"]]
+        return rows
+
+    def integrations_audit_check(self) -> dict[str, Any]:
+        """Whether any line of the integration audit files was changed or removed since it was written."""
+        from .audit import IntegrationAudit
+        audit = IntegrationAudit(self.integration_store)
+        return audit.verify() | {"folder": str(audit.folder)}
 
     def integrations_test(self, client_id: str) -> dict[str, Any]:
         """Start the MCP server the way the tool will (the launcher, with its client id) and list

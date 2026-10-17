@@ -38,7 +38,7 @@ External tools: Claude, Codex, Copilot, Cursor, any MCP client, any HTTP client
               - invoke(): validate -> authorize -> approve -> run -> shape result
               - permissions and approvals (integrations.sqlite, decided in the app)
               - executions: ids, status, cancel, timeouts, output limits
-              - audit: one line per external call (extends audit.py)
+              - audit: one line per external call (integrations/audit.py)
                                 |
               Existing application services (Service and its mixins)
               workspaces, items, lakehouses, OneLake, notebooks, kernel, SQL,
@@ -177,6 +177,23 @@ MCP resources give context without moving data. A read-only capability that does
 
 Every resource needs only `READ_METADATA`. Rows of data need `READ_DATA` and go through a tool. Results are size-limited (1 MB) and every string in every result passes through secret redaction. MCP prompts carry the reusable workflow templates ([workflows](../ai/workflows.md), PR-AI-009): text only, each step a tool call with the usual checks.
 
+## 7a. Audit
+
+Every call through `Registry.invoke` gets one audit line, whatever happened to it, and so does every request the HTTP server refuses before it reaches `invoke` (no token, a browser `Origin`, a bad `Host`, rate limited). Refusals are written at most once per reason and caller every 10 seconds, with a count of the ones in between, so a flood can't fill the disk.
+
+| Field | What it holds |
+| --- | --- |
+| `at`, `seconds` | When the call arrived (UTC) and how long it took, including any wait for approval |
+| `channel`, `client_id`, `client` | `mcp-stdio`, `mcp-http` or `api`, and the tool as added in Settings |
+| `capability`, `permission` | What was asked for (`http_request` for a refused HTTP request) |
+| `decision` | `allowed`, `approved`, `denied`, `approval_denied`, `approval_pending` (nobody answered in time) or `invalid` |
+| `outcome`, `error` | `ok` or the error code, and the message with secrets removed |
+| `execution_id` | For calls that start or read an execution |
+| `arguments` | Ids, names and numbers. Code, SQL and long text show as `(given)`; anything credential-shaped is removed |
+| `host`, `os_user`, `version`, `prev`, `hash` | Where it ran, and a SHA-256 chain linking each line to the one before |
+
+Lines go to `%LOCALAPPDATA%\FabricDesktop\integrations\audit\audit-YYYY-MM.jsonl` (for log shippers) and to `integrations.sqlite` (the newest 50,000, for **Recent activity**). One MCP server runs per connected tool and the HTTP server is another process, so each line is written inside a store transaction: one writer at a time, and the chain stays whole. The format and chain are the same as the app's audit trail (PR #89), so `fabric-desktop audit --folder "%LOCALAPPDATA%\FabricDesktop\integrations\audit" --verify` checks it once that merges; Settings > Integrations > **Check the trail** does the same today. An audit failure (a full disk) never fails the call; it is reported on the engine's error output.
+
 ## 8. Extensions
 
 Extensions register capabilities with `registry.register(capability, source="<extension id>")` and remove them with `unregister_source()`. The registry validates schemas and requires an explicit permission category; an extension can't register a capability in a category the person can't grant, can't replace a core capability, and every call still passes through `invoke`. Listing changes are sent to connected MCP clients as `tools/list_changed`.
@@ -202,7 +219,7 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 
 | Need | Owner | Status |
 | --- | --- | --- |
-| Audit trail to extend | Enterprise readiness (PR #89) | In review; PR-AI-010 builds on it |
+| Audit trail format | Enterprise readiness (PR #89) | In review; PR-AI-010 writes its own files in the same line format and hash chain, so `fabric-desktop audit --verify` reads both once #89 merges |
 | Secret redaction | Enterprise readiness (PR #84) | In review; the integration layer has a small redaction of its own until it merges |
 | Policy file keys | Enterprise readiness (PR #90) | In review; integration keys use the same file |
 | Per-cell timeouts and resource limits | Prove this notebook | In progress; PR-AI-007 uses timeouts and interrupt today |

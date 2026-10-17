@@ -67,7 +67,7 @@ async function renderIntegrationsTab(box) {
     status.enabled ? connectCard(status, refresh) : null,
     status.enabled ? toolsCard(status, refresh) : null,
     status.enabled && status.pending.length ? pendingCard(status.pending, refresh) : null,
-    status.enabled ? activityCard(activity) : null,
+    status.enabled ? activityCard(activity, status) : null,
     troubleshootingCard(status)].filter(Boolean));
 }
 
@@ -329,19 +329,35 @@ async function watchApprovals() {
 
 // ---------- activity and troubleshooting ----------
 
-function activityCard(rows) {
+const CALL_DECISION = { allowed: "Allowed", approved: "Approved by you", denied: "Refused", approval_denied: "Denied by you",
+  approval_pending: "Not answered", invalid: "Not valid" };
+
+function activityCard(rows, status) {
+  const titles = Object.fromEntries((status.capabilities || []).map((c) => [c.id, c.title]));
+  const result = (r) => {
+    const state = r.outcome === "ok" ? (r.execution_state || "ok") : r.outcome;
+    const pill = state === "ok" ? "pass" : OUTCOME_PILL[state] || (r.outcome === "ok" ? "info" : "fail");
+    return h("span", { class: `pill-s ${pill}`, title: r.error || "" }, state.replaceAll("_", " "));
+  };
+  const target = (r) => Object.entries(r.arguments || {}).filter(([, v]) => v !== null && v !== "" && typeof v !== "object")
+    .slice(0, 4).map(([k, v]) => `${k} ${v}`).join(" · ");
+  const check = async () => {
+    const res = await attempt(() => rpc("integrations_audit_check"), "Couldn't check");
+    if (res) toast(res.ok ? `All ${res.lines} lines are as they were written` : `${res.problems.length} problems: ${res.problems[0]}`);
+  };
   return h("section", { class: "card pad" },
-    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recent activity")),
-    rows.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Time"), h("th", {}, "Tool"), h("th", {}, "Request"), h("th", {}, "Decision"), h("th", {}, "Outcome"), h("th", { class: "n" }, "Took"))),
+    h("div", { class: "row" }, h("h2", { class: "grow" }, "Recent activity"), btn("Check the trail", null, check, "tool outline small")),
+    rows.length ? h("div", { class: "integ-scroll" }, h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, h("th", {}, "Time"), h("th", {}, "Tool"), h("th", {}, "Request"), h("th", {}, "Decision"), h("th", {}, "Result"), h("th", { class: "n" }, "Took"))),
       h("tbody", {}, rows.map((r) => h("tr", {},
-        h("td", { class: "nowrap" }, when(r.at)), h("td", {}, r.client),
-        h("td", {}, r.request, Object.values(r.target || {}).length ? h("div", { class: "muted-text small" }, Object.values(r.target).join(" · ")) : null),
-        h("td", {}, r.kind === "approval" ? DECISION_TEXT[r.decision] || r.decision : "Allowed"),
-        h("td", {}, r.outcome ? h("span", { class: `pill-s ${OUTCOME_PILL[r.outcome] || "neu"}` }, r.outcome.replace("_", " ")) : ""),
-        h("td", { class: "n" }, r.seconds ? `${r.seconds.toFixed(1)} s` : "")))))
+        h("td", { class: "nowrap" }, when(Date.parse(r.at) / 1000)), h("td", {}, r.client || (r.client_id ? r.client_id : "Unknown tool")),
+        h("td", {}, titles[r.capability] || r.capability, h("div", { class: "muted-text small" }, [r.channel, target(r)].filter(Boolean).join(" · "))),
+        h("td", {}, CALL_DECISION[r.decision] || r.decision),
+        h("td", {}, result(r)),
+        h("td", { class: "n" }, r.seconds >= 0.05 ? `${r.seconds.toFixed(1)} s` : ""))))))
       : h("p", { class: "muted-text" }, "Nothing yet."),
-    h("p", { class: "muted-text small" }, "Requests that needed you and everything tools ran. No table data is kept here."));
+    h("p", { class: "muted-text small" }, "Every request a tool made, including refused ones. Code, queries and table data aren't kept. ",
+      "The full trail is in your Fabric Desktop folder under integrations\\audit."));
 }
 
 function troubleshootingCard(status) {

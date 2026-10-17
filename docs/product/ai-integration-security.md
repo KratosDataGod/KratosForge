@@ -33,7 +33,7 @@ A program that can already run commands as you on this PC. It can read your file
 | Flooding or huge requests | Body size limit, per-client rate limit, concurrency limit, output caps | HTTP server, executions |
 | A revoked client keeps going | Every call checks the client record; revoking stops the next call | Permissions |
 | Lower-privilege interface changes policy | IT policy keys are read only from the policy file; integrations can't change settings | Policy |
-| Untraceable actions | One audit line per external call with client, channel, capability, decision and outcome; arguments redacted | Audit |
+| Untraceable actions | One hash-chained audit line per external call and per refused HTTP request, with client, channel, capability, decision and outcome; code and queries not recorded, secrets removed | Audit (`integrations/audit.py`) |
 | Large responses exhaust memory or context | Paging, response size limits, row limits | Resources, executions |
 
 ## IT controls
@@ -54,4 +54,5 @@ A value of the wrong type fails closed: integrations off, or only `READ_METADATA
 - Approved code runs as you. It gets a storage token, and code written to use that token directly (not through the engine) could write OneLake files. The approval screen shows the code in full; approve only what you've read.
 - Approving a notebook run shows the notebook's name, not its code. External tools can't change notebooks in this release, so the code is what you saved.
 - Token redaction recognises known shapes (JWTs, bearer headers, SAS signatures, key-value secrets); a secret in an unusual format can pass through.
+- The audit trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which the chain check can't see. Ship `integrations\audit` to a log store if that matters.
 - Integration settings and approvals are files in your Windows profile; anything running as you can change them (see "What it does not protect against").

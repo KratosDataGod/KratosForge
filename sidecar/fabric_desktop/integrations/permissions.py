@@ -125,8 +125,10 @@ class PermissionAuthorizer:
             raise IntegrationError("permission_denied", "This tool is limited to other workspaces.",
                                    hint=f"The person can change its workspaces in {WHERE}.")
         self.store.touch(client["id"])
+        ctx.decision = "allowed"
         if self._needs_approval(cap, client):
             self._approve(cap, client, arguments, ctx)
+            ctx.decision = "approved"
 
     @staticmethod
     def _needs_approval(cap: Capability, client: dict[str, Any]) -> bool:

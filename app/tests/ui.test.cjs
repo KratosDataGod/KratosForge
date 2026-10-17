@@ -13,6 +13,24 @@ test("every UI script parses", () => {
   }
 });
 
+// The page's scripts share one global scope, so a top-level name declared in two of them makes
+// the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
+test("no two page scripts declare the same top-level name", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  assert.ok(scripts.length > 10, "index.html scripts not found");
+  const owner = new Map();
+  const clashes = [];
+  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
+  for (const name of scripts) {
+    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
+      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+      else owner.set(id, name);
+    }
+  }
+  assert.deepStrictEqual(clashes, []);
+});
+
 // esc and inlineMd from app.js, without the rest of the page.
 function markdownHelpers() {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -397,4 +415,15 @@ test("a watch keeps its last few values and marks a change", () => {
   for (let i = 4; i < 12; i += 1) t = dbgTrail(t, i, { value: String(i) });
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
+});
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });

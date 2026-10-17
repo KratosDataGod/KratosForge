@@ -43,6 +43,7 @@ const PREVIEW_FEATURES = {
   deps: "Cell dependencies",
   debug: "Variable history and watches",
   cost: "Cost",
+  capacity: "Capacity status",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",

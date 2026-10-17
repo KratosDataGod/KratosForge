@@ -7,7 +7,7 @@ Side by side runs one notebook on your PC and in Fabric, one after the other, an
 
 ## Turn it on
 
-1. Open a notebook and attach a lakehouse (**Add data items**). Both runs read and write that lakehouse.
+1. Open a notebook and attach a lakehouse (**Add data items**). Both runs read and write that lakehouse's real tables.
 2. On the ribbon's **Home** or **Run** tab, select **Side by side**. It shows **Side by side: On**. The toggle is remembered for this notebook on this PC.
 3. Select **Run all**.
 
@@ -22,6 +22,8 @@ Run all goes through three steps, shown in a panel above the cells:
 1. **Run on this PC.** The kernel restarts, so the run starts clean as Fabric's does, and every code cell runs in order. Cell output shows in the notebook as usual. If a cell fails, the run on this PC stops there, and the comparison still goes on to Fabric, so you see which side breaks.
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
+
+Before a notebook that writes tables runs, Fabric Desktop by KratosBI lists the tables it writes (read from the code) and asks you to confirm, because both runs replace what's in them. If a cell does something reading the code can't follow (`exec`, `%run`, `import *`), it says so and asks too. **Use Prove instead** runs both sides from the same table versions with their writes kept in a sandbox, so your tables don't change; see [Prove this notebook](notebooks.md#prove-this-notebook-preview).
 
 The runs go one after the other, not at the same moment, so they never write the same table at once. You can leave the page: the bell tells you when the comparison is ready, and the last comparison shows again when you reopen the notebook. **Cancel** stops whichever run is going.
 

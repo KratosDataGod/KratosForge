@@ -195,12 +195,20 @@ class SqlExecutions:
     def shutdown(self) -> None:
         """The app is closing: end every run's process."""
         with self._lock:
+            procs = []
             for run in self._runs.values():
                 if run.state in ("running", "cancelling"):
                     run.stop_reason = run.stop_reason or "cancel"
                     self._end_process(run)
+                    if run.proc is not None:
+                        procs.append(run.proc)
             for export in self._exports.values():
                 export.cancel.set()
+        for proc in procs:
+            try:
+                proc.wait(10)
+            except subprocess.TimeoutExpired:
+                pass
 
     def _get(self, run_id: str) -> Execution:
         with self._lock:

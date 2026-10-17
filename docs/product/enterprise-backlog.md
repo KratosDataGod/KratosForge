@@ -56,16 +56,16 @@ Highest priority first, by risk and by what unblocks other items. Owned-elsewher
 | FD-127 | P1 | Data contracts | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | |
 | FD-128 | P1 | Lineage and impact | DUPLICATE | [Staged roadmap](../scale-and-operations-plan.md) | #76 (open) |
 | FD-129 | P1 | Governance exceptions | PARTIAL | This program | |
-| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | |
-| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) (131a) |
+| FD-130 | P1 | Multi-team permissions | PARTIAL | This program | [#93](https://github.com/KratosDataGod/fabric-desktop/pull/93) |
+| FD-131 | P0 | Sensitive data protection | PARTIAL | This program | [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) (131a), [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95) (131b retention) |
 | FD-132 | P2 | Extension SDK | DUPLICATE | Git-native | |
 | FD-133 | P2 | Custom commands | DUPLICATE | Git-native | |
 | FD-134 | P2 | Project templates | DUPLICATE | Git-native | |
 | FD-135 | P2 | Extension packaging | DUPLICATE | Git-native | |
-| FD-136 | P1 | First-run experience | PARTIAL | This program | |
+| FD-136 | P1 | First-run experience | PARTIAL | This program | [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94) (draft) |
 | FD-137 | P1 | Opt-in telemetry | MISSING (decision T1) | This program | |
 | FD-138 | P1 | Diagnostic support bundles | PARTIAL | This program | |
-| FD-139 | P1 | Accessibility | PARTIAL | This program | |
+| FD-139 | P1 | Accessibility | PARTIAL | This program | [#92](https://github.com/KratosDataGod/fabric-desktop/pull/92) |
 | FD-140 | P0 | Pilot readiness | PARTIAL | This program | this PR ([release-readiness.md](release-readiness.md)) |
 
 ## Items this program owns
@@ -134,7 +134,7 @@ Split in two so each change is reviewable on its own.
 ### FD-131 Sensitive data protection (P0)
 
 - **FD-131a (redaction).** A `redact` module that removes tokens, SAS signatures, emails, user names in paths and secrets from text; used by error messages returned to the UI, JSON logs and Report a problem.
-- **FD-131b (local data).** Retention for proof sandboxes, previews and downloads (`local_retention_days`); encrypt the token cache with DPAPI on Windows through `msal-extensions` (a new dependency, so a decision first).
+- **FD-131b (local data).** Retention for previews, staged tables and downloads (`local_retention_days`, #95; proof sandboxes live in OneLake and have the Prove program's own delete); encrypt the token cache with DPAPI on Windows through `msal-extensions` (a new dependency, so a decision first).
 
 ### FD-136 First-run experience (P1)
 

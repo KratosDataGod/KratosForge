@@ -16,7 +16,7 @@ Last updated 2026-10-17. "Open PR" means built and tested in CI but not merged y
 | G2 Signed builds | Azure Trusted Signing account (D-C3), signing in CI (PR #28) | Blocked on Chris |
 | G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Open PRs [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82), [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86), [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88) |
 | G4 Admin controls | FD-105 policies, FD-104 deployment guide | Open PR [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90). Pinning a build and rollback still need per-build releases |
-| G5 Data protection | FD-131a redaction, FD-138 safe support report | Open PR [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84) |
+| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Open PRs [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84), [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95). Token cache encryption waits on D-C2 |
 | G6 Audit | FD-125 audit trail | Open PR [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89) |
 | G7 Recovery | FD-126 backup and restore | Open PR [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91) |
 | G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | In the PRs above |

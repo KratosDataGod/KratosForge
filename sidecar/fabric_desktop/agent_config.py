@@ -25,6 +25,15 @@
     enabled = true                        # evaluate the run log of each environment; off when left out
     seconds = 300                         # how often
     digest_over = 5                       # more changes than this in one evaluation: one Teams digest
+    quiet_hours = "22:00-06:00"           # optional: hold messages until the hours end (this machine's clock)
+    quiet_except = ["critical"]           # criticalities sent even in quiet hours
+    escalate_after_minutes = 60           # optional: post open, unacknowledged incidents to escalate_to
+    escalate_to = "on-call"               # a route name
+
+    [[incidents.route]]                   # optional: a team's channel; anything no route matches goes to
+    name = "sales"                        # alerts.teams_webhook_env
+    webhook_env = "SALES_TEAMS_WEBHOOK"
+    teams = ["Sales data"]                # match on project team, owner, criticality, kinds, envs
 
     [pipeline]                            # optional: take run requests from Fabric pipelines
     enabled = true
@@ -110,6 +119,11 @@ class IncidentsConfig:
     enabled: bool = False
     seconds: float = 300.0
     digest_over: int = 5
+    quiet_hours: str = ""
+    quiet_except: tuple[str, ...] = ("critical",)
+    escalate_after_minutes: float = 0.0
+    escalate_to: str = ""
+    routes: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -152,6 +166,38 @@ def _secret_keys(table: Any, where: str) -> list[str]:
         for i, v in enumerate(table):
             found += _secret_keys(v, f"{where}[{i}].")
     return found
+
+
+_QUIET = re.compile(r"([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d")
+_ROUTE_FILTERS = ("teams", "owners", "criticality", "kinds", "envs")
+
+
+def _routes(raw: Any, errors: list[str]) -> tuple[dict[str, Any], ...]:
+    """``[[incidents.route]]``: a name, the variable holding its webhook, and what it matches."""
+    out = []
+    for i, r in enumerate(raw if isinstance(raw, list) else []):
+        if not isinstance(r, dict):
+            errors.append(f"incidents.route {i + 1}: write it as [[incidents.route]] with a name and webhook_env")
+            continue
+        where = f"incidents.route {r.get('name') or i + 1}"
+        name = str(r.get("name") or "")
+        if not _ID.fullmatch(name) or name == "default":
+            errors.append(f"{where}: name is letters, digits, . _ or - (and not \"default\")")
+            continue
+        if any(k in r for k in ("url", "webhook")):
+            errors.append(f"{where}: give the webhook as webhook_env, the name of an environment variable")
+            continue
+        if not r.get("webhook_env"):
+            errors.append(f"{where}: webhook_env is required")
+            continue
+        unknown = set(r) - {"name", "webhook_env", *_ROUTE_FILTERS}
+        if unknown:
+            errors.append(f"{where}: doesn't know {', '.join(sorted(unknown))}")
+        out.append({"name": name, "webhook_env": str(r["webhook_env"]),
+                    **{k: tuple(str(x) for x in r.get(k) or []) for k in _ROUTE_FILTERS}})
+    names = [r["name"] for r in out]
+    errors += [f"incidents.route {n}: the name is used twice" for n in sorted({n for n in names if names.count(n) > 1})]
+    return tuple(out)
 
 
 def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None:
@@ -245,9 +291,21 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"))
     if not isinstance(inc.get("enabled", False), bool):
         errors.append("incidents.enabled: true or false")
+    routes = _routes(inc.get("route") or [], errors)
+    quiet = str(inc.get("quiet_hours") or "")
+    if quiet and not _QUIET.fullmatch(quiet):
+        errors.append('incidents.quiet_hours: two times like "22:00-06:00"')
+    escalate_to = str(inc.get("escalate_to") or "")
+    escalate_after = number(inc, "escalate_after_minutes", 0, 0, "incidents")
+    if escalate_after and not escalate_to:
+        errors.append("incidents.escalate_to: name the route escalations go to")
+    elif escalate_to and escalate_to not in {r["name"] for r in routes}:
+        errors.append(f"incidents.escalate_to: there is no [[incidents.route]] named {escalate_to!r}")
     incidents = IncidentsConfig(enabled=inc.get("enabled") is True,
                                 seconds=number(inc, "seconds", 300, 30, "incidents"),
-                                digest_over=int(number(inc, "digest_over", 5, 1, "incidents")))
+                                digest_over=int(number(inc, "digest_over", 5, 1, "incidents")),
+                                quiet_hours=quiet, quiet_except=tuple(str(x).lower() for x in inc.get("quiet_except", ["critical"])),
+                                escalate_after_minutes=escalate_after, escalate_to=escalate_to, routes=routes)
     cfg = AgentConfig(
         path=Path(path), name=str(agent.get("name") or socket.gethostname()),
         home=Path(agent["home"]) if agent.get("home") else default_home(),

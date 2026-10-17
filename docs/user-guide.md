@@ -33,6 +33,12 @@ Press **Ctrl+K** anywhere, or click the search box. Type a few letters to find:
 
 Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for preview features only show when preview features are on.
 
+### Using the keyboard
+
+- **Tab** moves through the window, with a ring around whatever has focus. The first Tab offers **Skip to content**, which jumps past the top bar and the rail.
+- In a dialog, **Tab** stays inside it, and **Esc** closes it when clicking outside would. Focus then goes back to what you were on.
+- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+
 ### The bell: activity
 
 The bell keeps a list of what happened in this app on this PC:
@@ -71,6 +77,7 @@ Home answers "what happened since I was last here". From the top:
 | Section | What it shows |
 | --- | --- |
 | **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. |
+| **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
 | **Running now** | What this app is running, here or in Fabric. |
@@ -80,6 +87,23 @@ Home answers "what happened since I was last here". From the top:
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
+
+### Ready to work
+
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window.
+
+| Check | Ready when | If not |
+| --- | --- | --- |
+| **Local engine** | The engine starts on this PC | You wouldn't see Home; the startup window explains |
+| **Signed in** | Your sign-in is saved and still works | **Sign in** |
+| **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
+| **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
+| **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
+| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+
+**Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
 ### Estate X-ray (Preview)
 
@@ -280,6 +304,10 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 **On Home**, **Your workloads** (Preview) shows what you own by health, the ones that need attention with **Open**, and how many workloads in your workspaces have no owner, with **Review**.
 
+## Source control (Preview)
+
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. The whole page is described in [Source control](source-control.md).
+
 ## Settings
 
 Open Settings from the gear at the bottom of the left rail, or from the account menu.
@@ -312,7 +340,7 @@ A channel change takes effect the next time Fabric Desktop by KratosBI starts. M
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview and Workloads. To hide them all, turn off **Settings > Preview features**.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them all, turn off **Settings > Preview features**.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 
@@ -327,3 +355,31 @@ Ideas and feature requests go to the ideas forum instead: see [Submitting ideas]
 ## For IT admins
 
 Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
+
+### Audit trail
+
+Every time someone runs or changes something in the app (a notebook cell, a SQL query, a metadata run, a publish, a promote, a schedule, a shortcut, a vacuum, a setting), the engine adds a line to `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl`. On a server, the headless agent writes to `audit\` in its home folder: one line when a run is queued (`agent_enqueue`) and one when each job finishes or fails (`agent_job`, with the tables, rows written and error). Reading, listing, previewing and waiting for results aren't recorded.
+
+Each line says:
+
+| Field | What it holds |
+| --- | --- |
+| `at`, `seconds` | When it started (UTC) and how long it took |
+| `action`, `outcome` | What was done (`meta_promote`, `run_sql`, `xray_vacuum` ...) and `ok` or `error`, with the error text |
+| `who`, `tenant` | The account signed in to the app, and its tenant |
+| `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
+| `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+
+Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
+
+To read it, or to check that no line was changed or removed since it was written:
+
+```powershell
+fabric-desktop audit --limit 20                      # the newest 20 lines
+fabric-desktop audit --action meta_promote           # only promotes
+fabric-desktop audit --verify                        # exit code 1 if the chain is broken
+fabric-desktop audit --folder D:\agent\audit --verify # an agent's trail
+```
+
+The files are plain JSON lines, so a log shipper (Azure Monitor agent, Splunk, Fluent Bit) can collect them. The trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which `--verify` can't see. If that matters for you, ship the files to a store the PC can't change.

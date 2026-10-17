@@ -340,7 +340,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: #74 (agent timer, opt-in; app on request)
 
 **45. Incident lifecycle** · Missing · Stage 2.1, 2.3
-- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs), #79 (escalation, likely category), 2.3B (screens)
+- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs), #79 (escalation, likely category), #125 (screens), 2.3C (freshness alerts as incidents)
 
 **46. Alert correlation** · Missing · Stage 2.3, Stage 6
 - Enhancement: group symptoms by shared upstream, environment or location, saying "likely" and listing evidence. Validation: U. PR: —
@@ -485,3 +485,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-16 | Stage 2.1/2.2 built: W2 revised to a conditional-write JSON document per environment; agent evaluation opt-in; `freshness_alerts.json` import dropped. |
 | 2026-10-17 | #72 and #74 merged. Stage 2.3 split into 2.3A (engine) and 2.3B (screens, after Chris reacts to mockup boards 5 and 6). FD-122/123/124 and governance views assigned to this program by the enterprise program. |
 | 2026-10-17 | #79 (2.3A) merged. 2.3B built after Chris's go: Monitor > Incidents, incident page, incidents on the workload page; agents publish their incident settings (no webhooks) in their status records. Moving the app's own freshness alerts onto incidents is split out as 2.3C. |
+| 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |

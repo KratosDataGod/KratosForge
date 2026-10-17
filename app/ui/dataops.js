@@ -344,7 +344,7 @@ function freshnessDialog(e) {
 
 function alertsLine() {
   return h("div", { class: "row wrap muted-text small" }, icon("alert", 14),
-    fresh.alerts ? "Late and failed tables are also posted to your Teams channel." : "Late and failed tables can also be posted to a Teams channel.",
+    fresh.alerts ? "New incidents are also posted to your Teams channel, unless an agent already checks that environment." : "New incidents can also be posted to a Teams channel.",
     btn(fresh.alerts ? "Change" : "Set up Teams alerts", null, alertsDialog, "tool link small"));
 }
 
@@ -359,28 +359,42 @@ async function alertsDialog() {
     toast(res.teams_webhook ? (test ? "Sent a test message to Teams and saved" : "Teams alerts are on") : "Teams alerts are off");
   };
   showDialog("Teams alerts", h("div", { class: "dataops" },
-    h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each late or failed table is posted once."),
+    h("p", { class: "text" }, "In the Teams channel, add the Workflows template \"Post to a channel when a webhook request is received\", then paste its address here. Each new incident (a failed or late table, a missed objective, an agent that stopped) is posted once, and again when it recovers. Environments that a running agent checks are left to the agent."),
     h("label", { class: "field" }, "Webhook address", url),
-    h("p", { class: "muted-text small" }, "This PC sends the alerts while the app is open; the address stays on this PC.")),
+    h("p", { class: "muted-text small" }, "This PC sends them while the app is open; the address stays on this PC. A message Teams doesn't take is sent with the next check.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", null, () => save(false), "tool outline"), btn("Send a test and save", "alert", () => save(true), "tool primary")]);
 }
 
-// Checked at startup and every 10 minutes: late tables go to the bell (and Teams, once each).
+// Checked at startup and every 10 minutes. Late tables show on Home; problems become incidents
+// (incident_service.incidents_watch): an environment a running agent checks is only read, any other
+// is checked here, and its new incidents go to the bell and, once each, to this PC's Teams webhook.
 async function checkFreshness() {
   clearTimeout(fresh.timer);
   fresh.timer = setTimeout(checkFreshness, 600000);
-  const res = await rpc("meta_freshness", { notify: true }).catch(() => null);
-  if (!res) return;
-  fresh.items = res.items;
-  fresh.alerts = res.alerts;
-  for (const x of res.items) {
-    if (x.status !== "late") continue;
-    const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
-    if (!activity.items.some((i) => i.id === id)) {
-      logActivity({ id, status: "failed", title: `${x.entity} is late · ${ENV_LABEL[x.env]}`, text: `${x.reasons.join("; ")}.` });
+  const [res, watch] = await Promise.all([
+    // With preview features hidden, Teams gets the old per-table alerts instead of incidents.
+    rpc("meta_freshness", { notify: !previewShown() }).catch(() => null),
+    previewShown() ? rpc("incidents_watch", { notify: true }).catch(() => null) : null,
+  ]);
+  if (res) {
+    fresh.items = res.items;
+    fresh.alerts = res.alerts;
+    for (const x of previewShown() ? [] : res.items) {
+      const id = `fresh:${x.env}:${x.entity}:${x.last_ok}`;
+      if (x.status === "late" && !activity.items.some((i) => i.id === id)) {
+        logActivity({ id, status: "failed", title: `${x.entity} is late · ${ENV_LABEL[x.env]}`, text: `${x.reasons.join("; ")}.` });
+      }
     }
+    if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
   }
-  if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
+  for (const e of watch?.envs || []) {
+    for (const i of e.incidents) {
+      const id = `inc:${i.id}`;
+      if (i.state !== "open" || activity.items.some((x) => x.id === id)) continue;
+      logActivity({ id, status: "failed", title: i.title, text: [i.text, e.mode === "agent" ? `Raised in ${ENV_LABEL[e.env]}'s incident list.` : ""].filter(Boolean).join(" ") });
+    }
+    if (e.notified?.error) logActivity({ id: "inc:teams-error", status: "error", title: "Teams alert not sent", text: `It will go with the next check. ${friendlyError(e.notified.error).text}`, details: e.notified.error });
+  }
   if (state.view === "home") renderFreshHome();
 }
 

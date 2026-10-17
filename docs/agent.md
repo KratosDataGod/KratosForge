@@ -325,5 +325,5 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
 - Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
-- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Incidents ([user guide](user-guide.md#incidents-preview)). Late tables can also still be posted by the app's own freshness alerts, so a team using both may see a late table twice. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
+- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

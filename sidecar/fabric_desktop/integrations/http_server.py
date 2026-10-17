@@ -396,6 +396,11 @@ def serve(port: int, parent_pid: int = 0) -> int:
     state = root / "integrations" / "http.json"
 
     def watch() -> None:
+        # http.json tells the app the API is up, so it is written only once uvicorn is listening.
+        while not server.started and not server.should_exit:
+            time.sleep(0.05)
+        if server.started:
+            state.write_text(json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}), encoding="utf-8")
         while not server.should_exit:
             if not _parent_alive(parent_pid):
                 server.should_exit = True
@@ -403,7 +408,6 @@ def serve(port: int, parent_pid: int = 0) -> int:
             time.sleep(1)
 
     threading.Thread(target=watch, daemon=True, name="parent-watch").start()
-    state.write_text(json.dumps({"pid": os.getpid(), "port": port, "started_at": time.time()}), encoding="utf-8")
     try:
         server.run()
     finally:

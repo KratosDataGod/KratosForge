@@ -34,7 +34,8 @@
         "FEAT-SHL-09"
       ],
       "external_dependencies": [
-        "Chris creates the Azure Trusted Signing account (D-C3)"
+        "Chris creates the Azure Trusted Signing account (D-C3)",
+        "Overlaps HD-021 enforce signing (waits on Chris, D-C3) (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "Released exe and engine DLLs carry a valid signature",
@@ -92,7 +93,8 @@
         "FEAT-PRV-01"
       ],
       "external_dependencies": [
-        "Chris runs it on his non-production workspace"
+        "Chris runs it on his non-production workspace",
+        "Overlaps HD-029 live harness run (Chris); HD-053 OneLake contract tests; HD-054 T-SQL harness and live job (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "Ten flows pass or have recorded defects",
@@ -169,6 +171,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "If OneLake ignores conditional requests, concurrent writers can overwrite data.",
+      "external_dependencies": [
+        "Overlaps HD-016 cross-process leases; HD-029 live harness run (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.6,
         "cost": 2.0,
@@ -189,7 +194,8 @@
         "FEAT-AUTH-03"
       ],
       "external_dependencies": [
-        "Decision D-C2"
+        "Decision D-C2",
+        "Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "The cache is unreadable to another Windows user",
@@ -254,6 +260,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Defense in depth for a webview that renders user and notebook content.",
+      "external_dependencies": [
+        "Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 3.0,
@@ -299,6 +308,9 @@
         89
       ],
       "mandatory_reason": "Enterprise compliance needs an audit record of changes to shared data.",
+      "external_dependencies": [
+        "Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.6,
         "cost": 2.0,
@@ -343,6 +355,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "The embedded view holds saved Fabric sign-in cookies.",
+      "external_dependencies": [
+        "Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.5,
@@ -423,11 +438,17 @@
         "risk": 1
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.",
+      "external_dependencies": [
+        "Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-009"
+      ],
       "package": "docs/product/pr-ready/PB-010.md",
       "computed": {
         "benefit": 2.2,
@@ -966,7 +987,8 @@
       "confidence": "High",
       "state": "In progress",
       "external_dependencies": [
-        "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+        "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)",
+        "Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 3.25,
@@ -1533,7 +1555,8 @@
         "FEAT-META-10"
       ],
       "external_dependencies": [
-        "Product-owner decision D1"
+        "Product-owner decision D1",
+        "Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "D1 answered",
@@ -1885,11 +1908,17 @@
         "risk": 2
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.",
+      "external_dependencies": [
+        "Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-039/HD-051"
+      ],
       "package": "docs/product/pr-ready/PB-051.md",
       "computed": {
         "benefit": 2.7,
@@ -2048,6 +2077,9 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "In progress",
+      "external_dependencies": [
+        "Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.4,
         "cost": 2.5,
@@ -2216,6 +2248,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 2.0,
@@ -2299,6 +2334,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Enterprise procurement often requires an accessibility conformance statement.",
+      "external_dependencies": [
+        "Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
@@ -2342,6 +2380,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Enterprise update control needs rollback.",
+      "external_dependencies": [
+        "Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 2.5,
@@ -2381,6 +2422,9 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.0,
@@ -2422,6 +2466,9 @@
       "state": "In review",
       "prs": [
         91
+      ],
+      "external_dependencies": [
+        "Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 2.3,
@@ -2465,7 +2512,8 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+        "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
+        "Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 3.6,
@@ -2506,6 +2554,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.45,
         "cost": 2.5,
@@ -2582,6 +2633,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
@@ -2619,11 +2673,17 @@
         "risk": 1
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.",
+      "external_dependencies": [
+        "Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-011"
+      ],
       "package": "docs/product/pr-ready/PB-071.md",
       "computed": {
         "benefit": 2.45,
@@ -2668,6 +2728,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "A frozen app with no way out is the most visible reliability failure.",
+      "external_dependencies": [
+        "Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.95,
         "cost": 3.5,
@@ -2708,6 +2771,9 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.1,
         "cost": 3.0,
@@ -2751,6 +2817,9 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Supply-chain controls are only as strong as the weakest workflow.",
+      "external_dependencies": [
+        "Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.2,
         "cost": 1.0,
@@ -3520,6 +3589,9 @@
         110,
         112
       ],
+      "external_dependencies": [
+        "Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.9,
         "cost": 3.5,
@@ -3691,6 +3763,9 @@
       "effort": "XL",
       "confidence": "Low",
       "state": "In progress",
+      "external_dependencies": [
+        "Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "priority_override": {
         "priority": "P0",
         "by": "Chris (product owner)",
@@ -3738,6 +3813,52 @@
         "cost": 1.0,
         "score": 1.65,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-101",
+      "title": "Codebase audit and hardening program",
+      "category": "Security and Enterprise Readiness",
+      "problem": "An enterprise audit of main at 1248ccd found data-safety, security and update defects: a table rewrite after commit, Delta profile checks after writes, unguarded OneLake paths, approvals that don't bind the code, redaction after JSON encoding, and updates without checksums.",
+      "capability": "Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.",
+      "evidence": [
+        "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
+        "Backlog not yet pushed (push freeze)"
+      ],
+      "features": [
+        "FEAT-SHL-09",
+        "FEAT-ONE-05"
+      ],
+      "acceptance": [
+        "As defined in HD-001..057 by its owning thread",
+        "Overlapping items here follow the owner named in that backlog"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Codebase audit and hardening",
+      "source_refs": [
+        "HD-001..057"
+      ],
+      "duplicates": [
+        "Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
+      "computed": {
+        "benefit": 3.5,
+        "cost": 3.5,
+        "score": 1.75,
+        "priority": "P0"
       }
     }
   ]

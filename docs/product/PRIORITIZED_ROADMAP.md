@@ -63,6 +63,7 @@ required items are never below P1, whatever their score. Each states why.
 | --- | --- | --- | ---: | --- | --- |
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | blocker | 2.76 | P0 | Launch to about 5,000 people needs evidence the core flows work on a real tenant. |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | blocker | 2.48 | P0 | Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people. |
+| [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | blocker | 1.75 | P0 | HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | required | 2.56 | P1 | Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof. |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | required | 2.45 | P1 | The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI. |
 | [PB-078](PRODUCT_BACKLOG.md#pb-078) | Preview tags match the docs | required | 2.45 | P1 | AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy. |
@@ -117,7 +118,9 @@ are sequenced by those programs; the order here is what the master product view 
 2. **Trust and correctness (mandatory P1, unassigned).** Small, high-confidence fixes that remove
    wrong answers and wrong documents: local-parity defects (PB-013), Preview labels (PB-078),
    security and network docs (PB-010), Rust tests in CI (PB-071) and Fabric client retries
-   (PB-051). Each has a PR-ready package.
+   (PB-051). Each has a PR-ready package. PB-010, PB-071 and PB-051 are now built by the
+   Codebase audit and hardening program (PB-101), whose P0s (HD-001..009) fix data-safety,
+   security and update-integrity defects and come before new feature work.
 3. **Enterprise readiness already merged.** Run the implementation review on the merged enterprise
    PRs (audit trail #89, retention #95, backup #91, Ready to work #94), then token encryption
    (PB-005), CSP (PB-006), embedded-view hosts (PB-008) and release pinning (PB-064).
@@ -133,13 +136,14 @@ are sequenced by those programs; the order here is what the master product view 
 ## Ranking
 
 <!-- BEGIN GENERATED: ranking -->
-### P0 (3 items)
+### P0 (4 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | 3 | 2 | 5 | 2 | 5 | 2 | 2 | 3.45 | 2.0 | 2.76 | blocker | M | High | none | Master product (unassigned) |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | 3 | 1 | 5 | 1 | 5 | 2 | 2 | 3.1 | 2.0 | 2.48 | blocker | S | High | none | Enterprise readiness |
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
+| [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 
 ### P1 (28 items)
 
@@ -158,12 +162,12 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-022](PRODUCT_BACKLOG.md#pb-022) | Fabric SQL dialect compatibility analyzer | 4 | 4 | 3 | 4 | 5 | 3 | 2 | 3.9 | 2.5 | 2.73 | none | M | Medium | none | SQL development sprint |
 | [PB-098](PRODUCT_BACKLOG.md#pb-098) | One list of engine methods | 2 | 1 | 4 | 2 | 4 | 1 | 1 | 2.6 | 1.0 | 2.6 | none | S | Medium | PB-095 | Bring your own AI integration |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | 4 | 2 | 3 | 2 | 5 | 2 | 2 | 3.2 | 2.0 | 2.56 | required | M | High | none | Master product (unassigned) |
-| [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | 2 | 1 | 4 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | required | S | High | none | Master product (unassigned) |
+| [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | 2 | 1 | 4 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | required | S | High | none | Codebase audit and hardening |
 | [PB-078](PRODUCT_BACKLOG.md#pb-078) | Preview tags match the docs | 2 | 1 | 4 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | required | S | High | none | Master product (unassigned) |
 | [PB-063](PRODUCT_BACKLOG.md#pb-063) | Assistive technology audit | 2 | 1 | 4 | 1 | 4 | 2 | 1 | 2.45 | 1.5 | 2.21 | required | M | Medium | none | Enterprise readiness |
-| [PB-010](PRODUCT_BACKLOG.md#pb-010) | Security and network docs match the shipped app | 1 | 1 | 4 | 1 | 4 | 1 | 1 | 2.2 | 1.0 | 2.2 | required | S | High | none | Master product (unassigned) |
+| [PB-010](PRODUCT_BACKLOG.md#pb-010) | Security and network docs match the shipped app | 1 | 1 | 4 | 1 | 4 | 1 | 1 | 2.2 | 1.0 | 2.2 | required | S | High | none | Codebase audit and hardening |
 | [PB-074](PRODUCT_BACKLOG.md#pb-074) | Release pipeline hardening | 1 | 1 | 4 | 1 | 4 | 1 | 1 | 2.2 | 1.0 | 2.2 | required | S | High | none | Enterprise readiness |
-| [PB-051](PRODUCT_BACKLOG.md#pb-051) | Fabric REST client resilience | 3 | 1 | 4 | 1 | 4 | 2 | 2 | 2.7 | 2.0 | 2.16 | required | S | High | none | Master product (unassigned) |
+| [PB-051](PRODUCT_BACKLOG.md#pb-051) | Fabric REST client resilience | 3 | 1 | 4 | 1 | 4 | 2 | 2 | 2.7 | 2.0 | 2.16 | required | S | High | none | Codebase audit and hardening |
 | [PB-003](PRODUCT_BACKLOG.md#pb-003) | Prove OneLake leases and MERGE writes live | 1 | 1 | 5 | 2 | 4 | 2 | 2 | 2.6 | 2.0 | 2.08 | required | S | Medium | PB-002 | Enterprise readiness |
 | [PB-007](PRODUCT_BACKLOG.md#pb-007) | Audit trail of runs and changes | 1 | 1 | 5 | 2 | 4 | 2 | 2 | 2.6 | 2.0 | 2.08 | required | M | High | none | Enterprise readiness |
 | [PB-005](PRODUCT_BACKLOG.md#pb-005) | Encrypt the token cache | 1 | 1 | 5 | 1 | 4 | 2 | 2 | 2.45 | 2.0 | 1.96 | required | S | High | none | Enterprise readiness |
@@ -247,3 +251,5 @@ are sequenced by those programs; the order here is what the master product view 
 | Date | Change | By |
 | --- | --- | --- |
 | 2026-10-17 | First ranking: weights 0.25/0.20/0.25/0.15/0.15, costs 0.5/0.5, P1 at 2.6, P2 at 1.8 | Master product thread |
+| 2026-10-17 | PB-099 local data engine set to P0 by the product owner | Chris |
+| 2026-10-17 | PB-101 Codebase audit and hardening added as a blocker (P0); it takes over PB-010, PB-051 and PB-071 | Master product thread |

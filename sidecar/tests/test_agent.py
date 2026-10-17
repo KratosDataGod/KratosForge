@@ -344,6 +344,9 @@ def test_agent_runs_a_queued_environment_with_run_details(setup):
     assert set(log["worker"]) == {"etl-01"} and set(log["job_id"]) == {job["id"]}
     assert set(log["attempt"]) == {1} and all(b.startswith("agent-") for b in log["batch_id"])
     assert not list((setup.project / ".local" / "dev" / "_leases").glob("*.json"))  # every lease released
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "ok" and line["app"] == "agent" and line["target"]["job_id"] == job["id"]
+    assert line["target"]["env"] == "dev" and line["target"]["tables"] == 6 and agent.audit.verify()["ok"]
 
 
 def test_agent_refuses_environments_it_was_not_given(setup):
@@ -374,6 +377,8 @@ def test_a_failed_check_fails_the_job_without_retrying(setup, tmp_path):
     agent.step()
     finish(agent)
     assert agent.queue.get(job["id"])["state"] == "failed"
+    [line] = [e for e in agent.audit.recent(10) if e["action"] == "agent_job"]
+    assert line["outcome"] == "error" and "bronze.orders" in line["error"]
 
 
 def test_a_job_from_a_crashed_agent_runs_again_after_restart(setup):

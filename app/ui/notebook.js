@@ -79,7 +79,7 @@ function renderNotebook() {
 
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
-      h("div", { class: "spacer" }), btn("Save", "save", saveNotebook),
+      h("div", { class: "spacer" }), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -1103,6 +1103,8 @@ async function runCell(cell) {
     } else {
       cell.status = "error";
       cell.outputs = [{ type: "error", ename: "Kernel error", evalue: String(err) }];
+      // The engine was ended (stuck or crashed), and the kernel with it.
+      if (/^(The engine stopped answering|The Python sidecar stopped)/.test(String(err))) depsRestarted();
     }
     cell.seconds = (performance.now() - started) / 1000;
   }

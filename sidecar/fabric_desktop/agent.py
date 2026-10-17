@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 import signal
 import threading
 import time
@@ -25,6 +26,7 @@ from typing import Any, Callable
 
 from . import agent_status
 from .agent_config import AgentConfig
+from .audit import AuditLog
 from .dataops_service import post_teams
 from .jobqueue import JobQueue
 from .local_schedules import next_run
@@ -34,7 +36,8 @@ from .meta import mesh as mesh_mod
 from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
-from .workloads.notify import Outbox, send
+from .workloads.agents import read_status
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, send
 
 KIND_META = "meta"
 
@@ -63,6 +66,7 @@ class Agent:
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
         self._outbox: Outbox | None = None
+        self.audit = AuditLog(config.home / "audit", app="agent")
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
@@ -83,14 +87,30 @@ class Agent:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't publish the agent status", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
 
+    def incident_routing(self) -> Routing:
+        """Where incident messages go: the [[incidents.route]] channels, and alerts.teams_webhook_env
+        for anything none of them matches. Webhook addresses are read from the environment now."""
+        inc = self.config.incidents
+        routes = [Route(DEFAULT_ROUTE, self.config.teams_webhook)] if self.config.teams_webhook else []
+        for r in inc.routes:
+            url = os.environ.get(r["webhook_env"], "")
+            if url:
+                routes.append(Route(r["name"], url, r["teams"], r["owners"], r["criticality"], r["kinds"], r["envs"]))
+            else:
+                self.log.warning("an incident route's webhook variable isn't set; its messages go nowhere",
+                                 extra=fields(route=r["name"], variable=r["webhook_env"]))
+        quiet = Quiet.parse(inc.quiet_hours, inc.quiet_except) if inc.quiet_hours else None
+        return Routing(routes, quiet, inc.escalate_after_minutes * 60, inc.escalate_to)
+
     def evaluate_incidents(self) -> dict[str, list[dict[str, Any]]]:
-        """Evaluate each environment's run log and bring its incident list up to date (workloads/
-        incidents.py); tell Teams about what opened or recovered. A failure is logged, never fatal:
-        an environment that can't be read gets a "can't evaluate" incident, and its workload
-        incidents stay as they are."""
+        """Evaluate each environment's run log and agent records and bring its incident list up to
+        date (workloads/incidents.py); escalate what nobody acknowledged; tell Teams. A failure is
+        logged, never fatal: an environment that can't be read gets a "can't evaluate" incident,
+        and its workload incidents stay as they are."""
         changed: dict[str, list[dict[str, Any]]] = {}
         by = f"agent {self.config.name}"
         now = dt.datetime.fromtimestamp(self.clock()).astimezone()
+        routing = self.incident_routing()
         for env in self.config.environments:
             try:
                 log = IncidentLog(self._control(env), env, clock=self.clock)
@@ -98,17 +118,27 @@ class Agent:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't open the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
                 continue
+            evaluated: set[str] = set()
             try:
                 project = self.runtime._project()
                 runs = self.runtime.meta_runs(env, 2000)
             except Exception as exc:
                 state, message = model.classify_error(exc)
-                signals, evaluated = [evaluate.cant_evaluate(env, state, message)], False
+                signals = [evaluate.cant_evaluate(env, state, message)]
             else:
                 specs = {n: e.spec for n, e in project.entities.items()}
-                signals, evaluated = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now), True
+                signals = evaluate.signals(mesh_mod.project_name(project), specs, runs, env, now=now,
+                                           team=mesh_mod.identity(project)["team"])
+                evaluated |= evaluate.WORKLOAD_KINDS
+            try:
+                signals += evaluate.agent_signals(read_status(log.backend), env, now, me=self.config.name)
+                evaluated.add("agent_offline")
+            except Exception as exc:  # agent records unreadable: their incidents stay as they are
+                self.log.warning("couldn't read the agent records", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
             try:
                 changes = log.sync(signals, evaluated=evaluated, by=by)
+                if routing.escalate_after:
+                    changes += log.escalate(routing.escalate_after, routing.escalate_to, by)
             except Exception as exc:
                 self._controls.pop(env, None)
                 self.log.warning("couldn't update the incident list", extra=fields(env=env, error=f"{type(exc).__name__}: {exc}"))
@@ -118,11 +148,11 @@ class Agent:
                                                                      title=c["incident"]["title"]))
             changed[env] = changes
         all_changes = [c for cs in changed.values() for c in cs]
-        if self.config.teams_webhook:  # also when nothing changed: messages left from before go out
+        if routing.routes:  # also when nothing changed: messages left from before go out
             if self._outbox is None:
                 self._outbox = Outbox(self.config.home / "alerts.sqlite3", clock=self.clock)
-            result = send(all_changes, self.config.teams_webhook, self._outbox, f"agent {self.config.name}",
-                          post_teams, self.config.incidents.digest_over)
+            result = send(all_changes, routing, self._outbox, f"agent {self.config.name}", post_teams,
+                          self.config.incidents.digest_over, now=now)
             if result.get("error"):
                 self.log.warning("couldn't post incidents to Teams; they'll go with the next try",
                                  extra=fields(queued=result["queued"], error=result["error"]))
@@ -181,6 +211,7 @@ class Agent:
         except Exception as exc:
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
+            self._audit(job, "error", time.monotonic() - t0, error=error)
             if is_retryable(exc):
                 after = self.queue.retry_later(job["id"], owner, error)
                 self.log.warning("job will retry" if after and after["state"] == "queued" else "job gave up",
@@ -198,6 +229,8 @@ class Agent:
         summary = self._summary(results)
         failed = [r for r in results if r["status"] not in ("ok", "skipped")]
         retry = [r["entity"] for r in failed if r.get("retryable")]
+        self._audit(job, "error" if failed else "ok", seconds,
+                    error="; ".join(f"{r['entity']}: {r['message']}" for r in failed), **summary)
         if not failed:
             self.queue.succeed(job["id"], owner, summary)
             self.log.info("job succeeded", extra=fields(**ctx, seconds=seconds, **summary))
@@ -216,6 +249,17 @@ class Agent:
             self.queue.fail(job["id"], owner, error, summary)
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
+
+    def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
+        """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
+        p = job["payload"]
+        params = {"job_id": job["id"], "env": p.get("env"), "entities": p.get("entities"),
+                  "backfill": p.get("backfill"), "cascade": p.get("cascade"), "source": job["source"],
+                  "attempt": job["attempts"], "agent": self.config.name, **summary}
+        try:
+            self.audit.record("agent_job", outcome, seconds, params, error=error)
+        except Exception as exc:  # a full disk mustn't stop the job; the log has it
+            self.log.warning("couldn't write the audit line", extra=fields(job_id=job["id"], error=str(exc)))
 
     def _narrow(self, job_id: str, entities: list[str]) -> None:
         """A retry runs only the tables that didn't finish; the rest are written already."""

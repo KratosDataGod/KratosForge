@@ -533,3 +533,41 @@ def test_the_agent_reports_other_agents_that_went_quiet_and_routes_by_team(agent
     [c] = agent.evaluate_incidents()["dev"]
     assert c["incident"]["kind"] == "agent_offline"
     assert posted == [("https://default", "New: Agent etl-02 stopped reporting in Dev (agent etl-01)")]
+
+
+def test_the_app_lists_agents_serving_an_environment_and_sums_incidents(tmp_path, monkeypatch):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    name = sorted(svc._project().entities)[0]
+    monkeypatch.setattr(svc, "meta_runs", lambda env, limit: [run(name, "failed", "r1")] if env == "dev" else [])
+    backend = svc._incident_log("dev").backend
+    fresh = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=3)).isoformat()
+    backend.create("agents/etl-01.json", json.dumps({**status("etl-01", "now", fresh),
+                                                     "incidents": {"enabled": True, "seconds": 300}}).encode())
+    backend.create("agents/etl-02.json", json.dumps(status("etl-02", "2026-10-17T07:40:00Z", "2026-10-17T07:43:00Z")).encode())
+    svc.incidents_evaluate("dev")
+    listed = svc.incidents_list("dev")
+    assert listed["user"] == "chris@contoso.com"
+    agents = {a["agent"]: a for a in listed["agents"]["agents"]}
+    assert agents["etl-01"]["state"] == "live" and agents["etl-01"]["incidents"]["enabled"]
+    assert agents["etl-02"]["state"] == "offline" and agents["etl-02"]["incidents"] is None
+    kinds = sorted(i["kind"] for i in listed["incidents"])
+    assert kinds == ["agent_offline", "run_failed"]
+    summary = {e["env"]: e for e in svc.incidents_summary()["envs"]}
+    assert summary["dev"]["count"] == 2
+    assert summary["test"]["count"] is None and summary["test"]["observation"]["state"] == "not_set_up"
+    mine = svc.incidents_summary(workload=f"meta:{listed['incidents'][0]['workload'].split(':')[1]}:{name}")
+    assert [i["kind"] for i in {e["env"]: e for e in mine["envs"]}["dev"]["incidents"]] == ["run_failed"]
+
+
+def test_the_agent_status_record_says_how_it_checks_incidents_without_webhooks(agent_setup, monkeypatch):
+    from fabric_desktop import agent_status
+    raw = incidents_raw(agent_setup.project, route=[{"name": "sales", "webhook_env": "SALES_HOOK", "teams": ["sales"]}],
+                        escalate_after_minutes=30, escalate_to="sales")
+    cfg = agent_config.parse(raw)
+    out = agent_status.incidents_summary(cfg.incidents)
+    assert out["enabled"] and out["escalate_to"] == "sales" and out["routes"] == [
+        {"name": "sales", "teams": ["sales"], "owners": [], "criticality": [], "kinds": [], "envs": []}]
+    assert "SALES_HOOK" not in json.dumps(out)

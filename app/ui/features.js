@@ -54,6 +54,7 @@ const PREVIEW_FEATURES = {
   platform: "Platform",
   sourceControl: "Source control",
   workloads: "Workloads",
+  incidents: "Incidents",
   integrations: "External AI tools",
 };
 

@@ -971,6 +971,19 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .wl-warning { margin: 0; background: #fff4d6; color: #8a5300; }
 .wl-home .wl-counts { gap: 6px; margin: 8px 0; }
 .wl-home { display: flex; flex-direction: column; gap: 8px; }
+/* Incidents (incidents.js) */
+.inc-gap { width: 16px; }
+.inc-watchers { border-top: 1px solid var(--border-soft); padding-top: 8px; }
+.inc-list td { vertical-align: top; }
+.inc-list tr.inc-done td { color: var(--muted); }
+.inc-actions { white-space: nowrap; }
+.inc-actions .tool + .tool { margin-left: 6px; }
+.inc-escalated { color: #8a5300; }
+.inc-unowned { color: #8a5300; }
+.inc-foot { padding: 8px 16px; margin: 0; }
+.inc-what { display: flex; flex-direction: column; gap: 10px; }
+.inc-likely { gap: 8px; align-items: center; flex-wrap: wrap; }
+.inc-card .wl-finding.click { cursor: pointer; }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }

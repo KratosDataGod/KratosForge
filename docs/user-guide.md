@@ -257,14 +257,15 @@ It signs in with your Windows account when that is the same work account you use
 
 Monitor has two halves.
 
-**From Fabric Desktop by KratosBI** (top) has four panels:
+**From Fabric Desktop by KratosBI** (top) has five panels:
 
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Workloads** (Preview): everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
+- **Incidents** (Preview): one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off.
 - **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. Fabric's Capacity Metrics app has the CU your capacity recorded. See [Capacity and cost evidence](finops/cost-evidence.md).
 
-**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Workloads always uses the whole page.
+**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Workloads and Incidents always use the whole page.
 
 ### Workloads (Preview)
 
@@ -303,6 +304,22 @@ A notebook is linked to its Fabric item when you publish or run it in Fabric fro
 Ownership, criticality, tags, links and the action log are kept on this PC in `workloads.sqlite`, next to your other app data. They aren't shared with your team yet.
 
 **On Home**, **Your workloads** (Preview) shows what you own by health, the ones that need attention with **Open**, and how many workloads in your workspaces have no owner, with **Review**.
+
+### Incidents (Preview)
+
+An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
+
+**The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
+
+**Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: incidents then change only when someone clicks **Check *environment* now**. A check here never sends Teams messages; agents do that, to the routes their admin set ([agent guide](agent.md#incidents-preview)).
+
+**Likely** is a hint matched from the error text (Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized) with whether a retry alone usually helps. The run's own error is the evidence.
+
+**Acting on one.** **Acknowledge** says someone is on it and stops escalation. **Assign** sets the incident's owner (the workload's own owner stays as it is). **Add note** adds a note everyone sees. **Resolve** closes it; it opens again only on new evidence, such as another failed run. Each one says what it changes before it does it, is recorded with your name and time, and never runs anything or changes data.
+
+**The incident page** shows what happened with its evidence and **Open run**, who is told (owner, criticality, and for each agent which Teams route it posts to, its quiet hours and when it escalates), and the history: opened, escalated, acknowledged, notes and resolved.
+
+**On a workload's page**, **Incidents** lists its active incidents in every environment.
 
 ## Source control (Preview)
 

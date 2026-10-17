@@ -96,13 +96,24 @@ def agent_signals(records: list[dict[str, Any]], env: str, now: dt.datetime | No
         out.append({"kind": "agent_offline", "workload": f"agent:{name}", "name": name, "owner": "", "team": "",
                     "criticality": "", "evidence_id": f"heartbeat:{r.get('heartbeat_at')}",
                     "title": f"Agent {name} stopped reporting in {env.title()}",
-                    "text": f"Its last heartbeat was {r.get('heartbeat_at')}; it was due again by {r.get('stale_after')}."
+                    "text": f"Its last heartbeat was {_utc(r.get('heartbeat_at'))}; it was due again by {_utc(r.get('stale_after'))}."
                             + (f" Its {env.title()} schedules ({', '.join(schedules)}) don't run while it is down."
                                if schedules else ""),
                     "evidence": {"source": f"agents/{name}.json", "host": r.get("host"),
                                  "heartbeat_at": r.get("heartbeat_at"), "stale_after": r.get("stale_after"),
                                  "version": r.get("version")}})
     return out
+
+
+def _utc(text: Any) -> str:
+    """An ISO time as "2026-10-17 07:40 UTC" for messages people read; anything else as it is."""
+    try:
+        t = dt.datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+    except ValueError:
+        return str(text)
+    if t.tzinfo is None:
+        return str(text)
+    return t.astimezone(dt.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
 def cant_evaluate(env: str, state: str, message: str) -> dict[str, Any]:

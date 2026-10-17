@@ -331,3 +331,21 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });
+
+test("Incidents is a Preview feature on Monitor", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const incidents = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(features, /incidents: "Incidents"/);
+  assert.match(incidents, /id: "incidents", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("incidents", h\("button"/);
+});
+
+test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
+  const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function incRoutes\([\s\S]*?\n}\n/)[0]}; this.incRoutes = incRoutes;`, ctx);
+  const cfg = { escalate_to: "on-call", routes: [{ name: "sales", teams: ["Sales"] }, { name: "on-call", criticality: ["critical"] }] };
+  assert.strictEqual(ctx.incRoutes({ team: "sales", env: "prod" }, cfg), "sales");
+  assert.match(ctx.incRoutes({ team: "finance", criticality: "critical" }, cfg), /default/);
+});

@@ -13,6 +13,7 @@ from typing import Any, Callable
 
 from deltalake import DeltaTable
 
+from . import depgraph
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -105,10 +106,20 @@ class SideBySideMixin:
 
     # ---- what the app calls
 
+    def side_by_side_writes(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The tables a side-by-side run writes for real, twice (once per side), read from the code.
+        ``unknown`` is True when a cell does something reading can't follow (exec, %run, import *)."""
+        return _writes(cells)
+
     def side_by_side_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                           compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                           compute: str | None = None, workspace: dict[str, str] | None = None,
+                           confirm_writes: list[str] | None = None, confirm_unknown: bool = False) -> dict[str, Any]:
         """Run the notebook on this PC, then publish and run it in Fabric, then compare. Returns at once;
-        side_by_side_status reports progress. Takes what the notebook screen sends (notebookPayload)."""
+        side_by_side_status reports progress. Takes what the notebook screen sends (notebookPayload).
+
+        Both runs write the attached lakehouse's real tables (Prove is the sandboxed way). So a notebook
+        that writes tables runs only when the caller confirms exactly the tables side_by_side_writes
+        lists, and confirm_unknown when that says reading can't tell."""
         runs = self._sbs_state()
         if any(r["state"] in ("local", "fabric", "checking") for r in runs.values()):
             raise RuntimeError("A side-by-side run is already going. Wait for it, or cancel it.")
@@ -120,6 +131,10 @@ class SideBySideMixin:
                 reason = check[where]["reasons"][0]
                 cell = f"Cell {reason['cell']} " if reason.get("cell") else "It "
                 raise ValueError(f"This notebook can't run {label}: {cell}{reason['text']}.")
+        writes = _writes(cells)
+        if sorted(confirm_writes or []) != writes["tables"] or (writes["unknown"] and not confirm_unknown):
+            raise PermissionError("Side by side writes this notebook's tables for real, on this PC and then in Fabric. "
+                                  "Confirm the tables it writes first, or use Prove, which keeps both runs' writes in a sandbox.")
         self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         # Sign in now, while the app is in front, rather than from the background.
@@ -297,6 +312,18 @@ class SideBySideMixin:
             f["cu_seconds"] = round(f["job_seconds"] * cu, 1)
             f["cost"] = round(f["cu_seconds"] / 3600 * float(cfg["price_per_cu_hour"]), 4)
             f["currency"] = cfg["currency"]
+
+
+def _writes(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    tables: set[str] = set()
+    unknown: list[str] = []
+    for n, c in enumerate(cells, 1):
+        if c.get("type") == "markdown" or not (c.get("source") or "").strip() or (c.get("meta") or {}).get("frozen"):
+            continue
+        a = depgraph.analyze(c["source"])
+        tables |= {w["name"] for w in a["writes"] if w["kind"] == "table"}
+        unknown += [f"Cell {n}: {d['text']}" for d in a["dynamic"]]
+    return {"tables": sorted(tables), "unknown": bool(unknown), "reasons": unknown}
 
 
 class _Cancelled(Exception):

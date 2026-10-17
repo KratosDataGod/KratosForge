@@ -24,7 +24,7 @@ polars==2.0.0
 polars-runtime-32==2.0.0
 pyarrow==26.0.0
 pycparser==3.0
-pyjwt==2.14.0
+pyjwt==2.15.0
 pyparsing==3.1.1
 python-dateutil==2.9.0.post0
 requests==2.34.2

@@ -14,7 +14,7 @@ import pytest
 from deltalake import write_deltalake
 
 from fabric_desktop import server
-from fabric_desktop.localdata import EngineBusy, LocalData
+from fabric_desktop.localdata import EngineBusy, LocalData, QueryCancelled
 from fabric_desktop.localdata.discovery import Source, discover
 from fabric_desktop.service import Service
 
@@ -369,3 +369,38 @@ def test_spills_to_disk_under_a_small_memory_limit(local):
     r = local.engine(pid).execute(
         "SELECT count(*) FROM (SELECT range % 1000003 AS k, md5(range::VARCHAR) AS h FROM range(3000000) ORDER BY h)")
     assert r["rows"] == [[3000000]]
+
+
+def test_streamed_results_have_no_row_limit_and_free_the_connection(local):
+    e = local.engine(local.create("Stream")["id"])
+    reader = e.execute_reader("CREATE TABLE s AS SELECT range AS n FROM range(300000); SELECT n FROM s",
+                              batch_size=50000)
+    assert sum(b.num_rows for b in reader) == 300000
+    assert e.execute("SELECT count(*) FROM s")["rows"] == [[300000]]  # the connection is free again
+    # Closed after one batch: the connection is freed too.
+    reader = e.execute_reader("SELECT n FROM s", batch_size=1000)
+    assert reader.read_next_batch().num_rows == 1000
+    reader.close()
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+    # A statement with no result streams nothing.
+    assert e.execute_reader("CREATE TABLE t2 (a INT)").read_all().num_rows == 0
+    assert e.execute("SELECT count(*) FROM t2")["rows"] == [[0]]
+
+
+def test_a_stream_can_be_stopped(local):
+    e = local.engine(local.create("Stream stop")["id"])
+    reader = e.execute_reader("SELECT range AS n FROM range(10000000000)", query_id="q1", batch_size=1000)
+    reader.read_next_batch()
+    assert e.cancel("q1")
+    with pytest.raises((QueryCancelled, Exception)):
+        for _ in reader:
+            pass
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+
+
+def test_closing_a_stream_inside_a_with_block_frees_the_connection(local):
+    e = local.engine(local.create("Stream with")["id"])
+    with e.execute_reader("SELECT range AS n FROM range(1000000)", batch_size=100) as stream:
+        assert stream.read_next_batch().num_rows == 100
+    assert not e._lock.locked()
+    assert pa.RecordBatchReader.from_stream(e.execute_reader("SELECT 1 AS a")).read_all().num_rows == 1

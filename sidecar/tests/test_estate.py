@@ -108,7 +108,9 @@ def test_cost_estimates_fabric_runs_and_what_local_runs_saved():
     t = out["total"]
     # Fabric: 0.5 h x 1 CU + 0.25 h x 8 CU + 0.5 h x 1 CU = 3 CU hours; the runner job isn't counted twice.
     assert t["cu_hours"] == 3.0 and t["cost"] == 0.6
-    assert t["saved_cu_hours"] == 1.0 and t["saved"] == 0.2 and t["runs"] == 4
+    assert t["saved_cu_hours"] == 1.0 and t["saved"] == 0.2 and t["runs"] == 5
+    # The run that is still going is counted, with its capacity use unknown rather than 0.
+    assert t["unknown_runs"] == 1 and not t["evidence"]["fabric_job_cu"]["complete"]
     prod = next(e for e in out["by_env"] if e["env"] == "prod")
     assert prod["sku"] == "F2" and prod["capacity_share"] == pytest.approx(2.5 / (2 * 30 * 24) * 100, abs=1e-3)
     assert out["by_item"][0]["name"] == "dbo.orders"

@@ -14,8 +14,9 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
 | Query a folder of data files with SQL on my PC | [Local data projects](local-data.md) |
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
+| Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
-| Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md) and [Data mesh](data-mesh.md) |
+| Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md), [Data mesh](data-mesh.md) and [Governance policies](governance.md) |
 | Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
 | Prove the app works with my tenant before a pilot | [Live testing](live-testing.md) |
@@ -35,9 +36,11 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
 | [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
+| [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
+| [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, catalog text |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
@@ -57,8 +60,10 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [git-integration-plan.md](git-integration-plan.md) | Contributors | The Git integration program: assessment, Phase 1 (Git foundation, done), Fabric workspace Git, deployment and extensions |
 | [prove/plan.md](prove/plan.md) | Contributors | The Prove this notebook program: what exists, the stages, and all 100 backlog items ([continuation note](prove/continuation.md)) |
 | [workloads/plan.md](workloads/plan.md) | Contributors, platform owners | The workload operations program: managing workloads on PCs, agents and Fabric; stages and all 100 backlog items ([continuation note](workloads/continuation.md)) |
+| [finops/plan.md](finops/plan.md) | Contributors, platform owners | The administration and FinOps program (FINOPS-001 to 005): audit, overlaps, PRs |
 | [product/enterprise-gap-analysis.md](product/enterprise-gap-analysis.md) | Platform owners, contributors | The enterprise product program: what exists for each capability FD-101 to FD-140, what's missing and who owns it ([backlog](product/enterprise-backlog.md), [decisions](product/implementation-decisions.md)) |
 | [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
+| [product/PRODUCT_MANAGEMENT_PROCESS.md](product/PRODUCT_MANAGEMENT_PROCESS.md) | Product owner, contributors | How work is chosen, ranked, built and accepted: the [feature inventory](product/FEATURE_INVENTORY.md), [backlog](product/PRODUCT_BACKLOG.md), [roadmap](product/PRIORITIZED_ROADMAP.md), [PR-ready specs](product/pr-ready/README.md), [implementation review](product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](product/COMPETITIVE_CAPABILITY_MATRIX.md) |
 | [why-fabric-desktop.md](why-fabric-desktop.md) | Everyone | Why it exists: the Power BI model for data engineering |
 | [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md) | Contributors | Setting up, rules for changes, pull requests |
 

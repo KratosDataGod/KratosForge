@@ -19,7 +19,9 @@ mapping) is listed but not made into a view.
 from __future__ import annotations
 
 import re
+import sys
 import threading
+from contextlib import contextmanager
 import time
 import uuid
 from pathlib import Path
@@ -150,7 +152,9 @@ class LocalEngine:
         self.project = project
         self.store = store
         self._con: duckdb.DuckDBPyConnection | None = None
-        self._lock = threading.RLock()        # one request at a time on the connection
+        # One request at a time on the connection. Not re-entrant: a streamed result holds it until
+        # the reader is used up or closed, and may be closed on another thread.
+        self._lock = threading.Lock()
         self._meta_lock = threading.Lock()    # project.json and the catalog
         self._running: dict[str, dict[str, Any]] = {}
         self._last_check = 0.0
@@ -160,14 +164,16 @@ class LocalEngine:
 
     @property
     def con(self) -> duckdb.DuckDBPyConnection:
-        if self._con is None:
-            self.open()
+        """The connection, opened if needed. Only for use while holding no lock."""
+        self.open()
         return self._con  # type: ignore[return-value]
 
     def open(self) -> None:
         with self._lock:
-            if self._con is not None:
-                return
+            self._open_locked()
+
+    def _open_locked(self) -> duckdb.DuckDBPyConnection:
+        if self._con is None:
             p = self.project
             p.root.mkdir(parents=True, exist_ok=True)
             p.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -188,6 +194,7 @@ class LocalEngine:
             if p.storage == "memory":  # nothing persisted: make the views again
                 for source in p.sources:
                     self._refresh_source(source, force=True)
+        return self._con
 
     def apply_settings(self) -> None:
         s = self.project.settings
@@ -221,7 +228,7 @@ class LocalEngine:
         if None in sources:
             raise KeyError(f"{source_path} is not a registered folder of {self.project.name}.")
         with self._lock:
-            self.con  # open first
+            self._open_locked()
             changed = [s.path for s in sources if self._refresh_source(s, force=force)]
         self._last_check = time.monotonic()
         return {"changed": changed, "tables": self.tables()}
@@ -297,7 +304,7 @@ class LocalEngine:
         if source is None:
             raise KeyError(f"{path} is not a registered folder of {self.project.name}.")
         with self._lock:
-            con = self.con
+            con = self._open_locked()
             for key in [k for k, v in self.project.catalog.items() if v.get("source") == source.path]:
                 old = self.project.catalog.pop(key)
                 con.execute(f"DROP VIEW IF EXISTS {q(old['schema'])}.{q(old['table'])}")
@@ -310,8 +317,9 @@ class LocalEngine:
         """Every schema, table, view and column in the project: discovered files and what people made."""
         # The session's own connection sees its temporary tables; while a query holds it, a cursor
         # lists the rest without waiting.
+        self.open()
         own = self._lock.acquire(blocking=False)
-        con = self.con if own else self.con.cursor()
+        con = self._con if own else self._con.cursor()  # type: ignore[union-attr]
         try:
             discovered = {k: v for k, v in self.project.catalog.items()}
             out: list[dict[str, Any]] = []
@@ -354,7 +362,7 @@ class LocalEngine:
             self.project.overrides.pop(key, None)
         source = self.project.source(entry["source"])
         with self._lock:
-            self.con
+            self._open_locked()
             self._refresh_source(source, force=True)  # type: ignore[arg-type]
         return self.project.catalog[key]
 
@@ -363,6 +371,51 @@ class LocalEngine:
     def execute(self, sql: str, dialect: str = "duckdb", limit: int = 1000, timeout: float | None = None,
                 query_id: str | None = None, count: bool = True) -> dict[str, Any]:
         """Run every statement in ``sql``; return the last one's result with timings."""
+        limit = max(0, min(int(limit), 100_000))
+        with self._query(sql, dialect, timeout, query_id) as (result, run):
+            payload = _collect(result, limit, count)
+        payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
+        return payload
+
+    def execute_reader(self, sql: str, dialect: str = "duckdb", timeout: float | None = None,
+                       query_id: str | None = None, batch_size: int = 10_000) -> "ResultStream":
+        """Run every statement in ``sql``; stream the last one's whole result, with no row limit.
+
+        The project's connection stays busy until the stream is read to the end or closed, so do one
+        or the other (``with engine.execute_reader(...) as stream:`` closes it). ``cancel(query_id)``
+        and the time limit stop it mid-stream: reading then raises QueryCancelled or TimeoutError.
+        ``stream.reader`` is a pyarrow RecordBatchReader for code that needs one."""
+        query = self._query(sql, dialect, timeout, query_id)
+        result, _run = query.__enter__()
+        try:
+            if result is None or not result.description:
+                inner = pa.RecordBatchReader.from_batches(pa.schema([]), iter(()))
+            else:
+                reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
+                inner = reader_of(max(1, int(batch_size)))
+        except BaseException:
+            if not query.__exit__(*sys.exc_info()):
+                raise
+            raise
+
+        def batches():
+            try:
+                yield from inner
+            except BaseException:
+                if not query.__exit__(*sys.exc_info()):
+                    raise
+            else:
+                query.__exit__(None, None, None)
+        # Start it now, so closing or dropping the reader before the first batch still frees the connection.
+        stream = batches()
+        try:
+            first = next(stream)
+        except StopIteration:
+            return ResultStream(inner.schema, iter(()), stream)
+        return ResultStream(inner.schema, _chain(first, stream), stream)
+
+    @contextmanager
+    def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None):
         if dialect not in DIALECTS:
             if dialect == "tsql":
                 raise ValueError("T-SQL isn't translated for the local engine yet (FD-LDE-004). "
@@ -370,12 +423,11 @@ class LocalEngine:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
             raise ValueError("The query is empty.")
-        limit = max(0, min(int(limit), 100_000))
         query_id = query_id or uuid.uuid4().hex
         timeout = self.project.settings.timeout_seconds if timeout is None else timeout
         self.refresh_if_changed()
         with self._lock:
-            con = self.con
+            con = self._open_locked()
             started = time.monotonic()
             state = {"cancelled": False, "timed_out": False, "started": started}
             self._running[query_id] = state
@@ -396,7 +448,7 @@ class LocalEngine:
                     result = con.execute(statement)
                     steps.append({"statement": i + 1, "type": _kind(statement),
                                   "seconds": round(time.monotonic() - step_started, 3)})
-                payload = _collect(result, limit, count)
+                yield result, {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             except duckdb.InterruptException:
                 if state["timed_out"]:
                     raise TimeoutError(f"The query ran longer than {timeout:g} seconds and was stopped.") from None
@@ -405,9 +457,6 @@ class LocalEngine:
                 if timer:
                     timer.cancel()
                 self._running.pop(query_id, None)
-            payload.update(query_id=query_id, seconds=round(time.monotonic() - started, 3), statements=steps,
-                           engine="local", dialect=dialect, project=self.project.id)
-            return payload
 
     def cancel(self, query_id: str | None = None) -> bool:
         """Stop the running query (``query_id``'s, or any). True when one was running."""
@@ -446,6 +495,51 @@ def _split(con: duckdb.DuckDBPyConnection, sql: str, dialect: str) -> list[str]:
 def _kind(statement: str) -> str:
     word = statement.lstrip().split(None, 1)[0].lower() if statement.strip() else ""
     return {"with": "select", "from": "select", "values": "select", "table": "select"}.get(word, word)
+
+
+class ResultStream:
+    """A query's whole result, batch by batch. Closing it (or reading it to the end) frees the
+    project's connection; a pyarrow reader's own close() wouldn't, so this wraps one."""
+
+    def __init__(self, schema: pa.Schema, batches: Any, generator: Any):
+        self.schema = schema
+        self._generator = generator
+        self.reader = pa.RecordBatchReader.from_batches(schema, batches)
+
+    def __iter__(self):
+        return iter(self.reader)
+
+    def read_next_batch(self) -> pa.RecordBatch:
+        return self.reader.read_next_batch()
+
+    def read_all(self) -> pa.Table:
+        try:
+            return self.reader.read_all()
+        finally:
+            self.close()
+
+    def __arrow_c_stream__(self, requested_schema: Any = None) -> Any:
+        return self.reader.__arrow_c_stream__(requested_schema)
+
+    def close(self) -> None:
+        self._generator.close()  # runs the query's cleanup: frees the connection
+        self.reader.close()
+
+    def __enter__(self) -> "ResultStream":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.close()
+
+
+def _about(run: dict[str, Any], project: str) -> dict[str, Any]:
+    return {"query_id": run["query_id"], "statements": run["statements"], "engine": "local",
+            "dialect": run["dialect"], "project": project}
+
+
+def _chain(first: pa.RecordBatch, rest: Any) -> Any:
+    yield first
+    yield from rest
 
 
 def _collect(result: Any, limit: int, count: bool) -> dict[str, Any]:

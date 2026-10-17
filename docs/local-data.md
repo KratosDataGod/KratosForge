@@ -63,6 +63,8 @@ Only one program can write to a project's database at a time. If another Fabric 
 | `local_query_start` / `local_query_status` / `local_query_cancel` | The same, in the background, for long queries |
 | `local_close_project` / `local_forget_project` | Close the database / take the project off the list (its folder stays) |
 
+In Python, `LocalEngine.execute_reader(sql)` streams a query's whole result in Arrow batches with no row limit; the SQL page's managed execution reads results that way. Read the stream to the end or close it (`with engine.execute_reader(sql) as stream:`), because the project answers one request at a time until then.
+
 Each query and change is recorded in the [audit trail](user-guide.md#audit-trail) without its SQL text.
 
 ## Not yet

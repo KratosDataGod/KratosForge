@@ -9,12 +9,19 @@ Capacity Metrics app in Fabric has the billed numbers.
 
 Runs on this PC cost no capacity. What they would have cost is estimated as the same time
 on a Python notebook, which is what Fabric Desktop's runner uses in Fabric.
+
+Every figure is also a classified measurement (``measurement.py``): Fabric use worked out from
+run time is **estimated**, what a run on this PC would have used in Fabric is a **scenario**,
+and a run whose time isn't known is **unknown** rather than 0. The plain numbers (``cu_hours``,
+``cost``, ``saved``...) stay for older callers and cover only the known parts.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 from typing import Any
+
+from . import measurement as ms
 
 DEFAULTS: dict[str, Any] = {"price_per_cu_hour": 0.18, "currency": "USD", "python_cu": 1.0, "spark_cu": 8.0}
 # F SKUs: F2 has 2 CUs, F64 has 64.
@@ -49,43 +56,138 @@ def _seconds(started: Any, finished: Any) -> float | None:
     return max((b - a).total_seconds(), 0.0) if a and b else None
 
 
+_PRICE_NOTE = ("Priced at {price} {cur} per CU hour (Monitor > Cost > Prices). This is a price applied to CU use, not "
+               "a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")
+
+
+def _cu_assumptions(engine: str, cu: float, timing: str) -> list[str]:
+    what = {"python": "a Python notebook", "spark": "a Spark job"}.get(engine, "an item whose engine wasn't recorded, counted as Spark")
+    return [timing, f"{cu:g} CU while it ran, the configured CUs of {what} (Monitor > Cost > Prices).",
+            "Fabric's billed CU for the job isn't read; the Capacity Metrics app has it."]
+
+
+def _estimated_cu(seconds: float, cu: float, engine: str, timing: str, ids: dict[str, Any], at: Any,
+                  source: str) -> dict[str, Any]:
+    return ms.make(ms.ESTIMATED, "fabric_job_cu", ms.CU_SECONDS, seconds * cu, source=source,
+                   method="run time x configured CUs", period_start=at, assumptions=_cu_assumptions(engine, cu, timing), **ids)
+
+
+def _scenario_cu(seconds: float, cu: float, ids: dict[str, Any], at: Any) -> dict[str, Any]:
+    return ms.make(ms.SCENARIO, "fabric_job_cu_avoided", ms.CU_SECONDS, seconds * cu,
+                   method="time on this PC x configured CUs of a Python notebook", period_start=at,
+                   assumptions=["The run would take as long in Fabric as it took on this PC.",
+                                (f"It would run as a Python notebook at {cu:g} CU, which is what Fabric Desktop by "
+                                 "KratosBI's runner uses in Fabric."),
+                                "OneLake reads and writes made from this PC still use capacity and aren't counted."], **ids)
+
+
 def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]],
                notebook_writes: list[dict[str, Any]], cfg: dict[str, Any]) -> list[dict[str, Any]]:
     """Every run as one row: what it was, where it ran, how long, and its CU-seconds.
+
+    Each row carries ``fabric_job_cu`` (a classified measurement of the CU its Fabric job used; OneLake
+    storage transactions are not part of it) and,
+    for runs on this PC, ``avoided_cu`` (the scenario of running it in Fabric instead). A run
+    whose time isn't known has ``seconds`` None and unknown measurements, never 0.
 
     Metadata runs in Fabric are counted per table from the run log; the runner job that holds
     them is left out so its time isn't counted twice."""
     py, spark = float(cfg["python_cu"]), float(cfg["spark_cu"])
     rows: list[dict[str, Any]] = []
+
+    def row(kind: str, name: str, env: str, where: str, at: Any, secs: float | None,
+            fabric_cu: dict[str, Any], avoided: dict[str, Any] | None) -> None:
+        rows.append({"kind": kind, "name": name, "env": env, "where": where, "at": at, "seconds": secs,
+                     "cu_seconds": fabric_cu["value"] or 0.0, "would_cu_seconds": (avoided or {}).get("value") or 0.0,
+                     "fabric_job_cu": fabric_cu, "avoided_cu": avoided})
+
+    def local_cu(ids: dict[str, Any], at: Any) -> dict[str, Any]:
+        return ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 0.0, source="Fabric Desktop run log",
+                       method="ran on this PC; no Fabric job was started", collected_at=at, period_start=at, **ids)
+
     for r in meta_runs:
-        secs = float(r.get("seconds") or 0)
         fabric = r.get("compute") == "fabric"
-        rows.append({"kind": "Metadata run", "name": r.get("entity") or "", "env": r.get("env") or "",
-                     "where": "fabric" if fabric else "local", "at": r.get("started_at"), "seconds": secs,
-                     "cu_seconds": secs * py if fabric else 0.0, "would_cu_seconds": 0.0 if fabric else secs * py})
+        ids = {"run_id": r.get("run_id") or None}
+        secs = r.get("seconds")
+        secs = float(secs) if isinstance(secs, (int, float)) and not isinstance(secs, bool) and secs >= 0 else None
+        at = r.get("started_at")
+        if secs is None:
+            why = "The run log has no run time for this table."
+            row("Metadata run", r.get("entity") or "", r.get("env") or "", "fabric" if fabric else "local", at, None,
+                ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids) if fabric else local_cu(ids, at),
+                None if fabric else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, why, **ids))
+        elif fabric:
+            row("Metadata run", r.get("entity") or "", r.get("env") or "", "fabric", at, secs,
+                _estimated_cu(secs, py, "python", "Run time per table from the metadata run log; the runner "
+                              "notebook's session start isn't counted.", ids, at, "Metadata run log"), None)
+        else:
+            row("Metadata run", r.get("entity") or "", r.get("env") or "", "local", at, secs, local_cu(ids, at),
+                _scenario_cu(secs, py, ids, at))
     for r in fabric_runs:
         if r.get("kind") == "Metadata run":
             continue
+        ids = {"run_id": r.get("job_id") or None, "workspace_id": r.get("workspace_id") or None,
+               "workload_id": f"fabric:{r['workspace_id']}:{r['item_id']}" if r.get("workspace_id") and r.get("item_id") else None}
         secs = _seconds(r.get("started_at"), r.get("finished_at"))
+        kind, name = r.get("kind") or "Fabric job", r.get("table") or r.get("name") or ""
         if secs is None:
-            continue  # still running, or never started
-        cu = py if r.get("engine") == "python" else spark
-        rows.append({"kind": r.get("kind") or "Fabric job", "name": r.get("table") or r.get("name") or "",
-                     "env": r.get("env") or "", "where": "fabric", "at": r.get("started_at"), "seconds": secs,
-                     "cu_seconds": secs * cu, "would_cu_seconds": 0.0})
+            why = ("Still running, or Fabric hasn't reported its end yet." if not r.get("finished_at")
+                   else "Its start or end time can't be read.")
+            row(kind, name, r.get("env") or "", "fabric", r.get("started_at"), None,
+                ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids), None)
+            continue
+        engine = r.get("engine") or ("spark" if kind == "Table maintenance" else "")
+        cu = py if engine == "python" else spark
+        row(kind, name, r.get("env") or "", "fabric", r.get("started_at"), secs,
+            _estimated_cu(secs, cu, engine, "Run time from when this app started the job to when Fabric reported "
+                          "its end, so it includes queueing and session start.", ids, r.get("started_at"),
+                          "Fabric job API"), None)
     for r in notebook_writes:
-        secs = float(r.get("seconds") or 0)
-        rows.append({"kind": "Notebook write", "name": r.get("job") or "", "env": "", "where": "local",
-                     "at": r.get("finished_at"), "seconds": secs, "cu_seconds": 0.0, "would_cu_seconds": secs * py})
+        ids: dict[str, Any] = {}
+        secs = r.get("seconds")
+        secs = float(secs) if isinstance(secs, (int, float)) and not isinstance(secs, bool) and secs >= 0 else None
+        at = r.get("finished_at")
+        avoided = (_scenario_cu(secs, py, ids, at) if secs is not None
+                   else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, "The write's time wasn't recorded."))
+        row("Notebook write", r.get("job") or "", "", "local", at, secs, local_cu(ids, at), avoided)
     return rows
+
+
+def _money(cu: dict[str, Any], price: float, currency: str, metric: str) -> dict[str, Any]:
+    """A CU total priced at the configured rate. Pricing adds an assumption, so it is never measured."""
+    cls = cu["classification"]
+    if cls == ms.UNKNOWN:
+        return {"classification": ms.UNKNOWN, "label": ms.LABELS[ms.UNKNOWN], "metric": metric, "unit": ms.CURRENCY,
+                "value": None, "currency": currency, "reason": cu.get("reason") or "CU use isn't known"}
+    price_note = _PRICE_NOTE.format(price=price, cur=currency)
+    if cls == ms.MEASURED:
+        cls = ms.ESTIMATED if cu["value"] else ms.MEASURED  # 0 CU costs 0 at any price
+    out = dict(cu, classification=cls, label=ms.LABELS[cls], metric=metric, unit=ms.CURRENCY, currency=currency,
+               value=round(ms.convert(cu["value"], cu["unit"], ms.CU_HOURS) * price, 6),
+               assumptions=sorted(set(cu.get("assumptions") or []) | ({price_note} if cu["value"] else set())),
+               methods=sorted(set(cu.get("methods") or []) | ({"CU hours x price per CU hour"} if cu["value"] else set())))
+    return out
+
+
+def _evidence(group: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
+    """The classified totals of a group of rows: Fabric CU and its price, and the scenario of what
+    the runs on this PC would have used in Fabric."""
+    price, cur = float(cfg["price_per_cu_hour"]), cfg["currency"]
+    cu = ms.total([r["fabric_job_cu"] for r in group], "fabric_job_cu", ms.CU_HOURS)
+    avoided = ms.total([r["avoided_cu"] for r in group if r.get("avoided_cu")], "fabric_job_cu_avoided", ms.CU_HOURS)
+    if not any(r.get("avoided_cu") for r in group):
+        avoided = dict(avoided, classification=ms.SCENARIO, label=ms.LABELS[ms.SCENARIO])
+    return {"fabric_job_cu": cu, "fabric_cost": _money(cu, price, cur, "fabric_cost"),
+            "avoided_cu": avoided, "avoided_cost": _money(avoided, price, cur, "fabric_cost_avoided")}
 
 
 def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.datetime | None = None,
            capacities: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     """Totals for the last ``days``: overall, per environment, per table or notebook, per day.
 
-    ``capacities`` maps an environment to its capacity ({"name", "sku"}), to show what share of
-    the capacity its runs used over the period."""
+    ``capacities`` maps an environment to its capacity ({"name", "sku", "id"}), to show what share
+    of the capacity its runs used over the period. Each total has an ``evidence`` dict of
+    classified measurements; ``unknown_runs`` counts runs whose capacity use isn't known."""
     now = now or dt.datetime.now(dt.timezone.utc)
     since = now - dt.timedelta(days=days)
     price = float(cfg["price_per_cu_hour"])
@@ -97,11 +199,13 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
     def total(group: list[dict[str, Any]]) -> dict[str, Any]:
         cu = sum(r["cu_seconds"] for r in group)
         would = sum(r["would_cu_seconds"] for r in group)
-        return {"runs": len(group), "seconds": round(sum(r["seconds"] for r in group), 1),
+        return {"runs": len(group), "seconds": round(sum(r["seconds"] or 0 for r in group), 1),
                 "fabric_runs": sum(r["where"] == "fabric" for r in group),
                 "local_runs": sum(r["where"] == "local" for r in group),
+                "unknown_runs": sum(r["fabric_job_cu"]["classification"] == ms.UNKNOWN
+                                    or (r.get("avoided_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
                 "cu_hours": round(cu / 3600, 3), "cost": money(cu),
-                "saved_cu_hours": round(would / 3600, 3), "saved": money(would)}
+                "saved_cu_hours": round(would / 3600, 3), "saved": money(would), "evidence": _evidence(group, cfg)}
 
     def grouped(key) -> list[dict[str, Any]]:
         groups: dict[Any, list[dict[str, Any]]] = {}
@@ -117,10 +221,33 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
     for g in sorted(grouped(lambda r: r["env"]), key=lambda g: str(g["key"])):
         env = g.pop("key")
         cap = (capacities or {}).get(env) or {}
-        cus = sku_cu(cap.get("sku"))
-        share = round(g["cu_hours"] * 3600 / (cus * days * 86400) * 100, 3) if cus else None
-        by_env.append({"env": env, "capacity": cap.get("name"), "sku": cap.get("sku"), "capacity_share": share} | g)
+        by_env.append({"env": env, "capacity": cap.get("name"), "sku": cap.get("sku")}
+                      | capacity_share(g["evidence"]["fabric_job_cu"], cap, days, since, now) | g)
     by_day = sorted(({"day": g.pop("key")} | g for g in grouped(lambda r: _parse(r["at"]).date().isoformat())),
                     key=lambda g: g["day"])
     return {"days": days, "since": since.isoformat(timespec="seconds"), "settings": cfg, "total": total(kept),
             "by_env": by_env, "by_item": by_item, "by_day": by_day}
+
+
+def capacity_share(cu: dict[str, Any], cap: dict[str, Any], days: int, since: dt.datetime,
+                   now: dt.datetime) -> dict[str, Any]:
+    """What percent of a capacity's CU over the period the runs used: ``capacity_share`` (the plain
+    number, None when not known) and ``capacity_share_evidence`` (its measurement)."""
+    cus = sku_cu(cap.get("sku"))
+    ids = {"capacity_id": cap.get("id") or None}
+    if not cus or cu["value"] is None:
+        why = ("The capacity's size isn't known: sign in with capacity access, or the workspace isn't on an F or P SKU."
+               if not cus else "The runs' CU use isn't known.")
+        return {"capacity_share": None, "capacity_share_evidence": ms.unknown("capacity_share", ms.PERCENT, why, **ids)}
+    value = min(cu["value"] * 3600 / (cus * days * 86400) * 100, 100.0)
+    if cu["classification"] == ms.MEASURED:  # 0 CU of a known capacity: observed, not assumed
+        m = ms.make(ms.MEASURED, "capacity_share", ms.PERCENT, value, source="Fabric Desktop run log",
+                    collected_at=now, period_start=since, period_end=now, **ids)
+    else:
+        m = ms.make(ms.ESTIMATED, "capacity_share", ms.PERCENT, value,
+                    method=f"estimated CU hours / ({cap.get('sku')} = {cus} CU x {days} days x 24 h)",
+                    period_start=since, period_end=now,
+                    assumptions=cu["assumptions"] + [f"{cap.get('sku')} has {cus} CUs, every hour of the period.",
+                                                     ("Only runs started from Fabric Desktop by KratosBI are counted, not "
+                                                      "everything else on the capacity.")], **ids)
+    return {"capacity_share": round(value, 3), "capacity_share_evidence": m}

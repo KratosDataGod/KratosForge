@@ -177,6 +177,45 @@ test("run stale cells asks before a side effect and offers the cells before it",
   assert.strictEqual(depsList([2]), "2");
 });
 
+test("Integrations is a Preview tab in Settings, not a rail page, with no AI of its own", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(features, /integrations: "External AI tools"/);
+  assert.match(src, /id: "integrations",\s*preview: true/);
+  assert.ok(!/rail:/.test(src), "Integrations must not add a rail item");
+  assert.ok(!/api[_ ]?key|model picker|chat\(/i.test(src.replace(/no AI keys|no model picker|no chat/gi, "")), "no AI keys, models or chat");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="integrations.js"') < html.indexOf('src="settings.js"'));
+});
+
+test("every AI tool is marked untested until someone tries it", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  assert.match(src, /const TESTED_TOOLS = new Set\(\);/);
+});
+
+test("an approval request shows the code and decides only through the engine", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const body = src.slice(src.indexOf("function approvalBody"), src.indexOf("async function decide"));
+  assert.match(body, /s\.content \? h\("pre"/);
+  assert.match(src, /rpc\("integrations_decide", \{ approval_id: a\.id, approve \}\)/);
+});
+
+test("extensions are switched only through the engine, marked Preview and locked by policy", () => {
+  const src = fs.readFileSync(path.join(ui, "integrations.js"), "utf8");
+  const card = src.slice(src.indexOf("function extensionsCard"), src.indexOf("async function revokeTool"));
+  assert.match(card, /rpc\("integrations_set_extension", \{ extension_id: e\.id, enabled: ev\.target\.checked \}\)/);
+  assert.match(card, /previewTag\(\)/);
+  assert.match(card, /disabled: e\.allowed \? null : true/);
+});
+
+test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
+  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
+  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+});
+
 // Accessibility (FD-139): checks that need no browser.
 test("every icon-only button has a name a screen reader can say", () => {
   const missing = [];
@@ -285,4 +324,21 @@ test("side by side pairs removed and added lines and keeps context on both sides
   assert.strictEqual(rows[4].left.text, "d");
   assert.deepStrictEqual({ ...gitSplitPath("notebooks/load.ipynb") }, { name: "load.ipynb", dir: "notebooks" });
   assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
+});
+
+test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
+    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
+  const ctx = {};
+  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
+  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
+  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
+  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
+  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
+  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });

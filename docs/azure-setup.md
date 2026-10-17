@@ -45,7 +45,7 @@ Skip this unless your organization requires every app to use a registration in y
 
 ## 4. Push settings to everyone
 
-Nothing here is required. A policy file at `%ProgramData%\FabricDesktop\policy.json`, pushed with Intune or Group Policy, can fix the update channel, hide Preview features, point **Report a problem** at your own support channel, and name your own app registration (step 3). People see "Set by your organization" and can't change those settings.
+Nothing here is required. A policy file at `%ProgramData%\FabricDesktop\policy.json`, pushed with Intune or Group Policy, can fix the update channel or turn self-updates off, hide Preview features, keep work off Fabric capacity, limit sign-in to your own tenant, point **Report a problem** at your own support channel, and name your own app registration (step 3). People see "Set by your organization" and can't change those settings.
 
 A policy file that sets everything an organization usually wants:
 
@@ -59,13 +59,23 @@ A policy file that sets everything an organization usually wants:
 
 | Key | Values | Effect |
 | --- | --- | --- |
-| `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
-| `channel` | `stable` or `preview` | Fixes the update channel |
-| `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
-| `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
+| `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
+| `allowed_tenants` | A list of tenant (directory) IDs | People can only sign in with accounts from these tenants. Any other account is signed out again with a message. Leave it out to allow any |
+| `auto_update` | `true` (default) or `false` | `false` stops the app updating itself, so you roll out builds yourself ([Enterprise install](enterprise-install.md)) |
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
+| `channel` | `stable` or `preview` | Fixes the update channel |
+| `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
+| `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
+| `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
+| `show_preview` | `true` or `false` | Shows or hides every feature tagged Preview |
 | `support_url` | An `https://` link or a `mailto:` address | Where **Report a problem** sends people, instead of GitHub |
+| `integrations` | `false` | Turns off external AI tools (MCP and the local API) on the PC; see [permissions.md: External AI tools](permissions.md#external-ai-tools) |
+| `integrations_http` | `false` | Stops anyone switching on the local HTTP API; MCP over stdio still works if integrations are on |
+| `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
+| `integrations_extensions` | A list of extension ids, for example `["notebook-outline"]`; `[]` for none | Which extensions people can turn on in Settings > Integrations |
+
+A key that is misspelled or has the wrong kind of value (`"false"` in quotes instead of `false`) is ignored, and **Settings > Help and about** lists what was ignored and why. Check there after you push a new file.
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 

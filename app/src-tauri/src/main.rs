@@ -34,6 +34,34 @@ fn setting(path: PathBuf, key: &str) -> Option<String> {
     value.get(key)?.as_str().map(str::to_owned)
 }
 
+/// Whether the app may update itself. An organization that rolls out builds itself sets
+/// `"auto_update": false` in its policy file; only that file can turn updates off.
+fn auto_update_allowed() -> bool {
+    let Some(dir) = std::env::var_os("ProgramData") else { return true };
+    policy_allows_updates(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+}
+
+fn policy_allows_updates(text: &str) -> bool {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    value.get("auto_update").and_then(Value::as_bool) != Some(false)
+}
+
+#[cfg(test)]
+mod policy_tests {
+    use super::policy_allows_updates;
+
+    #[test]
+    fn only_policy_false_stops_updates() {
+        assert!(policy_allows_updates(""));
+        assert!(policy_allows_updates("{}"));
+        assert!(policy_allows_updates("not json"));
+        assert!(policy_allows_updates(r#"{"auto_update": "false"}"#));
+        assert!(policy_allows_updates(r#"{"auto_update": true}"#));
+        assert!(!policy_allows_updates(r#"{"auto_update": false}"#));
+        assert!(!policy_allows_updates("\u{feff}{\"auto_update\": false}"));
+    }
+}
+
 /// The release this PC updates from: "stable" or "latest" (the Preview channel). The
 /// organization's policy file wins over the Settings page, as in the sidecar's app_settings.py.
 fn release_tag() -> &'static str {
@@ -330,6 +358,7 @@ async fn check_components() -> Result<Value, String> {
             .map_err(|_| "Python gave an unexpected answer to the startup check.".to_string())?
     };
     report["bundled"] = json!(bundled());
+    report["auto_update"] = json!(auto_update_allowed());
     // Set by the exe that updated us, so the check can tell whether the update took.
     let args: Vec<String> = std::env::args().collect();
     let updated_to = args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1));
@@ -475,6 +504,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
 async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String> {
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{commit} is not a build commit"));
+    }
+    if !auto_update_allowed() {
+        return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let new = exe.with_extension("exe.new");

@@ -98,7 +98,7 @@ Items 43, 44, 45, 46, 47 and the missing-heartbeat part of 38. Effort M+M, risk 
 
 - **2.1 Incidents and evaluation on the agent.** The health rules from stage 1 (failed latest run, freshness promise missed, objective breached) run on the headless agent on a timer and in the app; incidents are rows in `meta.incidents` in the environment's LH_Meta (key, workload, environment, kind, opened, last seen, count, state, owner, acknowledged by, resolved), written with the conditional, version-checked commit from PR #54, so two evaluators never open the same incident twice. One Teams message on open, one on recovery, a digest above a threshold; alerts that cannot be sent queue in the agent's SQLite and go out marked delayed. Open entries in `freshness_alerts.json` are imported once.
 - **2.2 Reliability objectives.** Per workload: freshness (existing promise), success rate over N runs, completion by a time; criticality sets defaults. Evaluation rules documented and tested.
-- **2.3 Lifecycle, routing and escalation.** Acknowledge, assign, mitigate, resolve from the workload page and Monitor; routing by owner and criticality to webhooks configured per team; quiet periods; escalation after a set time unacknowledged. A missing agent heartbeat (roadmap's agent status records) opens an incident raised by the app or another agent.
+- **2.3 Lifecycle, routing and escalation.** Acknowledge, assign, mitigate, resolve from the workload page and Monitor; routing by owner and criticality to webhooks configured per team; quiet periods; escalation after a set time unacknowledged. A missing agent heartbeat (roadmap's agent status records) opens an incident raised by the app or another agent. Built in two PRs: 2.3A engine (agent-offline incidents, likely failure category, `[[incidents.route]]` routes, quiet hours, escalation once across evaluators) and 2.3B screens (Monitor > Incidents, incident detail, incidents on the workload page, the app's freshness alerts moved onto incidents; mockup boards 5 and 6). This stage covers FD-123 (incident management) from the enterprise program.
 - Acceptance: dedup across two evaluators racing; recovery closes; storm digest; network loss queues; telemetry outage opens a "can't evaluate" incident, not a workload incident. Validation: unit and mocked; live procedure for OneLake commits.
 
 ### Stage 2B: shared ownership
@@ -317,7 +317,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: —
 
 **38. Agent health and heartbeat** · Missing · Stage 2.3, Stage 5 · *Dep roadmap (heartbeat records)*
-- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: —
+- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: stage 2.3A (agent-offline incident; version and capability in stage 5)
 
 **39. Execution recovery guidance** · Enhance · Stage 1 (failed runs), Stage 5
 - Today: the agent recovers jobs whose worker died (`jobqueue.recover`); PC schedules skip when locked. Enhancement: guided retry for failed runs now; PC shutdown, agent loss, expired credentials and interrupted Fabric runs in stage 5. Validation: U. PR: —
@@ -340,13 +340,13 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: #74 (agent timer, opt-in; app on request)
 
 **45. Incident lifecycle** · Missing · Stage 2.1, 2.3
-- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs; screens in 2.3)
+- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs), 2.3A (escalation, likely category), 2.3B (screens)
 
 **46. Alert correlation** · Missing · Stage 2.3, Stage 6
 - Enhancement: group symptoms by shared upstream, environment or location, saying "likely" and listing evidence. Validation: U. PR: —
 
 **47. Alert routing and escalation** · Enhance · Stage 2.3
-- Today: one Teams webhook per PC, send-once. Enhancement: per-team routes, criticality, dedup across evaluators, quiet periods, escalation. Validation: U. PR: —
+- Today: one Teams webhook per PC, send-once. Enhancement: per-team routes, criticality, dedup across evaluators, quiet periods, escalation. Validation: U. PR: #74 (dedup, digest, delayed delivery), 2.3A (routes, quiet hours, escalation)
 
 **48. Recovery runbooks** · Missing · Stage 6
 - Enhancement: guided steps that call existing operations with confirmations; stage 1's retry is the first built-in one. PR: —
@@ -483,3 +483,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | --- | --- |
 | 2026-10-16 | Plan written from `main` at `af11938`; ownership with the roadmap and Prove programs recorded; monitoring and incidents moved here. |
 | 2026-10-16 | Stage 2.1/2.2 built: W2 revised to a conditional-write JSON document per environment; agent evaluation opt-in; `freshness_alerts.json` import dropped. |
+| 2026-10-17 | #72 and #74 merged. Stage 2.3 split into 2.3A (engine) and 2.3B (screens, after Chris reacts to mockup boards 5 and 6). FD-122/123/124 and governance views assigned to this program by the enterprise program. |

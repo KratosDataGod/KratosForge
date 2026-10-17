@@ -204,6 +204,11 @@ def test_the_limits_come_from_settings_or_policy(tmp_path, monkeypatch):
         s.kernel.close()
         s.kernel = s._new_kernel()
         assert s.kernel.memory_limit == 4 * 1024 ** 3
+        # A policy value out of range or of the wrong kind is ignored, and Help and about says why.
+        for bad in (10 ** 9, True):
+            policy.write_text(json.dumps({"kernel_memory_limit_gb": bad}))
+            assert app_settings.load()["kernel_memory_limit_gb"]["source"] != "policy"
+            assert any("kernel_memory_limit_gb" in p for p in app_settings.policy_problems())
     finally:
         s.kernel.close()
 

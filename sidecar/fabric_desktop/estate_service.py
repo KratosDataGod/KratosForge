@@ -148,11 +148,13 @@ class EstateMixin:
             except Exception:  # noqa: BLE001
                 continue
             if cap:
-                out[env] = {"name": cap.get("displayName"), "sku": cap.get("sku")}
+                out[env] = {"name": cap.get("displayName"), "sku": cap.get("sku"), "id": cap.get("id")}
         return out
 
     def cost_report(self, days: int = 30) -> dict[str, Any]:
-        """Estimated capacity use and cost of every run in the last ``days``, and what this PC saved."""
+        """Capacity use and cost of every run in the last ``days``, and what running on this PC avoided.
+
+        Every figure comes with its classified measurement (``evidence``); see measurement.py."""
         cfg = self._cost_settings()
         meta = self.meta_runs_all(limit=100000)  # type: ignore[attr-defined]
         fabric = self.fabric_runs(limit=500, refresh=False)  # type: ignore[attr-defined]

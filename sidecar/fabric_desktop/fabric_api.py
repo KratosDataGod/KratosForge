@@ -47,6 +47,17 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code)
 
 
+POLICY_BLOCKED = "PolicyBlocked"
+
+
+def _check_fabric_runs_allowed(what: str) -> None:
+    """The organization's policy can keep work off Fabric capacity (allow_fabric_runs: false)."""
+    from . import app_settings
+    if not app_settings.value("allow_fabric_runs"):
+        raise FabricError(f"Your organization doesn't allow {what} from Fabric Desktop by KratosBI, so it wasn't "
+                          "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
+
+
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
@@ -172,6 +183,7 @@ class FabricClient:
     def run_item_job(self, workspace_id: str, item_id: str, job_type: str,
                      execution_data: dict[str, Any] | None = None, item_path: str = "items") -> str:
         """Start a job instance and return its id (the last part of the Location header)."""
+        _check_fabric_runs_allowed("starting jobs in Fabric")
         body = {"executionData": execution_data} if execution_data else None
         resp = self._request("POST", f"/workspaces/{workspace_id}/{item_path}/{item_id}/jobs/instances",
                              params={"jobType": job_type}, json=body)
@@ -191,11 +203,15 @@ class FabricClient:
 
     def create_schedule(self, workspace_id: str, item_id: str, job_type: str,
                         configuration: dict[str, Any], enabled: bool = True) -> dict[str, Any]:
+        if enabled:
+            _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules"
         return self._request("POST", url, json={"enabled": enabled, "configuration": configuration}).json()
 
     def update_schedule(self, workspace_id: str, item_id: str, job_type: str, schedule_id: str,
                         enabled: bool, configuration: dict[str, Any]) -> dict[str, Any]:
+        if enabled:  # turning a schedule off is always allowed
+            _check_fabric_runs_allowed("scheduling jobs in Fabric")
         url = f"/workspaces/{workspace_id}/items/{item_id}/jobs/{job_type}/schedules/{schedule_id}"
         return self._request("PATCH", url, json={"enabled": enabled, "configuration": configuration}).json()
 

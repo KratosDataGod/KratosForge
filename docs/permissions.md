@@ -113,9 +113,19 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
+Three more keys are for control rather than convenience:
+
+| Key | Effect |
+| --- | --- |
+| `allow_fabric_runs: false` | The app doesn't start jobs on Fabric capacity (Run in Fabric, Fabric schedules, Optimize, the Fabric side of a proof). People can still turn Fabric schedules off. It doesn't change what a person's own Fabric roles allow in the browser |
+| `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
+| `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
+
+The full table, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
+
 **People from more than one organization, with your own app.** Make the registration multitenant. If an organization doesn't let users consent, its Microsoft Entra admin approves the app once with the link in **Settings > Account > Admin approval** (`https://login.microsoftonline.com/organizations/adminconsent?client_id=<application-client-id>`).
 
-**Updates.** The newest green build of `main` goes to the Preview channel at once; when merges land close together, only the build of the last one is published, one publish at a time. The Stable channel, which everyone gets by default, only moves when someone runs **Actions > Promote to stable** with the notes people will see as What's new.
+**Updates.** The newest green build of `main` goes to the Preview channel at once; when merges land close together, only the build of the last one is published, one publish at a time. The Stable channel, which everyone gets by default, only moves when someone runs **Actions > Promote to stable** with the notes people will see as What's new. With `auto_update: false` nothing moves until you roll out a new exe.
 
 ## The headless agent
 
@@ -132,6 +142,25 @@ The agent runs with nobody signed in, so it can't use a person's sign-in. A **ma
 | Key Vault (only if the agent reads secrets, roadmap M2) | **Key Vault Secrets User** role for the identity | Reading source secrets |
 
 Schedules on a PC (Windows Task Scheduler) are different: they run as the person who set them up, with their saved sign-in, and need nothing here.
+
+## External AI tools
+
+People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool never receives a token and works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. Integrations are off until the person switches them on, and IT can keep them off.
+
+Each connected tool gets some of these categories, in alphabetical order:
+
+| Category | Lets the tool | In this release |
+| --- | --- | --- |
+| `DEPLOY_TO_FABRIC` | Publish, promote and deploy | Not offered |
+| `EXECUTE_LOCAL_CODE` | Run Python and notebooks on the PC, as the person | Offered; the person approves every run |
+| `MANAGE_CONNECTIONS` | Manage connections and credentials | Never offered |
+| `MODIFY_FABRIC_ARTIFACTS` | Create or change Fabric items | Not offered |
+| `READ_DATA` | Read rows: previews and query results | Offered; asks first unless the person pre-approves it for that tool |
+| `READ_METADATA` | Read names, structure, schemas, checks and run status | Offered; every connected tool has it |
+| `WRITE_LOCAL_FILES` | Create and change notebooks in the notebook folder on the PC | Offered; asks first unless pre-approved |
+| `WRITE_ONELAKE` | Write tables and files in OneLake | Not offered |
+
+Policy keys `integrations`, `integrations_http`, `integrations_max_permissions` and `integrations_extensions` ([azure-setup.md](azure-setup.md#4-push-settings-to-everyone)) turn integrations off, cap the categories or limit which extensions can be turned on. Extensions add capabilities in these same categories; they add no new ones. The threat model is in [ai-integration-security.md](product/ai-integration-security.md).
 
 ## Keeping this page right
 

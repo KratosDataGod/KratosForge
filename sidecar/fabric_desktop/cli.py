@@ -1,4 +1,4 @@
-"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit`."""
+"""Command line entry point: `fabric-desktop serve | preview JOB | run JOB | history | run-schedule ID | agent ... | live-test ... | support-bundle | audit | backup | restore`."""
 
 from __future__ import annotations
 
@@ -33,6 +33,14 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = sub.add_parser("backup", help="save this PC's settings, notebooks, schedules and history to a zip "
+                                      "(never sign-in tokens)")
+    p.add_argument("--out", default=".", help="folder to save it in (default: here)")
+    p.add_argument("--agent-home", help="also back up this agent's queue and alerts (its FABRIC_DESKTOP_HOME)")
+    p = sub.add_parser("restore", help="check a backup and show what it would restore; --yes restores it")
+    p.add_argument("backup")
+    p.add_argument("--agent-home", help="also restore the agent's queue and alerts into this folder")
+    p.add_argument("--yes", action="store_true", help="restore it (close the app first)")
     live = sub.add_parser("live-test", help="check sign-in, the Fabric API, OneLake and Delta against a test workspace")
     live.add_argument("--workspace", help="the test workspace's id; its description must contain fabric-desktop-live-test")
     live.add_argument("--dry-run", action="store_true", help="say what it would do and write nothing")
@@ -66,6 +74,8 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "audit":
         raise SystemExit(_audit(args))
+    if args.command in ("backup", "restore"):
+        raise SystemExit(_backup(args))
     if args.command == "run-schedule":
         _run_schedule(args.schedule_id, "manual" if args.manual else "schedule")
         return
@@ -109,6 +119,27 @@ def _agent(args: argparse.Namespace) -> int:
     else:
         result = agent.status()
     print(json.dumps(result, indent=2, default=str))
+    return 0
+
+
+def _backup(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import backup
+    from .service import data_dir
+
+    home = Path(args.agent_home) if args.agent_home else None
+    if args.command == "backup":
+        result = backup.create(Path(args.out), data_dir(), home)
+        print(f"Saved {result['files']} files to {result['path']}")
+        for item in result["cleaned"]:
+            print(f"  {item['path']}: {item['removed']} left out")
+        return 0
+    try:
+        print(backup.describe(backup.restore(Path(args.backup), data_dir(), home, apply=args.yes)), end="")
+    except backup.BackupError as exc:
+        print(exc)
+        return 1
     return 0
 
 

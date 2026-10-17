@@ -85,7 +85,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | --- | --- |
 | The folder you put `fabric-desktop.exe` in | The app. The update replaces this file in place. |
 | `%LOCALAPPDATA%\FabricDesktop\engine` | The local engine: Python and its packages. |
-| `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back these up or keep them in Git. |
+| `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back them up with the rest of this folder ([Back up and restore](backup.md)) or keep them in Git. |
 | `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache. Delete it to force a fresh sign-in. |
 | `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` | The saved sign-in of the embedded Fabric pages, encrypted for your Windows account. |
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |

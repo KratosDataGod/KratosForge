@@ -115,7 +115,7 @@ Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `chann
 
 **People from more than one organization, with your own app.** Make the registration multitenant. If an organization doesn't let users consent, its Microsoft Entra admin approves the app once with the link in **Settings > Account > Admin approval** (`https://login.microsoftonline.com/organizations/adminconsent?client_id=<application-client-id>`).
 
-**Updates.** Every green build of `main` goes to the Preview channel at once. The Stable channel, which everyone gets by default, only moves when someone runs **Actions > Promote to stable** with the notes people will see as What's new.
+**Updates.** The newest green build of `main` goes to the Preview channel at once; when merges land close together, only the build of the last one is published, one publish at a time. The Stable channel, which everyone gets by default, only moves when someone runs **Actions > Promote to stable** with the notes people will see as What's new.
 
 ## The headless agent
 

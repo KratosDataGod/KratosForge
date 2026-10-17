@@ -33,6 +33,12 @@ Press **Ctrl+K** anywhere, or click the search box. Type a few letters to find:
 
 Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for preview features only show when preview features are on.
 
+### Using the keyboard
+
+- **Tab** moves through the window, with a ring around whatever has focus. The first Tab offers **Skip to content**, which jumps past the top bar and the rail.
+- In a dialog, **Tab** stays inside it, and **Esc** closes it when clicking outside would. Focus then goes back to what you were on.
+- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+
 ### The bell: activity
 
 The bell keeps a list of what happened in this app on this PC:

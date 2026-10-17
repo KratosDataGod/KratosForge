@@ -11,6 +11,7 @@ import os
 import sys
 from typing import IO
 
+from .redact import secrets
 from .service import Service
 
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
@@ -80,9 +81,10 @@ def handle(service: Service, line: str) -> dict:
     try:
         return {"id": req_id, "result": getattr(service, method)(**req.get("params", {}))}
     except Exception as exc:  # report every failure to the UI rather than dying
+        # Errors can quote a request (a URL with a signature, a header): never pass a token on.
         if hasattr(exc, "errors"):  # a gate: its message already lists every reason
-            return {"id": req_id, "error": str(exc)}
-        return {"id": req_id, "error": f"{type(exc).__name__}: {exc}"}
+            return {"id": req_id, "error": secrets(str(exc))}
+        return {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:

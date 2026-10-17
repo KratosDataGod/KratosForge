@@ -26,7 +26,7 @@ test("a Markdown link can't add attributes or handlers", () => {
   const { inlineMd } = markdownHelpers();
   const html = inlineMd('[x](a" style="position:fixed" onmouseover="alert(1)) and [y](b\' onclick=\'z)');
   assert.ok(!/"\s+on\w+=|'\s+on\w+=|" style=/.test(html), html);
-  assert.match(html, /title="a&quot; style=&quot;/");
+  assert.match(html, /title="a&quot; style=&quot;/);
 });
 
 test("Markdown still formats", () => {

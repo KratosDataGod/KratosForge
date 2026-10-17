@@ -85,11 +85,14 @@ These prove where a file came from; they don't replace code signing, which is st
 | --- | --- |
 | The folder you put `fabric-desktop.exe` in | The app. The update replaces this file in place. |
 | `%LOCALAPPDATA%\FabricDesktop\engine` | The local engine: Python and its packages. |
-| `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back these up or keep them in Git. |
+| `%LOCALAPPDATA%\FabricDesktop\notebooks` | Your notebooks, as `.ipynb` files. Back them up with the rest of this folder ([Back up and restore](backup.md)) or keep them in Git. |
 | `%LOCALAPPDATA%\FabricDesktop\msal_cache.bin` | Your sign-in token cache. Delete it to force a fresh sign-in. |
 | `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` | The saved sign-in of the embedded Fabric pages, encrypted for your Windows account. |
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Attach it to a problem report if asked. |
+| `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |
+| `%LOCALAPPDATA%\FabricDesktop\files`, `staging`, `onelake-cache` | Local copies of lakehouse data: file previews, tables staged before a publish, files the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
+| `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`) and their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made). See [Connect your AI tool](ai/README.md). |
 | `%LOCALAPPDATA%\FabricDesktop\*.json`, `*.jsonl` | Run history, favorites, pinned workspaces, schedules on this PC, the Estate X-ray's last scan. |
 | `%ProgramData%\FabricDesktop\policy.json` | Settings your organization fixed, if any. |
 | `Documents\FabricDesktop\metadata` | The default folder for a new metadata project. You can pick another, and you should keep it in Git. |

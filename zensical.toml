@@ -22,6 +22,7 @@ nav = [
   { "Home" = "README.md" },
   { "Get started" = [
     { "Install" = "install.md" },
+    { "Back up and restore" = "backup.md" },
     { "Enterprise install" = "enterprise-install.md" },
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },
@@ -41,6 +42,11 @@ nav = [
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
+    { "Your AI tool" = [
+      { "Connect your AI tool" = "ai/README.md" },
+      { "Workflows" = "ai/workflows.md" },
+      { "Instructions for your AI tool" = "ai/agent-instructions.md" },
+    ] },
   ] },
   { "Servers" = [
     { "Headless agent" = "agent.md" },
@@ -68,6 +74,7 @@ nav = [
       { "Decisions" = "product/ai-integration-decisions.md" },
       { "Security" = "product/ai-integration-security.md" },
       { "Compatibility" = "product/ai-integration-compatibility.md" },
+      { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
     { "UI guidelines" = "ui-guidelines.md" },
   ] },

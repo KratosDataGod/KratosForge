@@ -22,7 +22,8 @@ A program that can already run commands as you on this PC. It can read your file
 | --- | --- | --- |
 | Client reads a token or secret | No capability returns tokens, connection strings or credentials; results and errors pass through secret redaction; Python output is scanned for token-shaped strings | Registry, `invoke` |
 | Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout | Permissions, executions |
-| Client reads local files through SQL | External SQL is read-only and runs with DuckDB external access off and configuration locked | Executions |
+| Client reads local files through SQL | External SQL is one read-only statement and runs with DuckDB external access off and configuration locked | Executions |
+| Code reaches Fabric or writes OneLake | Code gets only a storage token; table writes through the engine are refused; workspace-limited tools can't run code | Executions, permissions |
 | Client reads data it shouldn't | Rows need `READ_DATA`; resources are schema-only; Fabric enforces the person's own access on every OneLake read | Permissions, resources |
 | Client writes to OneLake or changes Fabric | Not offered in the first release | Registry |
 | Client approves its own request | Approvals are decided only through the app's RPC; no MCP tool or REST endpoint changes permissions or approvals | Permissions |
@@ -32,7 +33,8 @@ A program that can already run commands as you on this PC. It can read your file
 | Flooding or huge requests | Body size limit, per-client rate limit, concurrency limit, output caps | HTTP server, executions |
 | A revoked client keeps going | Every call checks the client record; revoking stops the next call | Permissions |
 | Lower-privilege interface changes policy | IT policy keys are read only from the policy file; integrations can't change settings | Policy |
-| Untraceable actions | One audit line per external call with client, channel, capability, decision and outcome; arguments redacted | Audit |
+| An extension widens what tools can do, or imitates a core capability | Extensions are off until the person turns each on and can be limited by policy; ids, permissions and resources are checked against what the extension declares; core ids and URIs are reserved; every call goes through the same `invoke`, permissions, approvals and audit; registration is all or nothing | Extensions (`integrations/extensions.py`) |
+| Untraceable actions | One hash-chained audit line per external call and per refused HTTP request, with client, channel, capability, decision and outcome; code and queries not recorded, secrets removed | Audit (`integrations/audit.py`) |
 | Large responses exhaust memory or context | Paging, response size limits, row limits | Resources, executions |
 
 ## IT controls
@@ -43,9 +45,17 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | --- | --- |
 | `integrations` | `false` turns external AI integration off on this PC; the switch in Settings shows "Set by your organization" |
 | `integrations_max_permissions` | The permission categories clients may be granted, for example `["READ_METADATA", "READ_DATA"]`; anything else can't be granted |
+| `integrations_http` | `false` stops the local HTTP API being switched on |
+| `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
+
+A value of the wrong type fails closed: integrations off, or only `READ_METADATA`, or no HTTP, or no extensions.
 
 ## Residual risks
 
 - A person can approve a harmful request. The approval screen shows the client, operation, target and code, but it can't judge intent.
+- Approved code runs as you. It gets a storage token, and code written to use that token directly (not through the engine) could write OneLake files. The approval screen shows the code in full; approve only what you've read.
+- Approving a notebook run shows the notebook's name, not its code. External tools can't change notebooks in this release, so the code is what you saved.
 - Token redaction recognises known shapes (JWTs, bearer headers, SAS signatures, key-value secrets); a secret in an unusual format can pass through.
+- The audit trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which the chain check can't see. Ship `integrations\audit` to a log store if that matters.
+- An extension's code runs inside the engine with the engine's rights. Only extensions shipped with the app exist in this release; installing others, signing and isolating them is the Git-native program's Phase 4.
 - Integration settings and approvals are files in your Windows profile; anything running as you can change them (see "What it does not protect against").

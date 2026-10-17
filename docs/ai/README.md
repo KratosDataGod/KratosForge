@@ -1,0 +1,151 @@
+# Connect your AI tool
+
+Fabric Desktop by KratosBI is **AI-ready, not AI-dependent**. It has no AI of its own: no chat, no model, no AI key or subscription. AI tools you already use (Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot, or any MCP client) can connect to it and use the same features you do, with the permissions you give them. Nothing is sent to an AI service by Fabric Desktop by KratosBI; your tool asks it for things, and you can switch all of it off. Everything here is **Preview**.
+
+| Page | For |
+| --- | --- |
+| This page | Connecting a tool, step by step, with the setup for each one |
+| [Workflows](workflows.md) | Step-by-step workflows your tool can follow (also served as MCP prompts) |
+| [Instructions for your AI tool](agent-instructions.md) | Text to paste into `AGENTS.md`, `CLAUDE.md`, `.cursorrules` or `.github/copilot-instructions.md` |
+| [Architecture](../architecture/ai-integration.md), [security](../product/ai-integration-security.md), [compatibility](../product/ai-integration-compatibility.md) | Developers and IT |
+
+## Which tools have been tried
+
+Only the MCP Python SDK client and an HTTP client are tested, automatically on every build. **None of the AI tools below has been tried with Fabric Desktop by KratosBI yet**: each setup follows that tool's documented MCP configuration format, but is **Untested**. The [compatibility page](../product/ai-integration-compatibility.md) is kept up to date; if you try one, open an issue with the tool, its version and what happened.
+
+## Connect a tool
+
+1. Open **Settings > Integrations** and turn on **Let AI tools connect**. It's off until you do, and your organization's policy can keep it off.
+2. **Add a tool**: pick which one, give it a name, and choose what it may do. **Read metadata** (names, structure, schemas, checks; no rows) is always included. **Read data** reads rows from tables, a few at a time. **Run code on this PC** runs SQL, Python and notebooks, and asks you every time.
+3. **Copy setup** and paste it into your tool as shown below. Your setup has your tool's own id in place of `YOUR-CLIENT-ID` and your own path in place of `C:\Users\you\...`. The command's path stays the same when Fabric Desktop by KratosBI updates.
+4. **Test connection**, then ask your tool something like "What lakehouses can you see in Fabric Desktop?".
+
+Fabric Desktop by KratosBI has to be open while you use it: requests that need your approval appear there, over whatever page you're on. **Allow once** lets that one request through; **Deny** refuses it. Your tool can't approve anything itself.
+
+## Setup for each tool
+
+### Claude Code
+
+Run this once in a terminal. Status: **Untested**.
+
+```text
+claude mcp add fabric-desktop -- "C:\Users\you\AppData\Local\FabricDesktop\bin\fabric-desktop-mcp.cmd" --client YOUR-CLIENT-ID
+```
+
+### Claude Desktop
+
+Add this to `claude_desktop_config.json` (Settings > Developer > Edit config), merging it with any servers already there, then restart Claude Desktop. Status: **Untested**.
+
+```json
+{
+  "mcpServers": {
+    "fabric-desktop": {
+      "command": "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd",
+      "args": [
+        "--client",
+        "YOUR-CLIENT-ID"
+      ]
+    }
+  }
+}
+```
+
+### OpenAI Codex CLI
+
+Add this to `~/.codex/config.toml`. Status: **Untested**.
+
+```toml
+[mcp_servers.fabric-desktop]
+command = "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd"
+args = ["--client", "YOUR-CLIENT-ID"]
+```
+
+### Cursor
+
+Add this to `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` for every project. Status: **Untested**.
+
+```json
+{
+  "mcpServers": {
+    "fabric-desktop": {
+      "command": "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd",
+      "args": [
+        "--client",
+        "YOUR-CLIENT-ID"
+      ]
+    }
+  }
+}
+```
+
+### VS Code (GitHub Copilot agent mode)
+
+Add this to `.vscode/mcp.json` in your workspace, then start the server from the file and use Copilot in agent mode. Status: **Untested**.
+
+```json
+{
+  "servers": {
+    "fabric-desktop": {
+      "type": "stdio",
+      "command": "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd",
+      "args": [
+        "--client",
+        "YOUR-CLIENT-ID"
+      ]
+    }
+  }
+}
+```
+
+### Another MCP client
+
+Any tool that starts MCP servers over stdio. Most use this shape; check your tool's documentation for where it goes. Status: **Untested** for any specific tool.
+
+```json
+{
+  "mcpServers": {
+    "fabric-desktop": {
+      "command": "C:\\Users\\you\\AppData\\Local\\FabricDesktop\\bin\\fabric-desktop-mcp.cmd",
+      "args": [
+        "--client",
+        "YOUR-CLIENT-ID"
+      ]
+    }
+  }
+}
+```
+
+### An HTTP client (REST API)
+
+For scripts and tools that call HTTP instead of starting a command. Turn on **Local HTTP API** under **How tools connect**; it listens on this PC only (`127.0.0.1`). Each tool gets its own token, shown once when you add the tool (**Edit > New token** makes another). Status: **Tested** with httpx and the MCP Python SDK.
+
+```text
+Base URL: http://127.0.0.1:47615/api/v1
+OpenAPI: http://127.0.0.1:47615/api/v1/openapi.json
+MCP (Streamable HTTP): http://127.0.0.1:47615/mcp
+Header: Authorization: Bearer <the token shown once>
+```
+
+## What a connected tool can and can't do
+
+| It can, with the permission you gave it | It can't, whatever you give it |
+| --- | --- |
+| List workspaces, lakehouses, tables, notebooks and projects, and read schemas and checks | Get your sign-in tokens or passwords |
+| Read rows, a few at a time (**Read data**) | Write tables through Fabric Desktop by KratosBI, or change Fabric items |
+| Run read-only SQL, and Python and notebooks on this PC, each after you approve it (**Run code on this PC**) | Use Git, or change settings and policies |
+| Read Prove results and receipts, and with your approval compare tables or export a receipt | Read local files through SQL, or run anything without your approval |
+
+Code a tool runs gets its own process that's ended afterwards; it can read the attached lakehouse but table writes through Fabric Desktop by KratosBI are refused. Approved Python runs as you and could still write files with the storage access it has, so read it before you allow it: the approval shows it in full. Text the tool reads from notebooks, tables and files is treated as data: it can't approve anything. Every request is recorded under **Recent activity**, and in an audit trail your IT team can collect (`%LOCALAPPDATA%\FabricDesktop\integrations\audit`).
+
+These limits apply to what your tool does through Fabric Desktop by KratosBI. A tool that can already run commands on your PC (as most coding agents can) can do anything you can, with or without this connection; see [security](../product/ai-integration-security.md#what-it-does-not-protect-against).
+
+## If it doesn't work
+
+| What you see | What to do |
+| --- | --- |
+| The tool says the server failed to start | Check the path in your setup is the one **Copy setup** gave you, and that Fabric Desktop by KratosBI has started once since installing. |
+| "External AI tools are turned off" | Turn on **Let AI tools connect**, or ask your IT team if it's locked by policy. |
+| "This tool isn't connected" or "was disconnected" | The client id in your setup doesn't match a tool in **Connected tools**, or the tool was revoked. Add it again and copy the new setup. |
+| No approval shows up | Open Fabric Desktop by KratosBI; approvals only appear while it's open. They're dropped after 5 minutes. |
+| HTTP calls get 401 | Send `Authorization: Bearer <token>`; make a new token under **Edit** if you've lost it. |
+| HTTP calls get 403 | Call `127.0.0.1`, not a host name, and don't send an `Origin` header (browsers can't use the API). |

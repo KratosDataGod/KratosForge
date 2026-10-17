@@ -32,6 +32,9 @@ Keys:
                      the PC (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
+    local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
+                     metadata framework's download cache) are deleted after this many days unused;
+                     0 keeps them (default 30)
 
 policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
 """
@@ -49,10 +52,11 @@ from .auth import MICROSOFT_CLIENT_ID
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
-                            "allowed_tenants": []}
+                            "allowed_tenants": [], "local_retention_days": 30}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
-                                            "allow_fabric_runs": bool, "allowed_tenants": list}
+                                            "allow_fabric_runs": bool, "allowed_tenants": list,
+                                            "local_retention_days": int}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process")  # support_url is for IT only
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
@@ -105,15 +109,24 @@ def policy_problems() -> list[str]:
     for key, value in data.items():
         if key not in DEFAULTS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(DEFAULTS)})")
-        elif not isinstance(value, TYPES[key]) or (TYPES[key] is int and isinstance(value, bool)):
+        elif not _typed(key, value):
             problems.append(f"{key} should be {TYPES[key].__name__}, not {type(value).__name__}")
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key == "client_id" and value and not valid_client_id(value):
             problems.append("client_id isn't an app (client) ID")
+        elif key == "local_retention_days" and value < 0:
+            problems.append("local_retention_days can't be negative (0 keeps local copies)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
     return problems
+
+
+def _typed(key: str, value: Any) -> bool:
+    """``value`` has the type ``key`` needs (true and false don't count as numbers)."""
+    if TYPES[key] is int and isinstance(value, bool):
+        return False
+    return isinstance(value, TYPES[key])
 
 
 def tenant_allowed(tenant_id: str | None) -> bool:
@@ -141,7 +154,7 @@ def load() -> dict[str, Any]:
             candidates.append(("built_in", built_in_client_id()))
         value, source = default, "default"
         for where, candidate in candidates:
-            if candidate not in (None, "") and isinstance(candidate, TYPES[key]):
+            if candidate not in (None, "") and _typed(key, candidate) and not (key == "local_retention_days" and candidate < 0):
                 value, source = candidate, where
                 break
         if key == "channel" and value not in CHANNELS:

@@ -8,12 +8,14 @@ Last updated: 2026-10-16.
 
 | Stage | Branch | PR | State |
 | --- | --- | --- | --- |
-| 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Open for review |
-| 1 Foundations | `claude/prove-stage1-foundations` | #59 | Open for review; independent of #55 |
-| 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Open for review; stacked on #59 and #55 |
-| 3 First-release UI | `claude/prove-stage3-ui` | #65 | Draft until Chris reacts to the mockup; stacked on #62 |
-| 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Open for review; stacked on #65 |
-| 5 Notebook state | `claude/prove-stage5-state` | #68 | Draft until Chris reacts to the mockup board 6; stacked on #67 |
+| 0 Plan | `claude/prove-this-notebook-plan-sxnf3y` | #55 | Merged |
+| 1 Foundations | `claude/prove-stage1-foundations` | #59 | Merged |
+| 2 Proofs engine | `claude/prove-stage2-proofs` | #62 | Merged |
+| 3 First-release UI | `claude/prove-stage3-ui` | #65 | Merged |
+| 4 Kernel process | `claude/prove-stage4-kernels` | #67 | Merged |
+| 5 Notebook state | `claude/prove-stage5-state` | #68 | Merged |
+| FD-112 Side by side asks before overwriting tables | `claude/prove-sbs-sandbox` | #81 | Open for review |
+| FD-110 Engine request time limits | `claude/prove-rpc-timeouts` | see GitHub | Open for review; independent of #81 |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 
@@ -48,6 +50,8 @@ None yet.
 - Stage 5: 9 new engine tests (`test_depgraph.py`) and 4 new UI tests pass; the Dependencies view, Stale tags and the Run stale cells confirmation rendered in headless Chromium with dependency answers from the real `depgraph.graph` and cell runs stubbed.
 - Stage 3: 366 passed, 2 skipped; 6 UI tests pass; docs build strict; panel, dialogs and wizard rendered in headless Chromium against a real proof record (engine calls stubbed in the browser). The Fabric side was exercised by running the exact published notebook in a subprocess with a fake `notebookutils`, not on a tenant.
 
+- FD-110 time limits: 5 shell tests (`cargo test` in `app/src-tauri`, Linux) cover a call that answers, one that hangs (the process is ended within the limit), one whose process exits, which calls have a limit, and that every limited call is an engine method; 1 new UI test. The full shell compiles with the change. Not run on Windows in this session; CI builds the Windows exe but doesn't run `cargo test`.
+
 ## Blockers
 
 - Decision asked of Chris on 2026-10-16 (card in the project thread): where environment profiles install packages from (recommended: an IT wheel folder from the policy file, then PyPI if the policy allows),.
@@ -57,4 +61,4 @@ None yet.
 
 ## Next action
 
-Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: RPC timeouts in the Tauri shell (a timed-out call has to end the engine, because its answer would still arrive on the pipe), and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.
+Stage 5 next: variable history (45) and watches (46), then failure replay bundles (47) and clean-run diagnostics (48); breakpoints (44) build on the stage 4 kernel process. Known gap in 42: a cell isn't yet marked stale when a table it reads gets a new Delta version from outside the notebook (needs the version at run time; the proof runtime already reads it). Stage 4 remaining: after #81 merges, add `side_by_side_writes` to the shell's quick-call list (`app/src-tauri/src/watchdog.rs`); a per-cell time limit and memory limit for the kernel process (needs a Settings control, so mockup first); and per-profile virtual environments (needs Chris's decision on where packages come from). When Chris reacts to the mockup, apply his changes to #65 first. `cloud_service.py` `_publish` and `run_notebook_in_fabric` get a hook from the workload program (PR #60); keep it if those change.

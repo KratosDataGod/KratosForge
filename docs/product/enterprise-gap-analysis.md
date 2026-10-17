@@ -104,7 +104,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/`, `docs/`
 | Id | Capability | Status | What exists | Gap |
 | --- | --- | --- | --- | --- |
 | FD-136 | First-run experience | PARTIAL | Component check at startup, welcome page, sign-in callout (`app/ui/app.js`). | No readiness checklist (sign-in, capacity, workspace access, OneLake reach) with fixes. |
-| FD-137 | Opt-in telemetry | MISSING | None. | Consent, policy switch, what is collected, where it goes. Needs a decision on the destination service. |
+| FD-137 | Opt-in telemetry | PARTIAL | Off by default; Settings switch with the exact text sent; `telemetry` and `telemetry_connection_string` policy keys; daily counts to Application Insights (`telemetry.py`, docs/telemetry.md). | KratosBI's Application Insights resource and the `TELEMETRY_CONNECTION_STRING` variable don't exist yet, so builds send nothing. Not tried against a real Application Insights resource (UNVERIFIED). |
 | FD-138 | Diagnostic support bundles | PARTIAL | Report a problem copies build, Python, tenant, page and recent errors (`app/ui/settings.js`). | No redaction (paths with user names, emails, GUIDs can leak), no file bundle with logs and settings summary. |
 | FD-139 | Accessibility | PARTIAL | Dialog roles and labels, about 140 ARIA attributes. | No focus return after dialogs, no skip link, no reduced-motion handling, `.cell:focus { outline: none }`, no audit. |
 | FD-140 | Pilot readiness | PARTIAL | Install, Azure setup, permissions, troubleshooting, "What is tested and what isn't". | No capability matrix with support levels, no security architecture page, no pilot acceptance checklist. |

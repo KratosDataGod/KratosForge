@@ -47,7 +47,7 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | UI to engine | The engine is a child process on stdio with a fixed method allowlist. It runs no server; only a browser sign-in with an own app registration briefly listens on `localhost` for Microsoft's redirect |
 | Updates | The exe and engine come from the repository's GitHub releases. Their SHA-256 must match `version.json` and the engine's build must match the release. IT can turn self-updates off |
 | Build | Actions pinned by SHA, dependency scanning, SBOMs and build provenance attestations (PR #88). Not code signed yet (G2) |
-| Data leaving the PC | No telemetry. Error messages and logs have secrets removed; problem reports and support bundles also remove personal details |
+| Data leaving the PC | Usage data only if a person turns it on, or their organization does: daily counts of actions, failures and timings, with no data, names, account or tenant ([telemetry.md](../telemetry.md)). Policy can turn it off for everyone. Error messages and logs have secrets removed; problem reports and support bundles also remove personal details |
 | Data in OneLake | Writes go through the person's token. Preview before write and promote. The live harness only writes to a workspace marked for testing, and only to items it created |
 | Records | A hash-chained local audit log of every run, write and Fabric job start |
 

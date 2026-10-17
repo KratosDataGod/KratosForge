@@ -15,9 +15,10 @@ from typing import Any
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql
+from . import app_settings, lakehouse, sql, sql_dialects, sql_format
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -78,6 +79,20 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
             self._audit_log = AuditLog(self.root / "audit", app="agent" if self.headless else "desktop")
         return self._audit_log
 
+    @property
+    def telemetry(self) -> Telemetry:
+        """Opt-in usage counts (telemetry.py); the agent never sends any."""
+        if getattr(self, "_telemetry", None) is None:
+            self._telemetry = Telemetry(self.root / "telemetry")
+        return self._telemetry
+
+    def telemetry_status(self) -> dict[str, Any]:
+        """Settings, Usage data: on or off, where it goes and the exact text waiting to be sent."""
+        return self.telemetry.status()
+
+    def telemetry_new_install_id(self) -> dict[str, Any]:
+        return {"install_id": self.telemetry.new_install_id()}
+
     def audit_log(self, limit: int = 200, action: str = "") -> dict[str, Any]:
         """The newest audit lines, newest first, and whether the chain is intact."""
         return {"entries": self.audit.recent(limit, action), "check": self.audit.verify(), "folder": str(self.audit.folder)}
@@ -99,6 +114,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
 
     def environment(self) -> dict[str, Any]:
         self._start_retention_sweep()
+        self._start_usage_send()
         user = tenant = None
         try:
             user = self.auth.signed_in_user()
@@ -127,6 +143,21 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
                 logging.getLogger(__name__).exception("Local copy cleanup failed")
 
         threading.Thread(target=run, name="retention-sweep", daemon=True).start()
+
+    def _start_usage_send(self) -> None:
+        """Once per engine start, in the background: send finished days of usage data, if it's on."""
+        if getattr(self, "_usage_sent", False) or self.headless:
+            return
+        self._usage_sent = True
+
+        def run() -> None:
+            import logging
+            try:
+                self.telemetry.send_due()
+            except Exception as exc:  # noqa: BLE001 - offline or blocked: the days wait for the next start
+                logging.getLogger(__name__).info("Usage data not sent: %s", type(exc).__name__)
+
+        threading.Thread(target=run, name="usage-send", daemon=True).start()
 
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else
@@ -172,6 +203,8 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
             app_settings.save(changes)
         if isinstance(self.kernel, ProcessKernel):
             _apply_limits(self.kernel)
+        if "telemetry" in changes and not changes["telemetry"]:
+            self.telemetry.discard()
         return self.app_settings()
 
     def sign_out(self) -> dict[str, Any]:
@@ -420,16 +453,26 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
 
     # SQL query page: Spark SQL over one lakehouse's tables, run on this PC.
 
-    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, sandbox: bool = False) -> dict[str, Any]:
+    def sql_dialects(self) -> list[dict[str, Any]]:
+        """The dialects the SQL page can edit, and which of them run on this PC."""
+        return [sql_dialects.get(key) for key in sql_dialects.DIALECTS]
+
+    def sql_format(self, query: str, dialect: str = "spark") -> dict[str, Any]:
+        """Format SQL without running it; the original comes back with a warning when that isn't safe."""
+        return sql_format.format_sql(query, dialect)
+
+    def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark",
+                sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query, sandbox=sandbox)
+        result = sql.run(query, dialect, sandbox=sandbox)
         columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
                 "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
-    def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new") -> dict[str, Any]:
+    def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
+                 dialect: str = "spark") -> dict[str, Any]:
         """Write the query result as a table. "new" (the default) writes nothing when the table
         exists and says so, so the page can ask before replacing it."""
         self._attach(lakehouse_ref)
@@ -437,13 +480,13 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
             if lakehouse.table_exists(table):
                 return {"table": table, "exists": True}
             mode = "overwrite"
-        written = lakehouse.write_table(sql.run(query), table, mode)
+        written = lakehouse.write_table(sql.run(query, dialect), table, mode)
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
-    def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str]) -> dict[str, Any]:
+    def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
         """Write the full result to the Downloads folder."""
         self._attach(lakehouse_ref)
-        result = sql.run(query)
+        result = sql.run(query, dialect)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"

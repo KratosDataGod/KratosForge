@@ -53,6 +53,7 @@ const PREVIEW_FEATURES = {
   mesh: "Data mesh",
   platform: "Platform",
   workloads: "Workloads",
+  integrations: "External AI tools",
 };
 
 function previewShown() {

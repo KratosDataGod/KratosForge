@@ -23,7 +23,7 @@ from .store import IntegrationStore
 
 METHODS = {"integrations_status", "integrations_set_enabled", "integrations_add_client", "integrations_update_client",
            "integrations_revoke_client", "integrations_approvals", "integrations_decide", "integrations_new_token",
-           "integrations_set_http"}
+           "integrations_set_http", "integrations_pending", "integrations_activity", "integrations_test"}
 
 HTTP_START_SECONDS = 15
 
@@ -199,3 +199,68 @@ class IntegrationsMixin:
 
     def integrations_decide(self, approval_id: str, approve: bool, note: str = "") -> dict[str, Any]:
         return self.integration_store.decide(approval_id, bool(approve), note)
+
+    # ---- what the Integrations page and the approval prompt poll
+
+    def integrations_pending(self) -> dict[str, Any]:
+        """Cheap enough to poll every few seconds: is it on, and what is waiting for the person."""
+        store, rules = self.integration_store, policy.current()
+        enabled = store.settings()["enabled"] and rules["enabled"] is not False
+        return {"enabled": enabled, "pending": store.approvals("pending") if enabled else []}
+
+    def integrations_activity(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Recent requests that needed the person (approvals, whatever happened to them) and every
+        execution, newest first. The full record of every call is the audit log (PR-AI-010)."""
+        from .executions import ExecutionManager
+        names = {c["id"]: c["name"] for c in self.integration_store.clients(include_revoked=True)}
+        rows = [{"kind": "approval", "at": a["decided_at"] or a["created_at"], "client": a["client_name"], "client_id": a["client_id"],
+                 "request": a["title"], "target": a["summary"].get("target", {}), "decision": a["state"], "note": a["note"]}
+                for a in self.integration_store.approvals("", limit)]
+        for e in ExecutionManager(self).list(None, limit):
+            rows.append({"kind": "execution", "at": e.get("finished_at") or e.get("started_at") or e.get("created_at"),
+                         "client": names.get(e.get("client_id"), e.get("client_id")), "client_id": e.get("client_id"),
+                         "request": {"sql": "Run a SQL query", "python": "Run Python", "notebook": "Run a notebook"}.get(e.get("kind"), e.get("kind")),
+                         "target": e.get("target") or {}, "outcome": e.get("state"), "seconds": e.get("seconds"),
+                         "execution_id": e.get("id")})
+        return sorted(rows, key=lambda r: r["at"] or 0, reverse=True)[:limit]
+
+    def integrations_test(self, client_id: str) -> dict[str, Any]:
+        """Start the MCP server the way the tool will (the launcher, with its client id) and list
+        what it offers; for an HTTP tool, check the local API answers."""
+        client = self.integration_store.client(client_id)
+        if client is None or client["revoked_at"]:
+            raise LookupError("That tool isn't connected.")
+        if client["transport"] == "http":
+            import urllib.request
+            http = self._http_state()
+            if not http["running"]:
+                return {"ok": False, "message": "The local HTTP API is off. Turn it on first."}
+            try:
+                with urllib.request.urlopen(f"{http['url']}/api/v1/health", timeout=5) as r:  # noqa: S310 - loopback only
+                    ok = r.status == 200
+            except OSError as exc:
+                return {"ok": False, "message": f"The local API didn't answer: {exc}"}
+            return {"ok": ok, "message": f"The local API answers at {http['url']}." if ok else "The local API answered with an error."}
+        return _test_stdio(launcher_path(self.root), client_id)
+
+
+def _test_stdio(launcher: Any, client_id: str, timeout: float = 60) -> dict[str, Any]:
+    import anyio
+    from mcp import Client, StdioServerParameters
+
+    if not launcher.exists():
+        return {"ok": False, "message": "The launcher isn't there yet. Turn integrations on first."}
+    command, args = (("cmd.exe", ["/c", str(launcher)]) if os.name == "nt" else (str(launcher), []))
+    params = StdioServerParameters(command=command, args=args + ["--client", client_id], env=dict(os.environ))
+
+    async def run() -> dict[str, Any]:
+        with anyio.fail_after(timeout):
+            async with Client(params) as client:
+                tools = (await client.list_tools()).tools
+                version = getattr(client, "protocol_version", None) or ""
+        return {"ok": True, "tools": len(tools), "protocol": str(version),
+                "message": f"Connected: {len(tools)} tools available to this tool."}
+    try:
+        return anyio.run(run)
+    except Exception as exc:  # noqa: BLE001 - shown on the page
+        return {"ok": False, "message": f"The MCP server didn't start: {type(exc).__name__}: {exc}"}

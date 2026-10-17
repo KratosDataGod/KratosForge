@@ -95,6 +95,7 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
     # Each public method is one UI action.
 
     def environment(self) -> dict[str, Any]:
+        self._start_retention_sweep()
         user = tenant = None
         try:
             user = self.auth.signed_in_user()
@@ -102,6 +103,27 @@ class Service(GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, PlatformMix
         except Exception:  # no client ID yet, or offline: the UI offers sign-in
             pass
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
+
+    def _start_retention_sweep(self) -> None:
+        """Once per engine start, in the background: delete local copies of lakehouse data unused for
+        longer than the organization allows (retention.py)."""
+        if getattr(self, "_swept", False):
+            return
+        self._swept = True
+
+        def run() -> None:
+            import logging
+
+            from . import retention
+            try:
+                result = retention.sweep(self.root, app_settings.value("local_retention_days"))
+                if result["removed"]:
+                    logging.getLogger(__name__).info("Deleted %d local copies (%d bytes) unused for %d days",
+                                                     len(result["removed"]), result["bytes"], result["days"])
+            except Exception:  # noqa: BLE001 - a cache sweep must never stop the app
+                logging.getLogger(__name__).exception("Local copy cleanup failed")
+
+        threading.Thread(target=run, name="retention-sweep", daemon=True).start()
 
     def _new_kernel(self, process: bool | None = None) -> Any:
         """The notebook kernel: in a process of its own (kernel_proc) when that setting is on, else

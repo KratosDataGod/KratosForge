@@ -33,6 +33,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("entities", nargs="*", help="entities to run (default: all)")
     p.add_argument("--backfill", default="", choices=["", "full"], help="full: rebuild from the whole source")
     p.add_argument("--cascade", action="store_true", help="with one entity: rebuild it and everything downstream")
+    p = sub.add_parser("clean-local", help="delete local copies of lakehouse data unused for a while "
+                                           "(the app does this at start)")
+    p.add_argument("--days", type=int, help="older than this many days (default: the local_retention_days setting)")
+    p.add_argument("--dry-run", action="store_true", help="only list what would be deleted")
     p = sub.add_parser("backup", help="save this PC's settings, notebooks, schedules and history to a zip "
                                       "(never sign-in tokens)")
     p.add_argument("--out", default=".", help="folder to save it in (default: here)")
@@ -83,6 +87,16 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "agent":
         raise SystemExit(_agent(args))
+    if args.command == "clean-local":
+        from . import app_settings, retention
+        from .service import data_dir
+        days = args.days if args.days is not None else app_settings.value("local_retention_days")
+        result = retention.sweep(data_dir(), days, dry_run=args.dry_run)
+        verb = "Would delete" if args.dry_run else "Deleted"
+        print(f"{verb} {len(result['removed'])} local copies ({result['bytes'] / 1e6:.1f} MB) unused for {days} days")
+        for path in result["removed"]:
+            print(f"  {path}")
+        return
     if args.command == "live-test":
         raise SystemExit(_live_test(args))
     if args.command == "support-bundle":

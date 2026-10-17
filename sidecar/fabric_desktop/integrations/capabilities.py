@@ -146,9 +146,54 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.validate_notebook, artifact_types=("Notebook",), timeout=60,
             resource="fabric-desktop://notebooks/{name}/validation"),
     ]
-    caps += _prove() + _executions() + _prove_actions()
+    caps += _prove() + _pipelines() + _executions() + _prove_actions()
     for cap in caps:
         reg.register(cap)
+
+
+PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",
+                  "Expressions are read, never evaluated; nothing in the pipeline runs.",
+                  "Definitions up to 1 MB (the local API's request limit); the desktop app reads larger ones.")
+DEFINITION = {"type": "string", "minLength": 2, "maxLength": 1_000_000,
+              "description": "pipeline-content.json, or a getDefinition result with base64 parts, as text."}
+DIAGNOSTICS = {"ok": {"type": "boolean"}, "diagnostics": {"type": "array"}, "counts": {"type": "object"},
+               "schema": {"type": ["object", "null"]}}
+
+
+def _pipelines() -> list[Capability]:
+    """Fabric pipeline definitions (ORCH-001): read and check a definition the caller passes in."""
+    return [
+        Capability(
+            "fabric_desktop_validate_pipeline", "Validate a pipeline definition",
+            "Checks a Fabric Data Factory pipeline definition: required fields, duplicate activity names, "
+            "dependencies on missing activities, dependency cycles, undeclared parameters and variables, and "
+            "expressions that read activities not upstream. Each problem has the activity and JSON path.",
+            schema({"definition": DEFINITION}, ["definition"]), schema(DIAGNOSTICS, ["ok", "diagnostics"], extra=True),
+            "READ_METADATA", services.validate_pipeline, artifact_types=("DataPipeline",), status="preview",
+            limitations=PIPELINE_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_inspect_pipeline", "Inspect a pipeline definition",
+            "A Fabric pipeline definition as a tree: parameters, variables, activities (nested ones included) "
+            "with their dependencies, each expression and what it refers to, plus the diagnostics and a record of "
+            "the format and activity types found. Secure parameter defaults are hidden.",
+            schema({"definition": DEFINITION}, ["definition"]),
+            schema(DIAGNOSTICS | {"name": STR, "activities": {"type": "array"}, "parameters": {"type": "array"},
+                                  "variables": {"type": "array"}}, ["ok", "diagnostics"], extra=True),
+            "READ_METADATA", services.inspect_pipeline, artifact_types=("DataPipeline",), status="preview",
+            limitations=PIPELINE_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_export_pipeline", "Convert a pipeline definition",
+            "Returns a Fabric pipeline definition as pipeline-content.json, an item definition with base64 parts, "
+            "or Fabric Git folder files. Every property is kept; an unchanged definition comes back exactly as given. "
+            "Writes no file.",
+            schema({"definition": DEFINITION,
+                    "format": {"enum": ["", "pipeline_content", "item_definition", "git_folder"], "default": ""}},
+                   ["definition"]),
+            schema({"ok": {"type": "boolean"}, "format": STR, "text": STR, "files": {"type": "object"},
+                    "diagnostics": {"type": "array"}}, ["ok"], extra=True),
+            "READ_METADATA", services.export_pipeline, artifact_types=("DataPipeline",), status="preview",
+            limitations=PIPELINE_LIMIT, timeout=60),
+    ]
 
 
 PROVE_LIMIT = ("Cell outputs and example rows are left out: they can contain data. Open the proof in "

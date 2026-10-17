@@ -3,7 +3,7 @@
 export { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection,
   dropCursor, highlightSpecialChars, placeholder, rectangularSelection, crosshairCursor, ViewPlugin,
   Decoration } from "@codemirror/view";
-export { EditorState, Compartment, Prec, RangeSetBuilder } from "@codemirror/state";
+export { EditorState, Compartment, Prec, RangeSetBuilder, StateEffect } from "@codemirror/state";
 export { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment, undo, redo,
   isolateHistory } from "@codemirror/commands";
 export { searchKeymap, highlightSelectionMatches, openSearchPanel } from "@codemirror/search";
@@ -12,6 +12,7 @@ export { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap, s
 export { bracketMatching, indentOnInput, foldGutter, foldKeymap, syntaxHighlighting, HighlightStyle,
   syntaxTree } from "@codemirror/language";
 export { tags } from "@lezer/highlight";
+export { linter, lintGutter, forceLinting, setDiagnostics } from "@codemirror/lint";
 export { python } from "@codemirror/lang-python";
 export { sql, StandardSQL, SQLDialect, MSSQL, PostgreSQL } from "@codemirror/lang-sql";
 export { html } from "@codemirror/lang-html";

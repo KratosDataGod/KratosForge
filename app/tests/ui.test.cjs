@@ -344,6 +344,34 @@ test("side by side pairs removed and added lines and keeps context on both sides
   assert.deepStrictEqual({ ...gitSplitPath("README.md") }, { name: "README.md", dir: "" });
 });
 
+test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
+    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
+  const ctx = {};
+  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
+  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
+  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
+  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
+  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
+  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
+  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
+  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+});
+
+test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
+  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
+  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
+  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
+  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
+});
+
 // The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
 function sqlEditorHelpers() {
   const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");
@@ -351,16 +379,17 @@ function sqlEditorHelpers() {
   const ctx = {};
   vm.runInNewContext(`${code}; Object.assign(this, { SQL_DIALECTS, SQL_WORDS, sqlDialect, sqlQuoteIdent, sqlTableName,
     sqlMask, sqlStatementAt, sqlTableRefs, sqlCompletionContext, sqlResolveTable, sqlTablesNeeded, sqlCompletionOptions,
-    sqlChosenText });`, ctx);
+    sqlChosenText, sqlUtf16Offset, sqlLintDiagnostics });`, ctx);
   return ctx;
 }
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const SQL_TABLES = [{ schema: "dbo", name: "sales" }, { schema: "dbo", name: "customers" }, { schema: "finance", name: "budget" },
   { schema: "finance", name: "sales" }];
 
-test("the SQL editor knows four dialects and only Spark SQL and DuckDB run on this PC", () => {
+test("the SQL editor knows five dialects and only Spark SQL and DuckDB run on this PC", () => {
   const { SQL_DIALECTS, SQL_WORDS, sqlDialect } = sqlEditorHelpers();
-  assert.deepStrictEqual(Object.keys(SQL_DIALECTS), ["spark", "warehouse", "sqldb", "duckdb"]);
+  assert.deepStrictEqual(Object.keys(SQL_DIALECTS), ["spark", "warehouse", "endpoint", "sqldb", "duckdb"]);
+  assert.strictEqual(SQL_WORDS.endpoint, SQL_WORDS.warehouse);
   assert.deepStrictEqual(Object.keys(SQL_DIALECTS).filter((d) => SQL_DIALECTS[d].runsHere), ["spark", "duckdb"]);
   assert.strictEqual(sqlDialect(undefined), "spark");  // a tab saved before dialects existed
   assert.strictEqual(sqlDialect("oracle"), "spark");
@@ -461,6 +490,27 @@ test("Run uses the selection when there is one, otherwise the whole query", () =
   assert.strictEqual(sqlChosenText("SELECT 1; SELECT 2", 4, 4), "SELECT 1; SELECT 2");
 });
 
+test("compatibility findings land where the engine says, even after characters outside the basic plane", () => {
+  const { sqlUtf16Offset, sqlLintDiagnostics } = sqlEditorHelpers();
+  const text = "SELECT '🙂' AS f LIMIT 3";  // the emoji is one character to Python, two to JavaScript
+  assert.strictEqual(sqlUtf16Offset(text, 0), 0);
+  assert.strictEqual(sqlUtf16Offset(text, 8), 8);
+  assert.strictEqual(sqlUtf16Offset(text, 9), 10);
+  assert.strictEqual(sqlUtf16Offset(text, 999), text.length);
+  const report = { diagnostics: [
+    { severity: "error", rule: "SYN-001", title: "LIMIT isn't T-SQL", message: "No LIMIT.", action: "Use TOP.", confidence: "high", from: 16, to: 23 },
+    { severity: "information", rule: "SEM-002", title: "t", message: "m", action: "a", confidence: "high", from: 0, to: 0 },
+    { severity: "unverified", rule: "SYN-007", title: "t", message: "m", action: "a", confidence: "medium", from: 0, to: 6 },
+  ] };
+  const diags = sqlLintDiagnostics(report, text);
+  assert.strictEqual(text.slice(diags[0].from, diags[0].to), "LIMIT 3");
+  assert.deepStrictEqual(diags.map((d) => d.severity), ["error", "info", "hint"]);
+  assert.strictEqual(diags[0].source, "SYN-001");
+  assert.deepStrictEqual(plain(diags[0].lines), ["Error · LIMIT isn't T-SQL", "No LIMIT.", "Use TOP.", "SYN-001 · confidence high"]);
+  assert.deepStrictEqual(plain(sqlLintDiagnostics(null, text)), []);
+  assert.deepStrictEqual(plain(sqlLintDiagnostics({ failed: "x" }, text)), []);
+});
+
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
@@ -470,26 +520,10 @@ test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () 
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
-  for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder"]) {
+  for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
+    "linter", "lintGutter", "forceLinting", "StateEffect"]) {
     assert.match(cm, new RegExp(`${name}:\\(\\)=>`), `codemirror.js exports ${name}; rebuild it with npm run build`);
   }
-});
-
-test("a cost figure shows its classification, and an unknown one never reads as 0", () => {
-  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
-  const code = src.match(/const MEASURE_KIND = [\s\S]*?\n};\n/)[0] + src.match(/function measureValue\([\s\S]*?\n}\n/)[0]
-    + src.match(/function money\([\s\S]*?\n}\n/)[0] + src.match(/function cuHours\([\s\S]*?\n}\n/)[0];
-  const ctx = {};
-  vm.runInNewContext(`${code}; this.MEASURE_KIND = MEASURE_KIND; this.measureValue = measureValue;`, ctx);
-  assert.deepStrictEqual(Object.keys(ctx.MEASURE_KIND), ["measured", "estimated", "scenario", "unknown"]);
-  assert.strictEqual(ctx.measureValue({ classification: "unknown", unit: "currency", value: null }, "USD"), "Not known");
-  assert.strictEqual(ctx.measureValue(undefined, "USD"), "Not known");
-  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "cu_hours", value: 3 }), "3.00 CU h");
-  assert.strictEqual(ctx.measureValue({ classification: "estimated", unit: "percent", value: 0.05 }), "<0.1%");
-  assert.match(ctx.measureValue({ classification: "estimated", unit: "currency", value: 0.001 }, "USD"), /^under /);
-  // Every figure in the Cost panel goes through measureFigure, which adds the badge.
-  const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
-  assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
 });
 
 test("Incidents is a Preview feature on Monitor", () => {
@@ -564,15 +598,4 @@ test("a watch keeps its last few values and marks a change", () => {
   for (let i = 4; i < 12; i += 1) t = dbgTrail(t, i, { value: String(i) });
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
-});
-
-test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
-  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
-  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
-  vm.runInNewContext(`${src.match(/function capacityStatus\([\s\S]*?\n}\n/)[0]}; this.status = capacityStatus;`, ctx);
-  assert.strictEqual(ctx.status({ access: "ok", status: "running" }).text, "Running");
-  assert.strictEqual(ctx.status({ access: "ok", status: "not_running" }).text, "Not running");
-  assert.strictEqual(ctx.status({ access: "ok", status: "unknown" }).text, "Unknown");
-  const hidden = ctx.status({ access: "capacity_not_visible", access_text: "The capacity isn't visible to you", status: "running", action: "Ask" });
-  assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });

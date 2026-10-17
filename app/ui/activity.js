@@ -54,13 +54,14 @@ function friendlyError(err) {
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
     [/ConnectionError|Max retries|timed out|Timeout|NameResolution|getaddrinfo|ECONN|network/i, "Couldn't reach Fabric. Check the internet connection and try again."],
     [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart Fabric Desktop by KratosBI to see which files and what to do."],
+    [/DisplayName is Invalid|InvalidDisplayName/i, "Fabric doesn't accept that name. A lakehouse name can use only letters, numbers and underscores, and must start with a letter."],
     [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
   ];
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
-  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError): ([\s\S]*)$/.exec(raw);
-  if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" ? "" : raw };
+  const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
+  if (m) return { text: m[2].replace(/^'(.*)'$/, "$1"), details: m[1] === "GateError" || m[1] === "GitError" ? "" : raw };
   if (/^[A-Z][A-Za-z]*(Error|Exception): /.test(raw)) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };
   }

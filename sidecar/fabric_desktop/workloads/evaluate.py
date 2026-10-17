@@ -14,13 +14,19 @@ from typing import Any
 from ..meta import freshness as freshness_mod
 from ..meta import objectives as objectives_mod
 from . import model
+from .classify import classify
 from .incidents import KIND_LABELS
 
 
+WORKLOAD_KINDS = frozenset({"run_failed", "needs_decision", "late", "objective"})
+
+
 def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[dict[str, Any]], env: str,
-            now: dt.datetime | None = None, criticality: dict[str, str] | None = None) -> list[dict[str, Any]]:
+            now: dt.datetime | None = None, criticality: dict[str, str] | None = None,
+            team: str = "") -> list[dict[str, Any]]:
     """Problems with the entities of ``project_name`` in ``env``. ``entities`` maps a name to its spec
-    (the entity file); ``runs`` are that environment's run log rows, newest first."""
+    (the entity file); ``runs`` are that environment's run log rows, newest first. ``criticality``
+    maps a name to one assigned elsewhere; one declared in the entity's ``[objectives]`` wins."""
     now = now or dt.datetime.now().astimezone()
     criticality = criticality or {}
     by_entity: dict[str, list[dict[str, Any]]] = {}
@@ -34,11 +40,14 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
         latest = next((r for r in mine if r.get("status") in ("ok", "failed", "needs_decision")), None)
         owner = str(spec.get("owner") or "")
         owner = "" if owner.strip().lower() in model.PLACEHOLDER_OWNERS else owner
-        base = {"workload": wid, "name": name, "owner": owner}
+        declared = spec.get("objectives") if isinstance(spec.get("objectives"), dict) else {}
+        crit = str(declared.get("criticality") or criticality.get(name) or "")
+        base = {"workload": wid, "name": name, "owner": owner, "team": team, "criticality": crit}
         if latest and latest.get("status") == "failed":
             out.append(base | {"kind": "run_failed", "evidence_id": latest.get("run_id"),
                                "title": f"{name} failed in {env.title()}",
                                "text": latest.get("message") or "The run failed.",
+                               "classification": classify(latest.get("message")),
                                "evidence": _run_evidence(latest)})
         elif latest and latest.get("status") == "needs_decision":
             out.append(base | {"kind": "needs_decision", "evidence_id": latest.get("run_id"),
@@ -66,6 +75,36 @@ def signals(project_name: str, entities: dict[str, dict[str, Any]], runs: list[d
     return out
 
 
+def agent_signals(records: list[dict[str, Any]], env: str, now: dt.datetime | None = None,
+                  me: str = "") -> list[dict[str, Any]]:
+    """An incident for each agent serving ``env`` whose status record (``agents/<name>.json``) went
+    past its ``stale_after`` without saying it stopped. ``me`` (the evaluating agent) is skipped:
+    an agent can't report itself missing."""
+    now = now or dt.datetime.now().astimezone()
+    out = []
+    for r in records:
+        name = str(r.get("agent") or "")
+        if not name or name == me or r.get("state") == "stopped":
+            continue
+        try:
+            stale = dt.datetime.fromisoformat(str(r.get("stale_after")).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if stale.tzinfo is None or now < stale:
+            continue
+        schedules = [s.get("id") for s in r.get("schedules") or [] if s.get("id")]
+        out.append({"kind": "agent_offline", "workload": f"agent:{name}", "name": name, "owner": "", "team": "",
+                    "criticality": "", "evidence_id": f"heartbeat:{r.get('heartbeat_at')}",
+                    "title": f"Agent {name} stopped reporting in {env.title()}",
+                    "text": f"Its last heartbeat was {r.get('heartbeat_at')}; it was due again by {r.get('stale_after')}."
+                            + (f" Its {env.title()} schedules ({', '.join(schedules)}) don't run while it is down."
+                               if schedules else ""),
+                    "evidence": {"source": f"agents/{name}.json", "host": r.get("host"),
+                                 "heartbeat_at": r.get("heartbeat_at"), "stale_after": r.get("stale_after"),
+                                 "version": r.get("version")}})
+    return out
+
+
 def cant_evaluate(env: str, state: str, message: str) -> dict[str, Any]:
     """The signal for an environment that couldn't be read: a problem with reading, not with a workload."""
     return {"kind": "cant_evaluate", "workload": None, "name": "", "evidence_id": state,
@@ -86,6 +125,9 @@ def describe(change: dict[str, Any]) -> str:
     if change["change"] == "recovered":
         how = "cleared" if inc.get("resolution") == "cleared" else "recovered"
         return f"**{inc.get('name') or inc['env'].title()}** {how}: {label.lower()} in {inc['env'].title()} is over."
+    if change["change"] == "escalated":
+        return (f"Not acknowledged, escalated to {inc.get('escalated_to') or 'on-call'}: **{inc['title']}**. "
+                f"{inc.get('text') or ''}").strip()
     first = "again: " if change["change"] == "reopened" else ""
     owner = f" Owner: {inc['owner']}." if inc.get("owner") else ""
     return f"{first}**{inc['title']}**. {inc.get('text') or ''}{owner}".strip()

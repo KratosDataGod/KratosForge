@@ -60,6 +60,7 @@ xray_vacuum_preview
 sql_analyze sql_compat_profiles sql_dialects sql_format
 git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log git_notebook_info git_op_status git_ops git_path_info git_repos git_scan git_settings git_status side_by_side_writes
 local_query_status
+pipeline_export pipeline_import pipeline_inspect pipeline_validate
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

@@ -21,7 +21,7 @@ Built in the requested order, with one change: the capability registry (003) com
 | 009 | Reusable agent instructions | P1 | MISSING | 002 | [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107) | Draft PR; 8 tests (prompts over MCP, docs kept the same as the code) |
 | 010 | Audit and observability | P1 | PARTIAL | PR #89 | [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108) | Draft PR; 10 tests, including three processes writing one chain |
 | 011 | Compatibility and conformance testing | P1 | MISSING | 004 | [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110) | Draft PR; 39 conformance tests across 3 transports and 2 protocol eras; MCP conformance suite run by hand |
-| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | (this PR) | Draft PR; the interface, checks, switch, policy key, sample extension and list-change notices; 30 tests. The manifest loader stays with the Git program |
+| 012 | Extension integration | P2 | BLOCKED (framework) | 003, Git program Phase 4 | [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112) | Draft PR; the interface, checks, switch, policy key, sample extension and list-change notices; 30 tests. The manifest loader stays with the Git program |
 
 ## Items
 

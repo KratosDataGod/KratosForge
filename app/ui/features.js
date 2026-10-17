@@ -42,6 +42,7 @@ const PREVIEW_FEATURES = {
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   cost: "Cost",
+  capacity: "Capacity status",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",

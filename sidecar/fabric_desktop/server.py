@@ -29,7 +29,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_keys", "meta_set_keys_workspace",
+           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -60,7 +60,13 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
-           "notebook_dependencies"}
+           "notebook_dependencies", "side_by_side_writes",
+           "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
+           "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
+           "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
+           "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
+           "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
+           "git_path_info", "git_notebook_info"}
 
 
 def handle(service: Service, line: str) -> dict:

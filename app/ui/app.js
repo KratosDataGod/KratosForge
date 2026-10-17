@@ -101,17 +101,27 @@ function showDialog(title, body, actions = []) {
   return overlay;
 }
 
-function askText(title, label, initial = "", okLabel = "OK") {
+// check(value) returns why the value can't be used, or "": the dialog says so and stays open.
+function askText(title, label, initial = "", okLabel = "OK", check = null) {
   return new Promise((resolve) => {
     const input = h("input", { value: initial });
+    const problem = h("p", { class: "error-text", style: "font-size:13px;margin-top:8px", hidden: true });
     const done = (value) => { closeDialog(); resolve(value); };
+    const submit = () => {
+      const value = input.value.trim();
+      if (!value) return;
+      const why = check ? check(value) : "";
+      if (why) { problem.textContent = why; problem.hidden = false; input.focus(); return; }
+      done(value);
+    };
+    input.addEventListener("input", () => { problem.hidden = true; });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && input.value.trim()) done(input.value.trim());
+      if (e.key === "Enter") submit();
       if (e.key === "Escape") done(null);
     });
-    showDialog(title, h("label", { class: "field" }, label, input), [
+    showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
       btn("Cancel", null, () => done(null), "tool outline"),
-      btn(okLabel, null, () => input.value.trim() && done(input.value.trim()), "tool primary"),
+      btn(okLabel, null, submit, "tool primary"),
     ]);
     input.select();
   });
@@ -178,6 +188,7 @@ function go(view) {
 function renderChrome() {
   renderEnvBar();
   renderBell();
+  if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
   const account = document.getElementById("account");
   account.textContent = state.user ? state.user[0].toUpperCase() : "?";
   account.classList.toggle("signed-out", !state.user);
@@ -1425,6 +1436,16 @@ function renderQuery() {
   editor.focus();
 }
 
+// Fabric's rule for lakehouse names (the engine checks the same): letters, numbers and
+// underscores, starting with a letter, at most 256 characters.
+function lakehouseNameProblem(name) {
+  if (/^[A-Za-z][A-Za-z0-9_]{0,255}$/.test(name)) return "";
+  if (name.length > 256) return "A lakehouse name can be at most 256 characters.";
+  let suggestion = name.replace(/[^A-Za-z0-9_]/g, "_");
+  if (!/^[A-Za-z]/.test(suggestion)) suggestion = `LH_${suggestion}`;
+  return `Use only letters, numbers and underscores, starting with a letter. For example ${suggestion}.`;
+}
+
 async function newLakehouse(ws) {
   if (!(await ensureSignedIn())) return;
   if (!ws) {
@@ -1432,7 +1453,8 @@ async function newLakehouse(ws) {
     ws = await pickWorkspace(workspaces);
     if (!ws) return;
   }
-  const name = await askText("New lakehouse", `Name (created in ${ws.displayName} with schemas enabled)`, "", "Create");
+  const name = await askText("New lakehouse", `Name (created in ${ws.displayName} with schemas enabled)`, "", "Create",
+    lakehouseNameProblem);
   if (!name) return;
   toast(`Creating ${name}...`);
   const lh = await attempt(() => rpc("create_lakehouse", { workspace_id: ws.id, name }), "Could not create the lakehouse");

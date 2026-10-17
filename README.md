@@ -34,6 +34,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, with no Fabric capacity |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
@@ -51,6 +52,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/xray-fixes.md](docs/xray-fixes.md) | Each Estate X-ray finding: what it means, what the app's fix button does, and how to fix it by hand in Fabric |
 | [docs/agent.md](docs/agent.md) | The headless agent: identity setup, `agent.toml`, installing on Linux (systemd or container) and Windows, operating it, and what to verify on your tenant |
 | [docs/enterprise-roadmap.md](docs/enterprise-roadmap.md) | The enterprise local execution assessment: feature inventory, gap analysis, architecture changes, roadmap milestones M0 to M6 and work items |
+| [docs/local-data-engine-plan.md](docs/local-data-engine-plan.md) | The local data engine and OneLake publishing program (FD-LDE-001 to 020): repository audit, implementation matrix, owners and PR plan |
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |

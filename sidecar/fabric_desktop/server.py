@@ -20,7 +20,7 @@ from .service import Service
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "list_notebooks", "new_notebook", "open_notebook",
+           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
@@ -73,7 +73,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log"}
+           "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
 # Settings > Integrations: only the app reaches these (integrations/app_service.py).
@@ -106,7 +106,9 @@ def handle(service: Service, line: str) -> dict:
         else:
             reply = {"id": req_id, "error": secrets(f"{type(exc).__name__}: {exc}")}
     if audit.audited(method):
-        _audit(service, method, params, reply, time.monotonic() - started)
+        seconds = time.monotonic() - started
+        _audit(service, method, params, reply, seconds)
+        _count(service, method, reply, seconds)
     return reply
 
 
@@ -124,6 +126,16 @@ def _audit(service: Service, method: str, params: dict, reply: dict, seconds: fl
                    who=who, tenant=tenant, error=str(reply.get("error") or ""))
     except Exception as exc:  # noqa: BLE001 - an audit problem is logged, the user's call goes on
         print(f"audit: could not record {method}: {type(exc).__name__}: {exc}", file=sys.stderr)
+
+
+def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
+    """Opt-in usage counts (telemetry.py): the action's name, whether it failed, how long it took."""
+    try:
+        usage = getattr(service, "telemetry", None)
+        if usage is not None:
+            usage.record(method, "error" not in reply, seconds, str(reply.get("error") or ""))
+    except Exception as exc:  # noqa: BLE001 - never fails the call
+        print(f"telemetry: could not count {method}: {type(exc).__name__}", file=sys.stderr)
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:

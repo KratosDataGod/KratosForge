@@ -1268,3 +1268,20 @@ test("engine messages point to Data mesh and Platform tabs that exist", () => {
   }
   assert.deepStrictEqual(bad, []);
 });
+
+// UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
+// and focuses Cancel, so Enter doesn't lose data.
+test("confirms that delete or overwrite something pass danger", () => {
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
+      if (!m) return;
+      let end = i;
+      while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
+      if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
+    });
+  }
+  assert.deepStrictEqual(missing, []);
+});

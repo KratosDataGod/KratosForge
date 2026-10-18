@@ -58,6 +58,8 @@ Shortcuts decide who reads them in one of two ways:
 
 The **Access** view lists every shortcut where readers and target don't match. Readers come from workspace roles and OneLake data access roles, as on the [Access tab](user-guide.md#access-preview). Workspace Viewers read tables only through data access roles.
 
+If a lakehouse's data access roles can't be read (no rights to see them, throttling, a network error), the list of readers says **Not complete** with the reason, because people let in by those roles may be missing; the Access view lists that shortcut too. Only Fabric answering that OneLake security isn't turned on for the lakehouse means it has no data access roles.
+
 ## Shortcut rules
 
 Platform admins set rules for shortcuts on the Access view. Each rule is **Off**, **Warn** (the person sees a warning and can go on) or **Block** (Fabric Desktop by KratosBI won't make it).
@@ -73,6 +75,8 @@ Platform admins set rules for shortcuts on the Access view. Each rule is **Off**
 The rules apply to what Fabric Desktop by KratosBI makes: **New shortcut**, **Repoint**, Undo and Recreate, and approving a request. Fabric itself still lets any workspace Contributor make a shortcut in Fabric; anything made there that breaks a rule shows on **Health**.
 
 New shortcut and Repoint check the rules as you fill in the dialog. When a rule blocks a new shortcut, the button becomes **Send as a request instead**.
+
+**When the rules can't be read** (the platform doesn't answer, or the call fails), nothing is made: the dialog says the rules couldn't be checked and its button stays off, and approving a request stops the same way. Missing rules are treated as unknown, never as "no rules". Try again once the platform answers.
 
 ## Changes
 

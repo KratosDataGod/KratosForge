@@ -16,7 +16,8 @@ A metadata project can add policies, or tighten the ones it inherits, in its own
     [policy.params]
     max_length = 40
 
-Resolving runs on this PC from what the platform returns: no Fabric capacity is used.
+Resolving runs on this PC from what the platform returns: no Fabric job runs and no OneLake data is read.
+Reading the policies from a platform in Fabric is one UDF_Platform call, which uses a little capacity.
 """
 
 from __future__ import annotations

@@ -226,7 +226,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-8 | `.github/workflows/codex-review.yml:353-397`, `docs.yml:419-436` | Pin by SHA; move `pages`/`id-token` to the deploy job; pin zensical |
 | SH-9 | `deploy/windows/install-agent.ps1:78`, `src/updater.py:268-275` | Install with `-c constraints.txt`; set an explicit ACL on `%ProgramData%\FabricDesktop` (unverified on Windows) |
 | DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count for entity previews. The desktop SQL page has paged, memory-limited execution since SQL-003 (#134, merged); `export_sql_csv` and external-tool SQL still materialize |
-| DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake) |
+| DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake). Done in HD-034: `Authenticator.storage_token()` refreshes a token with less than `STORAGE_MIN_SECONDS` (30 minutes) left, so every OneLake read and write starts with at least that long. A write that runs longer than the token can still fail at commit. With Windows sign-in, the broker decides whether a refresh returns a new token. Tested with a fake MSAL, not against OneLake |
 | UI-2 | `app/ui/prove.js:155-165`, `sidebyside.js:54-58` | Cap attempts, stop on "not found", guard against two loops for one run |
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
 | EP-9 | `publish.py:44-81` | Apply `write_guard` and an environment check to `run_job` |

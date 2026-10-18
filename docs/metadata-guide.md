@@ -382,6 +382,8 @@ In an environment whose keys are in the platform, the project doesn't make its o
 
 **Data mesh > Design > Source systems** keeps every source's fixed id, code (like `CRM`), name, type, owner and active flag, and its connection in Dev, Test and Prod: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Switch environment with the Dev / Test / Prod buttons above the connection fields.
 
+With Preview features on, the platform's list is the one list of source systems: **Add a source this project reads** picks a source from it with its id, code, name, owner and type, and the project keeps only its connection. Sources made before the platform's list existed show under "Only in this project" until **Move sources to the platform** copies them there with the same ids. See [One list of source systems](platform.md#one-list-of-source-systems-preview).
+
 **Passwords and keys never go here.** Give the Key Vault URL and the secret's name; the notebook reads the secret when it runs.
 
 **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection`, one row per source per environment, so notebooks and pipelines can look up connection values by code.

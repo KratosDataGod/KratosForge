@@ -68,7 +68,13 @@ function openWorkload(id) {
 function workloadsPanel() {
   const box = h("div", { class: "wl-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading your workloads..."));
   loadWorkloads(box, false);
-  return box;
+  return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.workloads", {
+    reads: "Your project's metadata entities, notebooks on this PC, and the pipelines, notebooks and Spark job definitions in the workspaces the app works in (pinned, your environments' and the ones your notebooks publish to), with their run records and Fabric's job history. Never your whole tenant. It reads when this view opens and when you press Refresh.",
+    changes: "Nothing from the list. On a workload's page, Edit changes its owner, criticality and tags on this PC, and Run, Retry and Cancel the run first say which environment, where it runs, as whom and what it writes.",
+    results: "Ownership, tags, links and the action log stay on this PC in workloads.sqlite and aren't shared with your team yet. A run you start writes where that environment's runs always write.",
+    more: [["Not observed is not failing", "When your sign-in has expired or a workspace refuses access, a workload shows Not observed with the reason, never Failing. Its last reading shows as Cached, then Stale after an hour."]],
+    anchor: "workloads-preview",
+  })));
 }
 
 async function loadWorkloads(box, refresh) {

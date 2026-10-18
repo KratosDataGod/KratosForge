@@ -29,6 +29,16 @@ def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
 
 
+def _preview(store: Any, lakehouse: str, schema: str, table: str, limit: int) -> dict[str, Any] | None:
+    """The first ``limit`` rows and the row count from the Delta log: only those rows are read,
+    however large the table (HD-033). None when there's no table."""
+    lf = store.scan(lakehouse, schema, table)
+    if lf is None:
+        return None
+    df = lf.head(limit).collect()
+    return {"columns": df.columns, "rows": json.loads(df.write_json()), "total": store.count(lakehouse, schema, table)}
+
+
 def _toml(v: Any) -> str:
     """A TOML value; tables are written inline: { ingest = { id = "...", name = "..." } }."""
     if isinstance(v, dict):
@@ -273,10 +283,8 @@ class MetaMixin:
             store = self._store(project, env)
             log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
-            df = store.read(project.layer(e.layer).lakehouse, e.schema, e.table) \
-                if e.layer in project.layer_names() else None
-            if df is not None:
-                preview = {"columns": df.columns, "rows": json.loads(df.head(50).write_json()), "total": df.height}
+            if e.layer in project.layer_names():
+                preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
@@ -428,10 +436,8 @@ class MetaMixin:
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:
         project = self._project()
         e = project.entities[name]
-        df = self._store(project, env).read(project.layer(e.layer).lakehouse, e.schema, e.table)
-        if df is None:
-            return {"columns": [], "rows": [], "total": 0}
-        return {"columns": df.columns, "rows": json.loads(df.head(limit).write_json()), "total": df.height}
+        out = _preview(self._store(project, env), project.layer(e.layer).lakehouse, e.schema, e.table, limit)
+        return out or {"columns": [], "rows": [], "total": 0}
 
     # ---- promote
 
@@ -657,7 +663,9 @@ class MetaMixin:
 
     # ---- surrogate keys and source systems
 
-    def meta_keys(self, env: str = "dev") -> dict[str, Any]:
+    def meta_keys(self, env: str = "dev", platform: bool = False) -> dict[str, Any]:
+        """The project's key tables and source systems. With ``platform``, also the platform's one
+        list of source systems and how the project's own compare with it (Sources this project reads)."""
         project = self._project()
         summary = project.summary()
         cfg = project.environments.get(env, {})
@@ -682,7 +690,61 @@ class MetaMixin:
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
-                "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]}
+                "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]} \
+            | (self._platform_sources_view(summary["source_systems"]) if platform else {})
+
+    def _read_platform_sources(self) -> list[dict[str, Any]]:
+        try:
+            return self._catalog().call("list_sources")  # type: ignore[attr-defined]
+        except LookupError as exc:
+            raise LookupError(f"{exc} After an update, a platform admin runs Platform > Settings > Finish or repair.") from exc
+
+    def _platform_sources_view(self, systems: list[dict[str, Any]]) -> dict[str, Any]:
+        """Mark each of the project's source systems with the platform source it is (same code),
+        and say where the two disagree on the id, which business keys and loaded rows depend on."""
+        try:
+            listed = self._read_platform_sources()
+        except Exception as exc:  # noqa: BLE001 - the project's own sources still show
+            return {"platform_sources": None, "platform_problem": f"The platform's sources couldn't be read: {exc}",
+                    "source_problems": []}
+        by_name = {p["name"]: p for p in listed}
+        problems = []
+        for s in systems:
+            p = by_name.get(s["code"].lower())
+            s["platform"] = {k: p.get(k) for k in ("name", "source_id", "code", "title", "owner", "system_type",
+                                                    "description")} if p else None
+            if p and p.get("source_id") is not None and p["source_id"] != s["id"]:
+                problems.append(f"{s['code']} is id {p['source_id']} in the platform but {s['id']} in this project. "
+                                "Rows already loaded keep this project's id; ask a platform admin which one stays.")
+        codes = {s["code"].lower() for s in systems}
+        return {"platform_sources": [p | {"read": p["name"] in codes} for p in listed], "platform_problem": None,
+                "source_problems": problems}
+
+    def meta_source_read(self, name: str, env: str = "dev") -> dict[str, Any]:
+        """Start reading one of the platform's source systems: the project gets it with the
+        platform's id, code and name, and its own connection in each environment."""
+        project = self._project()
+        src = next((p for p in self._read_platform_sources() if p["name"] == str(name).strip().lower()), None)
+        if not src:
+            raise ValueError(f"{name} isn't one of the platform's source systems")
+        if any(s.code.lower() == src["name"] for s in project.source_systems):
+            raise ValueError(f"This project already reads {src['code']}")
+        clash = next((s for s in project.source_systems if s.id == src.get("source_id")), None)
+        if clash:
+            raise ValueError(f"id {clash.id} is {clash.code} in this project. Move sources to the platform first, "
+                             "so every project uses the same ids.")
+        system = {"id": src["source_id"], "code": src["code"], "name": src["title"], "system_type": src["system_type"],
+                  "owner": src["owner"], "description": src["description"], "active": src["active"]}
+        return self.meta_save_source_system(system, None, env)
+
+    def meta_sources_move(self, env: str = "dev") -> dict[str, Any]:
+        """Move sources to the platform: copy the project's own source systems into the platform's
+        one list, keeping their ids (like Move keys). Connections stay in the project."""
+        project = self._project()
+        systems = [{k: v for k, v in s.to_dict().items() if k != "connections"} for s in project.source_systems]
+        res = self._catalog().call("adopt_sources", systems=systems, project=project.root.name.lower())  # type: ignore[attr-defined]
+        return {"moved": res["moved"], "already": res["already"], "conflicts": res["conflicts"],
+                "keys": self.meta_keys(env, platform=True)}
 
     def meta_new_key_table(self, name: str, description: str = "", env: str = "dev") -> dict[str, Any]:
         project = self._project()
@@ -719,6 +781,15 @@ class MetaMixin:
                                 env: str = "dev") -> dict[str, Any]:
         project = self._project()
         new = keys_mod.source_system_from_dict(system)
+        # A source the platform lists is described there, once for every project: only its
+        # connections are the project's own.
+        try:
+            p = next((p for p in self._read_platform_sources() if p["name"] == new.code.lower()), None)
+        except Exception:  # noqa: BLE001 - without the platform the project's own fields stand
+            p = None
+        if p:
+            new.code, new.name, new.system_type = p["code"], p["title"], p["system_type"]
+            new.owner, new.description, new.active = p["owner"], p["description"], p["active"]
         # original_id is the id being edited; without it this is a new source system.
         others = [s for s in project.source_systems if original_id is None or s.id != int(original_id)]
         if original_id is not None and new.id != int(original_id):

@@ -311,13 +311,15 @@ class PlatformMixin:
             elif hours and not newest:
                 late = True
             out.append({"name": name, "registered": bool(src), "title": src.get("title", name),
+                        "source_id": src.get("source_id"), "code": src.get("code") or name.upper(),
+                        "system_type": src.get("system_type", ""), "active": src.get("active", True),
                         "description": src.get("description", ""), "owner": src.get("owner", ""),
                         "expected_hours": hours or "", "readers": src.get("readers", []),
                         "connections": src.get("connections", {}), "entities": entities, "newest": newest,
                         "late": late})
         return {"env": env, "kind": "fabric" if cfg.get("landing_id") else "local",
                 "where": cfg.get("workspace_name") or str(self._landing_dir(env) / "Files"),  # type: ignore[attr-defined]
-                "sources": out, "problem": problem}
+                "sources": out, "problem": problem, "system_types": list(keys_mod.SYSTEM_TYPES)}
 
     def platform_landing_files(self, env: str, source: str, entity: str = "", limit: int = 200) -> list[dict[str, Any]]:
         prefix = f"{source}/{entity}/" if entity else f"{source}/"

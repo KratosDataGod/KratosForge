@@ -1,5 +1,6 @@
 """Organization policy fails closed: a policy.json that exists but can't be read, or a restrictive key
-of the wrong type, gives each restriction its most restrictive value, not the default (HD-010)."""
+of the wrong type, gives each restriction its most restrictive value, not the default (HD-010). An
+unreadable file still lets people sign in and work on their PC (Chris, 2026-10-18)."""
 
 import json
 
@@ -36,8 +37,7 @@ def assert_everything_restricted():
     s = app_settings.load()
     for key, value in (("allow_fabric_runs", False), ("show_preview", False), ("telemetry", False)):
         assert s[key] == {"value": value, "source": "policy"}, key
-    assert not app_settings.tenant_allowed(HOME) and not app_settings.tenant_allowed(AWAY)
-    assert not app_settings.tenant_allowed(None)
+    assert app_settings.tenant_allowed(HOME) and app_settings.tenant_allowed(AWAY)  # sign-in still works
     rules = integrations_policy.current()
     assert rules["enabled"] is False and rules["http"] is False
     assert rules["max_permissions"] == [] and rules["extensions"] == []
@@ -141,7 +141,7 @@ def test_valid_values_still_apply(files):
     assert app_settings.load()["allow_fabric_runs"]["value"] is True
 
 
-def test_sign_in_blocked_by_a_broken_file_says_so(files):
+def test_a_broken_file_still_lets_people_sign_in(files):
     from fabric_desktop.auth import Authenticator
 
     class Signed:
@@ -154,9 +154,11 @@ def test_sign_in_blocked_by_a_broken_file_says_so(files):
             return HOME
     me = Signed()
     files("{not json")
-    with pytest.raises(RuntimeError, match="settings file .* can't be read"):
-        Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
-    assert me.signed_out
+    Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
+    assert not me.signed_out
+    assert app_settings.load()["allowed_tenants"]["source"] != "policy"
+    [problem] = app_settings.policy_problems()
+    assert "Sign-in still works" in problem and "no sign-in" not in problem
     files({"allowed_tenants": [AWAY]})
     with pytest.raises(RuntimeError, match="belongs to another organization"):
         Authenticator._check_tenant(Signed(), {"id_token_claims": {"tid": HOME}})

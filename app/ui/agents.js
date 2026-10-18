@@ -142,7 +142,7 @@ function backToAgents() {
 function agentsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading agent status records..."));
   loadAgents(box);
-  return h("div", { class: "sc-two ag-two" }, box, agGuide());
+  return h("div", { class: "mon-how" }, withHowItWorks(box, agGuide()));
 }
 
 // A link to a section of docs/agent.md.
@@ -153,28 +153,23 @@ function agDoc(anchor, label) {
   } }, label);
 }
 
-// How agents work and where they are going, beside the list (testing item 34).
+// How agents work and where they are going, beside the list (testing items 18 and 34).
 function agGuide() {
-  return h("div", { class: "sc-col sc-side" },
-    h("div", { class: "card pad" }, h("b", {}, "What an agent is"),
-      h("p", { class: "small" }, "Fabric Desktop by KratosBI running on a server of yours, with no one signed in. It runs a metadata project's tables on their schedules, and the runs Fabric pipelines ask it for, so work keeps going when your PC is off."),
-      h("p", { class: "small" }, "It signs in as a service principal or a managed identity, never as you, and writes tables to OneLake like this PC does."),
-      agDoc("what-it-does", "What it does")),
-    h("div", { class: "card pad" }, h("b", {}, "Setting one up"),
-      h("ol", { class: "small ag-steps" },
-        h("li", {}, "Give it an identity with access to the environment's workspaces. ", agDoc("set-up-the-identity", "Identity")),
-        h("li", {}, "Write agent.toml: the project, the environments, its schedules. ", agDoc("configure", "Configure")),
-        h("li", {}, "Install it as a service on Windows or Linux, or run the container. ", agDoc("install", "Install")),
-        h("li", {}, "Check it here: it shows in this list within a minute of starting. ", agDoc("verify-on-your-tenant", "Verify")))),
-    h("div", { class: "card pad" }, h("b", {}, "What this page shows"),
-      h("p", { class: "small" }, "Each agent writes a status record to every environment it serves, in that environment's LH_Meta. This page reads those records with your sign-in. It never reaches the agent's server, and nothing here starts, stops or changes an agent."),
-      h("p", { class: "muted-text small" }, "An agent that misses its promised report shows Stopped reporting, with its last report as it was. ", agDoc("status-records", "Status records"))),
-    h("div", { class: "card pad" }, h("b", {}, "Where this is going"),
-      h("ul", { class: "small ag-steps" },
-        h("li", {}, h("b", {}, "Now: "), "an agent per server, with its own durable queue, retries and a write lease per table."),
-        h("li", {}, h("b", {}, "Preview, off by default: "), "several agents sharing a schedule, and taking over from one that stops reporting. ", agDoc("shared-schedules-preview", "Shared schedules")),
-        h("li", {}, h("b", {}, "Preview: "), "Run as shows which identity each agent uses and when its certificate expires.")),
-      h("p", { class: "muted-text small" }, "Agents haven't been run against a live tenant yet.")));
+  return howItWorks("monitor.agents", {
+    reads: "The status record each agent writes to every environment it serves, in that environment's LH_Meta, read with your sign-in when this view opens and when you press Refresh. It never reaches the agent's server.",
+    changes: "Nothing. Nothing here starts, stops or changes an agent.",
+    results: ["Nothing is stored. An agent that misses its promised report shows Stopped reporting, with its last report as it was. ", agDoc("status-records", "Status records")],
+    more: [
+      ["What an agent is", ["Fabric Desktop by KratosBI running on a server of yours, with no one signed in. It runs a metadata project's tables on their schedules, and the runs Fabric pipelines ask it for, so work keeps going when your PC is off. It signs in as a service principal or a managed identity, never as you. ", agDoc("what-it-does", "What it does")]],
+      ["Setting one up", ["Give it an identity with access to the environment's workspaces (", agDoc("set-up-the-identity", "Identity"),
+        "), write agent.toml with the project, environments and schedules (", agDoc("configure", "Configure"),
+        "), install it as a service on Windows or Linux or run the container (", agDoc("install", "Install"),
+        "), then check it shows in this list within a minute of starting (", agDoc("verify-on-your-tenant", "Verify"), ")."]],
+      ["Where this is going", ["Now, an agent per server with its own durable queue, retries and a write lease per table. In Preview and off by default, several agents sharing a schedule and taking over from one that stops reporting (",
+        agDoc("shared-schedules-preview", "Shared schedules"), "). Agents haven't been run against a live tenant yet."]],
+    ],
+    anchor: "agents-preview",
+  });
 }
 
 async function loadAgents(box) {

@@ -21,7 +21,7 @@ from typing import Any
 from .. import measurement as ms
 from ..fabric_compute import RUNNER
 
-TOLERANCE_S = 300
+TOLERANCE_S = 300  # how far past an import's first and last row a run still counts as covered by it
 _MAX_RUNS = 200
 
 NO_RUN = "No run of this item started from this app at that time"
@@ -72,15 +72,19 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
     outside = 0
     sources: dict[str, str] = {}
     for imp in imports:
+        # How far a cost export's data reaches: of two exports with the same day, the later-reaching one
+        # has that day complete, whichever was imported last.
+        ends = [ms.parse_time(r["cost"]["period"]["end"]) for r in imp.get("rows", []) if r.get("level") == "capacity"]
+        through = max((e for e in ends if e), default=None)
         for r in imp.get("rows", []):
             p = (r.get("cu") or r["cost"])["period"]
             start, end = ms.parse_time(p["start"]), ms.parse_time(p["end"])
             if r.get("start"):
                 if start and since <= start < until:
-                    rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                    rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "", "_through": through,
                                      "_start": start, "_end": end or start})
             elif start and end and since <= start and end <= until:
-                rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "", "_through": through,
                                  "_start": start, "_end": end})
             elif start and end and start < until and since < end:
                 outside += 1  # a period total that only partly falls in the period can't be split
@@ -181,12 +185,17 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
 
 def _latest(rows: Any) -> list[dict[str, Any]]:
     """Cost rows with one row per capacity, meter, day and charge: when several imports have the
-    same one (month-to-date exports repeat earlier days), the one imported last counts. Imports
-    come newest first (Store.all), so on a tie in import time the first one seen is kept."""
+    same one (month-to-date exports repeat earlier days), the one from the export whose data reaches
+    furthest counts, so an older file imported later doesn't replace a finished day with a partial
+    one; then the one imported last. Imports come newest first (Store.all), so on a full tie the
+    first one seen is kept."""
+    def rank(r: dict[str, Any]) -> tuple[float, str]:
+        return (r["_through"].timestamp() if r.get("_through") else 0.0, r.get("_imported_at") or "")
+
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
         slot = r.get("slot") or r["key"]
-        if slot not in out or (r.get("_imported_at") or "") > (out[slot].get("_imported_at") or ""):
+        if slot not in out or rank(r) > rank(out[slot]):
             out[slot] = r
     return list(out.values())
 

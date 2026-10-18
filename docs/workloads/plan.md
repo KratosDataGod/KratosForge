@@ -27,7 +27,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/` or `docs
 - *Schedules on this PC* (`local_schedules.py`): Windows Task Scheduler tasks for a notebook or a metadata environment, with their own run log (`schedule_runs.jsonl`) and lock files.
 - *The headless agent* (`agent.py`, `jobqueue.py`, `agent_config.py`): a SQLite queue on the server, `agent.toml` with name, environments, workspace allowlist, identity type and schedules. The desktop app cannot see agents today.
 
-**Where people look.** Home (`app/ui/app.js` `renderHome`) already answers "what happened since I was last here": failed latest runs per entity and environment, Fabric jobs that failed in the last day, late tables, running now, coming up, environment tiles, mesh map, Estate X-ray. Monitor (`renderMonitor`) merges four run sources (metadata runs from every readable environment, Fabric jobs started from this app, scheduled runs on this PC, notebook table writes) beside Fabric's embedded Monitoring hub, plus Schedules and Cost panels. The command bar (Ctrl+K, `features.js`) finds pages, actions, notebooks, workspaces and entities.
+**Where people look.** Home (`app/ui/app.js` `renderHome`) already answers "what happened since I was last here": failed latest runs per entity and environment, Fabric jobs that failed in the last day, late tables, running now, coming up, environment tiles, mesh map, Estate X-ray. Monitor (`renderMonitor`) merges four run sources (metadata runs from every readable environment, Fabric jobs started from this app, scheduled runs on this PC, notebook table writes) beside Fabric's embedded Monitoring hub, plus Schedules and Operations panels (Cost moved to Optimize > Cost and savings, testing item 36). The command bar (Ctrl+K, `features.js`) finds pages, actions, notebooks, workspaces and entities.
 
 **Ownership, organization, governance.** Entities declare `owner`; projects declare domain, subdomain, team and contacts (`project.toml`, `meta/mesh.py`); data products declare an owner; the platform catalog (`central/core.py`, SQLite on this PC or SQL_Platform through UDF_Platform) holds domains, projects, products, ports, links, enrichment (classification, steward), glossary, admins, requests (key table, source, access, shortcut) with decide/withdraw/grants, an audit table, and shortcut inventory with first/last seen and change history. Catalog solution grouping and Dev/Test/Prod pills exist in the OneLake catalog (`app/ui/catalog-groups.js`). Exceptions with expiry exist in metadata projects (`Project.active_exception`).
 
@@ -397,7 +397,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 
 **65. Resource budgets and quotas** · Missing · Stage 8 · Advisory warnings; hard enforcement only where the agent can refuse (concurrency). PR: —
 
-**66. Cost model management** · Enhance · *Dep Prove (cost model)* · Today: `costs.py` price per CU-hour and currency in Monitor > Cost. This program reads it; no second model. PR: —
+**66. Cost model management** · Enhance · *Dep Prove (cost model)* · Today: `costs.py` price per CU-hour and currency in Optimize > Cost and savings. This program reads it; no second model. PR: —
 
 **67. Measured-versus-estimated cost** · Enhance · *Dep Prove* · Labels come from Prove's cost model. PR: —
 

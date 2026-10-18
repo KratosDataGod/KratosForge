@@ -750,6 +750,9 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Operations get the whole page (#190)", () => {
+});
+
 test("Settings says plainly when sign-in isn't Microsoft's own, and how to go back", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};
@@ -1011,6 +1014,23 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
+// The template gallery filters by group and search, and the review step names every table's contract.
+test("the template gallery filters templates and the review states each contract", () => {
+  const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("wizardShown")}${fn("wizardContract")}; this.shown = wizardShown; this.contract = wizardContract;`, ctx);
+  const all = [{ id: "a", group: "load", title: "Incremental load", text: "With a watermark" },
+    { id: "b", group: "model", title: "Date dimension", text: "A calendar table" }];
+  assert.deepStrictEqual(ctx.shown(all, "all", "").map((t) => t.id), ["a", "b"]);
+  assert.deepStrictEqual(ctx.shown(all, "model", "").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "all", "CALENDAR  table").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "load", "calendar"), []);
+  assert.strictEqual(ctx.contract({}), "This notebook writes no tables, so there is no proof contract.");
+  assert.strictEqual(ctx.contract({ "s.good": { keys: ["id"], ignore: ["loaded_at"] }, "s.bad": { keys: [], ignore: [] } }),
+    "Proof contract saved in the notebook: rows of s.good are matched by id, ignoring loaded_at; rows of s.bad are compared whole.");
+});
+
 // PR-OPT-001b: Optimize takes the Fabric page's rail slot; Fabric's portal is a Workspaces tab.
 test("Optimize is a rail page in Fabric's old slot, and the rail stays within its limit", () => {
   const sources = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
@@ -1161,7 +1181,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has four tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1172,7 +1192,7 @@ test("Monitor has four tabs, and Operations holds the workload views in the mock
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
   const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
   assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations", "Cost"]);
+    ["Runs", "Schedules", "Operations"]);
 });
 
 test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
@@ -1208,4 +1228,60 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.strictEqual(fabric.text, "None");
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
+});
+
+test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const monitor = app.slice(app.indexOf("async function renderMonitor()"), app.indexOf("\n}\n", app.indexOf("async function renderMonitor()")));
+  assert.ok(!monitor.includes("costPanel"), "Monitor doesn't draw the Cost panel");
+  assert.ok(!monitor.includes("what running on this PC saved"), "no savings claim on Monitor (QA-008)");
+  assert.match(monitor, /if \(monitorPage\.panel === "cost"\) \{ monitorPage\.panel = "runs"; optimizePage\.tab = "cost"; go\("optimize"\); return; \}/);
+  for (const file of ["app.js", "xray.js", "optimize.js", "features.js"]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.ok(!/monitorPage\.panel = "cost"/.test(src), `${file} sends nobody to Monitor > Cost`);
+  }
+  assert.match(fs.readFileSync(path.join(ui, "xray.js"), "utf8"), /btn\("See cost", null, \(\) => \{ optimizePage\.tab = "cost"; go\("optimize"\); \}/);
+});
+
+// #193: messages from the engine that send people to a screen name one that exists.
+test("engine messages point to Data mesh and Platform tabs that exist", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const groups = vm.runInNewContext(`${/const META_TAB_GROUPS = \[[\s\S]*?\n\];/.exec(read("meta.js"))[0].replace("const ", "")}; META_TAB_GROUPS`);
+  const platform = vm.runInNewContext(`${/const PLATFORM_TABS = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TABS`);
+  const mesh = new Set();
+  for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
+  const plat = new Set(platform.map(([, label]) => label));
+  const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (e.isDirectory()) walk(path.join(d, e.name)); else if (e.name.endsWith(".py")) files.push(path.join(d, e.name)); } };
+  walk(engine);
+  const bad = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, "utf8");
+    if (/\bMetadata > /.test(src)) bad.push(`${path.basename(f)}: "Metadata >" is now Data mesh`);
+    for (const m of src.matchAll(/Data mesh > ([A-Z][\w ]*?) > ([A-Z][\w ]*?)(?=[).,"'\n]| first| and promote\b)/g)) {
+      const where = `${m[1]} > ${m[2]}`;
+      if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
+    }
+    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+  }
+  assert.deepStrictEqual(bad, []);
+});
+
+// UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
+// and focuses Cancel, so Enter doesn't lose data.
+test("confirms that delete or overwrite something pass danger", () => {
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
+      if (!m) return;
+      let end = i;
+      while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
+      if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
+    });
+  }
+  assert.deepStrictEqual(missing, []);
 });

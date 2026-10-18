@@ -222,9 +222,9 @@ on quality.
 | [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
 | [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
 | [FEAT-OPS-03](#feat-ops-03) | Monitor: runs from every place | Implemented | Partially Verified | Monitor > Runs | Show worker, host and job for agent runs. |
-| [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Monitor > Cost (Preview) | Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050) |
+| [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Optimize > Cost and savings (Preview) | Calibrate against the Capacity Metrics app and label every number (PB-050) |
 | [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
-| [FEAT-ADM-07](#feat-adm-07) | Capacity of each environment | Implemented | Partially Verified | Monitor > Cost; Data mesh > Environments (Preview) | Check against a live tenant's capacities (PB-002) |
+| [FEAT-ADM-07](#feat-adm-07) | Capacity of each environment | Implemented | Partially Verified | Optimize > Cost and savings; Data mesh > Environments (Preview) | Check against a live tenant's capacities (PB-002) |
 
 ### Extensibility, APIs, CLI, and MCP
 
@@ -1633,16 +1633,16 @@ on quality.
 
 ### FEAT-OPS-02
 
-**Incidents.** Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox.
+**Incidents.** Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox. Numbers per environment, priority P1-P4, SLA targets from policy (incident_sla), a timeline and reported incidents (engine only, no screens yet).
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
 - **Where people reach it:** Monitor > Incidents (Chris used it in unit testing, 2026-10-18)
-- **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js
-- **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`
-- **Tests:** `sidecar/tests/test_incidents.py`
-- **Docs:** [docs/agent.md](../agent.md)
-- **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document. Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream.
+- **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js; test: sidecar/tests/test_incident_desk.py (19 tests, Fabric faked; incidents stage 1)
+- **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`, `sidecar/fabric_desktop/workloads/sla.py`, `sidecar/fabric_desktop/incident_desk.py`
+- **Tests:** `sidecar/tests/test_incidents.py`, `sidecar/tests/test_incident_desk.py`
+- **Docs:** [docs/agent.md](../agent.md), [docs/incidents.md](../incidents.md)
+- **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document. Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream. Numbers, priority and SLAs are in the engine only; the list doesn't show them yet.
 - **Pull requests and issues:** [#74](https://github.com/KratosDataGod/fabric-desktop/pull/74), [#79](https://github.com/KratosDataGod/fabric-desktop/pull/79), [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125), [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
 - **Owning workstream:** Workloads (FD-123)
 - **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-084](PRODUCT_BACKLOG.md#pb-084), [PB-105](PRODUCT_BACKLOG.md#pb-105)
@@ -1686,7 +1686,7 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Cost (Preview)
+- **Where people reach it:** Optimize > Cost and savings (Preview)
 - **Evidence:** test: sidecar/tests/test_estate.py::test_cost_estimates_fabric_runs_and_what_local_runs_saved (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_measurement.py (passed in the 2026-10-17 refresh run at 9715e28)
 - **Source:** `sidecar/fabric_desktop/costs.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`, `sidecar/fabric_desktop/measurement.py`
 - **Tests:** `sidecar/tests/test_estate.py`, `sidecar/tests/test_measurement.py`
@@ -1695,7 +1695,7 @@ on quality.
 - **Pull requests and issues:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
 - **Owning workstream:** Administration and FinOps sprint (FINOPS-001)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-104](PRODUCT_BACKLOG.md#pb-104)
-- **Recommended next action:** Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050)
+- **Recommended next action:** Calibrate against the Capacity Metrics app and label every number (PB-050)
 
 ### FEAT-ADM-02
 
@@ -1930,11 +1930,11 @@ on quality.
 
 ### FEAT-ADM-07
 
-**Capacity of each environment.** Read-only list of the Fabric capacity each environment's workspace is on and whether it is running, on Monitor > Cost and each environment card.
+**Capacity of each environment.** Read-only list of the Fabric capacity each environment's workspace is on and whether it is running, on Optimize > Cost and savings and each environment card.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Monitor > Cost; Data mesh > Environments (Preview)
+- **Where people reach it:** Optimize > Cost and savings; Data mesh > Environments (Preview)
 - **Evidence:** test: sidecar/tests/test_capacity.py (passed in the 2026-10-17 refresh run at 9715e28); doc: docs/finops/capacity.md (running is not the same as having room)
 - **Source:** `sidecar/fabric_desktop/capacity.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`
 - **Tests:** `sidecar/tests/test_capacity.py`

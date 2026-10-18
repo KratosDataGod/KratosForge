@@ -109,6 +109,22 @@ function learnMore(anchor, label = "Learn more") {
   } }, label);
 }
 
+// "How this works": the panel beside a page or tab that says what it reads, what it changes and where
+// its results go, then links to its section of the guide. It folds to its title, remembered on this
+// PC. Every new page or tab gets one (docs/ui-guidelines.md); withHowItWorks puts it on the right,
+// or under the content in a narrow window.
+function howItWorks(id, { reads, changes, results, more = [], anchor }) {
+  const part = (title, text) => (text ? h("div", { class: "how-part" }, h("b", {}, title), h("p", {}, text)) : null);
+  return foldable(`how.${id}`, h("h2", {}, "How this works"),
+    h("div", { class: "how-body" }, part("What it reads", reads), part("What it changes", changes),
+      part("Where results go", results), ...more.map(([title, text]) => part(title, text)), anchor ? learnMore(anchor) : null),
+    { cls: "card pad how-it-works" });
+}
+
+function withHowItWorks(main, panel) {
+  return h("div", { class: "with-how" }, h("div", { class: "with-how-main" }, main), panel);
+}
+
 // ---------- command bar (Ctrl+K) ----------
 
 const palette = { notebooks: null, selected: 0 };

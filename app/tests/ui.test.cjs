@@ -553,6 +553,24 @@ test("an agent past its promised report never shows as running", () => {
   assert.strictEqual(ctx.pill({ state: "live" }).text, "Running");
 });
 
+test("Scheduled in two places names both places and never reads a silent older agent as every table", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : (n.kids || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat().filter((k) => k != null && k !== false) }),
+    btn: (label) => label, envName: (e) => e.charAt(0).toUpperCase() + e.slice(1), monitorPage: {}, go: () => {} };
+  vm.runInNewContext(`${src.match(/function agPlace\([\s\S]*?\n}\n/)[0]}${src.match(/function agOverlaps\([\s\S]*?\n}\n/)[0]}; this.f = agOverlaps;`, ctx);
+  assert.strictEqual(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: true }), null);
+  const one = text(ctx.f({ overlaps: [{ env: "prod", entities: ["silver_orders"], schedules: [
+    { place: "agent", agent: "etl-01", state: "live", schedule: "hourly", text: "Every 60 minutes" },
+    { place: "pc", schedule: "p1", text: "Daily at 06:00" }] }], unknown: [] }));
+  assert.match(one, /Scheduled in two places/);
+  assert.match(one, /silver_orders in Prod runs on agent etl-01 \(hourly, every 60 minutes\) and on a schedule on this PC \(daily at 06:00\)\. Both write the same table\./);
+  const old = text(ctx.f({ overlaps: [], unknown: [{ agent: "etl-old", schedule: "nightly" }] }));
+  assert.doesNotMatch(old, /Scheduled in two places/);
+  assert.match(old, /Can't tell what etl-old schedules/);
+  assert.match(text(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: false })), /couldn't be read/);
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};

@@ -152,6 +152,16 @@ def test_quality_checks_split_good_rows_from_rejects_with_reasons(monkeypatch):
     assert set(built["proof"]["tables"]) == {"silver.orders", "silver.orders_rejects"}
 
 
+def test_quality_sends_text_in_a_range_column_to_rejects(monkeypatch):
+    orders = ORDERS.with_columns(pl.col("amount").cast(pl.Utf8)).with_columns(
+        pl.when(pl.col("order_id") == 1).then(pl.lit("n/a")).otherwise(pl.col("amount")).alias("amount"))
+    lake = FakeLake({"dbo.orders": orders})
+    run_cells(wizard.build("quality", ANSWERS["quality"]), monkeypatch, lake)
+    reasons = dict(lake.tables["silver.orders_rejects"].select("order_id", "reason").iter_rows())
+    assert reasons[1] == "amount is not a number"
+    assert 1 not in lake.tables["silver.orders"]["order_id"].to_list()
+
+
 def test_date_dimension_has_a_row_per_day_and_a_fiscal_year(monkeypatch):
     lake = FakeLake()
     run_cells(wizard.build("date_dimension", ANSWERS["date_dimension"]), monkeypatch, lake)
@@ -191,6 +201,17 @@ def test_answers_go_into_the_code_as_literals_only():
         imported = {a.name for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
         assert "shutil" not in imported
     assert any(nasty in c["source"] for c in built["cells"] if c["type"] == "code")
+
+
+def test_a_folder_name_with_quotes_stays_a_literal():
+    folder = 'Files/a"b\'; import shutil #'
+    built = wizard.build("load_folder", {"folder": folder, "keys": "id", "output": "dbo.x"})
+    for cell in built["cells"]:
+        if cell["type"] == "code":
+            tree = ast.parse(cell["source"])
+            assert not any(isinstance(n, ast.Import) and n.names[0].name == "shutil" for n in ast.walk(tree))
+    assert any(f"No .csv files in {folder}" in s.value for c in built["cells"] if c["type"] == "code"
+               for s in ast.walk(ast.parse(c["source"])) if isinstance(s, ast.Constant) and isinstance(s.value, str))
 
 
 @pytest.mark.parametrize("template, values, text", [

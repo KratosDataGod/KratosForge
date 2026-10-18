@@ -256,7 +256,7 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
            f"writes `{output}`. Made by the new notebook wizard.")
         code(head + "\nfrom datetime import datetime, timezone")
         code(f"paths = sorted(p for p in lakehouse.files({folder!r}) if p.lower().endswith({'.' + kind!r}))\n"
-             f"assert paths, \"No .{kind} files in {folder}\"\n"
+             f"assert paths, {f'No .{kind} files in {folder}'!r}\n"
              f"loaded_at = datetime.now(timezone.utc)\n"
              f"df = pl.concat([lakehouse.read_{kind}(p).with_columns(pl.lit(p).alias(\"source_file\"))\n"
              f"               for p in paths], how=\"diagonal_relaxed\")\n"
@@ -330,8 +330,10 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
              "problems.append(pl.when(pl.struct(keys).is_duplicated()).then(pl.lit(\"key repeats\")))\n"
              "problems += [pl.when(~pl.col(c).cast(pl.Utf8).is_in(ok)).then(pl.lit(f\"{c} is not one of {ok}\"))\n"
              "             for c, ok in allowed.items()]\n"
-             "problems += [pl.when(~pl.col(c).cast(pl.Float64).is_between(-float(\"inf\") if lo is None else lo,\n"
-             "                                                          float(\"inf\") if hi is None else hi))\n"
+             "number = lambda c: pl.col(c).cast(pl.Float64, strict=False)\n"
+             "problems += [pl.when(pl.col(c).is_not_null() & number(c).is_null()).then(pl.lit(f\"{c} is not a number\"))\n"
+             "             .when(~number(c).is_between(-float(\"inf\") if lo is None else lo,\n"
+             "                                         float(\"inf\") if hi is None else hi))\n"
              "             .then(pl.lit(f\"{c} is outside {lo}..{hi}\")) for c, (lo, hi) in ranges.items()]\n"
              "checked = df.with_columns(pl.concat_str(problems, separator=\"; \", ignore_nulls=True).alias(\"reason\"))\n"
              "good = checked.filter(pl.col(\"reason\") == \"\").drop(\"reason\")\n"

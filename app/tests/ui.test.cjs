@@ -694,3 +694,11 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+test("Home doesn't say nothing needs attention when run history or Fabric jobs couldn't be read", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /rpc\("meta_runs_all", \{ limit: 300 \}\)\.catch\(\(\) => \(\{ runs: \[\], unavailable: \{\}, failed: true \}\)\)/);
+  assert.match(src, /rpc\("fabric_runs", \{ limit: 50, refresh: false \}\)\.catch\(\(\) => null\)/);
+  assert.match(src, /unread\.length \? "Nothing found that needs your attention" : "Nothing needs your attention"/);
+  assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
+});

@@ -117,7 +117,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -132,7 +132,7 @@ function renderNotebook() {
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
-        : `Compute: Python ${state.python || "3"} on this PC, no Fabric capacity used`),
+        : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
   document.querySelector(".cells").scrollTop = scrollTop;
   editors.forEach((v) => v.requestMeasure());
@@ -363,6 +363,8 @@ function cellResults(cell) {
   } else {
     cell.outputs.forEach((o) => parts.push(renderOutput(o, cell)));
   }
+  const offer = replayOffer(cell);  // replay.js
+  if (offer) parts.push(offer);
   const hidden = cell.status === "running" ? null : dbgCellWarning(cell);  // debugging.js
   if (hidden) parts.push(hidden);
   return parts;

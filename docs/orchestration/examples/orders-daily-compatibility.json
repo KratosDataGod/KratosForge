@@ -1,0 +1,898 @@
+{
+  "ok": true,
+  "registry_version": "1",
+  "pipeline": "pl_orders_daily",
+  "schema": {
+    "parser_version": 1,
+    "source_format": "pipeline_content",
+    "dialect": "fabric",
+    "dialect_evidence": [
+      "activity type InvokePipeline",
+      "activity type TridentNotebook",
+      "activity uses externalReferences (Fabric connections)"
+    ],
+    "platform_schema": null,
+    "platform_version": null,
+    "item_type": null,
+    "parts": [
+      "pipeline-content.json"
+    ],
+    "activity_types": {
+      "AppendVariable": 1,
+      "ContosoPagerNotify": 1,
+      "Copy": 1,
+      "Fail": 1,
+      "ForEach": 1,
+      "GetMetadata": 1,
+      "IfCondition": 1,
+      "InvokePipeline": 1,
+      "Lookup": 1,
+      "Script": 1,
+      "SetVariable": 2,
+      "Switch": 1,
+      "TridentNotebook": 1,
+      "Until": 1,
+      "Wait": 2,
+      "WebActivity": 1
+    },
+    "type_properties": {
+      "AppendVariable": [
+        "value",
+        "variableName"
+      ],
+      "ContosoPagerNotify": [
+        "futureSetting",
+        "severity"
+      ],
+      "Copy": [
+        "enableStaging",
+        "sink",
+        "source",
+        "translator"
+      ],
+      "Fail": [
+        "errorCode",
+        "message"
+      ],
+      "ForEach": [
+        "activities",
+        "batchCount",
+        "isSequential",
+        "items"
+      ],
+      "GetMetadata": [
+        "datasetSettings",
+        "fieldList"
+      ],
+      "IfCondition": [
+        "expression",
+        "ifFalseActivities",
+        "ifTrueActivities"
+      ],
+      "InvokePipeline": [
+        "operationType",
+        "parameters",
+        "pipelineId",
+        "waitOnCompletion",
+        "workspaceId"
+      ],
+      "Lookup": [
+        "datasetSettings",
+        "firstRowOnly",
+        "source"
+      ],
+      "Script": [
+        "scriptBlockExecutionTimeout",
+        "scripts"
+      ],
+      "SetVariable": [
+        "setSystemVariable",
+        "value",
+        "variableName"
+      ],
+      "Switch": [
+        "cases",
+        "defaultActivities",
+        "on"
+      ],
+      "TridentNotebook": [
+        "notebookId",
+        "parameters",
+        "sessionTag",
+        "workspaceId"
+      ],
+      "Until": [
+        "activities",
+        "expression",
+        "timeout"
+      ],
+      "Wait": [
+        "waitTimeInSeconds"
+      ],
+      "WebActivity": [
+        "headers",
+        "method",
+        "relativeUrl"
+      ]
+    },
+    "unrecognized_keys": [
+      {
+        "path": "$.properties['x-future-pipeline-setting']",
+        "key": "x-future-pipeline-setting"
+      },
+      {
+        "path": "$.properties.activities[8]['x-contoso-trace']",
+        "key": "x-contoso-trace",
+        "activity": "Alert on failure"
+      }
+    ]
+  },
+  "summary": {
+    "activities": 18,
+    "by_classification": {
+      "local": 0,
+      "simulated": 0,
+      "static": 17,
+      "cloud": 0,
+      "unsupported": 1
+    },
+    "overall": "unsupported",
+    "runs_on_this_pc": false,
+    "needs_fabric_capacity": [
+      "Get watermark",
+      "List new files",
+      "Any files",
+      "Each file",
+      "Copy file to bronze",
+      "Count files",
+      "Nothing to load",
+      "Bronze to silver",
+      "Pick region job",
+      "Unknown region",
+      "Refresh EMEA",
+      "Run AMER script",
+      "Wait for silver",
+      "Check silver",
+      "Pause",
+      "Record success",
+      "Return files",
+      "Alert on failure"
+    ],
+    "fabric_only": [],
+    "unknown_types": [
+      "ContosoPagerNotify"
+    ],
+    "planned_to_run_on_this_pc": [
+      {
+        "name": "Get watermark",
+        "classification": "simulated",
+        "stage": "later (not scheduled)"
+      },
+      {
+        "name": "List new files",
+        "classification": "simulated",
+        "stage": "later (not scheduled)"
+      },
+      {
+        "name": "Any files",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Each file",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Copy file to bronze",
+        "classification": "simulated",
+        "stage": "later (not scheduled)"
+      },
+      {
+        "name": "Count files",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Nothing to load",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Bronze to silver",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Pick region job",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Unknown region",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Refresh EMEA",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Run AMER script",
+        "classification": "simulated",
+        "stage": "later (not scheduled)"
+      },
+      {
+        "name": "Wait for silver",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Check silver",
+        "classification": "simulated",
+        "stage": "later (not scheduled)"
+      },
+      {
+        "name": "Pause",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Record success",
+        "classification": "local",
+        "stage": "ORCH-003"
+      },
+      {
+        "name": "Return files",
+        "classification": "local",
+        "stage": "ORCH-003"
+      }
+    ],
+    "verified_against_fabric": []
+  },
+  "activities": [
+    {
+      "name": "Get watermark",
+      "type": "Lookup",
+      "path": "$.properties.activities[0]",
+      "container": null,
+      "known": true,
+      "title": "Lookup",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "simulated",
+        "stage": "later (not scheduled)",
+        "note": "Returns rows from a fixture or a local table."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "fabric",
+        "connection"
+      ],
+      "side_effects": [
+        "reads_external",
+        "reads_onelake"
+      ],
+      "external_dependencies": [
+        "source connection"
+      ],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "source"
+      ],
+      "limitations": [
+        "Fabric returns at most 5,000 rows or 4 MB; not checked here."
+      ],
+      "problems": []
+    },
+    {
+      "name": "List new files",
+      "type": "GetMetadata",
+      "path": "$.properties.activities[1]",
+      "container": null,
+      "known": true,
+      "title": "Get Metadata",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "simulated",
+        "stage": "later (not scheduled)",
+        "note": "Reads metadata of local files."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "fabric",
+        "connection"
+      ],
+      "side_effects": [
+        "reads_external",
+        "reads_onelake"
+      ],
+      "external_dependencies": [
+        "dataset connection"
+      ],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "fieldList"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Any files",
+      "type": "IfCondition",
+      "path": "$.properties.activities[2]",
+      "container": null,
+      "known": true,
+      "title": "If Condition",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": ""
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "expression",
+        "ifTrueActivities",
+        "ifFalseActivities"
+      ],
+      "limitations": [
+        "ORCH-003 needs an expression evaluator for the condition; until then only references in it are checked."
+      ],
+      "problems": []
+    },
+    {
+      "name": "Each file",
+      "type": "ForEach",
+      "path": "$.properties.activities[2].typeProperties.ifTrueActivities[0]",
+      "container": "Any files",
+      "known": true,
+      "title": "ForEach",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Parallel up to batchCount."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "items",
+        "isSequential",
+        "batchCount",
+        "activities"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Copy file to bronze",
+      "type": "Copy",
+      "path": "$.properties.activities[2].typeProperties.ifTrueActivities[0].typeProperties.activities[0]",
+      "container": "Each file",
+      "known": true,
+      "title": "Copy data",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "simulated",
+        "stage": "later (not scheduled)",
+        "note": "Copies between local files and a local lakehouse copy; other connectors stay in Fabric."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "fabric",
+        "connection"
+      ],
+      "side_effects": [
+        "reads_external",
+        "reads_onelake",
+        "writes_onelake",
+        "writes_external"
+      ],
+      "external_dependencies": [
+        "source and sink connections"
+      ],
+      "inactive": false,
+      "properties": [
+        {
+          "property": "enableStaging",
+          "status": "unsupported_locally",
+          "note": "Staging is a Fabric or Azure service feature."
+        }
+      ],
+      "checked_properties": [
+        "source",
+        "sink"
+      ],
+      "limitations": [
+        "Source and sink settings are carried, not checked against each connector's schema.",
+        "Activity policy (timeout, retry, secureInput, secureOutput) is read but not applied here."
+      ],
+      "problems": []
+    },
+    {
+      "name": "Count files",
+      "type": "AppendVariable",
+      "path": "$.properties.activities[2].typeProperties.ifTrueActivities[0].typeProperties.activities[1]",
+      "container": "Each file",
+      "known": true,
+      "title": "Append Variable",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": ""
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "variableName",
+        "value"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Nothing to load",
+      "type": "Wait",
+      "path": "$.properties.activities[2].typeProperties.ifFalseActivities[0]",
+      "container": "Any files",
+      "known": true,
+      "title": "Wait",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Can be shortened in a local run so tests don't wait."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "none"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "waitTimeInSeconds"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Bronze to silver",
+      "type": "TridentNotebook",
+      "path": "$.properties.activities[3]",
+      "container": null,
+      "known": true,
+      "title": "Notebook",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Runs a local copy through Prove's notebook execution path."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "fabric",
+        "workspace_role"
+      ],
+      "side_effects": [
+        "runs_code",
+        "reads_onelake",
+        "writes_onelake"
+      ],
+      "external_dependencies": [
+        "the notebook item",
+        "its default lakehouse"
+      ],
+      "inactive": false,
+      "properties": [
+        {
+          "property": "sessionTag",
+          "status": "unsupported_locally",
+          "note": "High-concurrency session sharing is a Fabric Spark feature."
+        }
+      ],
+      "checked_properties": [
+        "notebookId"
+      ],
+      "limitations": [
+        "Running on this PC uses a local Python kernel, not Fabric Spark; results can differ."
+      ],
+      "problems": []
+    },
+    {
+      "name": "Pick region job",
+      "type": "Switch",
+      "path": "$.properties.activities[4]",
+      "container": null,
+      "known": true,
+      "title": "Switch",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": ""
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "on",
+        "cases",
+        "defaultActivities"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Unknown region",
+      "type": "Fail",
+      "path": "$.properties.activities[4].typeProperties.defaultActivities[0]",
+      "container": "Pick region job",
+      "known": true,
+      "title": "Fail",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": ""
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "message",
+        "errorCode"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Refresh EMEA",
+      "type": "InvokePipeline",
+      "path": "$.properties.activities[4].typeProperties.cases[0].activities[0]",
+      "container": "Pick region job",
+      "known": true,
+      "title": "Invoke pipeline",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Runs the child pipeline locally when its definition is on this PC."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "fabric",
+        "workspace_role"
+      ],
+      "side_effects": [
+        "starts_fabric_job"
+      ],
+      "external_dependencies": [
+        "the child pipeline item"
+      ],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "pipelineId"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Run AMER script",
+      "type": "Script",
+      "path": "$.properties.activities[4].typeProperties.cases[1].activities[0]",
+      "container": "Pick region job",
+      "known": true,
+      "title": "Script",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "simulated",
+        "stage": "later (not scheduled)",
+        "note": "Runs against a local DuckDB copy only, never the real database."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "connection"
+      ],
+      "side_effects": [
+        "runs_code",
+        "reads_external",
+        "writes_external"
+      ],
+      "external_dependencies": [
+        "database connection"
+      ],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "scripts"
+      ],
+      "limitations": [
+        "SQL is carried as written; its dialect is the target database's."
+      ],
+      "problems": []
+    },
+    {
+      "name": "Wait for silver",
+      "type": "Until",
+      "path": "$.properties.activities[5]",
+      "container": null,
+      "known": true,
+      "title": "Until",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": ""
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "expression",
+        "timeout",
+        "activities"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Check silver",
+      "type": "WebActivity",
+      "path": "$.properties.activities[5].typeProperties.activities[0]",
+      "container": "Wait for silver",
+      "known": true,
+      "title": "Web",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "simulated",
+        "stage": "later (not scheduled)",
+        "note": "Returns a recorded response; calls a real URL only when allowed."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [
+        "connection"
+      ],
+      "side_effects": [
+        "calls_http"
+      ],
+      "external_dependencies": [
+        "the web endpoint"
+      ],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "method"
+      ],
+      "limitations": [
+        "A real call can change data in the called service; ORCH-003 will not make it."
+      ],
+      "problems": []
+    },
+    {
+      "name": "Pause",
+      "type": "Wait",
+      "path": "$.properties.activities[5].typeProperties.activities[1]",
+      "container": "Wait for silver",
+      "known": true,
+      "title": "Wait",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Can be shortened in a local run so tests don't wait."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "none"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "waitTimeInSeconds"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Record success",
+      "type": "SetVariable",
+      "path": "$.properties.activities[6]",
+      "container": null,
+      "known": true,
+      "title": "Set Variable",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Sets the variable in the local run record."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "variableName",
+        "value"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Return files",
+      "type": "SetVariable",
+      "path": "$.properties.activities[7]",
+      "container": null,
+      "known": true,
+      "title": "Set Variable",
+      "classification": "static",
+      "evidence": "unit_tests",
+      "verified": false,
+      "planned": {
+        "classification": "local",
+        "stage": "ORCH-003",
+        "note": "Sets the variable in the local run record."
+      },
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "pipeline_state"
+      ],
+      "external_dependencies": [],
+      "inactive": false,
+      "properties": [],
+      "checked_properties": [
+        "variableName",
+        "setSystemVariable",
+        "value"
+      ],
+      "limitations": [],
+      "problems": []
+    },
+    {
+      "name": "Alert on failure",
+      "type": "ContosoPagerNotify",
+      "path": "$.properties.activities[8]",
+      "container": null,
+      "known": false,
+      "title": "Activity type this version doesn't know",
+      "classification": "unsupported",
+      "evidence": "none",
+      "verified": false,
+      "planned": null,
+      "fabric_capacity": "metered_in_fabric",
+      "auth": [],
+      "side_effects": [
+        "none"
+      ],
+      "external_dependencies": [],
+      "inactive": true,
+      "properties": [
+        {
+          "property": "severity",
+          "status": "unknown",
+          "note": "Not in the registry for this type: carried unchanged, not checked."
+        },
+        {
+          "property": "futureSetting",
+          "status": "unknown",
+          "note": "Not in the registry for this type: carried unchanged, not checked."
+        }
+      ],
+      "checked_properties": [],
+      "limitations": [
+        "Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop by KratosBI may know it; otherwise it has to run in Fabric."
+      ],
+      "problems": [
+        "unknown_activity_type"
+      ]
+    }
+  ],
+  "diagnostics": [
+    {
+      "code": "inactive_activity",
+      "severity": "info",
+      "message": "Alert on failure is deactivated, so a run skips it and marks it Succeeded.",
+      "path": "$.properties.activities[8].state",
+      "activity": "Alert on failure",
+      "hint": ""
+    },
+    {
+      "code": "unknown_activity_type",
+      "severity": "warning",
+      "message": "Alert on failure: this version doesn't know the activity type 'ContosoPagerNotify', so it is kept as it is but not checked or run.",
+      "path": "$.properties.activities[8].type",
+      "activity": "Alert on failure",
+      "hint": "It still runs in Fabric if Fabric knows the type."
+    }
+  ],
+  "counts": {
+    "error": 0,
+    "warning": 1,
+    "info": 1
+  },
+  "notes": [
+    "Classifications describe what this version does today; 'planned' is a proposal, not support.",
+    "Nothing here was run, and no Fabric call was made to produce this report.",
+    "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the activities this version can't run on this PC, so running the pipeline today uses capacity for each of them; 'fabric_only' lists those that can only ever run in Fabric."
+  ]
+}

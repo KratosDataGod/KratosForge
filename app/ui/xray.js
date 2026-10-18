@@ -147,7 +147,7 @@ function xrayFinding(f, box, res) {
       e.target.disabled = true;
       const r = await attempt(() => rpc("xray_optimize", { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table,
         schema: f.schema, lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id }), "Optimize not started");
-      if (r) { f.fixed = true; toast(`Optimizing ${f.table} in Fabric. Follow it in Monitor.`); drawXray(box, res); }
+      if (r) { f.fix = { state: "submitted", job_id: r.job_id }; toast(`Optimizing ${f.table} in Fabric. Follow it in Monitor.`); drawXray(box, res); }
       else e.target.disabled = false;
     }, "tool primary"),
     vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), "tool outline"),
@@ -165,8 +165,16 @@ function xrayFinding(f, box, res) {
       h("div", {}, h("b", {}, f.title)),
       h("div", { class: "muted-text small" }, f.detail, " ",
         h("a", { href: "#", onclick: (e) => { e.preventDefault(); openXrayDoc(f.kind); } }, "How to fix this")),
-      xrayWhere(f) ? h("div", { class: "muted-text small where" }, xrayWhere(f)) : null),
-    action ? action() : null);
+      xrayWhere(f) ? h("div", { class: "muted-text small where" }, xrayWhere(f)) : null,
+      xrayFix(f)),
+    f.fix?.state === "submitted" ? null : action ? action() : null);
+}
+
+// A fix shows as submitted until its Fabric job finishes; only a completed job marks the finding fixed.
+function xrayFix(f) {
+  if (f.fix?.state === "submitted") return h("div", { class: "muted-text small" }, "Fix submitted to Fabric, not finished yet. Follow it in Monitor.");
+  if (f.fix?.state === "failed") return h("div", { class: "reason small" }, `The fix didn't finish in Fabric (${f.fix.status})${f.fix.message ? `: ${f.fix.message}` : ""}.`);
+  return null;
 }
 
 function vacuumArgs(f) {
@@ -183,7 +191,7 @@ async function vacuumDialog(f, box, res) {
     const r = await attempt(() => rpc("xray_vacuum", vacuumArgs(f)), "Vacuum not started");
     if (!r) { vacuumBtn.disabled = false; return; }
     closeDialog();
-    f.fixed = true;
+    f.fix = { state: "submitted", job_id: r.job_id };
     toast(`Vacuuming ${label} in Fabric, keeping ${r.keep_days} days of history. Follow it in Monitor.`, false, { log: true });
     drawXray(box, res);
   }, "tool primary");
@@ -211,7 +219,7 @@ function vacuumAll(findings, box, res) {
     let started = 0;
     const failed = [];
     for (const f of findings) {
-      try { await rpc("xray_vacuum", vacuumArgs(f)); f.fixed = true; started++; } catch { failed.push(f.table); }
+      try { const r = await rpc("xray_vacuum", vacuumArgs(f)); f.fix = { state: "submitted", job_id: r.job_id }; started++; } catch { failed.push(f.table); }
     }
     toast(failed.length ? `Started ${started} vacuums. Not started: ${failed.join(", ")}` : `Started ${started} vacuums in Fabric. Follow them in Monitor.`,
       !!failed.length, { log: true });

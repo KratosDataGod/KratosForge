@@ -109,8 +109,8 @@ async function renderSourceControl() {
     if (!ok || state.view !== "source") return;
   }
   const info = gitPage.info;
-  const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control"));
-  gitPage.title = () => [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control")];
+  const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview"));
+  gitPage.title = () => [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview")];
   if (!info.installed) {
     setView(h("div", { class: "page narrow" }, head, h("div", { class: "empty" }, icon("branch", 32),
       h("div", { class: "title" }, "Git isn't installed on this PC"),

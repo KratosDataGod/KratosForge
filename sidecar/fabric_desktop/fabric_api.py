@@ -9,6 +9,8 @@ from typing import Any, Callable
 
 import requests
 
+from .retrying import TRANSIENT_STATUS
+
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
 
@@ -59,6 +61,13 @@ def _check_fabric_runs_allowed(what: str) -> None:
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 
+def _retry(method: str, status: int) -> bool:
+    """429 means Fabric refused the request unread, so any method can be sent again. Other transient
+    statuses are retried only for reads: a write that got a 5xx may have happened, and repeating it
+    could create or change something twice."""
+    return status == 429 or (method == "GET" and status in TRANSIENT_STATUS)
+
+
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
@@ -71,9 +80,9 @@ class FabricClient:
         if not url.startswith("http"):
             url = f"{API}{url}"
         headers = {"Authorization": f"Bearer {self._token()}"}
-        for _ in range(5):
+        for attempt in range(5):
             resp = self._http.request(method, url, headers=headers, timeout=60, **kwargs)
-            if resp.status_code != 429:
+            if not _retry(method, resp.status_code) or attempt == 4:
                 break
             self._sleep(float(resp.headers.get("Retry-After", 5)))
         if resp.status_code >= 400:
@@ -247,11 +256,15 @@ class FabricClient:
         return self._paged(f"/workspaces/{workspace_id}/semanticModels")
 
     def save_semantic_model(self, workspace_id: str, name: str, parts: dict[str, str],
-                            description: str = "") -> dict[str, Any]:
-        """Create the semantic model from TMDL files, or replace the definition of the one with this name."""
+                            description: str = "", replace: bool = True) -> dict[str, Any]:
+        """Create the semantic model from TMDL files, or replace the definition of the one with this name.
+        Without ``replace``, an existing one raises FileExistsError(message, its id) and nothing is written.
+        A failed list raises too, so a model that couldn't be looked up is never treated as new."""
         definition = {"parts": [{"path": path, "payload": base64.b64encode(text.encode()).decode(),
                                  "payloadType": "InlineBase64"} for path, text in parts.items()]}
         existing = next((m for m in self.list_semantic_models(workspace_id) if m["displayName"] == name), None)
+        if existing is not None and not replace:
+            raise FileExistsError(f"{name} already exists; replacing its definition needs confirming", existing["id"])
         if existing is None:
             body: dict[str, Any] = {"displayName": name, "definition": definition}
             if description:

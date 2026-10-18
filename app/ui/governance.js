@@ -4,7 +4,7 @@
 // (central/policy.py) enforces all of it; this page only hides buttons a person can't use.
 
 const GOV_STATUS = { draft: ["Draft", "neu"], published: ["Published", "pass"], deprecated: ["Deprecated", "wrn"], retired: ["Retired", "neu"] };
-const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block", "fail"] };
+const GOV_ENFORCEMENT = { off: ["Off", "neu"], advisory: ["Advisory", "info"], warn: ["Warn", "wrn"], block: ["Block (not enforced yet)", "fail"] };
 const GOV_STRICTER = { higher: "Higher", lower: "Lower", superset: "More items", subset: "Fewer items", true: "On", fixed: "Fixed" };
 const GOV_SCOPE = { enterprise: "Enterprise", domain: "Domain", project: "Project", entity: "Entity" };
 const govPage = { query: "", category: "", status: "", open: null, sub: "definition", version: null, explain: null };

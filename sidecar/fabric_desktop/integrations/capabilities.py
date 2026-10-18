@@ -154,6 +154,9 @@ def register_core(reg: Registry) -> None:
 PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",
                   "Expressions are read, never evaluated; nothing in the pipeline runs.",
                   "Definitions up to 1 MB (the local API's request limit); the desktop app reads larger ones.")
+COMPAT_LIMIT = ("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
+                "not support.",
+                "No entry has been compared against Fabric yet; Fabric-only type names are marked unverified.")
 DEFINITION = {"type": "string", "minLength": 2, "maxLength": 1_000_000,
               "description": "pipeline-content.json, or a getDefinition result with base64 parts, as text."}
 DIAGNOSTICS = {"ok": {"type": "boolean"}, "diagnostics": {"type": "array"}, "counts": {"type": "object"},
@@ -193,6 +196,29 @@ def _pipelines() -> list[Capability]:
                     "diagnostics": {"type": "array"}}, ["ok"], extra=True),
             "READ_METADATA", services.export_pipeline, artifact_types=("DataPipeline",), status="preview",
             limitations=PIPELINE_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_check_pipeline_compatibility", "Check what can run on this PC",
+            "For every activity in a Fabric pipeline definition (nested ones included): whether Fabric Desktop by "
+            "KratosBI can run it here, simulate it, only check it, or must leave it to Fabric; what is planned and in "
+            "which stage; the properties it can't use; the sign-in it needs; its side effects; and whether it can "
+            "only ever run in Fabric. Fabric meters every activity run, so each activity that can't run here counts "
+            "as needing Fabric capacity. Unknown activity types are kept and reported as unsupported.",
+            schema({"definition": DEFINITION}, ["definition"]),
+            schema(DIAGNOSTICS | {"registry_version": STR, "summary": {"type": "object"},
+                                  "activities": {"type": "array"}}, ["ok", "diagnostics"], extra=True),
+            "READ_METADATA", services.check_pipeline_compatibility, artifact_types=("DataPipeline",),
+            status="preview", limitations=PIPELINE_LIMIT + COMPAT_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_get_activity_registry", "List pipeline activity support",
+            "The versioned registry of Fabric pipeline activity types: each type's classification, evidence, "
+            "planned support, property-level support, sign-in, side effects, external dependencies and Fabric "
+            "capacity need. Pass an activity type for one entry.",
+            schema({"activity_type": {"type": "string", "maxLength": 200, "default": "",
+                                      "description": "One activity type, such as Copy; empty for all."}}, []),
+            schema({"registry_version": STR, "activities": {"type": "array"}, "activity": {"type": "object"}},
+                   ["registry_version"], extra=True),
+            "READ_METADATA", services.get_activity_registry, artifact_types=("DataPipeline",), status="preview",
+            limitations=COMPAT_LIMIT, timeout=30),
     ]
 
 
@@ -276,7 +302,9 @@ OPT_ID = {"type": "string", "maxLength": 100, "pattern": r"^[A-Za-z0-9\-]*$", "d
 EXECUTION_ID = {"type": "string", "pattern": r"^ex_[0-9a-f]{20}$"}
 CODE_LIMITS = ("Runs in a Python process of its own on this PC, ended afterwards; nothing is kept between runs.",
                "Can read the attached lakehouse; writing lakehouse tables and getting other tokens are refused.",
-               "Output is capped at 100,000 characters; images and HTML are left out.")
+               "Output is capped at 100,000 characters; images and HTML are left out.",
+               "Running other notebooks (%run, notebookutils.notebook.run) is refused.",
+               "Code over 20,000 characters (for a notebook, all its code cells) is refused: the approval shows it in full.")
 
 
 def _executions() -> list[Capability]:
@@ -306,13 +334,14 @@ def _executions() -> list[Capability]:
         Capability(
             "fabric_desktop_run_notebook", "Run a notebook on this PC",
             "Runs a saved notebook's code cells in order on this PC in a fresh process, stopping at the first "
-            "error, and returns each cell's output. The person approves every run. Running in Fabric isn't offered.",
+            "error, and returns each cell's output. The person approves every run, seeing every code cell; if the "
+            "notebook changes after that, the run is refused. Running in Fabric isn't offered.",
             schema({"name": NAME, "workspace_id": OPT_ID | {"description": "The workspace of the notebook's lakehouse."},
                     **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 3600, "default": 900}},
                    ["name"]),
             EXECUTION, "EXECUTE_LOCAL_CODE", services.run_notebook, read_only=False, approval="always",
             artifact_types=("Notebook",), limitations=CODE_LIMITS + ("A notebook that writes tables stops at that cell.",),
-            timeout=3600),
+            timeout=3600, bind=services.bind_notebook),
         Capability(
             "fabric_desktop_get_execution_status", "Get execution status",
             "The state of an execution you started, and its result once finished. wait_seconds waits for it to finish.",

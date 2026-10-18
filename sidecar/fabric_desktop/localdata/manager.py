@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .discovery import Source
-from .engine import LocalEngine, QueryCancelled
+from .engine import OWN_KEY, LocalEngine, QueryCancelled
 from .projects import Project, ProjectStore, Settings
 
 _KEEP_FINISHED = 600  # seconds a finished background query's result waits to be collected
@@ -80,8 +80,9 @@ class LocalData:
         if engine.project.source(resolved):
             raise ValueError(f"{resolved} is already a folder of {engine.project.name}.")
         home = Path(engine.project.folder).resolve()
-        if folder.resolve() == home or folder.resolve() in home.parents:
-            raise ValueError("That folder holds the project's own database. Pick the folder with your data files.")
+        if folder.resolve() == home or folder.resolve() in home.parents or home in folder.resolve().parents:
+            raise ValueError("That folder holds the project's own database and Delta tables. Pick the folder with "
+                             "your data files.")
         source = Source(path=resolved, **{k: v for k, v in options.items() if v is not None})
         engine.project.sources.append(source)
         try:
@@ -94,7 +95,8 @@ class LocalData:
     def catalog(self, pid: str) -> dict[str, Any]:
         engine = self.engine(pid)
         return {"project": engine.project.summary(), "tables": engine.tables(),
-                "sources": [asdict(s) | engine.project.refreshed.get(s.path, {}) for s in engine.project.sources]}
+                "sources": [asdict(s) | engine.project.refreshed.get(s.path, {}) for s in engine.project.sources],
+                "tables_folder": {"path": str(engine.tables_dir)} | engine.project.refreshed.get(OWN_KEY, {})}
 
     # Background queries
 
@@ -130,7 +132,8 @@ class LocalData:
         record = self._queries.get(query_id)
         if record is None or record["state"] != "running":
             return {"cancelled": False}
-        return {"cancelled": self.engine(record["project"]).cancel(query_id)}
+        # The query's thread may not have reached the engine yet: it is then stopped as it starts.
+        return {"cancelled": self.engine(record["project"]).cancel(query_id, not_started=True)}
 
     def _sweep(self) -> None:
         now = time.time()

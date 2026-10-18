@@ -398,10 +398,20 @@ h2.flush { margin: 0; }
 .capacity-strip { margin-bottom: 12px; }
 .capacity-strip .row { gap: 12px; align-items: center; }
 .capacity-strip td { vertical-align: top; }
+.usage-card { margin-bottom: 12px; }
+.usage-card > .row { gap: 8px; align-items: center; }
+.usage-card .cmp-stats { margin: 10px 0; }
+.usage-card td { vertical-align: top; }
+.usage-imports summary { cursor: pointer; margin-top: 8px; }
+.usage-preview { margin-top: 10px; }
+.usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .info p { margin: 0; }
 .tool.danger { color: var(--danger); }
+.tool.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.tool.danger-solid:hover:not(:disabled) { background: #8e0b16; }
+.tool.danger-solid:disabled { background: var(--border); border-color: var(--border); color: var(--muted); }
 .list select { min-height: 28px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
 .page h1 .mono { font-size: 21px; }
 .mini td.n { white-space: nowrap; }
@@ -1099,6 +1109,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 
 /* Accessibility: a visible focus ring for keyboard users, a skip link, and less motion when asked. */
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside it, not under the next row */
 .search:focus-within, .palette-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .view:focus { outline: none; }
@@ -1251,10 +1262,42 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .dbg-watch .warn { color: #8a5300; overflow-wrap: anywhere; }
 .dbg-hidden-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+/* Failure replay bundles (replay.js): the offer under a failed cell and the Save dialog. */
+.replay-offer { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.replay-dialog { display: flex; flex-direction: column; max-width: 560px; font-size: 13px; }
+.replay-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.replay-row input { margin-top: 3px; }
+.replay-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.replay-what > span { overflow-wrap: anywhere; }
+.replay-limits { padding: 8px 0 0; border-top: 1px solid var(--border); }
+.replay-limits ul { margin: 4px 0 0; padding-left: 18px; }
+.replay-banner { background: #e9eef7; border: 1px solid #c7d3ea; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.replay-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice select { width: auto; max-width: 100%; }
+.replay-result { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-left: 3px solid var(--danger); background: var(--surface, #fff); }
+.replay-result.ok { border-left-color: #1b3664; }
+.replay-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.replay-list { display: flex; flex-direction: column; }
+.replay-list .replay-row { align-items: center; justify-content: space-between; }
+
 /* Release records on the promote card, and the column lineage dialog. */
 .release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .release-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; }
 .release-row > span:last-child { overflow-wrap: anywhere; }
+.rollback-view { display: flex; flex-direction: column; gap: 12px; }
+.rollback-releases { min-width: 0; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
+.rollback-releases legend { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.rollback-row { display: grid; grid-template-columns: 24px 90px 150px minmax(160px, 1fr) 130px; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); min-width: 600px; font-size: 13px; }
+.rollback-row:last-child { border-bottom: 0; }
+.rollback-row.off { color: var(--muted); }
+.rollback-row:has(input:checked) { background: var(--hover); }
+.rollback-what { display: flex; flex-direction: column; gap: 8px; }
+.rollback-list { border: 1px solid var(--border); border-radius: 6px; }
+.rollback-entity { display: grid; grid-template-columns: 180px 120px minmax(0, 1fr); gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); align-items: start; font-size: 13px; }
+.rollback-entity:last-child { border-bottom: 0; }
+.rollback-entity .gate-list { margin: 0; }
+.rollback-warn { background: #fff4d6; border: 1px solid #f1d58a; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; color: #5c3a00; font-size: 13px; }
 .lineage-view { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
 .lineage-split { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 .lineage-cols { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
@@ -1266,9 +1309,15 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 @media (max-width: 640px) {
   .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }
   .release-row { grid-template-columns: 1fr; gap: 0; }
+  .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
 
 /* Monitor > Agents: the list with How agents work beside it */
 .ag-two { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
 .ag-two > .inc-panel { min-width: 0; }
 .ag-steps { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
+/* Optimize (optimize.js) */
+.optimize-band { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; font-size: 13px; }
+.card.pad.optimize-setup { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.optimize-body .cmp-stats { margin-bottom: 16px; }

@@ -38,7 +38,7 @@ from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, send
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send
 
 KIND_META = "meta"
 
@@ -326,7 +326,7 @@ class Agent:
             post_teams(url, f"Fabric Desktop by KratosBI agent {self.config.name}: a {env} job didn't finish",
                        [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
         except Exception as exc:  # the log has it either way
-            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=str(exc)))
+            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=failure(exc)))
 
     # ---- the loop
 

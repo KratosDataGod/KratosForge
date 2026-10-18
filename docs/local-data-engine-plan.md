@@ -1,6 +1,6 @@
 # Local data engine and OneLake publishing: audit and plan
 
-The program FD-LDE-001 to FD-LDE-020 makes Fabric Desktop by KratosBI a local-first SQL development environment: register a folder of data files, query them as tables on this PC with no Fabric capacity, build persistent transformed datasets and local Delta tables, validate them, and publish them to OneLake through a verified mechanism. It takes ideas from [DaffyDB](https://www.nuget.org/packages/DaffyDB/) (a folder of files served as SQL tables over TDS) without making it a dependency.
+The program FD-LDE-001 to FD-LDE-020 makes Fabric Desktop by KratosBI a local-first SQL development environment: register a folder of data files, query them as tables on this PC without starting a Fabric job, build persistent transformed datasets and local Delta tables, validate them, and publish them to OneLake through a verified mechanism. A run on this PC starts no Fabric job, but its OneLake reads and writes, including publishing, still use capacity. It takes ideas from [DaffyDB](https://www.nuget.org/packages/DaffyDB/) (a folder of files served as SQL tables over TDS) without making it a dependency.
 
 Status: audit done (main at `7f51026`, 2026-10-17); the first PR carries this plan together with local projects, the engine and file discovery. Everything here is Preview until it has run on a real tenant.
 
@@ -100,7 +100,7 @@ Each PR is independent, tested without Fabric, and reported before the next star
 1. and 2. **This plan, with local projects, engine and file discovery** (LDE-001, LDE-002), in one pull request. Engine calls only; no UI. *Built.*
 3. **Excel workbooks** (LDE-002 remainder): add a pinned Excel reader in its own PR (candidates: `openpyxl`, MIT; or `fastexcel`, MIT, via Polars), sheets imported into the project database and re-imported when the file changes.
 4. **T-SQL compatibility** (LDE-004) on SQL-002's profiles, once #120 merges.
-5. **Local Delta** (LDE-005): `CREATE TABLE ... AS` to a local Delta folder through delta-rs, append and overwrite, time travel, protocol checks before every write.
+5. **Local Delta** (LDE-005): `CREATE TABLE ... AS` to a local Delta folder through delta-rs, append and overwrite, time travel, protocol checks before every write. *Built:* `CREATE TABLE ... USING DELTA AS`, `INSERT INTO`, `INSERT OVERWRITE`, `VERSION AS OF` / `AT (VERSION => n)`, history, dry run and confirmed drop, in the Fabric-safe profile. `MERGE`, `UPDATE` and `DELETE` come with LDE-011.
 6. **Transformations** (LDE-006): SQL scripts with parameters and dependency order, each step's output kept as a table for inspection.
 7. **OneLake destinations and Files transfer** (LDE-007, LDE-008).
 8. **Delta publish with validation** (LDE-009, LDE-010): dry run, preview, confirm, commit, check the committed snapshot.

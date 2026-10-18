@@ -36,7 +36,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
+           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -47,6 +47,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_discard_quarantine", "meta_set_freshness", "meta_freshness", "meta_alerts", "meta_set_alerts",
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
+           "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -66,7 +67,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
-           "notebook_debug_get", "notebook_debug_set",
+           "notebook_debug_get", "notebook_debug_set", "replay_bundle_preview", "replay_bundle_save",
+           "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
            "notebook_dependencies", "side_by_side_writes",
            "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
@@ -76,6 +78,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
+           "pipeline_compatibility", "pipeline_activity_registry",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
@@ -88,6 +91,16 @@ METHODS |= INTEGRATION_METHODS
 from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
+
+# Optimize's shared lakehouse (optimize_service.py).
+from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
+
+METHODS |= OPTIMIZE_METHODS
+
+# Governance's request and shortcut notices to Teams (platform_notify_service.py).
+from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402
+
+METHODS |= PLATFORM_NOTIFY_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

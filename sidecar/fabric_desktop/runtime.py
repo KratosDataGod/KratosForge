@@ -113,6 +113,7 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
         self.check_allowed(project, env)
         # The agent never creates lakehouses: an environment is set up by promoting to it.
         store = self._store(project, env)
+        project = self._released(project, env, store)  # the files of the release env is on, not this checkout's
         uses_keys = self._uses_keys(project, entities)
         keys_store = self._keys_store(project, env) if uses_keys else None
         leases = Leases(self.lease_backend(project, env, store), owner=self.config.name,

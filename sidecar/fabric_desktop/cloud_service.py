@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
+from deltalake.exceptions import TableNotFoundError
 
 from . import maintenance, profiling, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
@@ -151,6 +152,7 @@ class CloudMixin:
                  compute: str | None = None, workspace: dict[str, str] | None = None,
                  fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+        self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
@@ -389,6 +391,7 @@ class CloudMixin:
 
     def _run_in_fabric(self, project: Any, env: str, store: Any, names: list[str] | None,
                        backfill: str | None, cascade: bool) -> list[dict[str, Any]]:
+        project = self._released(project, env, store)  # type: ignore[attr-defined]
         self._check_runnable(project, store)
         where = self._fabric_bundle(project, env, store)
         request_id = f"fd-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
@@ -436,6 +439,7 @@ class CloudMixin:
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
         store = self._store(project, env, create=env == "dev")  # type: ignore[attr-defined]
+        project = self._released(project, env, store)  # type: ignore[attr-defined]
         self._check_runnable(project, store)
         where = self._fabric_bundle(project, env, store)
         self.fabric_jobs.create_schedule(where["workspace_id"], where["runner_id"], "RunNotebook", config)  # type: ignore[attr-defined]
@@ -470,8 +474,9 @@ class CloudMixin:
             try:
                 existing = next((m for m in self.fabric.list_semantic_models(cfg["workspace_id"])  # type: ignore[attr-defined]
                                  if m["displayName"] == name), None)
-            except Exception:
-                existing = None
+            except Exception as exc:  # "none found" here would offer Create over a model that exists
+                raise RuntimeError(f"Couldn't list the semantic models in {cfg.get('workspace_name') or 'the workspace'} "
+                                   f"({type(exc).__name__}: {exc}), so whether {name} exists isn't known. Try again.") from exc
         return {"env": env, "layer": layer, "layers": project.layer_names(), "name": name, "local": local,
                 "workspace_id": cfg.get("workspace_id", ""), "workspace_name": cfg.get("workspace_name", ""),
                 "lakehouse": project.layer(layer).lakehouse,
@@ -484,8 +489,12 @@ class CloudMixin:
     def _model_url(workspace_id: str, model_id: str) -> str:
         return f"{FABRIC_APP}/groups/{workspace_id}/datasets/{model_id}/details?experience=fabric-developer"
 
-    def meta_build_model(self, env: str = "test", layer: str | None = None, name: str | None = None) -> dict[str, Any]:
-        """Create or update a Direct Lake semantic model over the layer's tables in the environment's workspace."""
+    def meta_build_model(self, env: str = "test", layer: str | None = None, name: str | None = None,
+                         replace: bool = False) -> dict[str, Any]:
+        """Create or update a Direct Lake semantic model over the layer's tables in the environment's workspace.
+
+        A model with this name that already exists is replaced only with ``replace``; without it the
+        answer is ``{"confirm": {...}}`` and nothing is written, so the user can confirm first."""
         project = self._project()  # type: ignore[attr-defined]
         layer = self._model_layer(project, layer)
         store = self._store(project, env)  # type: ignore[attr-defined]
@@ -496,15 +505,21 @@ class CloudMixin:
         if lakehouse not in store.lakehouse_ids:
             raise LookupError(f"{lakehouse} doesn't exist in the {env} workspace yet; promote and run first")
         tables, rels = semantic.plan(project, layer)
-        skipped = []
+        skipped, unreadable = [], []
         for t in tables:
             try:
                 fields = table_schema(store, lakehouse, t.schema, t.table)
-            except Exception:
+            except TableNotFoundError:  # not written in this environment yet
                 fields = None
+            except Exception as exc:  # it may exist: leaving it out would drop it from the model
+                unreadable.append(f"{t.entity} ({type(exc).__name__}: {exc})")
+                continue
             if not fields:
                 skipped.append(t.entity)
             t.columns = fields or []
+        if unreadable:
+            raise RuntimeError(f"Couldn't read {', '.join(unreadable)}, so the model wasn't written; "
+                               "it would have left those tables out. Try again.")
         tables = [t for t in tables if t.columns]
         if not tables:
             raise LookupError(f"No {layer} tables have been written in {env} yet; run them first")
@@ -524,8 +539,13 @@ class CloudMixin:
             refreshed = False
         parts = semantic.build(tables, rels, endpoint["connectionString"], endpoint["id"])
         name = (name or f"SM_{layer.title()}").strip()
-        model = fabric.save_semantic_model(store.workspace_id, name, parts,
-                                           f"Direct Lake over {lakehouse}, built by Fabric Desktop by KratosBI from the metadata project")
+        try:
+            model = fabric.save_semantic_model(store.workspace_id, name, parts,
+                                               f"Direct Lake over {lakehouse}, built by Fabric Desktop by KratosBI from the metadata project",
+                                               replace=replace)
+        except FileExistsError as exc:  # it exists and the user hasn't confirmed replacing it
+            return {"confirm": {"name": name, "id": exc.args[1] if len(exc.args) > 1 else "",
+                                "workspace_name": self._env_cfg(project, env).get("workspace_name", "")}}
         model_id = model.get("id") or next((m["id"] for m in fabric.list_semantic_models(store.workspace_id)
                                             if m["displayName"] == name), "")
         return {"name": name, "id": model_id, "created": model.get("created", False), "workspace_id": store.workspace_id,

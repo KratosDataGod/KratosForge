@@ -1,6 +1,6 @@
 import pytest
 
-from fabric_desktop.fabric_api import FabricClient
+from fabric_desktop.fabric_api import FabricClient, FabricError
 
 
 class Resp:
@@ -57,6 +57,26 @@ def test_list_follows_continuation_and_retries_429():
     ])
     assert [w["id"] for w in c.list_workspaces()] == ["a", "b"]
     assert len(s.calls) == 3
+
+
+def test_a_read_is_retried_on_503():
+    c, s = client([Resp(503, {}, headers={"Retry-After": "0"}), Resp(200, {"id": "lh1"})])
+    assert c.get_lakehouse("ws1", "lh1")["id"] == "lh1"
+    assert len(s.calls) == 2
+
+
+def test_a_read_gives_up_after_bounded_retries():
+    c, s = client([Resp(503, {}) for _ in range(5)])
+    with pytest.raises(FabricError) as exc:
+        c.get_lakehouse("ws1", "lh1")
+    assert exc.value.status == 503 and len(s.calls) == 5
+
+
+def test_a_write_is_not_retried_on_503():
+    c, s = client([Resp(503, {}), Resp(201, {"id": "w1"})])
+    with pytest.raises(FabricError) as exc:
+        c.create_workspace("Sales")
+    assert exc.value.status == 503 and len(s.calls) == 1
 
 
 def test_capacity_not_active_gets_a_plain_message():

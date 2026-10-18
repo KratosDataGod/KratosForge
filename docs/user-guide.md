@@ -11,7 +11,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 
 New here? Install first ([install.md](install.md)). Setting it up for others? Start with [Configure Azure and Fabric](azure-setup.md).
 
-**Where things run.** Unless a button says Fabric, work runs on your PC and uses no Fabric capacity: notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
+**Where things run.** Unless a button says Fabric, work runs on your PC and starts no Fabric job (its OneLake reads and writes still use capacity): notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
 
 ## The window
 
@@ -37,6 +37,9 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 
 - **Tab** moves through the window, with a ring around whatever has focus. The first Tab offers **Skip to content**, which jumps past the top bar and the rail.
 - In a dialog, **Tab** stays inside it, and **Esc** closes it when clicking outside would. Focus then goes back to what you were on.
+- A menu (your account, Publish options, Git) opens on its first item. The **Up** and **Down** arrows move through it, **Enter** picks, and **Esc** closes it and goes back to its button.
+- Rows and cards that open something when clicked, such as a notebook, lakehouse, run or workload, can be reached with **Tab** and opened with **Enter** or **Space**.
+- In a row of tabs, **Left** and **Right** move to the next tab, and **Home** and **End** to the first and last. Some pages' tabs don't support this yet.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
 
 ### The bell: activity
@@ -99,9 +102,11 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
-| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+| **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+A passed write test counts for 7 days, for the same account, tenant and lakehouse; after that Home asks again. **Test again** reruns it at any time. A failed or refused test, and signing out, forget the pass.
 
 When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
@@ -125,7 +130,7 @@ New items:
 
 ## Workspaces
 
-Every Fabric workspace you can open.
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -254,9 +259,20 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 ## Fabric
 
-The Fabric page is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
+**Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+
+The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
+
+## Optimize (Preview)
+
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+
+- **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
+- **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
+- **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
+- **Cost and savings:** the capacity each run used in Fabric and, for runs on this PC, what they would have used in Fabric (a scenario), each figure with its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. **Prices** sets your price per CU hour. It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor).
 
 ## Monitor
 
@@ -272,9 +288,9 @@ Monitor has two halves.
   - **Agents**: every [agent](agent.md) that serves your environments, from the status each one reports. See [Agents](#agents-preview) below.
   - **Run as**: which identity runs your workloads in each place, the credential it uses, and where data goes. See [Run as](#run-as-preview) below.
   - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
-- **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). Fabric's Capacity Metrics app has the CU your capacity recorded. See [Capacity and cost evidence](finops/cost-evidence.md).
+- **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md).
 
-**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Operations always uses the whole page.
+**In Fabric** (bottom, on Runs) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. It shows under **Runs** only. **Hide** gives Runs the whole page; the app remembers it. Every other panel always uses the whole page.
 
 ### Workloads (Preview)
 
@@ -395,8 +411,9 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | --- | --- |
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
-| **Preview features** | Show or hide every feature tagged Preview. |
+| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library and quarantine Replay are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
@@ -441,7 +458,7 @@ A channel change takes effect the next time Fabric Desktop by KratosBI starts. M
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them all, turn off **Settings > Preview features**.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library and quarantine Replay are also in preview but are core steps, so they always show, with their Preview tag.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 
@@ -470,7 +487,7 @@ Each line says:
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
-| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before. The app, scheduled runs and the agent take turns writing (through `audit\.lock`), so they never break the chain by writing at the same moment |
 
 Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
 

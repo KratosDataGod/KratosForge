@@ -39,6 +39,8 @@ nav = [
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },
+    { "Measured usage" = "finops/usage-import.md" },
+    { "Optimize lakehouse" = "optimize/README.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Source control" = "source-control.md" },
     { "Working across teams" = "teams.md" },
@@ -47,6 +49,7 @@ nav = [
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
+    { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
@@ -73,10 +76,22 @@ nav = [
     { "Workload operations plan" = "workloads/plan.md" },
     { "Workloads: continuation note" = "workloads/continuation.md" },
     { "FinOps program plan" = "finops/plan.md" },
+    { "Optimize program plan" = "optimize/plan.md" },
     { "Enterprise gap analysis" = "product/enterprise-gap-analysis.md" },
     { "Enterprise backlog" = "product/enterprise-backlog.md" },
     { "Enterprise decisions" = "product/implementation-decisions.md" },
     { "Release readiness" = "product/release-readiness.md" },
+    { "Hardening audit" = [
+      { "Scorecard and assessment" = "hardening/README.md" },
+      { "Findings register" = "hardening/findings.md" },
+      { "Hardening backlog" = "hardening/backlog.md" },
+      { "Readiness checklist" = "hardening/readiness-checklist.md" },
+    ] },
+    { "Release management" = [
+      { "Process" = "release-management/README.md" },
+      { "Release status" = "release-management/release-status.md" },
+      { "Release history" = "release-management/release-history.md" },
+    ] },
     { "Product management" = [
       { "Process" = "product/PRODUCT_MANAGEMENT_PROCESS.md" },
       { "Feature inventory" = "product/FEATURE_INVENTORY.md" },
@@ -90,6 +105,13 @@ nav = [
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },
+    { "Engineering quality" = [
+      { "Baseline and scorecard" = "quality/README.md" },
+      { "Architecture and standards" = "quality/architecture.md" },
+      { "Findings register" = "quality/findings.md" },
+      { "Remediation plan" = "quality/remediation.md" },
+      { "PR quality gate" = "quality/pr-review.md" },
+    ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },
       { "Backlog" = "product/ai-integration-backlog.md" },
@@ -99,6 +121,16 @@ nav = [
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
     { "UI guidelines" = "ui-guidelines.md" },
+    { "UX and simplicity" = [
+      { "Assessment" = "ux/README.md" },
+      { "Scorecard" = "ux/scorecard.md" },
+      { "Configuration" = "ux/configuration.md" },
+      { "Navigation" = "ux/navigation.md" },
+      { "Workflows" = "ux/workflows.md" },
+      { "Documentation coverage" = "ux/documentation-coverage.md" },
+      { "Backlog" = "ux/backlog.md" },
+      { "Release gates and reviews" = "ux/release-review.md" },
+    ] },
   ] },
 ]
 

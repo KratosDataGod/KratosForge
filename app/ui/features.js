@@ -28,7 +28,8 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, onclick: () => go(view) }, icon(f.rail.icon, 22), f.rail.label);
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
+    icon(f.rail.icon, 22), f.rail.label);
 }
 
 // ---------- preview ----------
@@ -42,8 +43,10 @@ const PREVIEW_FEATURES = {
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",
+  replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",
+  usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",
@@ -51,6 +54,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   tests: "Tests",
   xray: "Estate X-ray",
+  optimize: "Optimize",
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",
@@ -63,6 +67,11 @@ const PREVIEW_FEATURES = {
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
+  rollback: "Roll back a release",
+  promote: "Promote",
+  syncKeys: "Sync keys",
+  varlib: "Variable library",
+  replay: "Quarantine replay",
 };
 
 function previewShown() {
@@ -78,6 +87,16 @@ function preview(id, node) {
   if (!PREVIEW_FEATURES[id]) return node;
   if (!previewShown()) return null;
   node.append(previewTag());
+  return node;
+}
+
+// Core steps that are untested on a tenant but must not disappear when preview features are hidden:
+// they always show, always with the Preview tag (previewMarked).
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay"];
+
+// The node with a Preview tag, whatever the Settings switch says.
+function previewMarked(id, node) {
+  if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
 }
 
@@ -137,7 +156,7 @@ function openPalette(initial = "") {
       const row = h("button", { class: `palette-item${i === palette.selected ? " on" : ""}`, role: "option",
         onmousemove: () => { if (palette.selected !== i) { palette.selected = i; draw(); } },
         onclick: () => { close(); it.run(); } }, icon(it.icon, 16), it.label);
-      return [head, row];
+      return head ? [head, row] : [row];  // replaceChildren would print a null as the text "null"
     }) : [h("div", { class: "palette-empty" }, "Nothing matches. Try fewer letters.")]));
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
     return items;

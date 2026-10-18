@@ -38,7 +38,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
-- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
+- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `workloads/platform_notify.py` + `platform_notify_service.py` (governance's request/shortcut notices), `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
 
 ## Assumptions and decisions
 

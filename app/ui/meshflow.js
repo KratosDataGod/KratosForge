@@ -34,7 +34,7 @@ function mfCrumbs(m, draw) {
   const parts = [step("Domains", meshFlow.domain !== null ? () => { Object.assign(meshFlow, { domain: null, sub: null, layer: null, table: null }); draw(); } : null)];
   if (meshFlow.domain !== null) parts.push(step(mfDomainName(m, meshFlow.domain), meshFlow.layer ? () => { Object.assign(meshFlow, { layer: null, table: null }); draw(); } : null));
   if (meshFlow.layer) parts.push(step(`${m.me} / ${meshFlow.layer}`, null));
-  return h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x])));
+  return previewMarked("mesh", h("nav", { class: "row tight mf-crumbs", "aria-label": "Where you are" }, parts.flatMap((x, i) => (i ? [h("span", { class: "muted-text", "aria-hidden": "true" }, "/"), x] : [x]))));
 }
 
 function mfDomains(m, draw) {

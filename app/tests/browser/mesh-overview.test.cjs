@@ -42,6 +42,7 @@ test("Data mesh opens on the organization's domains, with how they feed each oth
   assert.match(await page().textContent(".mf-domain.me"), /This project's domain/);
   assert.match(await page().textContent(".mf-feeds"), /Sales\s*→\s*Finance\s*Orders/);
   assert.ok(await page().$(".how-it-works"));
+  assert.ok(await page().$(".mf-crumbs .preview-tag"), "the page shows it is in Preview");
 });
 
 test("a domain lists its projects, their layers, products and readers", { skip }, async () => {
@@ -69,4 +70,11 @@ test("a layer's table shows where it comes from and what reads it", { skip }, as
   await page().click('.mf-crumbs button:has-text("Domains")');
   assert.ok(await page().$(".mf-domains"));
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("the Preview tag shows on every level", { skip }, async () => {
+  await page().click('.mf-domain:has-text("Sales")');
+  assert.ok(await page().$(".mf-crumbs .preview-tag"));
+  await page().click('.mf-layers .layer-chip:has-text("gold")');
+  assert.ok(await page().$(".mf-crumbs .preview-tag"));
 });

@@ -43,7 +43,7 @@ The check makes at most two reads in Fabric: the workspace and the capacity list
 
 ## Settings
 
-Change them in **Monitor > Cost > Prices**, under **Before a run**, or with `set_risk_settings`. The settings are kept with this PC's settings.
+Change them in the Cost page's **Prices** dialog, under **Before a run**, or with `set_risk_settings`. The settings are kept with this PC's settings.
 
 | Setting | Default | Effect |
 | --- | --- | --- |

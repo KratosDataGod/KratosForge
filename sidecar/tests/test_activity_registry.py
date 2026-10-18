@@ -27,7 +27,7 @@ EXAMPLE = HERE.parent.parent / "docs" / "orchestration" / "examples" / "orders-d
 
 # Fingerprint of every entry. A change to an entry changes it: bump REGISTRY_VERSION, add a line to
 # the changelog in docs/orchestration/activity-registry.md, then record the new fingerprint here.
-FINGERPRINTS = {"1": "4e3b5aa7bcdf"}
+FINGERPRINTS = {"1": "2949500357d2"}
 
 
 @pytest.fixture(autouse=True)
@@ -91,7 +91,7 @@ def test_cloud_activities_need_capacity_and_fabric_items_are_cloud():
     for type_ in ("RefreshDataflow", "SparkJobDefinition", "PBISemanticModelRefresh", "Office365Outlook", "Teams",
                   "AzureDataExplorerCommand"):
         assert reg.get(type_).classification == "cloud"
-        assert reg.get(type_).fabric_capacity == "required"
+        assert reg.get(type_).fabric_capacity == "fabric_only"
 
 
 def test_planned_support_is_separate_from_implemented():
@@ -119,7 +119,7 @@ def test_every_entry_declares_side_effects_and_capacity():
 # ---- overclaim rules
 
 def entry(**kw):
-    base = dict(type="X", title="X", classification="static", evidence="unit_tests", fabric_capacity="depends",
+    base = dict(type="X", title="X", classification="static", evidence="unit_tests", fabric_capacity="metered_in_fabric",
                 adapter=StaticAdapter())
     return ActivitySupport(**(base | kw))
 
@@ -138,7 +138,9 @@ class Runner:
     ({"classification": "local"}, "adapter that can execute"),
     ({"classification": "simulated", "adapter": Runner(), "evidence": "none"}, "needs tests"),
     ({"classification": "static", "adapter": None}, "adapter that checks"),
-    ({"classification": "cloud", "fabric_capacity": "depends"}, "needs Fabric capacity"),
+    ({"classification": "cloud", "fabric_capacity": "metered_in_fabric"}, "needs Fabric capacity"),
+    ({"classification": "local", "adapter": Runner(), "fabric_capacity": "fabric_only"}, "can't be fabric_only"),
+    ({"fabric_capacity": "not_required"}, "fabric_capacity must be"),
     ({"planned": Planned("static", "ORCH-003")}, "more capable"),
     ({"planned": Planned("local", "")}, "stage"),
     ({"side_effects": ("launches_rockets",)}, "unknown side effect"),
@@ -256,12 +258,23 @@ def test_fixture_report():
 def test_report_lists_activities_that_need_capacity():
     text = pipeline(act("DF", "RefreshDataflow", dataflowId="d"), act("W", "Wait", waitTimeInSeconds=1))
     s = report(text)["summary"]
-    assert s["needs_fabric_capacity"] == ["DF"] and s["overall"] == "cloud"
+    assert s["needs_fabric_capacity"] == ["DF", "W"] and s["fabric_only"] == ["DF"] and s["overall"] == "cloud"
+
+
+def test_activities_that_cant_run_here_are_never_reported_free():
+    # QA review of #150: Fabric meters every activity run, control flow included, so an activity that can't run
+    # on this PC yet must count as needing capacity, and no entry may say it doesn't.
+    assert {e.fabric_capacity for e in ENTRIES} <= {"fabric_only", "metered_in_fabric"}
+    r = PipelineMixin().pipeline_compatibility(path=str(FIXTURES / "orders_daily.json"))
+    s = r["summary"]
+    assert s["runs_on_this_pc"] is False
+    assert len(s["needs_fabric_capacity"]) == s["activities"] == 18
+    assert any("meters every activity run" in n for n in r["notes"])
 
 
 def test_adf_fixture_names_databricks_as_cloud():
     r = PipelineMixin().pipeline_compatibility(path=str(FIXTURES / "adf_style.json"))
-    assert r["summary"]["needs_fabric_capacity"] == ["RunDatabricks"]
+    assert r["summary"]["fabric_only"] == ["RunDatabricks"]
 
 
 def test_report_carries_orch_001_diagnostics():
@@ -318,7 +331,8 @@ def test_cli_compat(capsys):
     assert done.value.code == 0
     out = capsys.readouterr().out
     assert "unsupported Alert on failure [ContosoPagerNotify]" in out
-    assert "overall: unsupported; runs on this PC: no; needs Fabric capacity: none" in out
+    assert "overall: unsupported; runs on this PC: no; needs Fabric capacity: 18 of 18 activities" in out
+    assert "these can't run on this PC yet, and Fabric meters every activity run" in out
 
 
 def test_cli_activities(capsys):

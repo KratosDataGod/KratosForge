@@ -138,7 +138,27 @@
     },
     "overall": "unsupported",
     "runs_on_this_pc": false,
-    "needs_fabric_capacity": [],
+    "needs_fabric_capacity": [
+      "Get watermark",
+      "List new files",
+      "Any files",
+      "Each file",
+      "Copy file to bronze",
+      "Count files",
+      "Nothing to load",
+      "Bronze to silver",
+      "Pick region job",
+      "Unknown region",
+      "Refresh EMEA",
+      "Run AMER script",
+      "Wait for silver",
+      "Check silver",
+      "Pause",
+      "Record success",
+      "Return files",
+      "Alert on failure"
+    ],
+    "fabric_only": [],
     "unknown_types": [
       "ContosoPagerNotify"
     ],
@@ -247,7 +267,7 @@
         "stage": "later (not scheduled)",
         "note": "Returns rows from a fixture or a local table."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "fabric",
         "connection"
@@ -284,7 +304,7 @@
         "stage": "later (not scheduled)",
         "note": "Reads metadata of local files."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "fabric",
         "connection"
@@ -319,7 +339,7 @@
         "stage": "ORCH-003",
         "note": ""
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -352,7 +372,7 @@
         "stage": "ORCH-003",
         "note": "Parallel up to batchCount."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -384,7 +404,7 @@
         "stage": "later (not scheduled)",
         "note": "Copies between local files and a local lakehouse copy; other connectors stay in Fabric."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "fabric",
         "connection"
@@ -431,7 +451,7 @@
         "stage": "ORCH-003",
         "note": ""
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -461,7 +481,7 @@
         "stage": "ORCH-003",
         "note": "Can be shortened in a local run so tests don't wait."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "none"
@@ -490,7 +510,7 @@
         "stage": "ORCH-003",
         "note": "Runs a local copy through Prove's notebook execution path."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "fabric",
         "workspace_role"
@@ -535,7 +555,7 @@
         "stage": "ORCH-003",
         "note": ""
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -566,7 +586,7 @@
         "stage": "ORCH-003",
         "note": ""
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -596,7 +616,7 @@
         "stage": "ORCH-003",
         "note": "Runs the child pipeline locally when its definition is on this PC."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "fabric",
         "workspace_role"
@@ -630,7 +650,7 @@
         "stage": "later (not scheduled)",
         "note": "Runs against a local DuckDB copy only, never the real database."
       },
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "connection"
       ],
@@ -667,7 +687,7 @@
         "stage": "ORCH-003",
         "note": ""
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -698,7 +718,7 @@
         "stage": "later (not scheduled)",
         "note": "Returns a recorded response; calls a real URL only when allowed."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [
         "connection"
       ],
@@ -733,7 +753,7 @@
         "stage": "ORCH-003",
         "note": "Can be shortened in a local run so tests don't wait."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "none"
@@ -762,7 +782,7 @@
         "stage": "ORCH-003",
         "note": "Sets the variable in the local run record."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -792,7 +812,7 @@
         "stage": "ORCH-003",
         "note": "Sets the variable in the local run record."
       },
-      "fabric_capacity": "not_required",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "pipeline_state"
@@ -819,7 +839,7 @@
       "evidence": "none",
       "verified": false,
       "planned": null,
-      "fabric_capacity": "depends",
+      "fabric_capacity": "metered_in_fabric",
       "auth": [],
       "side_effects": [
         "none"
@@ -873,6 +893,6 @@
   "notes": [
     "Classifications describe what this version does today; 'planned' is a proposal, not support.",
     "Nothing here was run, and no Fabric call was made to produce this report.",
-    "Running any activity in Fabric uses capacity; 'needs_fabric_capacity' lists the activities that can't avoid it."
+    "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the activities this version can't run on this PC, so running the pipeline today uses capacity for each of them; 'fabric_only' lists those that can only ever run in Fabric."
   ]
 }

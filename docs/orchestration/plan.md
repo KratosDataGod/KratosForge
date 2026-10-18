@@ -56,7 +56,7 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 
 - No activity runs on this PC; nothing is `local` or `simulated` until ORCH-003 adds executing adapters with tests.
 - Source, sink and connection settings are carried, not checked against each connector's schema.
-- `fabric_capacity` says whether an activity can only run on Fabric capacity. It doesn't estimate capacity units; that belongs to the FinOps program.
+- `fabric_capacity` says whether an activity can only run in Fabric (`fabric_only`) or is metered when it runs there (`metered_in_fabric`); Fabric meters every activity run. A report counts every activity that can't run on this PC as needing capacity. It doesn't estimate capacity units; that belongs to the FinOps program.
 - Activity policy (timeout, retry, secure input and output) is read but not applied.
 
 **Rollback.** Revert the PR. It adds two modules, two Service methods (and their names in `server.METHODS` and `audit.READ_ONLY`), two capabilities and two CLI subcommands; nothing is stored.

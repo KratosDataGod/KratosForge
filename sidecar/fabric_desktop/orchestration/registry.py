@@ -41,7 +41,10 @@ CLASSIFICATIONS = {
     "unsupported": "Not known to this version. Kept as it is, but neither checked nor run.",
 }
 EVIDENCE = ("none", "unit_tests", "fabric_tested")
-CAPACITY = ("required", "not_required", "depends")
+# Fabric meters every activity run, control flow included. "fabric_only": can only run in Fabric (or the
+# service it calls). "metered_in_fabric": metered when it runs in Fabric; this PC may run it instead once an
+# adapter can execute it.
+CAPACITY = ("fabric_only", "metered_in_fabric")
 PROPERTY_STATUS = ("checked", "carried", "unsupported_locally")
 SIDE_EFFECTS = ("none", "pipeline_state", "reads_onelake", "writes_onelake", "reads_external", "writes_external",
                 "calls_http", "runs_code", "sends_message", "starts_fabric_job", "deletes_data")
@@ -139,7 +142,7 @@ class ActivitySupport:
 
 
 UNKNOWN = ActivitySupport(
-    "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "depends",
+    "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "metered_in_fabric",
     limitations=("Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop "
                  "by KratosBI may know it; otherwise it has to run in Fabric.",))
 
@@ -203,7 +206,9 @@ class ActivityRegistry:
         for r in rows:
             counts[r["classification"]] += 1
         worst = max((r["classification"] for r in rows), key=_RANK.__getitem__, default="static")
-        capacity = [r["name"] for r in rows if r["fabric_capacity"] == "required"]
+        here = ("local", "simulated")
+        capacity = [r["name"] for r in rows if r["classification"] not in here]
+        fabric_only = [r["name"] for r in rows if r["fabric_capacity"] == "fabric_only"]
         planned_local = [{"name": r["name"], "classification": r["planned"]["classification"],
                           "stage": r["planned"]["stage"]} for r in rows
                          if r["planned"] and r["planned"]["classification"] in ("local", "simulated")]
@@ -214,6 +219,7 @@ class ActivityRegistry:
                 "overall": worst,
                 "runs_on_this_pc": bool(rows) and all(r["classification"] in ("local", "simulated") for r in rows),
                 "needs_fabric_capacity": capacity,
+                "fabric_only": fabric_only,
                 "unknown_types": sorted({r["type"] for r in rows if not r["known"]}),
                 "planned_to_run_on_this_pc": planned_local,
                 "verified_against_fabric": [r["name"] for r in rows if r["evidence"] == "fabric_tested"],
@@ -222,8 +228,9 @@ class ActivityRegistry:
             "diagnostics": [d.to_json() for d in diags], "counts": summary(diags),
             "notes": ["Classifications describe what this version does today; 'planned' is a proposal, not support.",
                       "Nothing here was run, and no Fabric call was made to produce this report.",
-                      "Running any activity in Fabric uses capacity; 'needs_fabric_capacity' lists the "
-                      "activities that can't avoid it."],
+                      "Fabric meters every activity run, control flow included. 'needs_fabric_capacity' lists the "
+                      "activities this version can't run on this PC, so running the pipeline today uses capacity "
+                      "for each of them; 'fabric_only' lists those that can only ever run in Fabric."],
         }
 
 
@@ -265,8 +272,10 @@ def check_entry(e: ActivitySupport) -> list[str]:
             problems.append(f"{e.classification} needs tests as evidence")
     if e.classification == "static" and e.adapter is None:
         problems.append("static needs an adapter that checks it")
-    if e.classification == "cloud" and e.fabric_capacity != "required":
+    if e.classification == "cloud" and e.fabric_capacity != "fabric_only":
         problems.append("a cloud activity needs Fabric capacity to run")
+    if e.classification in ("local", "simulated") and e.fabric_capacity == "fabric_only":
+        problems.append(f"a {e.classification} activity can't be fabric_only")
     if e.planned is not None:
         if e.planned.classification not in CLASSIFICATIONS:
             problems.append("planned classification is unknown")

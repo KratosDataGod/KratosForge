@@ -110,7 +110,7 @@ class PipelineMixin:
     def pipeline_compatibility(self, text: str | None = None, path: str | None = None) -> dict[str, Any]:
         """For every activity (nested ones included): its classification (local, simulated, static,
         cloud, unsupported), what is planned, the properties this version can't use, the sign-in it
-        needs, its side effects and whether it needs Fabric capacity, plus a pipeline summary.
+        needs, its side effects and whether it can only run in Fabric, plus a pipeline summary.
         Reads the definition only: nothing runs and no Fabric call is made."""
         try:
             imp = read(text, path)

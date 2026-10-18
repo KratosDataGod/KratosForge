@@ -200,8 +200,9 @@ def _pipelines() -> list[Capability]:
             "fabric_desktop_check_pipeline_compatibility", "Check what can run on this PC",
             "For every activity in a Fabric pipeline definition (nested ones included): whether Fabric Desktop by "
             "KratosBI can run it here, simulate it, only check it, or must leave it to Fabric; what is planned and in "
-            "which stage; the properties it can't use; the sign-in it needs; its side effects; and whether it needs "
-            "paid Fabric capacity. Unknown activity types are kept and reported as unsupported.",
+            "which stage; the properties it can't use; the sign-in it needs; its side effects; and whether it can "
+            "only ever run in Fabric. Fabric meters every activity run, so each activity that can't run here counts "
+            "as needing Fabric capacity. Unknown activity types are kept and reported as unsupported.",
             schema({"definition": DEFINITION}, ["definition"]),
             schema(DIAGNOSTICS | {"registry_version": STR, "summary": {"type": "object"},
                                   "activities": {"type": "array"}}, ["ok", "diagnostics"], extra=True),

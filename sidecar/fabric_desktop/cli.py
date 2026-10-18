@@ -260,7 +260,10 @@ def _pipeline(args: argparse.Namespace) -> int:
                     print(f"{'':<11}   {prop['property']}: {prop['status']}")
             s = result["summary"]
             print(f"overall: {s['overall']}; runs on this PC: {'yes' if s['runs_on_this_pc'] else 'no'}; "
-                  f"needs Fabric capacity: {', '.join(s['needs_fabric_capacity']) or 'none'}")
+                  f"needs Fabric capacity: {len(s['needs_fabric_capacity'])} of {s['activities']} activities")
+            if s["needs_fabric_capacity"]:
+                print("these can't run on this PC yet, and Fabric meters every activity run"
+                      + (f"; Fabric only: {', '.join(s['fabric_only'])}" if s["fabric_only"] else ""))
             c = result["counts"]
             print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
             return 0 if result["ok"] else 1

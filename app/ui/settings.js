@@ -331,17 +331,19 @@ async function renderSettings() {
       h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
+  // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
+  const platform = previewShown() ? h("section", { class: "card pad platform-link" },
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
+      h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
+    btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
-  // The platform's status comes from the engine; it fills in after the page shows.
-  const platform = await platformSection();
-  if (state.view === "settings" && previewShown()) notify.before(platform);
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
   if (state.view === "settings" && optimize) notify.before(optimize);
 }

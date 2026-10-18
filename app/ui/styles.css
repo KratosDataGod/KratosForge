@@ -573,6 +573,8 @@ h2.flush { margin: 0; }
 .source-item:hover { background: var(--hover); }
 .source-item.picked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .source-item.add { flex-direction: row; align-items: center; gap: 6px; color: var(--accent); }
+.source-head { padding: 12px 14px 4px; }
+.source-group { padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
 .source-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
 .seg { display: inline-flex; border: 1px solid var(--border-input); border-radius: 6px; overflow: hidden; }

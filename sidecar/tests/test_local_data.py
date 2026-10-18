@@ -225,7 +225,7 @@ def test_timeout_stops_a_query(local):
 def test_cancel_a_background_query(local):
     pid = local.create("Cancel")["id"]
     started = local.start(pid, SLOW)
-    time.sleep(0.3)
+    time.sleep(0.3)  # usually running by now; on a slow runner it may not have started yet
     assert local.cancel(started["query_id"]) == {"cancelled": True}
     for _ in range(100):
         status = local.status(started["query_id"])
@@ -404,3 +404,26 @@ def test_closing_a_stream_inside_a_with_block_frees_the_connection(local):
         assert stream.read_next_batch().num_rows == 100
     assert not e._lock.locked()
     assert pa.RecordBatchReader.from_stream(e.execute_reader("SELECT 1 AS a")).read_all().num_rows == 1
+
+
+def test_a_cancel_that_arrives_before_the_query_starts_still_stops_it(local):
+    e = local.engine(local.create("Early cancel")["id"])
+    assert e.cancel("early", not_started=True)
+    with pytest.raises(QueryCancelled):
+        e.execute(SLOW, query_id="early")
+    assert e.execute("SELECT 1")["rows"] == [[1]]
+    # Without not_started, an unknown query is simply not running.
+    assert not e.cancel("nobody")
+
+
+def test_cancel_right_after_start_never_leaves_it_running(local):
+    pid = local.create("Race")["id"]
+    for _ in range(5):  # cancel with no pause, the case a slow runner hit
+        started = local.start(pid, SLOW)
+        assert local.cancel(started["query_id"]) == {"cancelled": True}
+        for _ in range(200):
+            status = local.status(started["query_id"])
+            if status["state"] != "running":
+                break
+            time.sleep(0.05)
+        assert status["state"] == "cancelled"

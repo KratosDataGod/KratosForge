@@ -39,6 +39,39 @@ def test_keys_start_after_unknown_and_never_change(platform):
     assert [r[:2] for r in keys.export("customer")] == [[-1, "UNKNOWN"], [1, "a"], [2, "b"], [3, "c"]]
 
 
+class _SqlServer:
+    """A stand-in for a SQL Server connection that holds a statement to SQL Server's limits."""
+
+    def __init__(self):
+        self.statements = []
+
+    def cursor(self):
+        return self
+
+    def execute(self, sql, params=()):
+        assert len(params) <= 2100, f"{len(params)} parameters"
+        assert sql.count("(?, ?, ?)") <= 1000, "more than 1,000 rows in one VALUES list"
+        self.statements.append((sql, params))
+        self.description, self._rows = [("bk",), ("sk",)], []
+
+    def fetchall(self):
+        return self._rows
+
+    def commit(self):
+        pass
+
+
+def test_a_large_key_import_stays_under_sql_server_limits(monkeypatch):
+    monkeypatch.setattr(core, "ensure_key_table", lambda *a: None)
+    conn = _SqlServer()
+    rows = [[i, f"bk{i}", "2026-01-01"] for i in range(1, 2501)]
+    out = core.import_keys(core.Db(conn, "tsql"), "customer", rows)
+    inserts = [p for sql, p in conn.statements if "IDENTITY_INSERT" in sql]
+    assert out == {"imported": 2500, "already_there": 0}
+    assert sum(len(p) for p in inserts) == 2500 * 3 and len(inserts) == 5
+    assert "RESEED, 2500" in conn.statements[-1][0]
+
+
 def test_keys_are_issued_in_batches(platform):
     keys = PlatformKeys(platform, "dev", batch=3)
     got, inserted = keys.issue("order", [str(i) for i in range(10)])

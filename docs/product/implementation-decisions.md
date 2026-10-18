@@ -34,6 +34,10 @@ FD-102a makes the app check the engine and exe against the SHA-256 values in `ve
 
 Chris chose telemetry over none (D-C1). It goes to Azure Monitor Application Insights because the app already lives in Microsoft's cloud and IT can point it at their own resource with one policy key. It is one custom event per day with counts of audited actions, failures by error type and seconds, and nothing that names data, people or tenants (docs/telemetry.md). It is off until a person turns it on. A build only sends when the `TELEMETRY_CONNECTION_STRING` repository variable is set, so nothing leaves any PC until Chris creates the resource. The engine sends rather than the Rust shell, so proxies and the existing `requests` stack apply.
 
+## D-E9: A broken policy file keeps the last copy that could be read (2026-10-18)
+
+Chris chose "last known good" for HD-010. A policy file that exists but can't be read is replaced by the last copy each PC read successfully, as Windows Group Policy keeps its last applied settings, so one bad push by IT doesn't stop sign-in for everyone. Only a PC that has never read a valid file fails closed (no sign-in, no runs in Fabric, Preview and AI tools off). Settings > Help and about says when the copy is in use. The copy lives in the person's profile; editing it only matters while the real file is broken.
+
 ## Decisions waiting on Chris
 
 | Id | Question | Recommendation | Blocks |

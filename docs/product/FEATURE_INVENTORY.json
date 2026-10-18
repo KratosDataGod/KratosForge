@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "assessed": {
-    "commit": "b7b04cc",
+    "commit": "9715e28",
     "date": "2026-10-17",
     "method": [
       "Read the source of sidecar/fabric_desktop, app/ui, app/src-tauri and .github/workflows",
@@ -10,9 +10,10 @@
       "Tried cargo test in app/src-tauri (could not build on Linux: gdk-3.0 missing)",
       "Drove the engine over its stdin protocol and the fabric-desktop CLI with local data only",
       "Compared each docs/ page with the code it describes",
-      "No Fabric tenant was used and the Windows app was not run"
+      "No Fabric tenant was used and the Windows app was not run",
+      "Taken at b7b04cc; refreshed at 9715e28 for the PRs merged in between (#89 to #134): only the features they touched were re-read, and four rows were added"
     ],
-    "test_run": "sidecar: 656 passed, 2 skipped (231 s); UI: 23 passed; Rust: not run (build failed on Linux, and CI has no cargo test)"
+    "test_run": "At b7b04cc: sidecar 656 passed, 2 skipped; UI 23 passed. At 9715e28: sidecar 1405 passed, 2 skipped (428 s); UI 51 passed; browser tests not run (Playwright not installed); Rust not run (build fails on Linux, and CI has no cargo test)"
   },
   "features": [
     {
@@ -140,7 +141,9 @@
         "Only about 22 methods are on the quick list; sign-in, Fabric calls and runs have no limit"
       ],
       "prs": [
-        83
+        83,
+        114,
+        115
       ],
       "workstream": "Prove (FD-110)",
       "next_action": "Run cargo test in CI (PB-071) and move long calls (sign-in, Fabric calls) off the single pipe (PB-072).",
@@ -190,7 +193,8 @@
       "next_action": "Keep; add keyboard tests for the command bar.",
       "backlog": [
         "PB-063",
-        "PB-070"
+        "PB-070",
+        "PB-102"
       ]
     },
     {
@@ -268,9 +272,13 @@
         "Tray lives in this webview's localStorage only (80 items)",
         "Not fed by incidents or agent status"
       ],
+      "prs": [
+        122
+      ],
       "next_action": "Feed incidents and agent status into the bell once incident screens exist (PB-047).",
       "backlog": [
-        "PB-047"
+        "PB-047",
+        "PB-102"
       ]
     },
     {
@@ -399,6 +407,20 @@
         {
           "kind": "absent",
           "ref": "main.rs integrity_tests not run in CI or here"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_whats_new.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_updater.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/settings.js showWhatsNew"
         }
       ],
       "source": [
@@ -406,7 +428,8 @@
         "app/src-tauri/src/main.rs"
       ],
       "tests": [
-        "sidecar/tests/test_updater.py"
+        "sidecar/tests/test_updater.py",
+        "sidecar/tests/test_whats_new.py"
       ],
       "docs": [
         "docs/install.md",
@@ -425,15 +448,17 @@
       ],
       "prs": [
         51,
-        82
+        82,
+        132
       ],
-      "workstream": "Enterprise readiness (FD-102, FD-104)",
+      "workstream": "Fuller What's new dialog (PB-100) and Enterprise readiness",
       "next_action": "Code signing (PB-001) and per-build release assets for real rollback (PB-064).",
       "backlog": [
         "PB-001",
         "PB-064",
         "PB-071",
-        "PB-100"
+        "PB-100",
+        "PB-101"
       ]
     },
     {
@@ -1412,7 +1437,8 @@
       "backlog": [
         "PB-002",
         "PB-003",
-        "PB-099"
+        "PB-099",
+        "PB-101"
       ]
     },
     {
@@ -1526,6 +1552,11 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_kernel_process.py::test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_kernel_process.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         }
       ],
       "source": [
@@ -1544,10 +1575,12 @@
       },
       "limitations": [
         "Off by default",
-        "No memory or CPU limits"
+        "No memory or CPU limits",
+        "Cell time and memory limits are Preview settings (PR #115)"
       ],
       "prs": [
-        67
+        67,
+        115
       ],
       "workstream": "Prove (FD-110)",
       "next_action": "Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).",
@@ -1601,7 +1634,8 @@
       "backlog": [
         "PB-012",
         "PB-013",
-        "PB-015"
+        "PB-015",
+        "PB-103"
       ]
     },
     {
@@ -1649,7 +1683,8 @@
       "next_action": "Add session, lakehouse and connections stubs that explain themselves; stop compute_check flagging variableLibrary as Fabric-only (PB-013).",
       "backlog": [
         "PB-012",
-        "PB-013"
+        "PB-013",
+        "PB-103"
       ]
     },
     {
@@ -1687,7 +1722,8 @@
       ],
       "next_action": "Handle !pip and %%time explicitly.",
       "backlog": [
-        "PB-028"
+        "PB-028",
+        "PB-103"
       ]
     },
     {
@@ -1755,14 +1791,22 @@
         {
           "kind": "smoke",
           "ref": "kernel_variables listed df; kernel_complete returned items only for names in the namespace"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_debugging.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/notebook.py",
-        "app/ui/notebook.js"
+        "app/ui/notebook.js",
+        "app/ui/debugging.js",
+        "sidecar/fabric_desktop/kernel_host.py"
       ],
       "tests": [
-        "sidecar/tests/test_notebook_parity.py"
+        "sidecar/tests/test_notebook_parity.py",
+        "sidecar/tests/test_debugging.py"
       ],
       "docs": [
         "docs/notebooks.md"
@@ -1773,7 +1817,11 @@
       },
       "limitations": [
         "Completes only what the kernel has run",
-        "No completion when Runs on is Fabric"
+        "No completion when Runs on is Fabric",
+        "Variable history, watches and hidden-state warnings are Preview (PR #129)"
+      ],
+      "prs": [
+        129
       ],
       "next_action": "Column completion for attached tables (Prove backlog #12).",
       "backlog": [
@@ -1941,18 +1989,39 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_notebook.py::test_sql_result_saves_as_a_table_and_exports_csv"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_editor.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_exec.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "absent",
+          "ref": "app/tests/browser/*.test.cjs not run: Playwright is not installed here and CI does not run them (HD-052)"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/sql.py",
         "sidecar/fabric_desktop/service.py",
-        "app/ui/app.js"
+        "app/ui/app.js",
+        "app/ui/sqleditor.js",
+        "sidecar/fabric_desktop/sql_exec.py",
+        "sidecar/fabric_desktop/sql_worker.py",
+        "sidecar/fabric_desktop/sql_format.py"
       ],
       "tests": [
-        "sidecar/tests/test_notebook.py"
+        "sidecar/tests/test_notebook.py",
+        "sidecar/tests/test_sql_editor.py",
+        "sidecar/tests/test_sql_exec.py"
       ],
       "docs": [
-        "docs/notebooks.md"
+        "docs/notebooks.md",
+        "docs/sql-execution.md"
       ],
       "ui": {
         "surface": "Workspaces > lakehouse > SQL query",
@@ -1962,7 +2031,12 @@
         "Plain textarea, no autocomplete or formatting",
         "Read-only",
         "Download CSV re-runs the query",
-        "No cancel"
+        "No cancel",
+        "Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run"
+      ],
+      "prs": [
+        118,
+        134
       ],
       "workstream": "SQL development sprint",
       "next_action": "Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.",
@@ -2730,7 +2804,8 @@
       ],
       "prs": [
         73,
-        113
+        113,
+        124
       ],
       "workstream": "Staged roadmap",
       "next_action": "Merge PR #113 (release records read Git through the Git layer); add a release list view.",
@@ -3021,7 +3096,8 @@
         "Python-added columns are opaque"
       ],
       "prs": [
-        76
+        76,
+        124
       ],
       "workstream": "Staged roadmap (FD-128)",
       "next_action": "Build the lineage view after a mockup (scale plan 8.x).",
@@ -3249,21 +3325,50 @@
       "description": "Central versioned policies (naming, schema, quality, classification, ownership, contracts, deployment readiness) inherited enterprise to entity and validated offline.",
       "pillar": "Enterprise services",
       "category": "Data Governance and Quality",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Partially Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
           "kind": "doc",
           "ref": "Enterprise governance foundation thread (GOV-001..005), 2026-10-17"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_governance.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/central/policy.py"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/central/governance_service.py"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/central/policy.py",
+        "sidecar/fabric_desktop/central/governance_service.py",
+        "app/ui/governance.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_governance.py"
+      ],
+      "docs": [
+        "docs/governance.md"
+      ],
       "ui": {
         "surface": "None",
         "preview": false
       },
+      "limitations": [
+        "GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced"
+      ],
+      "prs": [
+        119
+      ],
       "workstream": "Enterprise governance foundation",
-      "next_action": "Owned by the Enterprise governance foundation thread (GOV-001 registry first).",
+      "next_action": "GOV-002 offline validation, after Chris approves",
       "backlog": [
         "PB-056",
         "PB-057"
@@ -3418,9 +3523,10 @@
         "preview": true
       },
       "limitations": [
-        "Moving back to LH_Keys refused once new keys are issued"
+        "Moving back to LH_Keys refused once new keys are issued",
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision"
       ],
-      "next_action": "Run on Fabric SQL database before anyone moves real keys.",
+      "next_action": "Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)",
       "backlog": [
         "PB-052"
       ]
@@ -3456,10 +3562,11 @@
       },
       "limitations": [
         "Nothing in the app writes into LH_Landing",
-        "No extractors or connectors"
+        "No extractors or connectors",
+        "Direction change (Chris's unit testing, 2026-10-18, item 24): one central landing workspace in OneLake shared by Dev, Test and Prod, optionally split by domain with separate secure zones for PII and PHI (for example HR and HR-Secure); today each environment's Platform workspace has its own LH_Landing"
       ],
       "workstream": "Staged roadmap (FD-116)",
-      "next_action": "Guided ingestion after decision D2 (FD-116).",
+      "next_action": "Enterprise governance foundation redesigns landing for one shared landing workspace with domain and secure zones (item 24); guided ingestion still waits on D2 (FD-116)",
       "backlog": [
         "PB-030"
       ]
@@ -3500,13 +3607,14 @@
         "preview": true
       },
       "limitations": [
-        "Fabric domain import needs Tenant.Read.All and its shape is unverified"
+        "Fabric domain import needs Tenant.Read.All and its shape is unverified",
+        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of Fabric Desktop's own; the built-in glossary becomes a fallback or is retired"
       ],
       "prs": [
         48,
         50
       ],
-      "next_action": "Try on a tenant (data-mesh.md: not yet).",
+      "next_action": "Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call",
       "backlog": [
         "PB-052"
       ]
@@ -3750,14 +3858,25 @@
           "kind": "test",
           "ref": "sidecar/tests/test_agent_status.py::test_the_agent_publishes_what_it_is_doing",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_agent_fleet.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/agents.js"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/agent_status.py",
-        "sidecar/fabric_desktop/workloads/agents.py"
+        "sidecar/fabric_desktop/workloads/agents.py",
+        "app/ui/agents.js"
       ],
       "tests": [
-        "sidecar/tests/test_agent_status.py"
+        "sidecar/tests/test_agent_status.py",
+        "sidecar/tests/test_agent_fleet.py"
       ],
       "docs": [
         "docs/agent.md"
@@ -3766,14 +3885,12 @@
         "surface": "None (read only by incident evaluation)",
         "preview": false
       },
-      "limitations": [
-        "No UI reads them"
-      ],
       "prs": [
-        66
+        66,
+        133
       ],
       "workstream": "Workloads (FD-122)",
-      "next_action": "Agent dashboard (FD-122); fix agent.md, which says workload views read these.",
+      "next_action": "Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A)",
       "backlog": [
         "PB-077",
         "PB-091"
@@ -3859,7 +3976,7 @@
       "description": "Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox.",
       "pillar": "Enterprise services",
       "category": "Enterprise Administration and FinOps",
-      "status": "Partially Implemented",
+      "status": "Implemented",
       "verification": "Partially Verified",
       "evidence": [
         {
@@ -3870,12 +3987,22 @@
         {
           "kind": "test",
           "ref": "sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_incidents.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "app/ui/incidents.js"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/workloads/incidents.py",
         "sidecar/fabric_desktop/workloads/notify.py",
-        "sidecar/fabric_desktop/incident_service.py"
+        "sidecar/fabric_desktop/incident_service.py",
+        "app/ui/incidents.js"
       ],
       "tests": [
         "sidecar/tests/test_incidents.py"
@@ -3884,24 +4011,27 @@
         "docs/agent.md"
       ],
       "ui": {
-        "surface": "Agent only; no incident screens in the app",
+        "surface": "Monitor > Incidents (Chris used it in unit testing, 2026-10-18)",
         "preview": false
       },
       "limitations": [
-        "Six incident RPCs have no UI",
         "Metadata tables only",
-        "workloads/plan.md describes a Delta table; code uses a JSON document"
+        "workloads/plan.md describes a Delta table; code uses a JSON document",
+        "Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream"
       ],
       "prs": [
         74,
-        79
+        79,
+        125,
+        127
       ],
       "workstream": "Workloads (FD-123)",
-      "next_action": "Incident screens after a mockup (stage 2.3B) (PB-047).",
+      "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
       "backlog": [
         "PB-047",
         "PB-077",
-        "PB-084"
+        "PB-084",
+        "PB-105"
       ]
     },
     {
@@ -4009,15 +4139,25 @@
           "kind": "test",
           "ref": "sidecar/tests/test_estate.py::test_cost_estimates_fabric_runs_and_what_local_runs_saved",
           "note": "sidecar suite passed in this assessment (656 passed, 2 skipped)"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_measurement.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/costs.py",
         "sidecar/fabric_desktop/estate_service.py",
-        "app/ui/estate.js"
+        "app/ui/estate.js",
+        "sidecar/fabric_desktop/measurement.py"
       ],
       "tests": [
-        "sidecar/tests/test_estate.py"
+        "sidecar/tests/test_estate.py",
+        "sidecar/tests/test_measurement.py"
+      ],
+      "docs": [
+        "docs/finops/cost-evidence.md"
       ],
       "ui": {
         "surface": "Monitor > Cost",
@@ -4025,11 +4165,17 @@
       },
       "limitations": [
         "Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU)",
-        "Agent runs counted as local with no measured cost"
+        "Agent runs counted as local with no measured cost",
+        "Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath"
       ],
-      "next_action": "Calibrate against the Capacity Metrics app and label every number estimated (PB-050).",
+      "prs": [
+        117
+      ],
+      "workstream": "Administration and FinOps sprint (FINOPS-001)",
+      "next_action": "Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050)",
       "backlog": [
-        "PB-050"
+        "PB-050",
+        "PB-104"
       ]
     },
     {
@@ -4038,19 +4184,25 @@
       "description": "One hash-chained line per call that runs or changes something.",
       "pillar": "Enterprise services",
       "category": "Security and Enterprise Readiness",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no audit module on main"
+          "kind": "test",
+          "ref": "sidecar/tests/test_audit.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
-          "kind": "doc",
-          "ref": "PR #89 open"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/audit.py"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/audit.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_audit.py"
+      ],
       "ui": {
         "surface": "None",
         "preview": false
@@ -4059,7 +4211,7 @@
         89
       ],
       "workstream": "Enterprise readiness (FD-125)",
-      "next_action": "PR #89 merged after this assessment's commit; run the implementation review and re-inventory (FD-125).",
+      "next_action": "Implementation review of PR #89; HD-007 (redaction before JSON encoding) and HD-017 (chain across processes) harden it",
       "backlog": [
         "PB-007"
       ]
@@ -4070,19 +4222,25 @@
       "description": "Back up and restore settings, schedules, queue, workloads and receipts without sign-in tokens.",
       "pillar": "Enterprise services",
       "category": "Reliability, Testing, and Performance",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no backup command on main"
+          "kind": "test",
+          "ref": "sidecar/tests/test_backup.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
-          "kind": "doc",
-          "ref": "PR #91 open"
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/backup.py"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/backup.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_backup.py"
+      ],
       "ui": {
         "surface": "None",
         "preview": false
@@ -4091,7 +4249,7 @@
         91
       ],
       "workstream": "Enterprise readiness (FD-126)",
-      "next_action": "PR #91 merged after this assessment's commit; run the implementation review and re-inventory (FD-126).",
+      "next_action": "Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix",
       "backlog": [
         "PB-066"
       ]
@@ -4102,15 +4260,25 @@
       "description": "First-run checklist of sign-in, capacity, workspace access and OneLake reach with fixes.",
       "pillar": "Enterprise services",
       "category": "Developer Experience and Productivity",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "doc",
-          "ref": "PR #94 open (mockup accepted)"
+          "kind": "test",
+          "ref": "sidecar/tests/test_readiness.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/readiness.py"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/readiness.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_readiness.py"
+      ],
       "ui": {
         "surface": "None",
         "preview": false
@@ -4119,7 +4287,7 @@
         94
       ],
       "workstream": "Enterprise readiness (FD-136)",
-      "next_action": "PR #94 merged after this assessment's commit (main 4079a41); re-inventory and run the implementation review (PB-086).",
+      "next_action": "Implementation review of PR #94",
       "backlog": [
         "PB-086"
       ]
@@ -4130,15 +4298,25 @@
       "description": "Delete local copies of lakehouse data after a policy period.",
       "pillar": "Enterprise services",
       "category": "Security and Enterprise Readiness",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "doc",
-          "ref": "PR #95 open"
+          "kind": "test",
+          "ref": "sidecar/tests/test_retention.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/retention.py"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/retention.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_retention.py"
+      ],
       "ui": {
         "surface": "None",
         "preview": false
@@ -4147,7 +4325,7 @@
         95
       ],
       "workstream": "Enterprise readiness (FD-131b)",
-      "next_action": "PR #95 merged after this assessment's commit; run the implementation review and re-inventory (FD-131b).",
+      "next_action": "Implementation review of PR #95",
       "backlog": [
         "PB-009"
       ]
@@ -4158,21 +4336,39 @@
       "description": "Consent-based usage telemetry with a policy switch.",
       "pillar": "Enterprise services",
       "category": "Enterprise Administration and FinOps",
-      "status": "Missing",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no telemetry code"
+          "kind": "test",
+          "ref": "sidecar/tests/test_telemetry.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/telemetry.md",
+          "note": "off until turned on in Settings > Usage data"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/telemetry.py",
+        "app/ui/settings.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_telemetry.py"
+      ],
+      "docs": [
+        "docs/telemetry.md"
+      ],
       "ui": {
         "surface": "None",
-        "preview": false
+        "preview": true
       },
+      "prs": [
+        121
+      ],
       "workstream": "Enterprise readiness (FD-137)",
-      "next_action": "Waiting on decision D-C1 (recommendation: none until a pilot asks).",
+      "next_action": "Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists",
       "backlog": [
         "PB-093"
       ]
@@ -4440,21 +4636,58 @@
       "description": "Read-only MCP over stdio, a capability registry, permissions and approvals, REST and MCP over HTTP on 127.0.0.1, resources, approved execution, Settings > Integrations, audit, conformance tests.",
       "pillar": "Enterprise services",
       "category": "Extensibility, APIs, CLI, and MCP",
-      "status": "Planned",
-      "verification": "Unverified",
+      "status": "Implemented",
+      "verification": "Partially Verified",
       "evidence": [
         {
-          "kind": "absent",
-          "ref": "no integrations package on main"
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_mcp.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
         },
         {
-          "kind": "doc",
-          "ref": "PRs #99-#108, #110, #112 open (PR-AI-001..012); #98 plan merged"
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_http.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_conformance.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_permissions.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_executions.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_integrations_audit.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "absent",
+          "ref": "No named AI tool has been run against it (docs/product/ai-integration-client-checklist.md, PB-096)"
         }
       ],
-      "source": [],
+      "source": [
+        "sidecar/fabric_desktop/integrations/mcp_server.py",
+        "sidecar/fabric_desktop/integrations/http_server.py",
+        "sidecar/fabric_desktop/integrations/registry.py",
+        "sidecar/fabric_desktop/integrations/permissions.py",
+        "sidecar/fabric_desktop/integrations/executions.py",
+        "app/ui/integrations.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_integrations_conformance.py"
+      ],
       "docs": [
-        "docs/architecture/ai-integration.md"
+        "docs/architecture/ai-integration.md",
+        "docs/ai/README.md"
       ],
       "ui": {
         "surface": "None",
@@ -4476,7 +4709,7 @@
         112
       ],
       "workstream": "Bring your own AI integration",
-      "next_action": "Merge the AI integration stack in order; run docs/product/ai-integration-client-checklist.md per client.",
+      "next_action": "Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits",
       "backlog": [
         "PB-095",
         "PB-096"
@@ -4532,6 +4765,177 @@
       "backlog": [
         "PB-026"
       ]
+    },
+    {
+      "id": "FEAT-SQL-03",
+      "name": "Fabric SQL dialect compatibility analyzer",
+      "description": "Checks a SQL script against Fabric SQL dialect profiles and reports what will and won't run, with an Unknown outcome when it can't tell.",
+      "pillar": "Local development",
+      "category": "SQL, Python, and Notebook Development",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_sql_compat.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "absent",
+          "ref": "app/tests/browser/*.test.cjs not run: Playwright is not installed here and CI does not run them (HD-052)"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/sqlcompat/analyzer.py"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/sqlcompat/analyzer.py",
+        "sidecar/fabric_desktop/sqlcompat/profiles.py",
+        "sidecar/fabric_desktop/sqlcompat/rules.py",
+        "app/ui/sqleditor.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_sql_compat.py"
+      ],
+      "docs": [
+        "docs/sql-compatibility.md"
+      ],
+      "ui": {
+        "surface": "SQL page",
+        "preview": false
+      },
+      "prs": [
+        120
+      ],
+      "workstream": "SQL development sprint (SQL-002)",
+      "next_action": "Compare its verdicts with a Fabric Warehouse run on a tenant (HD-054)"
+    },
+    {
+      "id": "FEAT-ADM-07",
+      "name": "Capacity of each environment",
+      "description": "Read-only list of the Fabric capacity each environment's workspace is on and whether it is running, on Monitor > Cost and each environment card.",
+      "pillar": "Enterprise services",
+      "category": "Enterprise Administration and FinOps",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_capacity.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/finops/capacity.md",
+          "note": "running is not the same as having room"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/capacity.py",
+        "sidecar/fabric_desktop/estate_service.py",
+        "app/ui/estate.js"
+      ],
+      "tests": [
+        "sidecar/tests/test_capacity.py"
+      ],
+      "docs": [
+        "docs/finops/capacity.md"
+      ],
+      "ui": {
+        "surface": "Monitor > Cost; Data mesh > Environments",
+        "preview": true
+      },
+      "prs": [
+        123
+      ],
+      "workstream": "Administration and FinOps sprint (FINOPS-002)",
+      "next_action": "Check against a live tenant's capacities (PB-002)"
+    },
+    {
+      "id": "FEAT-LDE-01",
+      "name": "Local data projects",
+      "description": "A persistent DuckDB project on the PC over registered folders of CSV, JSON and Parquet files, with memory, thread and time limits, spill to disk and cancel.",
+      "pillar": "Local development",
+      "category": "Local Development and Execution",
+      "status": "Implemented but Not Exposed",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_local_data.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "doc",
+          "ref": "docs/local-data.md",
+          "note": "the screens come after the mockup is agreed"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/localdata/engine.py",
+        "sidecar/fabric_desktop/localdata/discovery.py",
+        "sidecar/fabric_desktop/localdata/projects.py",
+        "sidecar/fabric_desktop/localdata_service.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_local_data.py"
+      ],
+      "docs": [
+        "docs/local-data.md",
+        "docs/local-data-engine-plan.md"
+      ],
+      "ui": {
+        "surface": "None yet (engine calls only)",
+        "preview": true
+      },
+      "prs": [
+        126
+      ],
+      "workstream": "Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)",
+      "next_action": "Screens after the mockup is agreed; publishing to OneLake follows (FD-LDE-005..010)"
+    },
+    {
+      "id": "FEAT-ORC-07",
+      "name": "Fabric pipeline definitions on this PC",
+      "description": "Reads, checks and exports Fabric Data pipeline definitions (pipeline-content.json, getDefinition results or Git folders) without running anything.",
+      "pillar": "Local development",
+      "category": "Pipelines and Orchestration",
+      "status": "Implemented",
+      "verification": "Partially Verified",
+      "evidence": [
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_pipeline_definitions.py",
+          "note": "passed in the 2026-10-17 refresh run at 9715e28"
+        },
+        {
+          "kind": "code",
+          "ref": "sidecar/fabric_desktop/cli.py pipeline command"
+        }
+      ],
+      "source": [
+        "sidecar/fabric_desktop/orchestration/definition.py",
+        "sidecar/fabric_desktop/orchestration/expressions.py",
+        "sidecar/fabric_desktop/orchestration/validate.py",
+        "sidecar/fabric_desktop/pipeline_service.py",
+        "sidecar/fabric_desktop/cli.py"
+      ],
+      "tests": [
+        "sidecar/tests/test_pipeline_definitions.py"
+      ],
+      "docs": [
+        "docs/orchestration/pipeline-definitions.md"
+      ],
+      "ui": {
+        "surface": "fabric-desktop pipeline (CLI) and the external-tool capabilities; no screen",
+        "preview": false
+      },
+      "prs": [
+        130
+      ],
+      "workstream": "Local Fabric pipeline execution (ORCH-001)",
+      "next_action": "ORCH-002 activity registry, after Chris approves"
     }
   ]
 }

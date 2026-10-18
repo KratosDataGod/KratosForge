@@ -111,7 +111,7 @@ async function renderMetadata() {
       h("div", {},
         h("h1", {}, "Data mesh"),
         h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("metadata"))),
+          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
@@ -399,7 +399,7 @@ function keysCard(e) {
     h("div", { class: "row wrap" }, h("b", {}, "Cell 1: surrogate keys"),
       h("span", { class: "muted-text" }, e.surrogate_keys.map((k) => `${k.column} from sk.${k.table} on ${k.business_key.join(" + ")}`).join(" · ")),
       h("span", { class: "spacer" }),
-      e.keys_sql ? btn("Copy", null, () => attempt(() => navigator.clipboard.writeText(e.keys_sql), "Could not copy").then(() => toast("Copied")), "tool outline small") : null,
+      e.keys_sql ? btn("Copy", null, () => copyText(e.keys_sql, "Key SQL"), "tool outline small") : null,
       e.keys_sql ? btn("Create template notebook", "notebook", async () => {
         const res = await metaCall("meta_key_notebook", { name: e.name, env: state.meta.env }, "No notebook created");
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
@@ -408,11 +408,30 @@ function keysCard(e) {
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 
-function confirmDialog(title, text, okLabel = "OK") {
+// opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
+// opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// Escape, the close button and a click outside count as Cancel.
+function confirmDialog(title, text, okLabel = "OK", opts = {}) {
   return new Promise((resolve) => {
-    const done = (v) => { closeDialog(); resolve(v); };
-    showDialog(title, h("p", { class: "text" }, text), [
-      btn("Cancel", null, () => done(false), "tool outline"), btn(okLabel, null, () => done(true), "tool primary")]);
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
+    let typed = null;
+    if (opts.typeToConfirm) {
+      ok.disabled = true;
+      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+        h("input", { autocomplete: "off", spellcheck: "false",
+          oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
+          onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
+    }
+    const overlay = showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok]);
+    if (opts.danger && !typed) cancel.focus();
+    new MutationObserver((_, watch) => {
+      if (overlay.isConnected) return;
+      watch.disconnect();
+      if (!settled) { settled = true; resolve(false); }
+    }).observe(document.getElementById("dialog-root"), { childList: true });
   });
 }
 
@@ -661,7 +680,7 @@ async function renderEnvTab(body, p) {
       box.replaceWith(res.notes?.length ? h("div", {}, verdict, h("div", { class: "card pad warn-box" }, gateList(res.notes))) : verdict);
     });
     return h("div", { class: "card pad" },
-      h("div", { class: "row" }, h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`), h("span", { class: "spacer" }),
+      h("div", { class: "row" }, previewMarked("promote", h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`)), h("span", { class: "spacer" }),
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
@@ -669,7 +688,7 @@ async function renderEnvTab(body, p) {
           if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
-      box, promoteImpact(source, target), lastRelease(target));
+      box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
     promoteRow("dev", "test"), promoteRow("test", "prod"));
@@ -813,7 +832,7 @@ async function renderKeysTab(body) {
         h("div", { class: "muted-text" }, "One table per business key. Every run MERGEs new business keys here first, then puts the key on every row."),
         h("div", { class: "muted-text small" }, keysWhere(k)))),
     k.local ? null : btn(k.workspace_id ? "Change Keys workspace" : "Pick Keys workspace", "workspace", () => pickKeysWorkspace(k.env), "tool outline small"),
-    btn("Sync to LH_Keys", "sync", async () => {
+    previewMarked("syncKeys", btn("Sync to LH_Keys", "sync", async () => {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
@@ -822,9 +841,8 @@ async function renderKeysTab(body) {
           : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
       }
-    }, "tool outline small"),
-    k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, rerender), "tool primary small")
-      : btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary small")));
+    }, "tool outline small")),
+    addKeyTableButton(k, rerender, "tool primary small")));
 
   const problems = [...k.errors, ...(k.problem ? [k.problem] : [])];
   const list = tables.length ? h("table", { class: "list" },
@@ -838,8 +856,9 @@ async function renderKeysTab(body) {
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
     : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary"));
+      h("span", { class: "text" }, k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
+      addKeyTableButton(k, rerender, "tool primary"));
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
@@ -880,6 +899,12 @@ function keyTableDetail(t, k, rerender) {
 }
 
 // Keys in the platform: a project uses the platform's key tables, it doesn't make its own.
+// With platform keys there is one key system: the project uses the platform's key tables and never makes its own.
+function addKeyTableButton(k, done, cls) {
+  return k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, done), cls)
+    : btn("New key table", "add", () => newKeyTableDialog(done), cls);
+}
+
 function useKeyTableDialog(k, done) {
   const have = new Set(k.key_tables.map((t) => t.name));
   const free = k.central_key_tables.filter((t) => !have.has(t.name));
@@ -1098,16 +1123,27 @@ async function renderModelTab(body) {
   }
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading the layer's tables and relationships..."));
   if (!state.user && !(await signIn())) return;
-  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null });
-  if (!plan || state.view !== "metadata" || m.tab !== "model") return;
+  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null }, "Semantic model not checked");
+  if (state.view !== "metadata" || m.tab !== "model") return;
+  if (!plan) {  // whether the model exists isn't known, so neither Create nor Update is offered
+    body.replaceChildren(h("p", { class: "muted-text" }, "Couldn't check the semantic model in Fabric, so Create and Update are off until it can be read. Open this tab again to retry."));
+    return;
+  }
   const layer = h("select", { onchange: (e) => { m.modelLayer = e.target.value; renderModelTab(body); } },
     plan.layers.map((l) => h("option", { value: l, selected: l === plan.layer ? true : null }, l)));
   const name = h("input", { value: m.modelName || plan.name, oninput: (e) => { m.modelName = e.target.value; } });
   const result = h("div", {});
-  const build = async () => {
+  const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value }, "Model not built");
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
     if (!res) return;
+    if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
+      const c = res.confirm;
+      if (await confirmDialog(`Replace ${c.name}?`,
+        `${c.name} already exists in ${c.workspace_name || plan.workspace_name || "the workspace"}. Its definition will be replaced by this layer's tables and relationships; measures, tables and relationships added to it in Fabric are lost.`,
+        `Replace ${c.name}`)) build(true);
+      return;
+    }
     toast(`${res.created ? "Created" : "Updated"} ${res.name}`);
     result.replaceChildren(h("div", { class: "pass-box" }, icon("ok", 16),
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
@@ -1119,7 +1155,7 @@ async function renderModelTab(body) {
     h("div", { class: "card pad" },
       h("div", { class: "row wrap" }, h("b", {}, "Direct Lake semantic model"), h("span", { class: "spacer" }),
         plan.existing ? btn("Open in Fabric", "open", () => openInFabric(plan.existing.url), "tool outline small") : null,
-        btn(plan.existing ? "Update model" : "Create model", "cube", build, "tool primary small")),
+        btn(plan.existing ? "Update model" : "Create model", "cube", () => build(), "tool primary small")),
       h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),

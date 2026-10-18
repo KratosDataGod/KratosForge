@@ -1237,7 +1237,7 @@ test("Monitor > Agents explains agents beside the list, with links to sections o
   const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
   assert.ok(linked.length >= 6);
   for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
-  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
+  assert.match(src, /return h\("div", \{ class: "mon-how" \}, withHowItWorks\(box, agGuide\(\)\)\);/);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
@@ -1318,6 +1318,34 @@ test("confirms that delete or overwrite something pass danger", () => {
     });
   }
   assert.deepStrictEqual(missing, []);
+});
+
+test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const seen = {};
+  const ctx = {
+    h: (tag, attrs, ...children) => ({ tag, attrs, children }),
+    howItWorks: (id, parts) => { seen[id] = parts; return { panel: id }; },
+    withHowItWorks: (main, panel) => ({ main, panel }),
+    agDoc: (anchor) => ({ doc: anchor }),
+    loadWorkloads: () => {}, loadAgents: () => {},
+  };
+  const grab = (file, name) => {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    return src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  };
+  vm.runInNewContext(`${grab("workloads.js", "workloadsPanel")}${grab("agents.js", "agentsPanel")}${grab("agents.js", "agGuide")}
+    this.out = [workloadsPanel(), agentsPanel()];`, ctx);
+  for (const [i, id] of [[0, "monitor.workloads"], [1, "monitor.agents"]]) {
+    assert.deepStrictEqual(ctx.out[i].children[0].panel, { panel: id }, `${id} sits beside its list`);
+    const p = seen[id];
+    for (const k of ["reads", "changes", "results"]) assert.ok(String(p[k]).length > 20, `${id} says ${k}`);
+    assert.ok(anchors.has(p.anchor), `user-guide.md has #${p.anchor}`);
+  }
+  assert.match(seen["monitor.agents"].changes, /^Nothing\./);
+  assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
 });
 
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.

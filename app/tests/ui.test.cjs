@@ -726,7 +726,7 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
-test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Operations get the whole page (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
 });
@@ -1052,7 +1052,7 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
 });
 
-test("Monitor has four tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
   const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
@@ -1063,7 +1063,7 @@ test("Monitor has four tabs, and Operations holds the workload views in the mock
   for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
   const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
   assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
-    ["Runs", "Schedules", "Operations", "Cost"]);
+    ["Runs", "Schedules", "Operations"]);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
@@ -1088,4 +1088,17 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.strictEqual(fabric.text, "None");
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
+});
+
+test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const monitor = app.slice(app.indexOf("async function renderMonitor()"), app.indexOf("\n}\n", app.indexOf("async function renderMonitor()")));
+  assert.ok(!monitor.includes("costPanel"), "Monitor doesn't draw the Cost panel");
+  assert.ok(!monitor.includes("what running on this PC saved"), "no savings claim on Monitor (QA-008)");
+  assert.match(monitor, /if \(monitorPage\.panel === "cost"\) \{ monitorPage\.panel = "runs"; optimizePage\.tab = "cost"; go\("optimize"\); return; \}/);
+  for (const file of ["app.js", "xray.js", "optimize.js", "features.js"]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.ok(!/monitorPage\.panel = "cost"/.test(src), `${file} sends nobody to Monitor > Cost`);
+  }
+  assert.match(fs.readFileSync(path.join(ui, "xray.js"), "utf8"), /btn\("See cost", null, \(\) => \{ optimizePage\.tab = "cost"; go\("optimize"\); \}/);
 });

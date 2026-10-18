@@ -43,7 +43,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/usage-import.md](docs/finops/usage-import.md) | Measured CU from an imported Capacity Metrics app export, matched to this app's runs beside their estimates |
 | [docs/optimize/README.md](docs/optimize/README.md) | Optimize's shared optimization lakehouse (Preview): one lakehouse for every installation, permissions, what is written and who can see it |
-| [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Monitor > Cost comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
+| [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Optimize > Cost and savings comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |

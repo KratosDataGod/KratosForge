@@ -2,7 +2,7 @@
 
 Fabric Desktop by KratosBI estimates what each Fabric run used from its run time ([Capacity and cost evidence](cost-evidence.md)). For the CU your capacity actually recorded, import a file exported from Microsoft's **Fabric Capacity Metrics app**. The app reads the file on this PC, keeps its rows as **Measured** figures, and sets them beside its own estimates.
 
-**Monitor > Cost > Measured usage** (Preview) > **Import usage file**.
+**Optimize > Cost and savings > Measured usage** (Preview) > **Import usage file**.
 
 ## Why a file
 

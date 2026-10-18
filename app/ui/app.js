@@ -587,6 +587,8 @@ const MONITOR_OPS = [
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
+  // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
+  if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
   const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
   const slot = h("div", { class: "fabric-slot" },
@@ -616,10 +618,8 @@ async function renderMonitor() {
           segment(monitorPage.panel === "runs", "Runs", show("runs")),
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
           ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
-            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null,
-          preview("cost", segment(monitorPage.panel === "cost", "Cost", show("cost")))),
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
         h("span", { class: "muted-text" }, op ? op.text
-          : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
@@ -650,7 +650,6 @@ async function renderMonitor() {
       monitorPage.showFabric ? slot : null)));
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
   else invoke("fabric_view_hide").catch(() => {});
-  if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
@@ -709,7 +708,6 @@ async function renderMonitor() {
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook."));
 }
 
-// Fabric job states, shown with the same pills as local runs.
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
@@ -719,6 +717,7 @@ function runEnvCell(r) {
   return h("span", { class: "muted-text", title: why }, "None");
 }
 
+// Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
 }

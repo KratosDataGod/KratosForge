@@ -46,7 +46,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [finops/capacity.md](finops/capacity.md) | Engineers, platform owners | The capacity each environment is on, whether it is running, and what to do when it can't be read |
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The shared optimization lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
-| [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
+| [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
@@ -115,8 +115,8 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Failure replay bundles (save, open and replay) | Under a cell that failed on this PC; Create > Open replay bundle |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Cost | Monitor |
-| Capacity status | Monitor > Cost, Data mesh > Environments |
-| Measured usage import | Monitor > Cost |
+| Capacity status | Optimize > Cost and savings, Data mesh > Environments |
+| Measured usage import | Optimize > Cost and savings |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |
 | Table history and restore | Entity page |

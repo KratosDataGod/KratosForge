@@ -1,6 +1,6 @@
 # Capacity and cost evidence
 
-Every capacity unit (CU) and cost figure in **Monitor > Cost** (Preview) says where it came from. A badge next to the number gives its classification, and clicking the number shows how it was worked out: the method, the source, the period, how many runs it covers and every assumption behind it.
+Every capacity unit (CU) and cost figure in **Optimize > Cost and savings** (Preview) says where it came from. A badge next to the number gives its classification, and clicking the number shows how it was worked out: the method, the source, the period, how many runs it covers and every assumption behind it.
 
 ## The four classifications
 

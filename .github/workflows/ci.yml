@@ -264,7 +264,8 @@ jobs:
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
+            --argjson published "$(date -u +%s)" \
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine, published: $published}' > version.json
           BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an

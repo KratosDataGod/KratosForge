@@ -28,8 +28,11 @@ jobs:
           gh release download latest --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           COMMIT=$(jq -r .commit version.json)
           echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The latest release has no build commit"; exit 1; }
-          # Keep the build's checksums and its month of history; only the notes change.
-          jq --arg notes "$NOTES" '.notes = $notes' version.json > version.new && mv version.new version.json
+          # Keep the build's checksums and its month of history; only the notes and the publish time
+          # change. The app refuses a version.json published before one it already saw (HD-022), so
+          # a promote, including one that rolls Stable back to an earlier build, must stamp it now.
+          jq --arg notes "$NOTES" --argjson published "$(date -u +%s)" '.notes = $notes | .published = $published' \
+            version.json > version.new && mv version.new version.json
           if gh release view stable > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release: while it was missing,
             # Stable PCs fell back to Preview and could be offered an untested build.

@@ -26,7 +26,7 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 | **Preview** | `latest` (prerelease) | Every merge to `main` whose CI is green and is still `main`'s newest commit when the release job runs | Automatic (`ci.yml` `release` job) |
 | **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest` | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
 
-The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
+The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). `version.json` carries `published`, the Unix time CI or Promote wrote it. The app installs whatever build the channel names, older or newer than the one running, but refuses a `version.json` published before the newest one it has already accepted from that channel, and one without the exe's checksum (HD-022). So anything that republishes a channel by hand must write a new `published` stamp, or PCs that saw the newer one will refuse it. Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
 
 **Merging to `main` is a Preview release.** About 5,000 people are expected on launch; Preview is the opt-in channel, but anything merged reaches it within one CI run. Stable is the production release.
 
@@ -103,7 +103,11 @@ A Stable promotion is the production release. Before asking Chris for it:
 
 ## Rollback today
 
-There is no one-click rollback yet. Each channel keeps only its newest build, and the engine always comes from the channel's current release, so an older build can't be pinned (HD-028 in the [hardening backlog](../hardening/backlog.md) adds per-build release assets). `fabric-desktop.exe.old` is deleted at startup and is not a rollback.
+There is no one-click rollback yet. Each channel keeps only its newest build, and the engine always comes from the channel's current release, so an older build can't be pinned (HD-028 in the [hardening backlog](../hardening/backlog.md) adds per-build release assets).
+
+**How PCs follow a channel rollback.** The app doesn't refuse a build because it is older than the one running; it refuses a `version.json` that is older than the newest one it has seen on that channel. A rollback republishes the earlier build's exe, engine and `version.json` (same `commit` and checksums) with a new `published` stamp, which Promote writes on every run. PCs then accept it as the channel's newest release and install the earlier build at their next start. A cached copy of the release it replaced is refused, because its stamp is earlier. A hand-made rollback (option 2 below) must set `published` to the current time.
+
+**On one PC,** an update keeps the previous exe as `fabric-desktop.exe.old` until the new build has opened its window; if the new build exits before that, the previous exe is put back and keeps running. Builds from before HD-022 never confirm their start, so a rollback to one of them is left running after 90 seconds rather than undone. After a successful start `.old` is removed, so it is not a way to go back to an earlier build later.
 
 What can be done now, in order of preference:
 

@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod update_guard;
 mod watchdog;
 use watchdog::Reply;
 
@@ -193,6 +194,45 @@ fn data_dir() -> PathBuf {
     dir
 }
 
+/// What this PC remembers about each update channel (HD-022, update_guard.rs).
+fn update_state() -> PathBuf {
+    data_dir().join("update-state.json")
+}
+
+/// Written by a new exe once it has started, so the exe that updated to it can exit.
+fn start_marker() -> PathBuf {
+    data_dir().join("update-started")
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+/// The build the exe that started this one updated to (`--updated-to <commit>`).
+fn updated_to_arg() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1)).cloned()
+}
+
+/// Applies the release rule to the channel's version.json as the startup check reported it,
+/// remembers what it accepted, and adds `refused` with the reason when it isn't accepted.
+fn apply_release_rule(latest: &mut Value) {
+    if BUILD_COMMIT.is_empty() || latest["commit"].as_str().is_none() {
+        return;
+    }
+    let tag = latest["tag"].as_str().unwrap_or(release_tag()).to_string();
+    let path = update_state();
+    match update_guard::check_manifest(latest, update_guard::load_seen(&path, &tag).as_ref(), unix_now()) {
+        Ok(seen) => {
+            let _ = update_guard::remember(&path, &tag, Some(&seen));
+        }
+        Err(reason) => {
+            let _ = update_guard::remember(&path, &tag, None);
+            latest["refused"] = json!(reason);
+        }
+    }
+}
+
 fn updater(args: &[&str]) -> Command {
     // Run from the app's own data folder so no stray .py file in the current
     // folder can shadow a standard library module.
@@ -346,6 +386,26 @@ fn stop_kernel(state: tauri::State<'_, SidecarState>) -> Result<(), String> {
 /// latest release. Fails only when Python itself cannot run.
 #[tauri::command]
 async fn check_components() -> Result<Value, String> {
+    let updated_to = updated_to_arg();
+    // The window is up and the UI has asked for this check, so this exe started. After an update,
+    // the exe that started this one waits for this marker, then exits.
+    if updated_to.is_some() {
+        let _ = update_guard::mark_started(&start_marker(), BUILD_COMMIT);
+    }
+    // The previous exe (exe.old) is kept until now so it can be put back; it goes once its process
+    // has exited. Not when this is the wrong build: the exe that started it is putting itself back.
+    if updated_to.as_deref().is_none_or(|to| to == BUILD_COMMIT) {
+        std::thread::spawn(|| {
+            let Ok(exe) = std::env::current_exe() else { return };
+            let old = exe.with_extension("exe.old");
+            for _ in 0..120 {
+                if !old.exists() || std::fs::remove_file(&old).is_ok() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        });
+    }
     let mut report = if bundled() && engine_python().is_none() {
         // Nothing to run the check with until the engine is installed; the UI installs
         // it and then checks again.
@@ -367,9 +427,8 @@ async fn check_components() -> Result<Value, String> {
     };
     report["bundled"] = json!(bundled());
     report["auto_update"] = json!(auto_update_allowed());
+    apply_release_rule(&mut report["latest"]);
     // Set by the exe that updated us, so the check can tell whether the update took.
-    let args: Vec<String> = std::env::args().collect();
-    let updated_to = args.iter().position(|a| a == "--updated-to").and_then(|i| args.get(i + 1));
     report["app"] = json!({
         "version": env!("CARGO_PKG_VERSION"),
         "commit": if BUILD_COMMIT.is_empty() { Value::Null } else { json!(BUILD_COMMIT) },
@@ -422,7 +481,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     say("Downloading the engine (Python and its packages, about 150 MB)…");
     let mut result = Err(String::new());
     let mut release = Value::Null;
+    let mut release_tag_used = "";
     for tag in engine_tags() {
+        release_tag_used = tag;
         let mut curl = Command::new(system_tool("curl.exe"));
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
@@ -457,6 +518,17 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     if let Err(e) = result {
         let _ = std::fs::remove_file(&zip);
         return Err(e);
+    }
+    // An out-of-date version.json would install an older engine than the channel last offered.
+    let state = update_state();
+    match update_guard::check_manifest(&release, update_guard::load_seen(&state, release_tag_used).as_ref(), unix_now()) {
+        Ok(seen) => {
+            let _ = update_guard::remember(&state, release_tag_used, Some(&seen));
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&zip);
+            return Err(e);
+        }
     }
     say("Checking the download…");
     let sha = sha256_file(&zip)?;
@@ -506,34 +578,70 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(commit)
 }
 
-/// Downloads the latest exe (refusing any build but `commit`), swaps it in place of this
-/// one and starts it.
+/// How long this exe waits for the new one to say it started (window up, startup check asked for).
+/// The first start of a new build unpacks WebView2 data and can be slow on a busy PC.
+const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// Downloads the build the channel offers (refusing any other), swaps it in place of this one
+/// and starts it. This exe is kept as exe.old and this process waits until the new one says it
+/// started; if the new one exits first, this exe is put back and keeps running (HD-022). One still
+/// running at the time limit without saying so is left to run: builds from before HD-022 never say.
 #[tauri::command]
 async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String> {
-    if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if !update_guard::is_commit(&commit) {
         return Err(format!("{commit} is not a build commit"));
     }
     if !auto_update_allowed() {
         return Err("Your organization rolls out new builds itself, so the app doesn't update itself.".into());
+    }
+    // Only the build the last accepted startup check offered (update_guard::check_manifest).
+    if update_guard::offered(&update_state()).is_none_or(|c| !c.eq_ignore_ascii_case(&commit)) {
+        return Err(format!("Build {} isn't the build your update channel offers, so it wasn't installed.", &commit[..7]));
+    }
+    if !update_guard::wants_install(BUILD_COMMIT, &update_guard::Seen { commit: commit.clone(), published: None }) {
+        return Err(format!("This is already build {}, or a local build that doesn't update itself.", &commit[..7]));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
     stream(&app, updater(&["download-app", &dest, &commit]))?;
-    // Windows lets a running exe be renamed but not overwritten.
-    let _ = std::fs::remove_file(&old);
-    std::fs::rename(&exe, &old).map_err(|e| format!("Could not replace {}: {e}", exe.display()))?;
-    if let Err(e) = std::fs::rename(&new, &exe) {
-        let _ = std::fs::rename(&old, &exe);
-        return Err(format!("Could not replace {}: {e}", exe.display()));
+    update_guard::swap_in(&exe, &new, &old)?;
+    let marker = start_marker();
+    let _ = std::fs::remove_file(&marker);
+    let mut child = match Command::new(&exe).args(["--updated-to", &commit]).spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            update_guard::restore_previous(&exe, &old)?;
+            return Err(format!("The new build could not be started ({e}), so this build was put back."));
+        }
+    };
+    let window = app.get_webview_window("main");
+    if let Some(w) = &window {
+        let _ = w.hide();
     }
-    Command::new(&exe)
-        .args(["--updated-to", &commit])
-        .spawn()
-        .map_err(|e| format!("Updated, but could not restart: {e}"))?;
-    app.exit(0);
-    Ok(())
+    let outcome = update_guard::wait_for_start(
+        || update_guard::started_as(&marker, &commit),
+        || child.try_wait().map(|s| s.is_some()).unwrap_or(true),
+        START_TIMEOUT,
+        std::time::Duration::from_millis(250),
+    );
+    if !update_guard::failed_start(&outcome) {
+        // Started, or still running without saying so: builds from before HD-022 never write the
+        // marker, and a rollback can install one, so only an exit counts as a failed start. The
+        // next start removes exe.old.
+        let _ = std::fs::remove_file(&marker);
+        app.exit(0);
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(&marker);
+    let restored = update_guard::restore_previous(&exe, &old);
+    if let Some(w) = &window {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    restored?;
+    Err(format!("Build {} closed before it finished starting, so this build was put back.", &commit[..7]))
 }
 
 // ---- Fabric's own pages (the Monitoring hub, the OneLake catalog), shown in one second webview
@@ -978,10 +1086,11 @@ fn open_doc(page: String) -> Result<(), String> {
 }
 
 fn main() {
-    // Left behind by the last update; the old process has exited by now.
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
+        // Left behind by an update. exe.old is not removed here: it is kept until this exe has
+        // shown its window (check_components), so a build that can't start can be put back.
         let _ = std::fs::remove_file(exe.with_extension("exe.new"));
+        let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None) })

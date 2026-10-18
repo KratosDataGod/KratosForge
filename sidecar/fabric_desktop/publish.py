@@ -67,9 +67,10 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
     always have); None refuses a different schema, as Spark does without overwriteSchema; "merge"
     adds new columns."""
     opts = storage_options(storage_token)
+    delta_profile.check_target(ref.uri, opts)
     write_deltalake(ref.uri, data, mode=mode, storage_options=opts, schema_mode=resolve_schema_mode(mode, schema_mode))
     table = DeltaTable(ref.uri, storage_options=opts)
-    delta_profile.check_table(table)
+    delta_profile.note_after_write(table)
     return table
 
 

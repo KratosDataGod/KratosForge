@@ -5,7 +5,7 @@ Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every c
 ## Your first notebook
 
 1. **Create > Notebook** (or **New notebook** on Home, or Ctrl+K "New notebook"). The notebook opens with one empty code cell.
-2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it.
+2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it. A running cell keeps the lakehouse it started with: starting a cell from another notebook, or an external tool's run against another lakehouse, waits or is refused until it finishes.
 3. In the Explorer, click a table to insert code that loads it, or a file to insert code that reads it.
 4. Run the cell with **Shift+Enter**. Output shows below it.
 5. Write a result back:
@@ -43,7 +43,7 @@ Table names work as they do in Fabric: `table`, `schema.table`, or either with t
 
 Every write:
 
-- is checked against the **Fabric-safe Delta profile** (reader version 1, writer version 2, classic checkpoints, no deletion vectors or column mapping), so the SQL analytics endpoint and Direct Lake can read it;
+- is checked against the **Fabric-safe Delta profile** (reader version 1, writer version 2, classic checkpoints, no deletion vectors or column mapping), so the SQL analytics endpoint and Direct Lake can read it. An existing table outside the profile (for example one where Fabric Spark turned on deletion vectors) is refused before anything is written, so the table is left exactly as it was;
 - writes the data files first and the Delta log last, so Fabric never sees a half-written version;
 - shows in **Monitor** as a notebook write, with rows, mode and Delta version.
 
@@ -84,6 +84,8 @@ from pyspark.sql import functions as F
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.
+
+**`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.
 
 **Magics:** `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
 

@@ -404,7 +404,7 @@ def test_only_the_newest_results_are_kept(tmp_path, lake, monkeypatch):
 
 
 def test_the_audit_records_the_run_but_never_its_sql_error_or_token(runs, lake):
-    wait(runs, runs.start("SELECT 'card 4111-1111' AS secret_value FROM sales", lake)["id"])
+    wait(runs, runs.start("SELECT 'card QZX-4111-QZX' AS secret_value FROM sales", lake)["id"])
     wait(runs, runs.start("SELECT password_column FROM sales", lake)["id"])
     lines = runs.audit_lines
     assert [line[0] for line in lines] == ["sql_execution", "sql_execution"]
@@ -413,7 +413,8 @@ def test_the_audit_records_the_run_but_never_its_sql_error_or_token(runs, lake):
     assert set(params) == {"execution", "state", "dialect", "permission", "rows", "workspace_id", "lakehouse_id",
                            "lakehouse"}
     text = json.dumps(lines, default=str)
-    for leaked in ("4111", "password_column", "SECRET-TOKEN", "SELECT"):
+    # Letters around the card number: digits alone can turn up inside a duration in the audit line.
+    for leaked in ("QZX-4111", "password_column", "SECRET-TOKEN", "SELECT"):
         assert leaked not in text
 
 

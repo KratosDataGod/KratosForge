@@ -83,6 +83,26 @@ def _split(path: str) -> tuple[str, str]:
     return "local", p
 
 
+TABLES_REFUSED = "{path}: Tables/ holds managed Delta tables; change them through a table write, not notebookutils.fs."
+
+
+def _writable(path: str, p: str) -> lakehouse.Attached:
+    """The attached lakehouse, once ``p`` (a OneLake path) may be changed: under Files/, allowed by
+    the write guard and not during a proof. Raises before any request is sent otherwise."""
+    if p == "Tables" or p.startswith("Tables/"):
+        raise PermissionError(TABLES_REFUSED.format(path=path))
+    if not p.startswith("Files/") or not p[len("Files/"):].strip("/"):
+        raise ValueError(f"{path}: change files and folders under Files/, not Files/ itself.")
+    lh = lakehouse._current()
+    # The same check table writes go through; runs for external tools refuse every write.
+    reason = lakehouse.write_guard(lh.name, "Files", p) if lakehouse.write_guard else None
+    if reason:
+        raise PermissionError(reason)
+    if lakehouse._proof() is not None:
+        raise PermissionError(f"{path}: a proof keeps its writes in its sandbox, so it can't change lakehouse files.")
+    return lh
+
+
 def _make_fs() -> types.SimpleNamespace:
     def ls(path: str) -> list[FileInfo]:
         where, p = _split(path)
@@ -110,32 +130,56 @@ def _make_fs() -> types.SimpleNamespace:
             Path(p).parent.mkdir(parents=True, exist_ok=True)
             Path(p).write_bytes(data)
             return
-        if not p.startswith("Files/"):
-            raise ValueError(f"{path}: write files under Files/. Tables are written with write_table or saveAsTable.")
-        lh = lakehouse._current()
+        lh = _writable(path, p)
         _store().upload(lh.workspace_id, lh.lakehouse_id, p, data)
 
-    def exists(path: str) -> bool:
+    def _check_writable(path: str) -> None:
+        """Refuse a change to a OneLake path before anything is read or written for it."""
+        where, p = _split(path)
+        if where == "onelake":
+            _writable(path, p)
+
+    def _entry(path: str) -> dict[str, Any] | None:
+        """``{"is_dir", "size"}`` for a file or folder, or None when it isn't there."""
         where, p = _split(path)
         if where == "local":
-            return Path(p).exists()
+            t = Path(p)
+            if not t.exists():
+                return None
+            return {"is_dir": t.is_dir(), "size": 0 if t.is_dir() else t.stat().st_size}
         lh = lakehouse._current()
         parent, _, name = p.rstrip("/").rpartition("/")
         try:
-            return any(e["name"] == name for e in _store().list(lh.workspace_id, lh.lakehouse_id, parent or "Files"))
+            listed = _store().list(lh.workspace_id, lh.lakehouse_id, parent or "Files")
         except requests.HTTPError:
-            return False
+            return None
+        return next((e for e in listed if e["name"] == name), None)
+
+    def _tree(path: str) -> dict[str, int]:
+        """Every file under a folder, by path relative to it, with its size."""
+        where, p = _split(path)
+        if where == "local":
+            return {f.relative_to(p).as_posix(): f.stat().st_size for f in Path(p).rglob("*") if f.is_file()}
+        lh = lakehouse._current()
+        base = p.rstrip("/") + "/"
+        return {e["path"][len(base):]: e["size"]
+                for e in _store().list(lh.workspace_id, lh.lakehouse_id, p, recursive=True) if not e["is_dir"]}
+
+    def exists(path: str) -> bool:
+        return _entry(path) is not None
 
     def head(path: str, maxBytes: int = 65536) -> str:  # noqa: N803
         return _read(path)[:maxBytes].decode("utf-8", errors="replace")
 
     def put(path: str, content: str, overwrite: bool = False) -> bool:
+        _check_writable(path)
         if not overwrite and exists(path):
             raise FileExistsError(f"{path} exists. Pass overwrite=True to replace it.")
         _write(path, content.encode("utf-8"))
         return True
 
     def cp(src: str, dest: str, recurse: bool = False) -> bool:
+        _check_writable(dest)
         where, p = _split(src)
         if where == "local" and Path(p).is_dir():
             if not recurse:
@@ -144,7 +188,7 @@ def _make_fs() -> types.SimpleNamespace:
                 if f.is_file():
                     _write(f"{dest.rstrip('/')}/{f.relative_to(p).as_posix()}", f.read_bytes())
             return True
-        if where == "onelake" and recurse:
+        if where == "onelake" and recurse and (_entry(src) or {}).get("is_dir"):
             for e in ls(src):
                 cp(e.path, f"{dest.rstrip('/')}/{e.name}", recurse=e.isDir)
             return True
@@ -162,14 +206,40 @@ def _make_fs() -> types.SimpleNamespace:
             else:
                 target.unlink(missing_ok=True)
             return True
-        lh = lakehouse._current()
-        _store().delete(lh.workspace_id, lh.lakehouse_id, p)
+        lh = _writable(path, p)
+        # As in Fabric, a folder that isn't empty goes only with recurse=True.
+        not_empty = f"{path} is a folder that isn't empty. Pass recurse=True to remove it."
+        if not recurse and (_entry(path) or {}).get("is_dir") and \
+                _store().list(lh.workspace_id, lh.lakehouse_id, p, max_results=1):
+            raise IsADirectoryError(not_empty)
+        try:
+            _store().delete(lh.workspace_id, lh.lakehouse_id, p, recursive=recurse)
+        except requests.HTTPError as exc:
+            if not recurse and exc.response is not None and exc.response.status_code == 409:
+                raise IsADirectoryError(not_empty) from exc
+            raise
         return True
 
     def mv(src: str, dest: str, create_path: bool = False, overwrite: bool = False) -> bool:  # noqa: ARG001
+        _check_writable(src)
+        _check_writable(dest)
         if not overwrite and exists(dest):
             raise FileExistsError(f"{dest} exists. Pass overwrite=True to replace it.")
-        cp(src, dest, recurse=True)
+        before = _entry(src)
+        if before is None:
+            raise FileNotFoundError(src)
+        files = _tree(src) if before["is_dir"] else {}
+        cp(src, dest, recurse=before["is_dir"])
+        # The source goes only once its copy is all there: every file, at its size.
+        after = _entry(dest)
+        if before["is_dir"]:
+            copied = _tree(dest) if after is not None and after["is_dir"] else {}
+            landed = all(copied.get(name) == size for name, size in files.items())
+        else:
+            landed = after is not None and not after["is_dir"] and after["size"] == before["size"]
+        if not landed:
+            raise OSError(f"Moving {src} to {dest} stopped: the copy at {dest} doesn't match {src}, "
+                          f"so {src} was kept.")
         rm(src, recurse=True)
         return True
 
@@ -181,6 +251,7 @@ def _make_fs() -> types.SimpleNamespace:
         return True
 
     def append(path: str, content: str, createFileIfNotExists: bool = False) -> bool:  # noqa: N803
+        _check_writable(path)
         old = b""
         if exists(path):
             old = _read(path)

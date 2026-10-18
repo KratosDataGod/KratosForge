@@ -291,3 +291,21 @@ def test_a_folder_name_with_dots_is_still_a_path():
     fs, t = store([Reply(201), Reply(202), Reply(200)])
     fs.upload(WS, LH, "Files/v1..2/..hidden/x.parquet", b"x")
     assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 3
+
+
+@pytest.mark.parametrize("path", ["Files/../..", "Files/..", "/lakehouse/default/Files/%2e%2e"])
+def test_notebookutils_rm_cant_climb_out_of_files(path, tmp_path, monkeypatch):
+    # A notebook's fs.rm with recurse reaches FileStore.delete; a climbing path sends nothing.
+    from fabric_desktop import lakehouse, notebookutils_local
+    real, t = store([])
+    monkeypatch.setattr(notebookutils_local, "_store", lambda: real)
+    monkeypatch.setattr(lakehouse, "write_guard", None)
+    monkeypatch.setattr(lakehouse, "proof", None)
+    lakehouse.attach(lakehouse.Attached(WS, LH, "Sales", lambda: "tok", tmp_path))
+    try:
+        fs = notebookutils_local.build(notebookutils_local.Host()).fs
+        with pytest.raises((ValueError, PermissionError)):
+            fs.rm(path, True)
+    finally:
+        lakehouse.attach(None)
+    assert [s for s in t.sent if s.method in MUTATING] == []

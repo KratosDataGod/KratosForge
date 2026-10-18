@@ -40,6 +40,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, with no Fabric capacity |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
+| [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
 | [docs/finops/usage-import.md](docs/finops/usage-import.md) | Measured CU from an imported Capacity Metrics app export, matched to this app's runs beside their estimates, and billed CU hours and cost per capacity from an Azure Cost Management export |
 | [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Monitor > Cost comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |

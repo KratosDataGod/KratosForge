@@ -62,6 +62,7 @@ git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log
 local_query_status
 pipeline_export pipeline_import pipeline_inspect pipeline_validate
 usage_imports usage_preview usage_reconciliation
+risk_acknowledgements risk_check risk_settings
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

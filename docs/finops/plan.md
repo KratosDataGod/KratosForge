@@ -41,7 +41,8 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 | 2 | FINOPS-002 Capacity inventory and health diagnostics ([capacity.md](capacity.md)) | Merged (#123) |
 | 3 | FINOPS-003 Measured CU import and reconciliation foundation ([usage-import.md](usage-import.md)) | Open for review (#153) |
 | 3b | FINOPS-003 second provider: Azure Cost Management exports, billed per capacity ([usage-import.md](usage-import.md#billed-per-capacity-from-azure-cost-management)) | Open for review |
-| 4 | FINOPS-004 Predeployment capacity and CU risk analyzer | Not started |
+| 4 | FINOPS-004 Predeployment capacity and CU risk analyzer, part 1: the risk service ([risk-check.md](risk-check.md)) | Open for review |
+| 4b | FINOPS-004 part 2: findings in the run dialogs, acknowledgement | Not started (mockup first) |
 | 5 | FINOPS-005 Local vs Fabric execution advisor | Not started |
 
 ## FINOPS-003 usage source decision

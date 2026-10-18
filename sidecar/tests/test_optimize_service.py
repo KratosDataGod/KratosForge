@@ -62,9 +62,9 @@ def test_calls_are_registered_and_audited_as_they_should_be():
 def test_create_initializes_and_connects(svc):
     out = svc.optimize_create("w1", workspace_name="Platform")
     assert out["connected"] and out["created"] and out["access"]["write"]
-    assert svc.fake.created == ["FabricDesktop_Optimization"]
+    assert svc.fake.created == ["FabricDesktop_Central"]
     conn = svc.optimize_status()["active"]
-    assert conn["lakehouse_name"] == "FabricDesktop_Optimization" and conn["access"] == "write"
+    assert conn["lakehouse_name"] == "FabricDesktop_Central" and conn["access"] == "write"
     assert conn["schema_version"] == 1
     assert svc.optimize_inspect("w1", conn["lakehouse_id"])["state"] == setup.READY
 
@@ -92,7 +92,7 @@ def test_connect_to_a_lakehouse_with_other_tables_asks_first(svc):
 def test_second_installation_connects_to_the_same_lakehouse(svc, tmp_path, monkeypatch):
     lh = svc.optimize_create("w1")["connection"]["lakehouse_id"]
     other = Service(root=tmp_path / "other-pc")
-    out = other.optimize_connect("w1", lh, lakehouse_name="FabricDesktop_Optimization")
+    out = other.optimize_connect("w1", lh, lakehouse_name="FabricDesktop_Central")
     assert out["connected"] and out["access"]["write"]
     lake = LocalLakehouse(svc.lakes / "w1" / lh)
     assert len(lake.rows("fdopt_installations")) == 2
@@ -102,7 +102,7 @@ def test_second_installation_connects_to_the_same_lakehouse(svc, tmp_path, monke
 def test_discover_marks_optimization_lakehouses(svc):
     svc.optimize_create("w1")
     found = svc.optimize_discover("w1")
-    assert [(f["lakehouse_name"], f["optimize"]) for f in found] == [("FabricDesktop_Optimization", True), ("Sales", False)]
+    assert [(f["lakehouse_name"], f["optimize"]) for f in found] == [("FabricDesktop_Central", True), ("Sales", False)]
 
 
 def test_disconnect_keeps_the_lakehouse(svc):
@@ -158,3 +158,24 @@ def test_read_only_connection_can_read_but_not_change_results(svc):
     assert svc.optimize_findings() == []
     with pytest.raises(PermissionError, match="read-only"):
         svc.optimize_set_recommendation("nope", "dismissed")
+
+
+def test_other_features_reach_the_central_lakehouse_for_their_own_tables(svc, monkeypatch):
+    import polars as pl
+
+    from fabric_desktop.optimize import schema
+    fam = schema.Family("fdtst_", "Test", [schema.Migration(1, "Create", {
+        "event": {"what": pl.String}, "schema_version": schema.TABLES_V1["schema_version"]})])
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    assert svc.central_lakehouse() is None
+    with pytest.raises(ValueError, match="central lakehouse"):
+        svc.central_family(fam)
+    svc.optimize_create("w1", workspace_name="Platform")
+    conn = svc.central_lakehouse()
+    assert conn["lakehouse_name"] == "FabricDesktop_Central" and conn["access"] == "write"
+    lake, me = svc.central_family(fam)
+    setup.write(lake, me, "event", [{"record_id": "e1", "what": "opened"}], family=fam)
+    assert lake.rows("fdtst_event")["what"].to_list() == ["opened"]
+    svc.optimize_registry.add(dict(conn, access="read"))
+    with pytest.raises(PermissionError, match="read"):
+        svc.central_family(fam)

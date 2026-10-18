@@ -336,3 +336,59 @@ def test_registry_switch_and_forget_never_touch_the_lakehouse(tmp_path, lake):
     reg.add({"workspace_id": "w1", "lakehouse_id": "a"}, activate=False)
     assert reg.active()["lakehouse_id"] == "b"
     assert {n: lake.version("optimization", "dbo", n) for n in lake.table_names()} == before
+
+
+# ---------- table families (the central lakehouse) ----------
+
+INCIDENTS_V1 = {"incident_event": {"incident_id": pl.String, "at": pl.String, "what": pl.String},
+                "schema_version": schema.TABLES_V1["schema_version"]}
+
+
+@pytest.fixture
+def incidents(monkeypatch):
+    fam = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create the incident tables", INCIDENTS_V1)])
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    return fam
+
+
+def test_a_family_gets_its_own_tables_and_version_beside_optimize(tmp_path, lake, incidents):
+    with pytest.raises(PermissionError, match="Confirm"):
+        setup.initialize(lake, pc(tmp_path), family=incidents)
+    assert lake.table_names() == []
+    out = setup.initialize(lake, pc(tmp_path), approve=True, family=incidents)
+    assert out["state"] == setup.READY and out["family"] == "fdtst_"
+    names = set(lake.table_names())
+    assert {"fdtst_incident_event", "fdtst_schema_version"} <= names
+    assert set(schema.expected()) <= names  # Optimize's shared tables first: installations, audit, config
+    assert setup.inspect(lake)["state"] == setup.READY and setup.inspect(lake)["other_tables"] == 0
+    setup.write(lake, pc(tmp_path), "incident_event", [{"record_id": "e1", "incident_id": "i1", "at": "t", "what": "opened"}],
+                family=incidents)
+    setup.write(lake, pc(tmp_path), "incident_event", [{"record_id": "e1", "incident_id": "i1", "at": "t", "what": "opened"}],
+                family=incidents)  # the same row again adds nothing
+    assert lake.rows("fdtst_incident_event")["what"].to_list() == ["opened"]
+    assert lake.rows("fdtst_schema_version")["version"].to_list() == [1]
+    assert lake.rows("fdopt_schema_version")["version"].to_list() == [1]
+    targets = lake.rows("fdopt_audit")["target"].to_list()
+    assert "fdtst_ schema 1" in targets and "fdopt_ schema 1" in targets
+
+
+def test_a_newer_family_is_read_only_without_touching_optimize(tmp_path, lake, incidents, monkeypatch):
+    setup.initialize(lake, pc(tmp_path), approve=True, family=incidents)
+    v2 = {"incident_event": INCIDENTS_V1["incident_event"] | {"priority": pl.String}}
+    newer = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create", INCIDENTS_V1), schema.Migration(2, "Priority", v2)])
+    setup.initialize(lake, pc(tmp_path), approve=True, family=newer)
+    state = setup.inspect(lake, incidents)  # this app knows version 1 only
+    assert state["state"] == setup.NEWER and not state["writable"] and "Test incidents" in state["message"]
+    assert setup.inspect(lake)["state"] == setup.READY
+
+
+def test_family_registration_rules(incidents):
+    m1 = [schema.Migration(1, "Create", INCIDENTS_V1)]
+    for prefix in ("fdopt_", "inc_", "fdINC_", "fd_"):
+        with pytest.raises(ValueError):
+            schema.register(schema.Family(prefix, "Bad", m1))
+    with pytest.raises(ValueError, match="numbered"):
+        schema.register(schema.Family("fdzzz_", "Gaps", [schema.Migration(2, "Create", INCIDENTS_V1)]))
+    with pytest.raises(ValueError, match="schema_version"):
+        schema.register(schema.Family("fdzzz_", "No version", [schema.Migration(1, "Create", {"t": {"a": pl.String}})]))
+    assert schema.family_of("fdtst_incident_event") is incidents and schema.family_of("sales") is None

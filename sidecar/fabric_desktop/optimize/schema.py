@@ -1,8 +1,12 @@
-"""The optimization lakehouse's tables, and the migrations that build them.
+"""The central lakehouse's tables, and the migrations that build them.
 
-Every table is named ``fdopt_<name>`` so it can share a lakehouse with anything else, and sits in
-``dbo`` (or directly under Tables in a lakehouse without schemas). The rules that let many
-installations write to the same tables at once:
+Fabric Desktop keeps one central lakehouse per organization (default ``FabricDesktop_Central``).
+Its tables come in families, each with its own prefix, migrations and schema version: Optimize's
+``fdopt_`` tables (which also hold the installations, audit and config every family shares), and
+any family another feature registers with ``register`` (for example ``fdacc_`` for the access cache).
+A family never reads or writes another family's tables. Every table sits in ``dbo`` (or directly
+under Tables in a lakehouse without schemas). The rules that let many installations write to the
+same tables at once:
 
 - **Insert only.** No client updates or deletes a row. A change of state (a recommendation
   accepted, applied, dismissed; a setting changed) is a new row, and the latest row wins.
@@ -14,12 +18,13 @@ installations write to the same tables at once:
 
 A migration only adds: a new table, or a new nullable column. Each step is safe to run again, so a
 migration that stopped part way is finished by running it again, and its version is recorded in
-``fdopt_schema_version`` only after every step succeeded. An app that finds a newer schema version
-than it knows opens the lakehouse read-only.
+the family's ``<prefix>schema_version`` only after every step succeeded. An app that finds a newer
+schema version of a family than it knows opens that family read-only.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -118,3 +123,70 @@ def expected(version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
             for name in m.tables:
                 out[table(name)] = out.get(table(name), {}) | columns(name, m.tables)
     return out
+
+
+# ---------- table families ----------
+
+# fd + 2 to 8 lowercase letters + underscore: fdopt_, fdacc_, fdset_ ...
+PREFIX_RULE = re.compile(r"^fd[a-z]{2,8}_$")
+
+
+class Family:
+    """One feature's tables in the central lakehouse: ``<prefix><name>``, versioned on their own in
+    ``<prefix>schema_version``. Every table gets the PROVENANCE columns and ``record_id`` as its key.
+
+    ``title`` names the owner as people see it ("Optimize", "Access cache"). ``migrations`` is the
+    list, or a function returning it. ``default_config`` rows go to fdopt_config on initialize."""
+
+    def __init__(self, prefix: str, title: str, migrations: list[Migration] | Callable[[], list[Migration]],
+                 default_config: tuple[tuple[str, str], ...] = ()):
+        self.prefix, self.title, self._migrations, self.default_config = prefix, title, migrations, default_config
+
+    @property
+    def migrations(self) -> tuple[Migration, ...]:
+        m = self._migrations
+        return tuple(m() if callable(m) else m)
+
+    def table(self, name: str) -> str:
+        return self.prefix + name
+
+    def latest(self) -> int:
+        return max(m.version for m in self.migrations)
+
+    def expected(self, version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
+        """Every table and column this family has at ``version`` (default: this app's), by full name."""
+        version = self.latest() if version is None else version
+        out: dict[str, dict[str, pl.DataType]] = {}
+        for m in self.migrations:
+            if m.version <= version:
+                for name in m.tables:
+                    out[self.table(name)] = out.get(self.table(name), {}) | columns(name, m.tables)
+        return out
+
+
+OPTIMIZE = Family(PREFIX, "Optimize", lambda: MIGRATIONS, tuple(DEFAULT_CONFIG.items()))
+FAMILIES: dict[str, Family] = {PREFIX: OPTIMIZE}
+
+
+def register(family: Family) -> Family:
+    """Add a feature's table family to the central lakehouse. Call once, at import of the module
+    that owns the tables. The prefix follows PREFIX_RULE and is unique; versions start at 1 with no
+    gaps; the first migration creates ``schema_version`` like every family's; a later migration
+    only adds tables or nullable columns."""
+    if not PREFIX_RULE.match(family.prefix):
+        raise ValueError(f"A table family prefix is fd, 2 to 8 lowercase letters and _ (not {family.prefix!r}).")
+    if family.prefix in FAMILIES and FAMILIES[family.prefix] is not family:
+        raise ValueError(f"The {family.prefix} tables already belong to {FAMILIES[family.prefix].title}.")
+    versions = [m.version for m in family.migrations]
+    if versions != list(range(1, len(versions) + 1)):
+        raise ValueError(f"{family.title}'s migrations must be numbered 1, 2, 3... in order.")
+    if family.migrations[0].tables.get("schema_version") != TABLES_V1["schema_version"]:
+        raise ValueError(f"{family.title}'s first migration must create schema_version "
+                         f"with the columns {list(TABLES_V1['schema_version'])}.")
+    FAMILIES[family.prefix] = family
+    return family
+
+
+def family_of(table_name: str) -> Family | None:
+    """The registered family a table belongs to, by its prefix."""
+    return next((f for p, f in FAMILIES.items() if table_name.startswith(p)), None)

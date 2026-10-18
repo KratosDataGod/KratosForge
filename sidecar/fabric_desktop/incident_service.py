@@ -19,6 +19,7 @@ from .meta import mesh as mesh_mod
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
 from .workloads.agents import agent_state, fleet, read_status
+from .workloads.overlap import overlaps
 from .workloads.notify import Outbox, send, single
 
 
@@ -82,7 +83,12 @@ class IncidentMixin:
                 envs.append({"env": env, "count": None, "observation": model.observation("Agents", state, detail=message)})
                 continue
             envs.append({"env": env, "count": len(by_env[env]), "observation": model.observation("Agents", "live", model.now())})
-        return {"envs": envs, "agents": fleet(by_env, now, __version__), "app_version": __version__}
+        try:
+            pc, pc_readable = self.pc_schedules.listing(), True  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001  # compare agents with each other, and say this PC wasn't read
+            pc, pc_readable = [], False
+        return {"envs": envs, "agents": fleet(by_env, now, __version__), "app_version": __version__,
+                **overlaps(by_env, pc, now), "pc_schedules_read": pc_readable}
 
     def incidents_summary(self, workload: str = "") -> dict[str, Any]:
         """Active incidents per environment, for the environment chips and a workload's page. With

@@ -34,6 +34,8 @@ A feature that hasn't been tried on a real Fabric tenant is in preview:
 2. Wrap its tab or button: `preview("cost", button)`. It gets a Preview tag, or disappears when someone turns preview features off in Settings.
 3. Mark its commands `preview: true`.
 
+A core step that can't disappear (promote, say) uses `previewMarked("promote", button)` instead: it always shows, always with the Preview tag, even when preview features are turned off. Add its id to `PREVIEW_ALWAYS_SHOWN` too, so Settings says it stays.
+
 When it has been tried on a tenant, remove it from `PREVIEW_FEATURES`. The tag goes away everywhere at once.
 
 ## Words and help

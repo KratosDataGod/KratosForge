@@ -553,6 +553,24 @@ test("an agent past its promised report never shows as running", () => {
   assert.strictEqual(ctx.pill({ state: "live" }).text, "Running");
 });
 
+test("Scheduled in two places names both places and never reads a silent older agent as every table", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : (n.kids || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat().filter((k) => k != null && k !== false) }),
+    btn: (label) => label, envName: (e) => e.charAt(0).toUpperCase() + e.slice(1), monitorPage: {}, go: () => {} };
+  vm.runInNewContext(`${src.match(/function agPlace\([\s\S]*?\n}\n/)[0]}${src.match(/function agOverlaps\([\s\S]*?\n}\n/)[0]}; this.f = agOverlaps;`, ctx);
+  assert.strictEqual(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: true }), null);
+  const one = text(ctx.f({ overlaps: [{ env: "prod", entities: ["silver_orders"], schedules: [
+    { place: "agent", agent: "etl-01", state: "live", schedule: "hourly", text: "Every 60 minutes" },
+    { place: "pc", schedule: "p1", text: "Daily at 06:00" }] }], unknown: [] }));
+  assert.match(one, /Scheduled in two places/);
+  assert.match(one, /silver_orders in Prod runs on agent etl-01 \(hourly, every 60 minutes\) and on a schedule on this PC \(daily at 06:00\)\. Both write the same table\./);
+  const old = text(ctx.f({ overlaps: [], unknown: [{ agent: "etl-old", schedule: "nightly" }] }));
+  assert.doesNotMatch(old, /Scheduled in two places/);
+  assert.match(old, /Can't tell what etl-old schedules/);
+  assert.match(text(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: false })), /couldn't be read/);
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};
@@ -647,6 +665,63 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
+// The pure helpers at the top of replay.js.
+function replayHelpers() {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- the button and the dialog ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { replayCells, replayInputLines, replayEnvironmentLine });`, ctx);
+  return ctx;
+}
+
+test("a replay bundle sends the cells up to the failed one, with only that cell's output", () => {
+  const { replayCells } = replayHelpers();
+  const cells = [{ type: "code", source: "a = 1", meta: {}, count: 1, outputs: [{ type: "text", text: "data" }], id: "x" },
+    { type: "markdown", source: "# m", meta: {}, outputs: [] },
+    { type: "code", source: "1/0", meta: {}, count: 2, outputs: [{ type: "error", ename: "ZeroDivisionError" }] },
+    { type: "code", source: "later", meta: {}, count: 3, outputs: [] }];
+  const out = JSON.parse(JSON.stringify(replayCells(cells, 2)));
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out[0], { type: "code", source: "a = 1", meta: {}, count: 1 });
+  assert.strictEqual(out[1].count, null);
+  assert.deepStrictEqual(out[2].outputs, [{ type: "error", ename: "ZeroDivisionError" }]);
+});
+
+test("the replay dialog lists inputs and the environment plainly", () => {
+  const { replayInputLines, replayEnvironmentLine } = replayHelpers();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(replayInputLines({
+    tables: [{ table: "bronze.events", version: 41 }, { table: "dbo.out", version: null, created: true }],
+    files: [{ path: "Files/raw/fx.csv", sha256: "9f2c0a1b2c3d" }, { path: "Files/x.csv", sha256: null }] }))), [
+    "bronze.events at Delta version 41", "dbo.out: created by the notebook, so a replay starts without it",
+    "Files/raw/fx.csv (SHA-256 9f2c0a1b…)", "Files/x.csv (changed after it was read, so no SHA-256)"]);
+  assert.strictEqual(replayEnvironmentLine({ python: "3.11.9", packages: { polars: "1.9.0" },
+    kernel: { process: true, limits: { cell_seconds: 3600, memory_bytes: null } } }),
+  "Python 3.11.9, polars 1.9.0, kernel in its own process, 60 min cell limit");
+});
+
+test("Save replay bundle is a Preview feature, offered only under a cell that failed on this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /replay: "Failure replay bundles"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="debugging.js"><\/script>\s*<script src="replay.js"><\/script>/);
+  assert.match(src, /cell\.status !== "error" \|\| nbWhere\(nb\)\.fabric/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayOffer\(cell\)/);
+});
+
+test("a replay notebook shows its banner, and Create can open a bundle", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayBanner\(nb\), sbsPanel\(nb\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("replay", tile\("history", "Open replay bundle"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /replay: nb\.replay \|\| null/);
+  assert.match(fs.readFileSync(path.join(ui, "deps.js"), "utf8"), /replayRestarted\(\);/);
+  // A table whose version is gone is replaced only by the person's choice.
+  assert.match(src, /disabled: busy \|\| !!c\.blockers\.length \|\| unresolved/);
+  const { replayBase64 } = (() => { const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+    vm.runInNewContext(`${src.slice(src.indexOf("function replayBase64"), src.indexOf("async function replayOpenDialog"))}; this.replayBase64 = replayBase64;`, ctx);
+    return ctx; })();
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(replayBase64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+});
+
 test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX-003)", () => {
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
@@ -660,9 +735,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
-  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "" });
+  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /if \(!f\.text\) return undefined;/);  // no toast for nothing
   assert.match(app, /!f\.text\.startsWith\(label\)/);  // never "Sign-in failed: Sign-in failed:"
 });
 
@@ -800,11 +874,71 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
     assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
     assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
   }
-  // A marked step keeps working when someone hides preview features; it only loses the tag.
+  // A marked step stays, and keeps its tag, when someone hides preview features.
   const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
   vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
   const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   ctx.shown = false;
-  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  // and Settings names them as staying
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay"]);
+  assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
+});
+
+// QA review of #173: only a cancelled sign-in is silent; an error with no message still says something.
+test("attempt() stays quiet only for a cancelled sign-in, never for an empty error", async () => {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const toasts = [];
+  const ctx = { toast: (text, isError) => toasts.push([text, isError]) };
+  vm.runInNewContext(`${activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}
+    ${app.match(/async function attempt\([\s\S]*?\n}\n/)[0]}; this.attempt = attempt;`, ctx);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(new Error("")), "Save"), undefined);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(""), "Save"), undefined);
+  assert.strictEqual(toasts.length, 2);
+  assert.match(toasts[0][0], /^Save: Something went wrong and no reason was given/);
+  assert.strictEqual(toasts[0][1], true);
+  await ctx.attempt(() => Promise.reject(new Error("SignInCancelled: cancelled: closed")), "Sign in");
+  assert.strictEqual(toasts.length, 2);
+  assert.strictEqual(await ctx.attempt(() => Promise.resolve(7), "Save"), 7);
+});
+
+test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
+  assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
+  assert.strictEqual(ctx.f(saved, "bob@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t2", now), null);  // another tenant
+  assert.strictEqual(ctx.f({ ...saved, lakehouse_id: "" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t1", Date.parse("2026-10-25T12:00:01Z")), null);  // expired
+  assert.strictEqual(ctx.f({ ...saved, at: "nonsense" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(null, "ana@contoso.com", "t1", now), null);
+});
+
+test("a failed or refused write test, and signing out, forget the saved pass (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const store = new Map();
+  const localStorage = { setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k), getItem: (k) => store.get(k) ?? null };
+  const ctx = { localStorage, state: { user: "ana@contoso.com", tenant: "t1" } };
+  vm.runInNewContext(`${src.match(/function rememberWrite\([\s\S]*?\n}\n/)[0]}; this.f = rememberWrite;`, ctx);
+  const target = { workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev" };
+  ctx.f({ status: "ok" }, target);
+  const saved = JSON.parse(store.get("fd.ready.write"));
+  assert.deepStrictEqual([saved.user, saved.tenant, saved.lakehouse_id], ["ana@contoso.com", "t1", "l"]);
+  ctx.f(undefined, target);  // refused or threw: attempt() returned nothing
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  ctx.f({ status: "ok" }, target);
+  ctx.f({ status: "fail" }, target);
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  // The dialog reports every outcome, and the card keeps a way to test again.
+  assert.match(src, /done\(result, \{ workspace_id: ws\.value, lakehouse_id: lhSelect\.value/);
+  assert.doesNotMatch(src, /if \(result\) done\(result\)/);
+  assert.match(src, /"Test again"/);
+  const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
+  assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
 });

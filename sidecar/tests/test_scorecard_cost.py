@@ -19,6 +19,9 @@ def test_estimated_fabric_and_measured_pc():
     # The price is a separate assumption of the amount, not of the CU measurement.
     assert not any("per CU hour" in a for a in m["assumptions"])
     assert pc["classification"] == ms.MEASURED and pc["measurement"]["value"] == 0
+    # The PC's total capacity isn't a measured 0: OneLake reads and writes aren't counted (QA-008).
+    assert pc["kind"] == "not available" and "capacity_cu_seconds" not in pc and "OneLake" in pc["text"]
+    assert "OneLake" in pc["measurement"]["method"]
     assert pc["measurement"]["collected_at"] == "2026-10-18T01:05:00+00:00" and ms.problems(pc["measurement"]) == []
 
 

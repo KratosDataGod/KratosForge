@@ -1714,7 +1714,7 @@ function renderQuery() {
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB. No Fabric capacity is used."))),
+      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
@@ -2022,7 +2022,7 @@ function computeMenu(nb) {
     action: () => setNotebookCompute(value) });
   return [
     { info: "Where Run all runs this notebook." },
-    option("local", "This PC (no Fabric capacity used)", "desktop"),
+    option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
       ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),

@@ -55,9 +55,9 @@ Every number says what it is:
 | Fabric total, job, run and session start | Measured | Publish to finish; the job's start and end from Fabric's job API; the notebook's own run time from its log |
 | Fabric CPU and memory | Not available | Fabric doesn't report them for a notebook run. A Python notebook starts with 2 vCores and 16 GB unless `%%configure` changes it. |
 | Fabric capacity and cost | Estimate | Job time x CUs for a Python notebook x price per CU hour, from **Monitor > Cost**. The assumptions are listed. On a capacity you already pay for, this is a share of it, not an added charge. |
-| This PC's cost | Measured | No Fabric capacity used. Power and hardware aren't counted. |
+| This PC's cost | Not available | No Fabric job starts, so its Fabric job CU is 0 (measured). Its OneLake reads and writes still use capacity and aren't measured, so the total isn't known. Power and hardware aren't counted. |
 
-The two cost rows also carry the classification **Monitor > Cost** uses (Measured, Estimated, Scenario or Unknown) and the Fabric job CU as a classified measurement, so a receipt's cost reads the same way as the Cost panel. When Fabric doesn't report the job's start and end, Fabric's side is **Unknown** with no value, never 0. See [Capacity and cost evidence](../finops/cost-evidence.md).
+The two cost rows also carry each side's Fabric job CU as a classified measurement (Measured, Estimated, Scenario or Unknown, as in **Monitor > Cost**), so a receipt's cost reads the same way as the Cost panel. Neither side counts OneLake reads and writes. When Fabric doesn't report the job's start and end, Fabric's side is **Unknown** with no value, never 0. See [Capacity and cost evidence](../finops/cost-evidence.md).
 
 ## Receipts
 

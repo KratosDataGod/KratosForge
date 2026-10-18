@@ -135,7 +135,7 @@ function openPalette(initial = "") {
       const row = h("button", { class: `palette-item${i === palette.selected ? " on" : ""}`, role: "option",
         onmousemove: () => { if (palette.selected !== i) { palette.selected = i; draw(); } },
         onclick: () => { close(); it.run(); } }, icon(it.icon, 16), it.label);
-      return [head, row];
+      return head ? [head, row] : [row];  // replaceChildren would print a null as the text "null"
     }) : [h("div", { class: "palette-empty" }, "Nothing matches. Try fewer letters.")]));
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
     return items;

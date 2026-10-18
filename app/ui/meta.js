@@ -111,7 +111,7 @@ async function renderMetadata() {
       h("div", {},
         h("h1", {}, "Data mesh"),
         h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("metadata"))),
+          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",

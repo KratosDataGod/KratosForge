@@ -646,3 +646,66 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// UX-001: the command bar's list held a null for every result that didn't start a group, and
+// replaceChildren prints a null as the text "null".
+test("the command bar lists group headers and results, never the text null", () => {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(), addEventListener() {}, focus() {},
+    setSelectionRange() {}, querySelector() { return null; }, value: attrs.value || "",
+    replaceChildren(...k) { this.kids = k; } });
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: {}, rpc: () => Promise.resolve([]),
+    document: { getElementById: () => null, body: { append() {} } }, console,
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [
+    { group: "Pages", label: "Home", icon: "home", run() {} },
+    { group: "Pages", label: "Create", icon: "create", run() {} },
+    { group: "Actions", label: "New notebook", icon: "notebook", run() {} },
+  ];
+  let list = null;
+  ctx.document.body.append = (box) => { list = box.kids[0].kids[1]; };
+  ctx.openPalette();
+  assert.ok(list, "the command bar's list was not drawn");
+  assert.ok(list.kids.every((k) => k && typeof k === "object"), `list holds ${JSON.stringify(list.kids.map((k) => k && k.tag))}`);
+  assert.deepStrictEqual(list.kids.map((k) => k.attrs.class.split(" ")[0]),
+    ["palette-group", "palette-item", "palette-item", "palette-group", "palette-item"]);
+});
+
+// UX-002: every help link the app opens lands on a page and heading that exist.
+test("every in-app help link opens an existing docs page and heading", () => {
+  const docs = path.join(__dirname, "..", "..", "docs");
+  // GitHub's heading anchors: lower case, punctuation dropped, spaces to hyphens, repeats numbered.
+  const anchors = (page) => {
+    const seen = new Map();
+    const out = new Set();
+    let fence = false;
+    for (const line of fs.readFileSync(path.join(docs, page), "utf8").split("\n")) {
+      if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
+      const m = !fence && /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
+      if (!m) continue;
+      const base = m[1].replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*]/g, "").trim().toLowerCase()
+        .replace(/[^\p{L}\p{N}_\- ]/gu, "").replace(/ /g, "-");
+      const n = seen.get(base) || 0;
+      seen.set(base, n + 1);
+      out.add(n ? `${base}-${n}` : base);
+    }
+    return out;
+  };
+  const links = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const [, a] of src.matchAll(/learnMore\("([^"]*)"/g)) links.push([name, `user-guide.md${a ? `#${a}` : ""}`]);
+    for (const [, p] of src.matchAll(/open_doc", \{ page: "([^"]+)"/g)) links.push([name, p]);
+  }
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8").match(/const XRAY_DOCS = \{([\s\S]*?)\};/)[1];
+  for (const [, a] of xray.matchAll(/:\s*"([^"]+)"/g)) links.push(["xray.js", `xray-fixes.md#${a}`]);
+  assert.ok(links.length > 20, `only ${links.length} help links found`);
+  const broken = links.filter(([, link]) => {
+    const [page, anchor] = link.split("#");
+    if (!fs.existsSync(path.join(docs, page))) return true;
+    return anchor && !anchors(page).has(anchor);
+  }).map(([file, link]) => `${file}: ${link}`);
+  assert.deepStrictEqual(broken, []);
+});

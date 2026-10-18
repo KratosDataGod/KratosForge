@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import email.utils
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import unquote
 
 import requests
+
+from .retrying import send_with_retry
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
 TABLE_API = "https://onelake.table.fabric.microsoft.com/delta"
@@ -54,12 +57,16 @@ def storage_options(token: str) -> dict[str, str]:
 class TableCatalog:
     """Read-only listing through the OneLake Delta table API (Unity Catalog compatible)."""
 
-    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None):
+    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
         self._http = session or requests.Session()
+        self._sleep = sleep
 
     def _get(self, url: str, **params) -> dict[str, Any]:
-        resp = self._http.get(url, params=params, headers={"Authorization": f"Bearer {self._token()}"}, timeout=60)
+        resp = send_with_retry(lambda: self._http.get(url, params=params, timeout=60,
+                                                      headers={"Authorization": f"Bearer {self._token()}"}),
+                               "GET", sleep=self._sleep)
         resp.raise_for_status()
         return resp.json()
 
@@ -98,11 +105,20 @@ def item_path(path: str, empty_ok: bool = False) -> str:
 
 
 class FileStore:
-    """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API."""
+    """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
-    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None):
+    Reads are retried on throttling, 5xx and dropped connections (retrying.send_with_retry). Uploads
+    and deletes are sent once: a write that failed part way may have happened."""
+
+    def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
+                 sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
         self._http = session or requests.Session()
+        self._sleep = sleep
+
+    def _read(self, url: str, **kwargs: Any) -> requests.Response:
+        return send_with_retry(lambda: self._http.get(url, headers=self._headers(), **kwargs), "GET",
+                               sleep=self._sleep)
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
@@ -118,7 +134,7 @@ class FileStore:
             params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
         while True:
-            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+            resp = self._read(url, params=dict(params), timeout=60)
             resp.raise_for_status()
             for p in resp.json().get("paths", []):
                 path = p["name"].split("/", 1)[1]  # drop the lakehouse GUID
@@ -153,7 +169,7 @@ class FileStore:
 
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path) -> Path:
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        with self._http.get(url, headers=self._headers(), stream=True, timeout=300) as resp:
+        with self._read(url, stream=True, timeout=300) as resp:
             resp.raise_for_status()
             dest.parent.mkdir(parents=True, exist_ok=True)
             with dest.open("wb") as f:
@@ -164,7 +180,7 @@ class FileStore:
     def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str) -> bytes | None:
         """A small file's content, or None when it doesn't exist."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
-        resp = self._http.get(url, headers=self._headers(), timeout=60)
+        resp = self._read(url, timeout=60)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()

@@ -1,11 +1,12 @@
 """Running SQL, Python and notebooks for an external tool, through the engine's own paths.
 
-    SQL        Service.run_sql with ``sandbox=True``: one read-only statement (SELECT, WITH ...
+    SQL        sql.prepare_sandboxed and execute_sandboxed: one read-only statement (SELECT, WITH ...
                SELECT, UNION), DuckDB with external access off and its configuration locked, so
                only the lakehouse tables the query names can be read: no local files, no
                extensions, no network. The SQL page's memory share and threads per run apply
                (Settings > SQL). The tables are registered under the attach lock and the query
-               runs after it is released; a timeout or cancel interrupts DuckDB until it stops
+               runs after it is released, one external query at a time (waiting counts towards the
+               timeout); a timeout or cancel interrupts DuckDB until it stops
     Python     a ProcessKernel (kernel_proc.py) of its own, started for the execution and ended
                after it: the same kernel the notebook screen uses, never the app's own kernel
     Notebook   the same, cell by cell in order as Run all does, stopping at the first error
@@ -148,6 +149,9 @@ class ExecutionManager:
         self._lock = threading.Lock()
         # The engine has one attached lakehouse at a time: share the lock the desktop's cells take.
         self._attach_lock = getattr(service, "attach_lock", None) or threading.RLock()
+        # Held only while an external SQL statement executes (not while its tables are registered):
+        # one at a time, so concurrent queries can't each take the SQL page's memory share.
+        self._sql_slot = threading.Lock()
 
     # ---- the kernel external code runs in
 
@@ -311,10 +315,16 @@ class ExecutionManager:
                 query, memory_mb=sql_exec.memory_mb(int(limits["sql_memory_limit_percent"])),
                 threads=sql_exec.run_threads(limits))
         stopped = threading.Event()
-        run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped), daemon=True,
-                                                 name=f"execution-stop-{run.id}").start()
-        started = time.monotonic()
+        have_slot = False
         try:
+            # One external query runs at a time, each with the SQL page's memory share. Waiting for
+            # the slot counts towards the timeout: a stop while waiting ends the run here.
+            while not (have_slot := self._sql_slot.acquire(timeout=0.05)):
+                if run.cancel_event.is_set():
+                    raise self._stopped(run)
+            run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped), daemon=True,
+                                                     name=f"execution-stop-{run.id}").start()
+            started = time.monotonic()
             # _stop sets cancel_event before it reads on_cancel: a stop that came before on_cancel was
             # set is seen here, and one after it interrupts the query.
             if run.cancel_event.is_set():
@@ -328,6 +338,8 @@ class ExecutionManager:
             stopped.set()
             run.on_cancel = None
             con.close()
+            if have_slot:
+                self._sql_slot.release()
         out = sql_result(result, max_rows, started)
         run.log(f"{out['row_count']} rows in {out['seconds']} s")
         return out | {"truncated": out["row_count"] > len(out["rows"])}

@@ -315,6 +315,41 @@ def test_sandboxed_sql_has_memory_and_thread_limits_it_cant_change(svc):
         con.close()
 
 
+def test_external_sql_runs_one_query_at_a_time(svc):
+    # Each query gets the SQL page's memory share, so a second waits for the first to finish.
+    first = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1", query=ENDLESS_SQL,
+                 timeout_seconds=600, wait_seconds=0)
+    try:
+        second = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1",
+                      query="SELECT count(*) AS n FROM sales", timeout_seconds=600, wait_seconds=2)
+        assert second["state"] == "running" and second["finished_at"] is None, second
+    finally:
+        assert call(svc, "fabric_desktop_cancel_execution", execution_id=first["id"])["cancelled"] is True
+    done = call(svc, "fabric_desktop_get_execution_status", execution_id=second["id"], wait_seconds=60)
+    assert done["state"] == "succeeded" and done["result"]["rows"] == [[3]], done
+
+
+def test_sql_timeout_while_waiting_for_the_slot_finishes_cleanly(svc):
+    first = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1", query=ENDLESS_SQL,
+                 timeout_seconds=600, wait_seconds=0)
+    try:
+        started = time.monotonic()
+        waiting = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1",
+                       query="SELECT count(*) AS n FROM sales", timeout_seconds=1, wait_seconds=0)
+        status = call(svc, "fabric_desktop_get_execution_status", execution_id=waiting["id"], wait_seconds=60)
+        assert status["state"] == "timed_out" and status["finished_at"] is not None, status
+        assert status["error"]["code"] == "timeout" and "1 s" in status["error"]["message"], status["error"]
+        assert time.monotonic() - started < 30
+        # The waiter gave up without touching the running query.
+        assert call(svc, "fabric_desktop_get_execution_status", execution_id=first["id"])["state"] == "running"
+    finally:
+        assert call(svc, "fabric_desktop_cancel_execution", execution_id=first["id"])["cancelled"] is True
+    # The slot is free again: the next query runs straight away.
+    nxt = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1",
+               query="SELECT count(*) AS n FROM sales", wait_seconds=60)
+    assert nxt["state"] == "succeeded" and nxt["result"]["rows"] == [[3]], nxt
+
+
 def test_sql_cancel_interrupts_the_query(svc):
     out = call(svc, "fabric_desktop_execute_sql", workspace_id="ws1", lakehouse_id="lh1", query=ENDLESS_SQL,
                timeout_seconds=600, wait_seconds=0)

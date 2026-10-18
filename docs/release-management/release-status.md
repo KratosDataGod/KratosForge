@@ -12,8 +12,8 @@ A snapshot from the release manager's last integration cycle. GitHub is the sour
 | What is on Preview? | `3bee0db` (`main`'s tip), published 2026-10-18 00:45 UTC. Checksums match. Two docs-only merges ahead of Stable (#135, #136) |
 | Next planned release | Merge round 5 to Preview, then a Stable promotion once Preview has run with it. No version number yet (see [versioning](README.md#versioning)) |
 | Which PRs are ready? | 7 with green CI that merge cleanly: #138, #140, #141, #142, #143, #147, #150 |
-| Which are still validating? | 9 whose CI is running: #137, #139, #152, #154 to #159 |
-| Which failed validation? | #148: Windows engine tests failed in `test_local_data.py::test_cancel_a_background_query`, a file #148 doesn't touch. It is the cancel race on `main` that #139 fixes, so #148 goes green once #139 merges and it is re-run |
+| Which are still validating? | 10 whose CI is running: #137, #139, #148, #152, #154 to #159 |
+| Which failed validation? | None now. #148's Windows engine tests failed in `test_local_data.py::test_cancel_a_background_query`, a file it doesn't touch: the cancel race on `main` that #139 fixes. Prove cherry-picked that fix into #148, so either merge order works |
 | Which are held? | 9: drafts #144, #145, #146, #149, #160 (workload stack), #151 (rollback), #153 (FINOPS-003); #131 (not opened by this project) |
 | What conflicts? | #150 and #139 both add names to the same line of `audit.py` `READ_ONLY`; whichever merges second needs `main` merged in, keeping both sets of names. #131 conflicts with `main` in `app/tests/ui.test.cjs`, `docs/user-guide.md`, `docs/metadata-guide.md` |
 | Are builds passing? | `main` CI green at `3bee0db` (run 452). Every non-draft PR whose CI has finished is green apart from the Codex `review` check, which fails on quota and is not required |
@@ -40,7 +40,7 @@ Smallest blast radius first, stacks in order, CI still running last. Chris's go 
 1. Docs and records: #137 (hardening audit; the fixes below cite it), #140 (product records)
 2. Small single-area fixes: #147, #141, #138, #152, #154, #155, #156, #157, #159
 3. Update path: #158 (engine download refuses a missing checksum and never falls back to Preview on a network error). Both current releases carry `engine_sha256`, so no existing PC is affected. Its Rust tests don't run in CI.
-4. Features: #143, #139, #150 (after #139, with `main` merged in for `audit.py`), #142, then #148 (stacked on #142; re-run its Windows tests after #139 is in)
+4. Features: #143, #139, #150 (after #139, with `main` merged in for `audit.py`), #142, then #148 (stacked on #142)
 
 ## Release risks found in this audit
 

@@ -150,9 +150,8 @@
       "ci_not_green": [
         "agent-image=queued",
         "audit=queued",
-        "engine=queued",
+        "engine=in_progress",
         "sbom-app=queued",
-        "shell=queued",
         "sidecar (ubuntu-latest)=queued",
         "sidecar (windows-latest)=in_progress",
         "ui=queued"
@@ -349,14 +348,13 @@
       "updated": "2026-10-18T01:00:25Z",
       "files_changed": 23,
       "depends_on": [
-        142,
-        139
+        142
       ],
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
         "agent-image=queued",
-        "audit=queued",
+        "audit=in_progress",
         "engine=queued",
         "sbom-app=queued",
         "shell=queued",
@@ -365,9 +363,9 @@
         "ui=queued"
       ],
       "codex_review": null,
-      "state": "failed_validation",
+      "state": "validating",
       "release": "round-5",
-      "next_action": "Windows test_cancel_a_background_query failed; not this PR's (cancel race on main fixed by #139). Re-run after #139 merges"
+      "next_action": "Merge right after #142; carries #139's cancel-race fix (46632d4) so it no longer waits on #139"
     },
     {
       "number": 149,
@@ -387,11 +385,10 @@
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
-        "agent-image=queued",
+        "agent-image=in_progress",
         "audit=queued",
-        "sbom-app=queued",
         "sidecar (ubuntu-latest)=queued",
-        "sidecar (windows-latest)=queued"
+        "sidecar (windows-latest)=in_progress"
       ],
       "codex_review": null,
       "state": "hold",
@@ -440,8 +437,6 @@
       "ci": "running",
       "ci_not_green": [
         "agent-image=queued",
-        "audit=queued",
-        "sbom-app=in_progress",
         "sidecar (ubuntu-latest)=in_progress",
         "sidecar (windows-latest)=in_progress"
       ],
@@ -460,15 +455,13 @@
       "head": "4b905c7",
       "draft": false,
       "created": "2026-10-18T00:50:46Z",
-      "updated": "2026-10-18T00:53:07Z",
+      "updated": "2026-10-18T01:04:36Z",
       "files_changed": 8,
       "depends_on": [],
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
-        "shell=in_progress",
-        "sidecar (windows-latest)=in_progress",
-        "ui=queued"
+        "sidecar (windows-latest)=in_progress"
       ],
       "codex_review": "failure",
       "state": "validating",
@@ -489,13 +482,8 @@
       "files_changed": 24,
       "depends_on": [],
       "conflicts_with": [],
-      "ci": "running",
-      "ci_not_green": [
-        "audit=queued",
-        "engine=in_progress",
-        "sidecar (ubuntu-latest)=in_progress",
-        "sidecar (windows-latest)=in_progress"
-      ],
+      "ci": "green",
+      "ci_not_green": [],
       "codex_review": "skipped",
       "state": "hold",
       "release": null,
@@ -517,9 +505,8 @@
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
-        "shell=queued",
-        "sidecar (ubuntu-latest)=queued",
-        "sidecar (windows-latest)=queued"
+        "sidecar (ubuntu-latest)=in_progress",
+        "sidecar (windows-latest)=in_progress"
       ],
       "codex_review": "failure",
       "state": "validating",
@@ -540,11 +527,8 @@
       "files_changed": 3,
       "depends_on": [],
       "conflicts_with": [],
-      "ci": "running",
-      "ci_not_green": [
-        "sidecar (ubuntu-latest)=in_progress",
-        "sidecar (windows-latest)=in_progress"
-      ],
+      "ci": "green",
+      "ci_not_green": [],
       "codex_review": "failure",
       "state": "validating",
       "release": "round-5",
@@ -596,11 +580,9 @@
       "ci": "running",
       "ci_not_green": [
         "agent-image=queued",
-        "audit=in_progress",
         "sbom-app=queued",
-        "shell=in_progress",
         "sidecar (ubuntu-latest)=queued",
-        "sidecar (windows-latest)=queued",
+        "sidecar (windows-latest)=in_progress",
         "ui=queued"
       ],
       "codex_review": "failure",
@@ -624,12 +606,10 @@
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
-        "audit=queued",
-        "engine=in_progress",
-        "shell=queued",
-        "sidecar (ubuntu-latest)=queued",
-        "sidecar (windows-latest)=in_progress",
-        "ui=queued"
+        "audit=in_progress",
+        "shell=in_progress",
+        "sidecar (ubuntu-latest)=in_progress",
+        "sidecar (windows-latest)=in_progress"
       ],
       "codex_review": "failure",
       "state": "validating",
@@ -652,7 +632,7 @@
       "conflicts_with": [],
       "ci": "running",
       "ci_not_green": [
-        "audit=queued",
+        "audit=in_progress",
         "sidecar (windows-latest)=in_progress"
       ],
       "codex_review": "failure",
@@ -690,6 +670,36 @@
       "state": "hold",
       "release": null,
       "next_action": "Draft: FD-124 step 4"
+    },
+    {
+      "number": 161,
+      "title": "Release management: process, status, PR template and integration trial script",
+      "workstream": "unknown",
+      "author": "KratosDataGod",
+      "source_branch": "claude/release-management-9ktwrp",
+      "target_branch": "main",
+      "head": "971f9f3",
+      "draft": true,
+      "created": "2026-10-18T01:03:18Z",
+      "updated": "2026-10-18T01:03:27Z",
+      "files_changed": 10,
+      "depends_on": [],
+      "conflicts_with": [],
+      "ci": "running",
+      "ci_not_green": [
+        "agent-image=queued",
+        "audit=queued",
+        "engine=queued",
+        "sbom-app=queued",
+        "shell=queued",
+        "sidecar (ubuntu-latest)=queued",
+        "sidecar (windows-latest)=queued",
+        "ui=queued"
+      ],
+      "codex_review": "skipped",
+      "state": "unclassified",
+      "release": null,
+      "next_action": "Classify in the next cycle"
     }
   ]
 }

@@ -358,7 +358,7 @@ function quarantinePanel(e, q) {
   const edits = {};
   const editable = new Set(q.editable || []);
   const count = h("span", { class: "muted-text" });
-  const replayBtn = btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true });
+  const replayBtn = previewMarked("replay", btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true }));
   const discardBtn = btn("Discard selected", "delete", () => discard(), "tool outline small", { disabled: true });
   const sync = () => {
     const edited = Object.keys(edits).filter((id) => Object.keys(edits[id]).length).length;
@@ -412,7 +412,7 @@ function quarantinePanel(e, q) {
   };
   const discard = async () => {
     const ids = [...picked];
-    if (!(await confirmDialog(`Discard ${ids.length} row${ids.length === 1 ? "" : "s"}?`, "They leave quarantine for good and are never loaded. Use this for test data or true duplicates.", "Discard"))) return;
+    if (!(await confirmDialog(`Discard ${ids.length} row${ids.length === 1 ? "" : "s"}?`, "They leave quarantine for good and are never loaded. Use this for test data or true duplicates.", "Discard", { danger: true }))) return;
     const res = await attempt(() => rpc("meta_discard_quarantine", { name: e.name, env, ids }), "Not discarded");
     if (res) { toast(`Discarded ${ids.length} row${ids.length === 1 ? "" : "s"}`); render(); }
   };

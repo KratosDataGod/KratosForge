@@ -145,6 +145,25 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 
 None of these run for notebooks that run in Fabric.
 
+### Failure replay bundles (Preview)
+
+When a cell fails on this PC, **Save replay bundle** under its error saves a file someone else (or you, later) can use to run the notebook again up to that cell, against the same inputs. The dialog shows exactly what goes in before anything is saved:
+
+- **Always included:** the code of the cells up to the failed one; each table the cells read, with the Delta version they read; each file under `Files/` they read, with its SHA-256; Python, the versions of the packages the cells import, and whether the kernel runs in its own process with which limits; and the error, with anything that looks like a secret and your home folder's path removed.
+- **Workspace and lakehouse IDs:** included unless you untick them. Untick them to share the bundle outside your organization. Unticked, they're also taken out of the error, the traceback, the notes and the cells' code: OneLake addresses become `abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>/...` and any other ID becomes `<id>`. If the code had them, put your own back before the replay reaches those cells. The bundle still has the lakehouse's name.
+- **A sample of the input data:** off unless you tick it. Up to 1,000 rows of each table, read at the version the cells read. The bundle then holds your data, so share it only with people allowed to see it. Your organization can turn this option off (`allow_replay_samples` in the [policy file](azure-setup.md)).
+
+The bundle is a `.zip` saved to your Downloads folder as a new file each time (`bundle.json`, plus `samples/` when you include a sample). A table's version is recorded the first time a cell reads it since the kernel started; for a table the notebook writes before reading, it's the version before that write. Code that looks like it holds a secret is removed from the bundle, so a replay may fail there.
+
+A bundle also lists what it can't promise: cells that hadn't run, ran in a different order or ran again after the failure; a file that changed on this PC after a cell read it (it has no SHA-256); and reads that didn't go through `lakehouse` (`read_table`, `sql`, `read_csv` and the like), which aren't recorded. 
+**Replaying a bundle.** **Create > Open replay bundle** lists the bundles in your Downloads folder, or choose a bundle file someone sent you. It opens the bundle's cells as a new notebook, *<notebook> replay*, with a banner at the top. Nothing runs until you click **Replay to cell N**. A replay runs the bundle's code on this PC with your sign-in, so read the cells first when the bundle came from someone else.
+
+- Replay needs **Run notebooks in their own process** (Settings > Preview features), and the bundle's lakehouse attached. A bundle saved without workspace and lakehouse IDs replays against the lakehouse you attach; check it's the same one.
+- **Replay to cell N** starts a fresh kernel process in which every table is read at the bundle's version, and every write goes to a sandbox under `Files/_fabric_desktop/proofs/replay-<id>/pc/` in the attached lakehouse, never its tables, as in a proof. Then the cells up to the failed one run as usual, so their output, variables and watches are there to debug. The banner then says whether the cell **failed the same way** (reproduced), failed with the same kind of error but another message, failed differently or earlier, or didn't fail.
+- If a table's version can no longer be read (vacuumed, or its log cleaned up), the banner says so and replay waits for you to choose: the bundle's sample (when it has one) or the table's latest version. Either is marked in the result as not the same input. Files are read as they are now; a file whose SHA-256 differs from the bundle's is listed.
+- The banner also lists how this PC's Python and packages differ from the bundle's.
+- While the replay runs, the kernel runs nothing else: other notebooks' cells wait until you click **End replay**. Restarting the kernel also ends it. A replay notebook's cells don't run outside a replay, and it can't be proven, run side by side or published, until you click **Keep as a normal notebook**. After that its cells read and write the lakehouse's tables like any notebook's.
+
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.

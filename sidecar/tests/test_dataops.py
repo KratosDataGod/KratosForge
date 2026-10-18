@@ -198,6 +198,17 @@ def test_late_tables_are_posted_to_teams_once(svc, monkeypatch):
         svc.meta_set_alerts("http://not-secure")
 
 
+def test_a_failed_freshness_post_keeps_the_webhook_signature_out(svc, monkeypatch):
+    def down(url, title, lines):
+        raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
+    monkeypatch.setattr(dataops_service, "post_teams", down)
+    svc.meta_set_alerts("https://example.webhook.office.com/workflows/x/invoke?sv=1.0&sig=SECRET123")
+    svc.meta_set_freshness("gold.fact_sales", within_hours=0.0001, envs=["dev"])
+    time.sleep(0.5)
+    out = svc.meta_freshness(notify=True)
+    assert out["alerted"] == 0 and "sig=[removed]" in out["alert_error"] and "SECRET123" not in out["alert_error"]
+
+
 def test_teams_card_shape():
     card = dataops_service.teams_card("t", ["a"])
     content = card["attachments"][0]["content"]

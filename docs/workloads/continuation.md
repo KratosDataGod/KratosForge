@@ -14,7 +14,17 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | this PR | Status update after #125, #127 and #133 merged | Docs only |
+| `claude/workload-management-plan-4su03b` | #136 | Status update after #125, #127 and #133 merged | Docs only, ready |
+| `claude/workload-agent-fields-4su03b` | agent fields | `owner`, `identity`, and each schedule's `entities` and `when` in agent status records (agreed with the roadmap thread) | Ready, on #136 |
+| `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
+| `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
+| `claude/workload-multi-worker-4su03b` | FD-124 part 1 | Shared schedules through the mailbox and `claim = "when_free"`, off by default, untested on a tenant | Draft, on 5C |
+| `claude/workload-run-as-ui-4su03b` | 9A screen | Monitor > Run as (board 10), read only | Draft, on 9A engine |
+| `claude/workload-run-as-4su03b` | 9A engine | Agents publish `credential` facts (certificate expiry, last token request); `run_as_list` (items 71, 78, 79), read only | Draft, on step 4 |
+| `claude/workload-shared-labels-4su03b` | FD-124 step 4 | Queue shows a shared schedule as one row naming its agents; agent page tags it Shared | Draft, on part 2 |
+| `claude/workload-home-unknown-4su03b` | #168 | UX-014: Home says what it couldn't check instead of "Nothing needs your attention" | Ready, on 9A screen |
+| `claude/workload-monitor-ops-4su03b` | UX-010 | Monitor has four tabs (Runs, Schedules, Operations, Cost); Operations holds Workloads, Queue, Agents, Run as, Incidents | Ready, on #168 |
+| `claude/workload-takeover-4su03b` | FD-124 part 2 | `take_over = true`: take over requests from an agent past `stale_after`, with `If-Match`; a returning agent stands down before its next table | Draft, on part 1 |
 
 ## Completed backlog items
 
@@ -22,13 +32,13 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Next action: stage 5 overlap warning (board 7's "Scheduled in two places", item 36). Agent schedules don't name their entities, so ask the roadmap thread (owner of `agent_status.py` and the status records) before adding a field. Then the queue view across locations (item 34), then FD-124 multi-worker.
-- Agent owner and identity type are not in the status records either; same question to the roadmap thread.
+- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Step 4 labels are built too (no "taken over from" label: it would need the app to read mailbox status files). Governance split agreed 2026-10-18: this program has items 71, 78 and 79; the governance thread has 72 to 75 and 80, and wants 71 and 78 as queryable data (`run_as_list`). Chris chose "In Operations" for Run as (2026-10-18), so this program owns UX-010, the Monitor restructure (UX thread mockup https://claude.ai/artifact/YDTVabyWUFLNLMDaNLWRJ3, artboard 2). Next action: cost allocation on FinOps #153's `cost_report.usage.by_run`.
+- The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
-- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
+- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `workloads/platform_notify.py` + `platform_notify_service.py` (governance's request/shortcut notices), `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
 
 ## Assumptions and decisions
 
@@ -62,6 +72,8 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - Everything is Preview until tried on a tenant; code signing and a tenant smoke test remain Chris's (project memory). OneLake If-Match on control files is the thing to confirm live (agent.md, Verify step 7).
 
 ## Next action
+
+Cost allocation on FinOps #153's `cost_report.usage.by_run`, then item 76 (audit trail for workload actions). Older notes:
 
 Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chris reacts to boards 7 and 8, adjust 5A and mark it ready. Then the rest of stage 5 (overlap warnings, queue view across locations; the roadmap thread owns agent status records, so ask it before adding fields), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
 

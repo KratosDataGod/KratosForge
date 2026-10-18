@@ -12,6 +12,8 @@ from deltalake import write_deltalake
 
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.installation import Installation
+from fabric_desktop.meta.store import LocalStore
+from fabric_desktop import retrying
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.optimize.registry import Registry
 
@@ -85,6 +87,41 @@ def test_two_installations_initialize_at_once(tmp_path, lake):
     assert len(lake.rows("fdopt_config")) == len(schema.DEFAULT_CONFIG)
     assert len(lake.rows("fdopt_installations")) == 4
 
+
+
+WINDOWS_RACE = OSError(
+    "Generic LocalFileSystem error: Unable to open file C:\\lh\\Tables\\dbo\\fdopt_dependencies\\_delta_log"
+    "\\00000000000000000000.json#1: Access is denied. (os error 5)")
+
+
+def test_windows_delta_log_race_is_retried(lake, monkeypatch):
+    # On Windows a second writer can briefly be refused the log file the first is renaming.
+    calls = []
+    real = LocalStore.create_if_absent
+
+    def flaky(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise WINDOWS_RACE
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(LocalStore, "create_if_absent", flaky)
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    assert lake.create("fdopt_config", {schema.KEY: pl.String}) is True
+    assert len(calls) == 2 and lake.has("fdopt_config")
+
+
+def test_other_errors_are_not_retried(lake, monkeypatch):
+    calls = []
+
+    def broken(self, *args, **kwargs):
+        calls.append(1)
+        raise OSError("Access is denied. (os error 5)")  # not the Delta log race
+
+    monkeypatch.setattr(LocalStore, "create_if_absent", broken)
+    with pytest.raises(OSError):
+        lake.create("fdopt_config", {schema.KEY: pl.String})
+    assert len(calls) == 1
 
 def test_unrelated_tables_are_left_alone(tmp_path, lake):
     other = lake.uri("optimization", "dbo", "sales")

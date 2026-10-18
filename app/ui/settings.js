@@ -54,6 +54,7 @@ async function signOut() {
   await attempt(() => rpc("sign_out"), "Sign-out failed");
   await invoke("fabric_view_sign_out").catch(() => {});
   Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
+  try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
   toast("Signed out");
   go("home");
 }
@@ -90,6 +91,12 @@ function redactReport(text, level = "support") {
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
+    .replace(/https:\/\/[A-Za-z0-9.\-]+\.webhook\.office\.com\/[^\s"'<>]+/g, "[removed]")
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
+    .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
     .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
@@ -243,7 +250,8 @@ async function renderSettings() {
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
     settingRow("Show features in preview",
-      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.values(PREVIEW_FEATURES).join(", ")}.`,
+      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.entries(PREVIEW_FEATURES).filter(([id]) => !PREVIEW_ALWAYS_SHOWN.includes(id)).map(([, name]) => name).join(", ")}. `
+        + `${PREVIEW_ALWAYS_SHOWN.map((id) => PREVIEW_FEATURES[id]).join(", ")} are core steps: they stay visible, tagged Preview, either way.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
       s.show_preview.source === "policy" ? "policy" : null),
@@ -319,6 +327,8 @@ async function renderSettings() {
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);
+  const optimize = previewShown() ? await optimizeSettingsSection() : null;
+  if (state.view === "settings" && optimize) notify.before(optimize);
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -449,7 +459,7 @@ function writeTestDialog(done) {
     const result = await attempt(() => rpc("readiness_write_test",
       { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace_name: ws.textContent }), "Write test");
     closeDialog();
-    if (result) done(result);
+    done(result, { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace: ws.textContent });  // no result: refused or failed
   }, "tool primary", { disabled: true });
   const canGo = () => { start.disabled = !(wsSelect.value && lhSelect.value); };
   wsSelect.addEventListener("change", async () => {
@@ -476,13 +486,38 @@ function writeTestDialog(done) {
   }).catch((err) => { why.textContent = friendlyError(err).text; });
 }
 
+// A passed write test is remembered for a week, for the same account, tenant and lakehouse, so Home
+// doesn't ask for it on every visit (#191). A failed or refused test and signing out forget it.
+const WRITE_PASS_DAYS = 7;
+
+function savedWriteRow(saved, user, tenant, now = Date.now()) {
+  if (!saved || !user || saved.user !== user || saved.tenant !== tenant || !saved.lakehouse_id) return null;
+  const at = Date.parse(saved.at);
+  if (Number.isNaN(at) || now - at > WRITE_PASS_DAYS * 86400000 || at > now) return null;
+  return { key: "write", title: "Writing to OneLake", status: "ok",
+    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${new Date(at).toLocaleDateString()}. Checked again after ${WRITE_PASS_DAYS} days.` };
+}
+
+function rememberWrite(row, target) {
+  try {
+    if (row?.status === "ok" && target?.lakehouse_id && state.user) {
+      localStorage.setItem("fd.ready.write", JSON.stringify({ user: state.user, tenant: state.tenant || null, ...target,
+        at: new Date().toISOString() }));
+    } else localStorage.removeItem("fd.ready.write");
+  } catch { /* not remembered */ }
+}
+
 function readinessCard() {
   let hidden = false;
   try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
   if (hidden) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
+  try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
+  let lastRows = [];
+  const retest = () => writeTestDialog((r, target) => { rememberWrite(r, target); writeRow = r || null; draw(lastRows, "just now"); });
   const draw = (rows, checkedAt) => {
+    lastRows = rows;
     const all = writeRow ? [...rows, writeRow] : rows;
     const good = all.filter((r) => r.status === "ok").length;
     const head = h("div", { class: "row" }, h("h2", { class: "grow", id: "ready-title" }, "Ready to work"),
@@ -491,18 +526,19 @@ function readinessCard() {
       btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
     if (rows.every((r) => r.status === "ok") && writeRow?.status === "ok") {
       box.replaceChildren(h("div", { class: "row" }, icon("ok", 18), h("b", { class: "grow" }, "Ready to work."),
-        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small")));
+        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small"),
+        btn("Test again", null, retest, "tool link small")));
       return;
     }
     const capacityOk = rows.find((r) => r.key === "capacity")?.status === "ok";
     const write = writeRow || { key: "write", title: "Writing to OneLake", status: "wait",
       text: capacityOk ? "Not checked. It writes a small test file, so it waits until you ask."
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
-    const tester = btn("Test a write", null, () => writeTestDialog((r) => { writeRow = r; draw(rows, "just now"); }),
+    const tester = btn(writeRow?.status === "ok" ? "Test again" : "Test a write", null, retest,
       "tool outline small", { disabled: capacityOk ? null : true });
     box.replaceChildren(head,
       h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
-      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, write.status === "ok" ? null : tester)),
+      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
       h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
   };
   async function run() {

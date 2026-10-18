@@ -14,10 +14,12 @@ from .optimize import setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
+from .optimize.shared import Shared
 
 DEFAULT_NAME = "FabricDesktop_Optimization"
 METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
-           "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label"}
+           "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
+           "optimize_findings", "optimize_recommendations", "optimize_set_recommendation"}
 
 
 class OptimizeMixin:
@@ -125,3 +127,31 @@ class OptimizeMixin:
     def optimize_set_label(self, label: str) -> dict[str, Any]:
         self.optimize_installation.set_label(label)
         return {"label": self.optimize_installation.label}
+
+    # The shared results (optimize/shared.py)
+
+    def _optimize_shared(self) -> Shared:
+        self._optimize_allowed()
+        conn = self.optimize_registry.active()
+        if not conn:
+            raise ValueError("Connect this PC to an optimization lakehouse first (Settings > Optimize lakehouses).")
+        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
+        return Shared(lake, self.optimize_installation, access=conn.get("access") or "none")
+
+    def _optimize_workspaces(self) -> set[str]:
+        """The workspaces the signed-in person can open in Fabric: results about items anywhere
+        else aren't shown to them."""
+        return {w["id"] for w in self.fabric.list_workspaces() if w.get("id")}
+
+    def optimize_findings(self) -> list[dict[str, Any]]:
+        """Problems found by every installation, one per problem, for items the person can open."""
+        return self._optimize_shared().findings(self._optimize_workspaces())
+
+    def optimize_recommendations(self, include_closed: bool = False) -> list[dict[str, Any]]:
+        """Recommendations at their latest state, for items the person can open."""
+        return self._optimize_shared().recommendations(self._optimize_workspaces(), include_closed=include_closed)
+
+    def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
+        """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""
+        return self._optimize_shared().set_recommendation_state(recommendation_id, state, reason,
+                                                               self._optimize_workspaces())

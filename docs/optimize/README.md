@@ -10,6 +10,10 @@ Optimize keeps optimization results in one Microsoft Fabric lakehouse that every
 - If you need separate boundaries, such as business units, regulated data or separate environments, use separate optimization lakehouses. Each installation is connected to one at a time and can switch between the ones it knows.
 - The default name is `FabricDesktop_Optimization`. It is a separate item from the platform's `LH_Meta`.
 
+## Where it is in the app
+
+**Optimize** in the left rail (Preview), in the place the Fabric page had; the Fabric portal is now a tab of Workspaces. It has three tabs: **Overview**, **Opportunities** and **Cost and savings** ([user guide](../user-guide.md#optimize-preview)). The lakehouses this PC uses are in **Settings > Optimize lakehouses**.
+
 ## Setting it up
 
 The first person creates the lakehouse: they pick a workspace and a name, and the app does the rest. It creates the lakehouse, creates the tables, records the schema version and default settings, checks it can read and write, and remembers the connection on that PC. Nobody runs SQL or creates tables by hand.
@@ -52,7 +56,7 @@ Each installation writes rows into the shared tables. Every row records which in
 | `app_version` | `0.20.0` | The engine version that wrote the row |
 | `created_at`, `registered_at` | `2026-10-18T09:30:00+00:00` | When the row was written |
 
-Later releases add findings, measurements and local run records. Those rows hold Fabric workspace and item ids, and the workspace, lakehouse, table and item names they are about. **Names are identifying**: anyone who can read the lakehouse can read them. **SQL text and code are never written.** Only fingerprints of them are stored (the `store_sql_text` setting is `never`).
+Analysis runs add the Fabric items they looked at, the problems found and the recommendations made; later releases add measurements and local run records. Those rows hold Fabric workspace and item ids, and the workspace, lakehouse, table and item names they are about. **Names are identifying**: anyone who can read the lakehouse can read them. **SQL text and code are never written.** Only fingerprints of them are stored (the `store_sql_text` setting is `never`).
 
 ## Who can see what
 
@@ -66,9 +70,20 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 
 - **Insert only.** No installation updates or deletes a shared row. A change, such as a recommendation being accepted, is a new row, and the latest row wins.
 - **No duplicates.** Every row has a `record_id` worked out from what it records. Rows are written with an insert-only Delta MERGE on it, so a retry or a second sync adds nothing.
+- **Bounded batches.** Rows go in batches of at most 5,000, one commit each. A batch that fails after its retries stops the write; the batches before it stay, and writing again adds only what's missing.
 - **Bounded retries.** A commit that loses a race with another installation, throttling or a network blip is retried up to five times with growing waits. A permission error is never retried.
 - **Race-safe setup.** Two installations setting up the same lakehouse at once end up with one set of tables and one schema version row.
 - **Recoverable migrations.** A migration only adds tables or columns, and each step can safely run again. Its version is recorded only after every step succeeded, so a migration that stopped part way finishes the next time.
+
+## Findings and recommendations
+
+Every installation adds what its analysis finds to the shared lakehouse, and everyone connected sees the combined picture.
+
+- **One finding per problem.** A problem is identified by the rule that found it, the Fabric item (by workspace and item id) and what in it the rule looked at, such as a table. When several PCs find the same problem it shows once, with when it was first and last seen, in how many analysis runs and by how many installations.
+- **A run counts once it's complete.** An analysis run's own row is written after its findings. If a PC loses its connection part way, nothing from that run shows until it's recorded again, and recording it again adds only the rows that are missing.
+- **One recommendation per problem and kind of fix**, opened by whichever installation sees it first. Accepting, applying, dismissing or reopening it is recorded as a change with who made it, when and why, and everyone sees the latest. A dismissed recommendation stays dismissed when the problem is seen again; someone has to reopen it.
+- **Allowed changes.** Open can become accepted, applied, dismissed or superseded. Accepted can become applied, dismissed or open again. Applied can become verified or open again. Dismissed and verified can only be reopened. Superseded is final.
+- **Only items you can open.** Findings and recommendations about items in workspaces you can't open in Fabric aren't shown to you. This is a courtesy, not security: anyone who can read the lakehouse can read every row ([Who can see what](#who-can-see-what)).
 
 ## The tables
 

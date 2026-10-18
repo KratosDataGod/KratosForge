@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -38,6 +39,10 @@ class _AppCredential:
 
     tenant_id: str | None = None
     name = "app"
+    # The last token request, for the agent's status record (credential_facts.py): when one last
+    # succeeded, and (when, error) if the latest failed. Never the token.
+    last_token_at: float | None = None
+    last_token_error: tuple[float, str] | None = None
 
     def __init__(self) -> None:
         self._lock = threading.Lock()  # MSAL apps aren't safe to call from several threads at once
@@ -47,11 +52,16 @@ class _AppCredential:
 
     def _token(self, scopes: list[str]) -> str:
         scope = default_scope(scopes)
-        with self._lock:
-            result = self._acquire(scope)
-        if "access_token" not in result:
-            raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
-                               f"{result.get('error')}: {result.get('error_description')}")
+        try:
+            with self._lock:
+                result = self._acquire(scope)
+            if "access_token" not in result:
+                raise RuntimeError(f"{self.name} couldn't get a token for {scope}: "
+                                   f"{result.get('error')}: {result.get('error_description')}")
+        except Exception as exc:
+            self.last_token_error = (time.time(), f"{type(exc).__name__}: {exc}")
+            raise
+        self.last_token_at, self.last_token_error = time.time(), None
         return result["access_token"]
 
     def fabric_token(self) -> str:

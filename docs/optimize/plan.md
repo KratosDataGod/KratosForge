@@ -65,9 +65,9 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 | PR | Content | UI? |
 | --- | --- | --- |
-| OPT-001a (built) | `optimize/` package: schema, local store (works offline, tests on local Delta), migrations, initialize/attach/validate against a Lakehouse path. Engine only. | No |
-| OPT-001b | Set up Optimize screen + Optimize page shell, after the mockup | Yes, mockup first |
-| OPT-002 | Shared read/write service, dedup, concurrency tests (two writers on one table) | No |
+| OPT-001a (merged, #186) | `optimize/` package: schema, local store (works offline, tests on local Delta), migrations, initialize/attach/validate against a Lakehouse path. Engine only. | No |
+| OPT-001b (built) | Optimize rail page in the Fabric page's slot (Fabric portal becomes a Workspaces tab): set-up card that doesn't block, Overview, Opportunities with the shared recommendation lifecycle, Cost and savings (Monitor's Cost panel without Fabric's Monitoring hub); Settings > Optimize lakehouses. X-ray moving into Opportunities (mockup boards 7 and 8) is the next UI PR | Yes |
+| OPT-002 (merged, #189) | Shared read/write service (`optimize/shared.py`): stable ids, bounded batches, run row written last, findings deduplicated by fingerprint, recommendation lifecycle as events, reads scoped to the person's workspaces; concurrency tests with four writers | No |
 | OPT-006 | Offline queue and sync status (SQLite queue, backoff, partial sync) | Small |
 | OPT-007 | Multiple Lakehouses: register, switch, validate, upgrade, disconnect | Settings |
 | OPT-003 | Local execution recording from the engines in section 1 | No |

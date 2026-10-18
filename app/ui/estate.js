@@ -444,7 +444,7 @@ function usagePreview(p, choose) {
       cols?.ignored?.length ? row("Not used", cols.ignored.filter((c) => !cols.not_stored.includes(c)).join(", ")) : null,
       p.rows_read !== undefined ? row("Rows", `${p.rows_read} read · ${p.to_import} to import` +
         (p.already_imported ? ` · ${p.already_imported} already imported` : "")
-          + (p.replaces_earlier ? ` · ${p.replaces_earlier} replace the same days from an earlier import` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
+          + (p.replaces_earlier ? ` · ${p.replaces_earlier} for days an earlier import also has (the export that reaches the later day counts)` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
       p.period?.start ? row("Period", `${new Date(p.period.start).toLocaleString()} to ${new Date(p.period.end || p.period.start).toLocaleString()}`) : null,
       p.workspaces?.length ? row("Workspaces", p.workspaces.join(", ")) : null,
       p.capacities?.length ? row("Capacities", p.capacities.join(", ")) : null,

@@ -193,7 +193,8 @@
       "next_action": "Keep; add keyboard tests for the command bar.",
       "backlog": [
         "PB-063",
-        "PB-070"
+        "PB-070",
+        "PB-102"
       ]
     },
     {
@@ -276,7 +277,8 @@
       ],
       "next_action": "Feed incidents and agent status into the bell once incident screens exist (PB-047).",
       "backlog": [
-        "PB-047"
+        "PB-047",
+        "PB-102"
       ]
     },
     {

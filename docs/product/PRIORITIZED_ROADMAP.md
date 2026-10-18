@@ -145,7 +145,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 
-### P1 (28 items)
+### P1 (29 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -160,6 +160,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-096](PRODUCT_BACKLOG.md#pb-096) | Run the AI client checklist for each named tool | 3 | 1 | 3 | 3 | 4 | 1 | 1 | 2.75 | 1.0 | 2.75 | none | S | High | PB-095 | Bring your own AI integration |
 | [PB-014](PRODUCT_BACKLOG.md#pb-014) | AST-based compatibility analyzer with an Unknown outcome | 4 | 4 | 3 | 4 | 5 | 3 | 2 | 3.9 | 2.5 | 2.73 | none | M | Medium | PB-013 | Prove |
 | [PB-022](PRODUCT_BACKLOG.md#pb-022) | Fabric SQL dialect compatibility analyzer | 4 | 4 | 3 | 4 | 5 | 3 | 2 | 3.9 | 2.5 | 2.73 | none | M | Medium | none | SQL development sprint |
+| [PB-102](PRODUCT_BACKLOG.md#pb-102) | UX and simplicity program | 5 | 1 | 4 | 4 | 5 | 3 | 2 | 3.8 | 2.5 | 2.66 | none | XL | Medium | none | UX and simplicity oversight |
 | [PB-098](PRODUCT_BACKLOG.md#pb-098) | One list of engine methods | 2 | 1 | 4 | 2 | 4 | 1 | 1 | 2.6 | 1.0 | 2.6 | none | S | Medium | PB-095 | Bring your own AI integration |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | 4 | 2 | 3 | 2 | 5 | 2 | 2 | 3.2 | 2.0 | 2.56 | required | M | High | none | Master product (unassigned) |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | 2 | 1 | 4 | 1 | 4 | 1 | 1 | 2.45 | 1.0 | 2.45 | required | S | High | none | Codebase audit and hardening |

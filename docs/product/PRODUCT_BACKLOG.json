@@ -2363,6 +2363,7 @@
       "state": "Proposed",
       "mandatory_reason": "Enterprise procurement often requires an accessibility conformance statement.",
       "external_dependencies": [
+        "Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102)",
         "Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
@@ -2757,6 +2758,7 @@
       "state": "Proposed",
       "mandatory_reason": "A frozen app with no way out is the most visible reliability failure.",
       "external_dependencies": [
+        "Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102)",
         "Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
@@ -2929,6 +2931,9 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)"
+      ],
       "package": "docs/product/pr-ready/PB-077.md",
       "computed": {
         "benefit": 2.45,
@@ -2969,6 +2974,9 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.",
+      "external_dependencies": [
+        "Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)"
+      ],
       "package": "docs/product/pr-ready/PB-078.md",
       "computed": {
         "benefit": 2.45,
@@ -3253,6 +3261,9 @@
       "state": "In review",
       "prs": [
         94
+      ],
+      "external_dependencies": [
+        "Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)"
       ],
       "computed": {
         "benefit": 3.05,
@@ -3812,6 +3823,7 @@
       "confidence": "Low",
       "state": "In progress",
       "external_dependencies": [
+        "Overlaps UX-004 screens for local data projects (Local data engine) (UX and simplicity backlog, PB-102)",
         "Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)"
       ],
       "priority_override": {
@@ -3911,6 +3923,50 @@
         "cost": 3.5,
         "score": 1.75,
         "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-102",
+      "title": "UX and simplicity program",
+      "category": "Developer Experience and Productivity",
+      "problem": "Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.",
+      "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..020, specs in docs/ux/backlog.md, PR #166); not restated here. Items it routes to other programs are built by those owners.",
+      "evidence": [
+        "UX audit by the oversight thread, 2026-10-18 (PR #166)"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-SHL-06"
+      ],
+      "acceptance": [
+        "As defined in UX-001..020 by its owning thread",
+        "Routed items follow the owner named in docs/ux/backlog.md"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "owner": "UX and simplicity oversight",
+      "source_refs": [
+        "UX-001..020"
+      ],
+      "duplicates": [
+        "Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "computed": {
+        "benefit": 3.8,
+        "cost": 2.5,
+        "score": 2.66,
+        "priority": "P1"
       }
     }
   ]

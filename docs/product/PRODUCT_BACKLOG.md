@@ -34,7 +34,7 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
 | Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
 | Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
-| UX and simplicity oversight | none yet | Its project thread (docs/ux/): UX audit and simplicity scorecard; its backlog ids are recorded here when it sends them |
+| UX and simplicity oversight | UX-001..020 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,
@@ -68,12 +68,12 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 0 | 6 |
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 0 | 3 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 2 | 6 | 0 | 8 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 2 | 5 | 1 | 8 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 5 | 1 | 9 |
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 3 | 5 | 2 | 10 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **4** | **28** | **47** | **10** | **89** |
+| **Total** | **4** | **29** | **47** | **10** | **90** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -180,7 +180,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).
 - **Current-state evidence:** DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py); Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
-- **Dependencies:** Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)
+- **Dependencies:** Overlaps UX-004 screens for local data projects (Local data engine) (UX and simplicity backlog, PB-102), Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Local data engine and OneLake publishing (FD-LDE-001..020)
 - **Priority set by the product owner:** P0 (Chris (product owner), 2026-10-17): Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size
 - **Merged duplicates:** Overlaps PB-021..PB-025 and PB-020 (SQL sprint: SQL editor, dialect, execution, connectivity, local Warehouse); Overlaps PB-015 (local Delta writes), PB-019 (incremental), PB-067 (large datasets), PB-050/PB-090 (FinOps), PB-079 (TOML job runner) and the metadata framework
@@ -811,6 +811,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | In review |
 | [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Proposed |
 | [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In review |
+| [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 
 ### PB-034
 
@@ -847,7 +848,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Each mismatch fixed in the docs, with a doc-claims checklist added to the review template.
 - **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06
 - **Inventory features:** [FEAT-SHL-10](FEATURE_INVENTORY.md#feat-shl-10), [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04), [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)
 - **Owner:** Master product (unassigned)
 - **Implementation package:** [pr-ready/PB-077.md](pr-ready/PB-077.md)
 - **Acceptance criteria:**
@@ -862,7 +863,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A PREVIEW_FEATURES id for each, or the docs changed where the feature is not exposed in the UI.
 - **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels
 - **Inventory features:** [FEAT-SHL-05](FEATURE_INVENTORY.md#feat-shl-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.
 - **Implementation package:** [pr-ready/PB-078.md](pr-ready/PB-078.md)
@@ -892,7 +893,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Built by the enterprise program as FD-136 (PR #94).
 - **Current-state evidence:** PR #94 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-04](FEATURE_INVENTORY.md#feat-adm-04)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)
 - **Owner:** Enterprise readiness (FD-136)
 - **Pull requests:** [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94)
 - **Acceptance criteria:**
@@ -925,6 +926,21 @@ review moves it to Accepted; a merge alone does neither.
 - **Pull requests:** [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
 - **Acceptance criteria:**
     - As defined by its owning thread
+
+### PB-102
+
+**UX and simplicity program** · P1 (score 2.66) · XL · confidence Medium · In progress
+
+- **Problem:** Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.
+- **Proposed capability:** Owned and specified by the UX and simplicity oversight thread (UX-001..020, specs in docs/ux/backlog.md, PR #166); not restated here. Items it routes to other programs are built by those owners.
+- **Current-state evidence:** UX audit by the oversight thread, 2026-10-18 (PR #166)
+- **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
+- **Dependencies:** none
+- **Owner:** UX and simplicity oversight (UX-001..020)
+- **Merged duplicates:** Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)
+- **Acceptance criteria:**
+    - As defined in UX-001..020 by its owning thread
+    - Routed items follow the owner named in docs/ux/backlog.md
 
 ## Enterprise Administration and FinOps
 
@@ -1285,7 +1301,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A Narrator and keyboard audit on Windows with fixes.
 - **Current-state evidence:** app/tests/ui.test.cjs static checks
 - **Inventory features:** [FEAT-SHL-07](FEATURE_INVENTORY.md#feat-shl-07), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
-- **Dependencies:** Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)
+- **Dependencies:** Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102), Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-139)
 - **Mandatory (required):** Enterprise procurement often requires an accessibility conformance statement.
 - **Acceptance criteria:**
@@ -1449,7 +1465,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Concurrent or cancellable long calls with time limits.
 - **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03)
-- **Dependencies:** [PB-071](#pb-071), Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)
+- **Dependencies:** [PB-071](#pb-071), Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102), Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** A frozen app with no way out is the most visible reliability failure.
 - **Acceptance criteria:**

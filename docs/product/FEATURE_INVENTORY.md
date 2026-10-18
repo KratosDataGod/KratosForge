@@ -332,7 +332,7 @@ on quality.
 - **Tests:** `app/tests/ui.test.cjs`
 - **Docs:** [docs/ui-guidelines.md](../ui-guidelines.md), [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** The rail is full (8 of 8); new features must live inside existing pages. Command bar listbox has no aria-activedescendant (inference).
-- **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063), [PB-070](PRODUCT_BACKLOG.md#pb-070)
+- **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063), [PB-070](PRODUCT_BACKLOG.md#pb-070), [PB-102](PRODUCT_BACKLOG.md#pb-102)
 - **Recommended next action:** Keep; add keyboard tests for the command bar.
 
 ### FEAT-SHL-05
@@ -362,7 +362,7 @@ on quality.
 - **Tests:** `app/tests/ui.test.cjs`
 - **Known limitations:** Tray lives in this webview's localStorage only (80 items). Not fed by incidents or agent status.
 - **Pull requests and issues:** [#122](https://github.com/KratosDataGod/fabric-desktop/pull/122)
-- **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047)
+- **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-102](PRODUCT_BACKLOG.md#pb-102)
 - **Recommended next action:** Feed incidents and agent status into the bell once incident screens exist (PB-047).
 
 ### FEAT-SHL-07

@@ -101,6 +101,7 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #215 | Keep webhook signatures out of freshness and agent alert errors (QA-031) | PASS | 9.2 | None. Closes QA-031 |
 | #214 | Optimize uses the shared Windows Delta log retry (follow-up to #210) | PASS | 9.2 | None. Its own copy is removed; three wrapped calls now retry at two levels, still bounded |
 | #213 | Keep punctuation after a scrubbed OneLake address (follow-up to #142) | PASS | 9.2 | None |
 | #212 | Danger confirm for metadata deletes and quarantine discard (UX-018) | PASS | 9.1 | None. UX-018 stays open for the other call sites |

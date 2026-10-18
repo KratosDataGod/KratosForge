@@ -27,15 +27,16 @@ const ACCESS_CACHE_FILTERS = [
 
 const accessCachePage = { data: null, filter: "all", query: "", open: null, busy: false };
 
-// A call that may answer "... Confirm to continue.": ask with that text, then call again with approve.
-async function withConfirm(method, params, title, okLabel) {
+// A call that may answer "... Confirm to continue.": ask with that text, then call again with approve
+// (and, with sendShown, the text the person saw, so a plan that changed since is refused).
+async function withConfirm(method, params, title, okLabel, sendShown = false) {
   try {
     return await rpc(method, params);
   } catch (err) {
-    const text = String(err?.message || err);
+    const text = String(err?.message || err).replace(/^[A-Za-z]*Error: /, "");  // the sidecar prefixes the type
     if (!text.includes("Confirm to continue")) throw err;
     if (!(await confirmDialog(title, text.replace(/\s*Confirm to continue\.?\s*$/, "."), okLabel))) return undefined;
-    return rpc(method, { ...params, approve: true });
+    return rpc(method, { ...params, approve: true, ...(sendShown ? { shown: text } : {}) });
   }
 }
 
@@ -76,7 +77,7 @@ async function protectAccessCache(conn) {
     if (!chosen.length) return toast("Add at least one person or group", true);
     closeDialog();
     const res = await attempt(() => withConfirm("access_cache_protect", { members: chosen.map((p) => p.id) },
-      "Change who reads the access cache?", "Change"), "Access cache not protected");
+      "Change who reads the access cache?", "Change", true), "Access cache not protected");
     if (res) toast(res.changed ? "Only the people you chose read the access cache now" : "Already set up that way", false, { log: true });
   }, "tool primary")]);
 }

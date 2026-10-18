@@ -32,19 +32,27 @@ const CACHE = {
 
 let app;
 let refreshes;
+let protects;
 
 before(async () => {
   if (skip) return;
   refreshes = [];
+  protects = [];
   app = await openApp({
     mocks: {
       access_cache: () => CACHE,
       access_cache_refresh: (p) => {
         refreshes.push(p);
-        if (!p.approve) throw new Error("The access cache's tables aren't set up in the central lakehouse. Confirm to continue.");
+        if (!p.approve) throw new Error("PermissionError: The access cache's tables aren't set up in the central lakehouse. Confirm to continue.");
         return { checked: 5, changed: 2, problems: 1, at: ago(0) };
       },
       catalog: () => ({ items: [], workspaces: [] }),
+      access_find_person: ({ text }) => ({ id: "obj-admins", name: text, email: "", type: "Group" }),
+      access_cache_protect: (p) => {
+        protects.push(p);
+        if (!p.approve) throw new Error("PermissionError: DefaultReader no longer reads /Tables/access; it keeps its members; New role AccessCacheReaders reads /Tables/access. Confirm to continue.");
+        return { changed: true, changes: [] };
+      },
     },
   });
   await app.page.waitForFunction(() => typeof renderAccessAll === "function");
@@ -79,6 +87,20 @@ test("refresh asks before setting up the cache, then refreshes with approval", {
   await page().getByRole("button", { name: "Set up and refresh" }).click();
   await page().waitForFunction(() => document.body.textContent.includes("2 changed"));
   assert.deepStrictEqual(refreshes.map((r) => !!r.approve), [false, true]);
+});
+
+test("who may read it shows the plan and sends back exactly what the person saw", { skip }, async () => {
+  await page().getByRole("button", { name: "Who may read it" }).click();
+  await page().getByLabel("Add someone").fill("Platform admins");
+  await page().getByRole("button", { name: "Add", exact: true }).click();
+  await page().getByRole("button", { name: "Continue" }).click();
+  await page().waitForSelector("text=Change who reads the access cache?");
+  assert.ok(!(await page().locator("#dialog-root").textContent()).includes("PermissionError"));
+  await page().getByRole("button", { name: "Change", exact: true }).click();
+  await page().waitForFunction(() => document.body.textContent.includes("Only the people you chose"));
+  assert.strictEqual(protects.length, 2);
+  assert.ok(protects[1].approve && protects[1].shown.startsWith("DefaultReader no longer reads /Tables/access; it keeps"));
+  assert.ok(protects[1].shown.endsWith("Confirm to continue."));
 });
 
 test("a guided fix opens the workspace in Environments", { skip }, async () => {

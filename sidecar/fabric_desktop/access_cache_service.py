@@ -16,6 +16,7 @@ from . import access as access_mod
 from . import access_cache as cache
 from .auth import ONELAKE_SCOPES
 from .optimize import setup
+from .optimize_service import CHANGED_SINCE
 
 METHODS = {"access_cache", "access_cache_refresh", "access_cache_protect"}
 
@@ -95,11 +96,18 @@ class AccessCacheMixin:
         return {"checked": len(run.scans), "changed": run.changed,
                 "problems": sum(s["state"] == "error" for s in run.scans) + unlisted, "at": run.at}
 
-    def access_cache_protect(self, members: list[str], approve: bool = False) -> dict[str, Any]:
+    def access_cache_protect(self, members: list[str], approve: bool = False, shown: str | None = None) -> dict[str, Any]:
         """Keep the cache from everyone who reads the central lakehouse through DefaultReader, and let
         ``members`` (Entra object ids) read it through AccessCacheReaders. Without ``approve`` it
-        changes nothing and raises with the planned change, ending "Confirm to continue."."""
+        changes nothing and raises with the planned change, ending "Confirm to continue.". ``shown``
+        is that message as the person saw it: if the plan has changed since, nothing is changed."""
         members = [m.strip() for m in members or [] if m and m.strip()]
         if not members:
             raise ValueError("Pick at least one person or group who may read the access cache.")
+        if approve and shown is not None:
+            try:
+                return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members)  # type: ignore[attr-defined]
+            except PermissionError as exc:  # the plan, as it would be shown now
+                if str(exc) != shown:
+                    raise PermissionError(CHANGED_SINCE) from None
         return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, approve)  # type: ignore[attr-defined]

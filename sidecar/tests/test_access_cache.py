@@ -61,7 +61,11 @@ class FakeOneLake:
             raise RuntimeError("429 Too many requests")
         return list(self.roles.get(item, []))
 
-    def put_data_access_roles(self, ws, item, roles):
+    def list_data_access_roles_tagged(self, ws, item):
+        return self.list_data_access_roles(ws, item), f'"v{len(self.puts)}"'
+
+    def put_data_access_roles(self, ws, item, roles, etag=None):
+        assert etag == f'"v{len(self.puts)}"', "the write must carry the ETag of the read before it"
         self.puts.append((item, roles))
         self.roles[item] = roles
 
@@ -106,10 +110,13 @@ def test_protect_asks_then_keeps_the_cache_from_default_reader(svc):
     svc.access_cache_refresh(approve=True)
     with pytest.raises(ValueError, match="at least one"):
         svc.access_cache_protect([" "])
-    with pytest.raises(PermissionError, match="/Tables/access.*Confirm to continue"):
+    with pytest.raises(PermissionError, match="/Tables/access.*Confirm to continue") as asked:
         svc.access_cache_protect(["obj-admins"])
     assert svc.onelake.puts == []  # asking changes nothing
-    out = svc.access_cache_protect(["obj-admins"], approve=True)
+    with pytest.raises(PermissionError, match="changed since"):
+        svc.access_cache_protect(["obj-admins"], approve=True, shown="a plan the person didn't see")
+    assert svc.onelake.puts == []
+    out = svc.access_cache_protect(["obj-admins"], approve=True, shown=str(asked.value))
     assert out["changed"] and out["family_path"] == "/Tables/access"
     item, roles = svc.onelake.puts[0]
     assert item == "lh-central" and [r["name"] for r in roles] == ["DefaultReader", "AccessCacheReaders"]

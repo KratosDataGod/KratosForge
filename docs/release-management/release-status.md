@@ -44,7 +44,13 @@ Stable blockers first, then small fixes and docs, then UI changes as a chain. Ch
 5. UI chain: #170, #169, #171, #173. They conflict only on appended tests, so either each owner merges `main` in after the one before lands, or the four branches are chained (each merges the previous) so one CI round proves them all
 6. This page: #161
 
-Then, as each one's CI goes green: #139 and #150 (same `audit.py` `READ_ONLY` line, so whichever merges second needs `main` again), #181, #142 then #148, and the FinOps stack #153, #167, #174. #175 and #153 both edit the last paragraph of `docs/finops/cost-evidence.md`; keep both sentences, Prove's first.
+Follow-on PRs, trialled after the batch on `5f4407b`. Each merges cleanly onto `main` today, but most conflict with a PR ahead of them, so each owner merges `main` in again once the PR it names has landed:
+
+7. #181 and #189: no conflicts
+8. #142 then #148 (Prove): after #178 (`ui.test.cjs`) and #175 (`docs/prove/continuation.md`)
+9. #139 (local data engine): after #166 (`README.md`)
+10. #150 (ORCH): after #139 and #166 (the `audit.py` `READ_ONLY` line and `README.md`)
+11. #153, #167, #174 (FinOps): after #150 (`audit.py`; #174 also `integrations/services.py`) and #175 (`docs/finops/cost-evidence.md`: keep both sentences, Prove's first)
 
 ## Release risks found in this audit
 

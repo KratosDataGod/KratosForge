@@ -68,24 +68,16 @@ class LocalLakehouse(_Tables, LocalStore):
         return str(self.root / "Tables" / (f"{schema_}/{table}" if self.schemas else table))
 
     # Two installations sharing a folder on Windows can hit the Delta log race (retrying.windows_log_race).
-    # LocalStore covers its own repeat-safe calls; these also cover exists, scan and the add-columns append.
+    # LocalStore already retries read, create_if_absent and merge_insert (rows, create, insert_new);
+    # these cover the calls it doesn't: exists, scan and the add-columns append.
     def has(self, name: str) -> bool:
         return local_retry(lambda: super(LocalLakehouse, self).has(name))
-
-    def rows(self, name: str) -> pl.DataFrame | None:
-        return local_retry(lambda: super(LocalLakehouse, self).rows(name))
 
     def columns_of(self, name: str) -> dict[str, pl.DataType]:
         return local_retry(lambda: super(LocalLakehouse, self).columns_of(name))
 
-    def create(self, name: str, columns: dict[str, pl.DataType]) -> bool:
-        return local_retry(lambda: super(LocalLakehouse, self).create(name, columns))
-
     def add_columns(self, name: str, columns: dict[str, pl.DataType]) -> list[str]:
         return local_retry(lambda: super(LocalLakehouse, self).add_columns(name, columns))
-
-    def insert_new(self, name: str, df: pl.DataFrame) -> int:
-        return local_retry(lambda: super(LocalLakehouse, self).insert_new(name, df))
 
     def table_names(self) -> list[str]:
         folder = self.root / "Tables" / (schema.SCHEMA if self.schemas else "")

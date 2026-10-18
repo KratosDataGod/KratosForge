@@ -101,6 +101,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #185 | FinOps: risk check in the run dialogs (FINOPS-004 part 2) | CONDITIONAL PASS | 8.5 | The risk panel and dialogs carry no Preview tag (`risk` isn't in `PREVIEW_FEATURES`) although `risk-check.md` calls it Preview and it reads capacity from Fabric. Tag it before merging |
+| #196 | Settings note when sign-in isn't Microsoft's own client | PASS | 9.2 | None |
 | #215 | Keep webhook signatures out of freshness and agent alert errors (QA-031) | PASS | 9.2 | None. Closes QA-031 |
 | #214 | Optimize uses the shared Windows Delta log retry (follow-up to #210) | PASS | 9.2 | None. Its own copy is removed; three wrapped calls now retry at two levels, still bounded |
 | #213 | Keep punctuation after a scrubbed OneLake address (follow-up to #142) | PASS | 9.2 | None |

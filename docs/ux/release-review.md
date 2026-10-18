@@ -11,7 +11,7 @@ How a pull request that changes what people see gets a UX review, and the gates 
 | UG-3 No raw errors on new screens | New or changed screens route failures through `friendlyError` or `errorPanel` | Review of the diff; grep for `String(err` and `.message` in new UI code |
 | UG-4 Navigation budget | No new rail item, no Monitor segment past the agreed set, no Platform tab past nine, without an agreed mockup | Review against [navigation.md](navigation.md) |
 | UG-5 Keyboard path | The PR's main action can be done by keyboard | Review; browser test where one exists |
-| UG-6 Destructive actions confirm | Deletes and overwrites of data use `confirmDialog`; nothing mutates OneLake without a preview or confirmation | Review (AGENTS.md data rule) |
+| UG-6 Destructive actions confirm | Deletes and overwrites of data use `confirmDialog` with danger styling and Cancel as the default (UX-018); nothing mutates OneLake without a preview or confirmation | Review (AGENTS.md data rule) |
 | UG-7 Docs match | The feature's doc section exists and matches the behavior | Review; docs build in strict mode |
 
 **Blocking for Stable:** UG-1, UG-2 and UG-6 failures block a promote. UG-3, UG-4, UG-5 and UG-7 failures are recorded and become backlog items; they block only when the Release Manager and Chris agree.

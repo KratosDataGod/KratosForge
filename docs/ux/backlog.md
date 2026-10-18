@@ -1,6 +1,6 @@
 # UX backlog and PR specifications
 
-The top 20 simplification opportunities from the October 2026 audit, then the focused pull requests they group into. IDs are `UX-nnn`; the product management thread links them from `docs/product/PRODUCT_BACKLOG.json`.
+The top 20 simplification opportunities from the October 2026 audit, items added since (UX-021 onward), then the focused pull requests they group into. IDs are `UX-nnn`; the product management thread links them from `docs/product/PRODUCT_BACKLOG.json`.
 
 **Priority:** P0 blocks core work or is a security risk · P1 significant friction in common work · P2 inconsistency, extra clicks, unclear words · P3 polish.
 
@@ -30,6 +30,7 @@ The top 20 simplification opportunities from the October 2026 audit, then the fo
 | UX-018 | P2 | The same confirmation for every destructive action | Shared UI, with owners | PR-UX-12 |
 | UX-019 | P2 | Help on every screen; one generated Preview list; keyboard shortcut list | Shared UI and docs | PR-UX-05 |
 | UX-020 | P2 | Show Home at once; shared loading and empty states | Shared UI (this oversight) | PR-UX-04 |
+| UX-021 | P1 | Preview tag on every action that writes to Fabric without a tenant test | Each feature owner | PR-UX-13 |
 
 Smaller findings kept for later (P2-P3): policy check calls valid integration keys invalid (`app_settings.py:143-145`); account switcher and tenant choice for guests; placeholder and disabled text at 2.6:1 contrast, signed-out avatar at 3.5:1 (`styles.css:103,196`); no dark or high-contrast theme; duplicated byte and date formatters (four and six copies); Teams webhook stored in plain text; `scheduleNotebook` reads `state.env`, which is never set (`app.js:2168`); `confirmDialog` never resolves when closed with Esc (`meta.js:411-416`); the TOML editor traps Tab (`meta.js:324`); stale `architecture/ai-integration.md`.
 
@@ -174,12 +175,19 @@ Smaller findings kept for later (P2-P3): policy check calls valid integration ke
 ### UX-018 One confirmation for destructive actions (P2)
 
 - **Now:** removing a Fabric or PC schedule has no confirmation (`schedules.js:49-51,198-201`); overwrites ("Replace the table?", "Overwrite these tables twice?") use a plain confirm with a navy OK.
-- **Proposed:** `confirmDialog(…, {danger: true, typeToConfirm})`: danger styling for every delete and overwrite; typed name for overwriting a table or promoting to Prod.
+- **Also:** the engineering quality review (QA-019, PR #176, spec PR-QA-10 to PR-QA-13 in `docs/quality/remediation.md`) found 17 destructive actions that `confirmDialog` shows with the destructive choice as the primary button, and 13 different wordings for the same kind of confirmation.
+- **Proposed:** `confirmDialog(…, {danger: true, typeToConfirm})`: danger styling for every delete and overwrite, with Cancel as the default button; one wording pattern ("Delete *name*?", what is lost, then the action verb); typed name for overwriting a table or promoting to Prod.
 - **Why:** AGENTS.md: protect OneLake data; no operation bypasses confirmation.
 
 ### UX-019 Help everywhere (P2)
 
 - **Proposed:** help links on the 11 screens without one; the Preview list in the docs generated from `PREVIEW_FEATURES` (or checked by a test); a Keyboard shortcuts dialog from one table that the handlers also use; troubleshooting rows for each Preview feature as it leaves Preview.
+
+### UX-021 Preview tag on Fabric writes (P1)
+
+- **Now:** seven actions write to Fabric but have no tenant test and no Preview tag (QA-020, PR #176): Promote, Publish, Create workspace, Sync keys, variable library, quarantine replay, Run all in Fabric.
+- **Proposed:** each gets the Preview tag through `PREVIEW_FEATURES` until a tenant smoke test covers it; a UI test fails when a Fabric-writing action is neither tenant-tested nor Preview.
+- **Why:** AGENTS.md: untested Fabric integrations must keep Preview labeling. Usability gate UG-2 checks it in each release review.
 
 ### UX-020 Show Home at once (P2)
 
@@ -204,6 +212,7 @@ Each PR is small, tested and independently mergeable. PRs that change visible la
 | PR-UX-10 Honest status | UX-013, UX-014 | No | Hardening; workload management | Medium |
 | PR-UX-11 Plain words | UX-017 | No | Owners, with a glossary from this oversight | Low |
 | PR-UX-12 Confirmations | UX-018 | No | Shared helper here, call sites by owners | Low |
+| PR-UX-13 Preview tags on Fabric writes | UX-021 | No | Each feature owner | Low |
 
 ### PR-UX-01 spec: Command bar and help links
 

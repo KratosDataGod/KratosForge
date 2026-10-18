@@ -1,4 +1,6 @@
-"""Local data projects: SQL over files and tables on this PC, with no Fabric capacity (FD-LDE).
+"""Local data projects: SQL over files and tables on this PC, starting no Fabric job (FD-LDE).
+
+OneLake reads and writes (a later publish) still use the workspace's capacity.
 
     projects.py    the projects, their settings and registered folders (project.json)
     discovery.py   which files in a folder become which tables

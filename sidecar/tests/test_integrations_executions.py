@@ -76,7 +76,10 @@ def call(svc, cap_id, client_id="cl_1", **args):
     from fabric_desktop.integrations.core import validate
     r = reg()
     cap = r.get(cap_id)
-    return cap.handler(svc, ctx(client_id), **validate(cap.input_schema, args))
+    args = validate(cap.input_schema, args)
+    if cap.bind:
+        args |= cap.bind(svc, dict(args))
+    return cap.handler(svc, ctx(client_id), **args)
 
 
 # ---- SQL
@@ -185,6 +188,46 @@ def test_notebook_workspace_must_match(svc):
         call(svc, "fabric_desktop_run_notebook", name="nb", workspace_id="other")
 
 
+def test_notebook_handler_needs_the_bound_cells(svc):
+    # Only invoke's bind supplies the code; the handler won't load and run a notebook on its own.
+    cap = reg().get("fabric_desktop_run_notebook")
+    with pytest.raises(TypeError):
+        cap.handler(svc, ctx(), name="nb", workspace_id="ws1")
+
+
+def test_notebook_changed_after_binding_runs_nothing(svc):
+    cap = reg().get("fabric_desktop_run_notebook")
+    bound = cap.bind(svc, {"name": "nb", "workspace_id": "ws1"})
+    svc.notebooks.save("nb", [{"type": "code", "source": "x = 6"}, {"type": "code", "source": "print('changed')"}], LH)
+    with pytest.raises(IntegrationError) as e:
+        cap.handler(svc, ctx(), name="nb", workspace_id="ws1", **bound)
+    assert e.value.code == "approval_required" and e.value.message == "The notebook changed after it was approved. Ask again."
+    # Bound cells that don't match their own hash are refused the same way.
+    fresh = cap.bind(svc, {"name": "nb", "workspace_id": "ws1"})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, ctx(), name="nb", workspace_id="ws1", **(fresh | {"cells": ["print('other')"]}))
+    assert call(svc, "fabric_desktop_list_executions")["items"] == []
+
+
+def test_external_notebook_cant_run_other_notebooks(svc):
+    # %run and notebookutils.notebook.run would run code the person wasn't shown.
+    svc.notebooks.save("outer", [{"type": "code", "source": "%run nb"}], LH)
+    out = call(svc, "fabric_desktop_run_notebook", name="outer", workspace_id="ws1")
+    err = out["result"]["cells"][0]["outputs"][-1]
+    assert out["state"] == "failed" and err["type"] == "error" and "can't run other notebooks" in err["evalue"]
+    out = call(svc, "fabric_desktop_execute_python", code="notebookutils.notebook.run('nb')")
+    err = out["result"]["cells"][0]["outputs"][-1]
+    assert out["state"] == "failed" and "can't run other notebooks" in err["evalue"]
+
+
+def test_app_notebooks_still_run_other_notebooks(svc):
+    # The app's own kernel is unchanged: %run loads the saved notebook.
+    kernel = svc._new_kernel(process=False)
+    out = kernel.run("%run nb")
+    assert out["status"] == "ok", out
+    assert kernel.namespace["x"] == 6
+
+
 # ---- ids, status, waiting, timeouts, cancel
 
 def test_long_run_returns_id_then_status_follows(svc):
@@ -248,6 +291,72 @@ def test_code_always_asks_even_with_the_grant(svc, store):
     assert e.value.code == "approval_required"
     approval = store.approval(e.value.details["approval_id"])
     assert approval["summary"]["content"] == {"kind": "code", "text": "print(1)"}
+
+
+def test_notebook_approval_shows_every_code_cell_and_is_bound_to_them(svc, store):
+    r = reg(store)
+    client, _ = store.add_client("Claude Code", "claude-code", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    args = {"name": "nb", "workspace_id": "ws1"}
+    with pytest.raises(IntegrationError) as e:
+        r.invoke(svc, "fabric_desktop_run_notebook", args, ctx(client["id"]))
+    assert e.value.code == "approval_required"
+    first = store.approval(e.value.details["approval_id"])
+    content = first["summary"]["content"]
+    assert content["kind"] == "cells" and "x = 6" in content["text"] and "print(x * 7)" in content["text"]
+    assert "# hi" not in content["text"] and "cell 2 of 2" in content["text"]
+    assert first["summary"]["target"]["lakehouse_id"] == "lh1"
+    store.decide(first["id"], True)
+
+    # The file changes after the approval: the same call asks again, showing the new code, and
+    # the approval given for the old code isn't used.
+    svc.notebooks.save("nb", [{"type": "code", "source": "print('something else')"}], LH)
+    with pytest.raises(IntegrationError) as e:
+        r.invoke(svc, "fabric_desktop_run_notebook", args, ctx(client["id"]))
+    assert e.value.code == "approval_required" and e.value.details["approval_id"] != first["id"]
+    second = store.approval(e.value.details["approval_id"])
+    assert "something else" in second["summary"]["content"]["text"]
+    assert store.approval(first["id"])["state"] == "approved"
+    assert svc._integration_executions.list() == []
+
+    store.decide(second["id"], True)
+    out = r.invoke(svc, "fabric_desktop_run_notebook", args, ctx(client["id"]))
+    assert out["state"] == "succeeded" and out["result"]["cells"][0]["outputs"][0]["text"].strip() == "something else"
+
+
+def test_notebook_too_long_to_show_is_refused_before_asking(svc, store):
+    r = reg(store)
+    client, _ = store.add_client("Claude Code", "claude-code", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    svc.notebooks.save("long", [{"type": "code", "source": "x = 1\n" + "# filler\n" * 2_500},
+                                {"type": "code", "source": "print('hidden at the end')"}], LH)
+    with pytest.raises(IntegrationError) as e:
+        r.invoke(svc, "fabric_desktop_run_notebook", {"name": "long", "workspace_id": "ws1"}, ctx(client["id"]))
+    assert e.value.code == "too_large"
+    assert e.value.message.startswith("This notebook is too long to show for approval (")
+    assert e.value.message.endswith("characters, limit 20,000). Run it in Fabric Desktop by KratosBI instead.")
+    assert store.approvals("") == [] and svc._integration_executions.list() == []
+
+
+def test_notebook_changed_while_waiting_for_approval_is_refused(svc, store):
+    r = reg(store, wait=10)
+    client, _ = store.add_client("Claude Code", "claude-code", grants=["READ_METADATA", "EXECUTE_LOCAL_CODE"])
+    got: dict = {}
+
+    def run():
+        try:
+            got["out"] = r.invoke(svc, "fabric_desktop_run_notebook", {"name": "nb", "workspace_id": "ws1"}, ctx(client["id"]))
+        except IntegrationError as exc:
+            got["error"] = exc
+    t = threading.Thread(target=run)
+    t.start()
+    deadline = time.monotonic() + 5
+    while not store.approvals("pending") and time.monotonic() < deadline:
+        time.sleep(0.02)
+    pending = store.approvals("pending")[0]
+    svc.notebooks.save("nb", [{"type": "code", "source": "print('swapped')"}], LH)
+    store.decide(pending["id"], True)
+    t.join(10)
+    assert "out" not in got and got["error"].message == "The notebook changed after it was approved. Ask again."
+    assert svc._integration_executions.list() == []
 
 
 def test_workspace_limited_tools_cant_run_code(svc, store):

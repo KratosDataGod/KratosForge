@@ -16,6 +16,19 @@ Each finding links here. Every section says what the finding means, why it matte
 
 The scan reads at most 500 tables. Scans run when you press **Scan now** or **Scan again** (the very first one on a PC starts by itself), and **Pause** holds a scan where it is.
 
+## After you press a fix
+
+**Optimize** and **Vacuum** start a job in Fabric; they don't finish it. The finding stays in the list marked **Fix submitted to Fabric, not finished yet** until the job ends:
+
+- **Completed**: the finding is marked fixed and leaves the list.
+- **Failed** or **Cancelled** (a paused capacity, for example): the finding stays, with Fabric's reason, and the button comes back so you can try again.
+
+A finding marked fixed shows again if a later scan, started after the job completed, still finds the problem. The job's progress is in **Monitor**.
+
+## When Fabric can't be read
+
+Vacuum deletes files for good, so Fabric Desktop by KratosBI never guesses how much history a table must keep. If it can't read the table's own retention setting (no access, throttling, a sign-in that failed) or the metadata project (a broken `layers.toml` or `environments.toml`), **Vacuum**, **Optimize** and the Vacuum dry run stop with the reason and start nothing. Fix the cause and press the button again. With no metadata project open at all, a table keeps the longest of Fabric's 7 days and its own setting.
+
 ## Small files
 
 **What it means.** The table has 20 or more data files averaging under 32 MB each. Each small append, streaming micro-batch or row-by-row load adds files, and nothing has combined them.
@@ -71,7 +84,7 @@ The X-ray can only read roles in workspaces where you are Admin.
 
 **What it means.** A notebook this app ran in Fabric used enough capacity in the last 30 days to be worth noticing. The estimate comes from the run times in Monitor's **Cost** panel and your capacity price (set in **Monitor > Cost**).
 
-**Why it matters.** The same notebook run on this PC uses no Fabric capacity.
+**Why it matters.** Run on this PC, the same notebook does its processing here, with no Spark session in Fabric. OneLake reads and writes it makes still count against the workspace's capacity.
 
 **What the buttons do.** **Open notebook** opens it here (when the notebook is on this PC); set **Runs on** to **This PC** in the ribbon and later runs cost nothing. **See cost** opens **Monitor > Cost** with every item's numbers.
 

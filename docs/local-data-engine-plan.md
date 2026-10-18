@@ -1,6 +1,6 @@
 # Local data engine and OneLake publishing: audit and plan
 
-The program FD-LDE-001 to FD-LDE-020 makes Fabric Desktop by KratosBI a local-first SQL development environment: register a folder of data files, query them as tables on this PC with no Fabric capacity, build persistent transformed datasets and local Delta tables, validate them, and publish them to OneLake through a verified mechanism. It takes ideas from [DaffyDB](https://www.nuget.org/packages/DaffyDB/) (a folder of files served as SQL tables over TDS) without making it a dependency.
+The program FD-LDE-001 to FD-LDE-020 makes Fabric Desktop by KratosBI a local-first SQL development environment: register a folder of data files, query them as tables on this PC without starting a Fabric job, build persistent transformed datasets and local Delta tables, validate them, and publish them to OneLake through a verified mechanism. A run on this PC starts no Fabric job, but its OneLake reads and writes, including publishing, still use capacity. It takes ideas from [DaffyDB](https://www.nuget.org/packages/DaffyDB/) (a folder of files served as SQL tables over TDS) without making it a dependency.
 
 Status: audit done (main at `7f51026`, 2026-10-17); the first PR carries this plan together with local projects, the engine and file discovery. Everything here is Preview until it has run on a real tenant.
 

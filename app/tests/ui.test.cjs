@@ -372,6 +372,37 @@ test("a capacity reads as running only when Fabric said Active, and a read failu
   assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });
 
+test("a usage file that reads two ways asks before importing, and a ready one says what it is", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const flat = (kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join("") : String(n ?? ""));
+  const ctx = {
+    h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, _icon, onclick) => ({ tag: "button", label, onclick, kids: [label] }),
+    measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.classification}`] }),
+  };
+  vm.runInNewContext(`${src.match(/function usagePreview\([\s\S]*?\n}\n/)[0]}; this.usagePreview = usagePreview;`, ctx);
+  const chosen = [];
+  const ask = ctx.usagePreview({ ready: false, problem: "The dates can be read two ways", provider: { label: "Capacity Metrics app export" },
+    layout: { label: "Operations (Timepoint page)" }, needs: { option: "date_order", choices: { mdy: "Month first", dmy: "Day first" } } },
+  (opt, v) => chosen.push([opt, v]));
+  const buttons = flat(ask).flatMap(function walk(n) { return n && typeof n === "object" ? [n].concat(flat(n.kids || []).flatMap(walk)) : []; })
+    .filter((n) => n.tag === "button");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(buttons.map((b) => b.label))), ["Month first", "Day first"]);
+  buttons[1].onclick();
+  assert.deepStrictEqual(chosen, [["date_order", "dmy"]]);
+  const ready = flat(ctx.usagePreview({ ready: true, provider: { label: "Capacity Metrics app export" }, layout: { label: "Operations (Timepoint page)" },
+    columns: { used: { cu: "Total CU (s)" }, not_stored: ["User"], ignored: ["User", "Timepoint CU (s)"] },
+    rows_read: 4, to_import: 3, already_imported: 0, duplicates_in_file: 0, total: { value: 0.6, classification: "measured" },
+    skipped: [{ reason: "No CU value", count: 1, lines: [5] }], notes: [] }, () => {})).map(text).join(" ");
+  assert.match(ready, /Capacity Metrics app export, Operations \(Timepoint page\)/);
+  assert.match(ready, /Not storedUser/);
+  assert.match(ready, /Not usedTimepoint CU \(s\)/);
+  assert.match(ready, /4 read · 3 to import/);
+  assert.match(ready, /0.6 measured/);
+  assert.match(ready, /No CU value: 1 \(line 5\)/);
+});
+
 // The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
 function sqlEditorHelpers() {
   const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");
@@ -676,6 +707,11 @@ test("Settings says plainly when sign-in isn't Microsoft's own, and how to go ba
   assert.match(src, /btn\("Use Microsoft's sign-in"/);
 });
 
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+});
+
 // The pure helpers at the top of replay.js.
 function replayHelpers() {
   const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
@@ -952,4 +988,14 @@ test("a failed or refused write test, and signing out, forget the saved pass (#1
   assert.match(src, /"Test again"/);
   const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
   assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
+});
+
+test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const dataops = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  for (const [src, verb] of [[meta, "Delete"], [dataops, "Discard"]]) {
+    const calls = src.match(new RegExp(`confirmDialog\\(\`${verb} [^\\n]*`, "g"));
+    assert.ok(calls && calls.length, verb);
+    for (const c of calls) assert.match(c, new RegExp(`"${verb}", \\{ danger: true \\}\\)`), c);
+  }
 });

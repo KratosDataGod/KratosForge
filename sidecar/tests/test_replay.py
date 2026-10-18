@@ -512,6 +512,10 @@ def test_a_replay_without_ids_still_recognises_the_same_error():
      "# source: abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>\ndf=read()\nprint(df)"),
     ("open('https://onelake.dfs.fabric.microsoft.com/Sales/LH.Lakehouse/Files/a.csv')\nnext_line()",
      "open('https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/Files/a.csv')\nnext_line()"),
+    ("Can't reach abfss://Sales@onelake.dfs.fabric.microsoft.com/LH.Lakehouse, try again (or later); done",
+     "Can't reach abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>, try again (or later); done"),
+    ("read(https://onelake.dfs.fabric.microsoft.com/Sales/LH.Lakehouse); x = 1",
+     "read(https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>); x = 1"),
 ])
 def test_ids_come_out_of_code_without_changing_anything_else(source, kept):
     cells = [{"type": "code", "source": source, "count": 1,

@@ -947,3 +947,13 @@ test("a failed or refused write test, and signing out, forget the saved pass (#1
   const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
   assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
 });
+
+test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const dataops = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  for (const [src, verb] of [[meta, "Delete"], [dataops, "Discard"]]) {
+    const calls = src.match(new RegExp(`confirmDialog\\(\`${verb} [^\\n]*`, "g"));
+    assert.ok(calls && calls.length, verb);
+    for (const c of calls) assert.match(c, new RegExp(`"${verb}", \\{ danger: true \\}\\)`), c);
+  }
+});

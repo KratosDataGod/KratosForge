@@ -558,7 +558,7 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
 }
 

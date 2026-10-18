@@ -679,3 +679,20 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(await ctx.saveNotebook(), true);
   assert.strictEqual(nb.dirty, false);
 });
+
+// The template gallery filters by group and search, and the review step names every table's contract.
+test("the template gallery filters templates and the review states each contract", () => {
+  const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("wizardShown")}${fn("wizardContract")}; this.shown = wizardShown; this.contract = wizardContract;`, ctx);
+  const all = [{ id: "a", group: "load", title: "Incremental load", text: "With a watermark" },
+    { id: "b", group: "model", title: "Date dimension", text: "A calendar table" }];
+  assert.deepStrictEqual(ctx.shown(all, "all", "").map((t) => t.id), ["a", "b"]);
+  assert.deepStrictEqual(ctx.shown(all, "model", "").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "all", "CALENDAR  table").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "load", "calendar"), []);
+  assert.strictEqual(ctx.contract({}), "This notebook writes no tables, so there is no proof contract.");
+  assert.strictEqual(ctx.contract({ "s.good": { keys: ["id"], ignore: ["loaded_at"] }, "s.bad": { keys: [], ignore: [] } }),
+    "Proof contract saved in the notebook: rows of s.good are matched by id, ignoring loaded_at; rows of s.bad are compared whole.");
+});

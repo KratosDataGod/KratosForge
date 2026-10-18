@@ -125,8 +125,8 @@ class LakehouseWriter:
                     f"Table {name} has no column {', '.join(extra)}. To replace the table's schema, add "
                     ".option(\"overwriteSchema\", \"true\") to an overwrite; to add the columns, add "
                     ".option(\"mergeSchema\", \"true\").")
-            if current is not None:
-                _check_types(data, name, how)
+        if schema_mode != "overwrite" and lakehouse.table_exists(name):
+            _check_types(data, name, how)  # mergeSchema adds columns; it never changes a column's type
         print(_write_table(data, name, how, schema_mode))
 
     def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002

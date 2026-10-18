@@ -74,6 +74,8 @@ def test_a_column_type_change_is_refused_unless_overwriteSchema(lake, data, mode
     status, text = run(f"{write}.saveAsTable('dbo.sales')")
     assert status == "error" and kind in text and "Nothing was written" in text
     assert rows(lake) == ORIGINAL
+    status, text = run(f"{write}.option('mergeSchema', 'true').saveAsTable('dbo.sales')")
+    assert status == "error" and kind in text and rows(lake) == ORIGINAL  # mergeSchema only adds columns
     if mode == "overwrite":
         status, text = run(f"{write}.option('overwriteSchema', 'true').saveAsTable('dbo.sales')")
         assert status == "ok", text

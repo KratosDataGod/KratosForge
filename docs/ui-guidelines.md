@@ -34,11 +34,14 @@ A feature that hasn't been tried on a real Fabric tenant is in preview:
 2. Wrap its tab or button: `preview("cost", button)`. It gets a Preview tag, or disappears when someone turns preview features off in Settings.
 3. Mark its commands `preview: true`.
 
+A core step that can't disappear (promote, say) uses `previewMarked("promote", button)` instead: it always shows, always with the Preview tag, even when preview features are turned off. Add its id to `PREVIEW_ALWAYS_SHOWN` too, so Settings says it stays.
+
 When it has been tried on a tenant, remove it from `PREVIEW_FEATURES`. The tag goes away everywhere at once.
 
 ## Words and help
 
 - Plain words people use, not internal names. "Run in Fabric", not "submit job".
+- Ask before deleting or overwriting data with `confirmDialog(title, text, verb, { danger: true })`: the verb button is red and Cancel has focus. Title the question "Delete *name*?" or "Overwrite *name*?", say in the text what is lost, and use the action's verb on the button. Add `typeToConfirm: name` for overwriting a table or anything in Prod.
 - Every page header ends with `learnMore("<anchor>")`, linking to its section of [user-guide.md](user-guide.md). Add the section in the same pull request.
 - Errors go through `friendlyError` (`activity.js`), which turns known causes into a sentence and says what to do.
 

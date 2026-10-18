@@ -11,8 +11,9 @@ Each line holds:
     target   the call's short identifying values: workspace, lakehouse, environment, entity,
              notebook name, ids. Code, SQL, cell text and data are never recorded.
     error    the error, with secrets removed
-    prev, hash   a SHA-256 chain: each line's hash covers the line before it, so a deleted or
-                 edited line shows up in ``fabric-desktop audit --verify``
+    prev, hash   a SHA-256 chain (audit_chain.py): each line's hash covers the line before it, so a
+                 deleted or edited line shows up in ``fabric-desktop audit --verify``. The app, scheduled
+                 runs and the agent append under one lock, so they never fork the chain
 
 It is append-only and local to the PC (or to the agent's home on a server). It is evidence for the
 person and their organization, not a security boundary: someone who controls the PC can delete
@@ -23,19 +24,17 @@ matters.
 from __future__ import annotations
 
 import getpass
-import hashlib
 import json
 import socket
-import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import __version__
+from . import __version__, audit_chain
 from .redact import secrets
 
 SCHEMA = "audit@1"
-GENESIS = "0" * 64
+GENESIS = audit_chain.GENESIS
 
 # Calls that only read or watch. Everything else is recorded, so a new call is audited unless it
 # is added here on purpose.
@@ -93,17 +92,10 @@ def target(params: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _hash(prev: str, entry: dict[str, Any]) -> str:
-    body = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256((prev + body).encode()).hexdigest()
-
-
 class AuditLog:
     def __init__(self, folder: Path, app: str = "desktop"):
         self.folder = Path(folder)
         self.app = app
-        self._lock = threading.Lock()
-        self._prev: str | None = None
         self.host = socket.gethostname()
         try:
             self.os_user = getpass.getuser()
@@ -111,17 +103,7 @@ class AuditLog:
             self.os_user = ""
 
     def _files(self) -> list[Path]:
-        return sorted(self.folder.glob("audit-*.jsonl"))
-
-    def _last_hash(self) -> str:
-        for path in reversed(self._files()):
-            lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            if lines:
-                try:
-                    return str(json.loads(lines[-1])["hash"])
-                except (ValueError, KeyError):
-                    return GENESIS  # a damaged last line: --verify reports it; keep recording
-        return GENESIS
+        return audit_chain.files(self.folder)
 
     def record(self, action: str, outcome: str, seconds: float, params: dict[str, Any] | None = None,
                who: str = "", tenant: str = "", compute: str = "this PC", error: str = "") -> dict[str, Any]:
@@ -133,15 +115,7 @@ class AuditLog:
         }
         if error:
             entry["error"] = secrets(error)[:1000]
-        with self._lock:
-            if self._prev is None:
-                self._prev = self._last_hash()
-            entry["prev"] = self._prev
-            entry["hash"] = _hash(self._prev, entry)
-            self.folder.mkdir(parents=True, exist_ok=True)
-            with (self.folder / f"audit-{now:%Y-%m}.jsonl").open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, default=str) + "\n")
-            self._prev = entry["hash"]
+        audit_chain.append(self.folder, entry)  # under the folder's lock: no other process forks the chain
         return entry
 
     def entries(self) -> Iterator[dict[str, Any]]:
@@ -156,21 +130,4 @@ class AuditLog:
 
     def verify(self) -> dict[str, Any]:
         """Walks the chain: every line's hash must match its content and the line before it."""
-        prev, count, problems = GENESIS, 0, []
-        for path in self._files():
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if not line.strip():
-                    continue
-                count += 1
-                try:
-                    entry = json.loads(line)
-                    stored = entry.pop("hash")
-                except (ValueError, KeyError):
-                    problems.append(f"{path.name} line {number}: not an audit line")
-                    continue
-                if entry.get("prev") != prev:
-                    problems.append(f"{path.name} line {number}: a line before it is missing or changed")
-                if _hash(entry.get("prev", ""), entry) != stored:
-                    problems.append(f"{path.name} line {number}: this line was changed")
-                prev = stored
-        return {"lines": count, "ok": not problems, "problems": problems}
+        return audit_chain.verify(self.folder)

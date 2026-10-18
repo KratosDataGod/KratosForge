@@ -167,9 +167,11 @@ fn engine_python() -> Option<PathBuf> {
 
 /// Shown when no interpreter may be used: the engine is missing and this build won't
 /// look for a `python` on PATH, which could run whichever one comes first (SH-10).
-const NO_ENGINE: &str = "The Fabric Desktop engine isn't installed or couldn't be found. \
-    Restart the app to download it again, or reinstall Fabric Desktop. \
-    Developers can set FABRIC_DESKTOP_PYTHON to the full path of a Python with the sidecar installed.";
+// Published builds install their engine before starting it, so this is a build with no engine to
+// download (one not built from a published commit).
+const NO_ENGINE: &str = "The Fabric Desktop engine isn't installed, and this build has none to download. \
+    Install a published build of Fabric Desktop, or set FABRIC_DESKTOP_PYTHON to the full path \
+    of a Python with the sidecar installed.";
 
 /// Picks the interpreter that runs the sidecar and the startup check, from
 /// `env_override` (FABRIC_DESKTOP_PYTHON), `engine` (this or another build's engine) and

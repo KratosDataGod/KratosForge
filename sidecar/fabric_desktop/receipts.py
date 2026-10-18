@@ -236,6 +236,12 @@ def to_markdown(receipt: dict[str, Any], rid: str, hide: Iterable[str] = ()) -> 
     if r.get("cost"):
         c = r["cost"]
         lines += ["## Cost", "", f"{c.get('text', '')}", ""]
+        for side, label in (("pc", "This PC"), ("fabric", "Fabric")):
+            m = (c.get(side) or {}).get("measurement") if isinstance(c.get(side), dict) else None
+            if m:
+                value = "not known" if m.get("value") is None else f"{_fmt(m['value'])} CU-seconds"
+                lines.append(f"- {label}: Fabric job CU {value} (**{m.get('label') or m.get('classification')}**"
+                             + (f"; {m['reason']}" if m.get("reason") else "") + ")")
         for a in c.get("assumptions", []):
             lines.append(f"- {a}")
         lines.append("")

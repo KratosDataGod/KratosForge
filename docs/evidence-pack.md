@@ -45,11 +45,15 @@ Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been 
 | The app | `app.fabric.microsoft.com` | Fabric's own pages, shown inside the app | When someone opens them | The embedded view's cookies are encrypted with Windows DPAPI |
 | The app | `github.com` and its release hosts | Update check and downloads | Each time the app starts, unless the policy turns updates off | SHA-256 checked against the release's `version.json`; not yet signed |
 | The app | The organization's central lakehouse (`FabricDesktop_Central`) | Optimization results and other organization-wide tables | Only after someone connects it and agrees to each first write | The person's token; `allow_optimize_lakehouse: false` turns it off |
+| The app | `onelake.table.fabric.microsoft.com` | Lists of OneLake tables and their schemas | When someone browses lakehouse tables | HTTPS with the person's token; reads only |
+| The app | The person's own Git remotes (Azure DevOps, GitHub, GitLab, Bitbucket or another host they add) | Notebook and item source they push or pull | Only when someone connects a repository and pushes, pulls or clones | Git's own HTTPS sign-in to that host |
+| Notebooks run on the PC | `{vault}.vault.azure.net`, plus Kusto, storage and Power BI token audiences | Secrets and tokens the notebook asks for (`notebookutils.credentials`) | Only when notebook code calls `getSecret` or `getToken` | The person's own token for that resource |
+| Notebooks run on the PC | Any host the notebook's own code calls | Whatever that code sends | When the notebook runs | Same as any script the person runs; the app doesn't filter it |
 | The app | A Teams incoming webhook | Alerts someone set up | Only if configured | Webhook address redacted from every log and error |
 | The app | Application Insights (KratosBI's, or the organization's own) | One daily record of action counts, failures and timings | Only if usage data is on | No data, names, accounts or tenants; policy can force it off |
 | External AI tools | The app's local API on `127.0.0.1` | Requests the person approved | Only if Integrations are turned on | Token per tool, loopback only, no browser requests, every call audited |
 
-Nothing else leaves the PC. The hosts above are the ones named in the source code; confirm them from one pilot PC behind your proxy ([network access](enterprise-install.md#network-access)).
+These are the flows the app itself starts, from the hosts named in its source code. Notebook code can reach other hosts, as it would anywhere else it runs, and Microsoft can redirect sign-in or downloads. Confirm the list from one pilot PC behind your proxy ([network access](enterprise-install.md#network-access)).
 
 ## Build and release evidence
 

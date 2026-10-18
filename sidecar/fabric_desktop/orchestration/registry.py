@@ -13,8 +13,8 @@ One ``ActivitySupport`` entry per activity type says, honestly:
 
 Rules the registry enforces, so a wrong claim can't be registered:
 
-- ``local`` or ``simulated`` needs an adapter that can execute and evidence of tests. ORCH-003
-  adds the first ones; until then nothing is labelled locally executable.
+- ``local`` or ``simulated`` needs an adapter that can execute and evidence of tests (ORCH-003's
+  control-flow adapters are the first).
 - ``cloud`` activities always need Fabric capacity to run.
 - Every type the registry doesn't know is ``unsupported`` and kept in the report, never dropped.
 
@@ -31,7 +31,7 @@ from typing import Any, Callable, Protocol
 from .definition import Activity, ImportedPipeline
 from .validate import Diagnostic, summary, validate
 
-REGISTRY_VERSION = "1"
+REGISTRY_VERSION = "2"
 
 CLASSIFICATIONS = {
     "local": "Runs on this PC with a tested adapter.",

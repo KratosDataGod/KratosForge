@@ -41,7 +41,7 @@ from .incident_service import IncidentMixin
 from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
 from .git_service import GitMixin
-from .pipeline_service import PipelineMixin
+from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
 from .risk_service import RiskMixin
@@ -61,7 +61,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -592,8 +592,11 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
                 sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query, dialect, sandbox=sandbox)
-        return sql_result(result, limit, started)
+        result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
+        columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
+        return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
+                "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+                "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
                  dialect: str = "spark") -> dict[str, Any]:
@@ -608,14 +611,18 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
-        """Write the full result to the Downloads folder."""
+        """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        result = sql.run(query, dialect)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
-        pa_csv.write_csv(result, str(path))
-        return {"path": str(path), "rows": result.num_rows}
+        rows = 0
+        with sql.Stream(query, dialect) as result:
+            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+                for batch in result:
+                    out.write_batch(batch)
+                    rows += batch.num_rows
+        return {"path": str(path), "rows": rows}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)

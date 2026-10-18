@@ -277,3 +277,20 @@ def test_vacuum_keeps_the_layers_history_in_its_designation_workspace(vacuum_svc
     assert svc._xray_keep_days("ws-serve", "LH_Silver", None) == (30, "Keep history on the silver layer")
     assert svc._xray_keep_days("ws-dev", "LH_Silver", None)[0] == 30  # where it may have lived before: kept too
     assert svc._xray_keep_days("ws-other", "LH_Silver", None)[0] == 7
+
+
+def test_optimize_check_reads_only_and_carries_the_risk_check(vacuum_svc, monkeypatch):
+    """QA-032: Optimize asks first, with the risk check for the table's workspace; nothing starts."""
+    from fabric_desktop import app_settings
+    svc, uri, jobs = vacuum_svc
+    monkeypatch.setattr(svc, "_wl_token", lambda _s: "token", raising=False)
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: None, raising=False)
+    out = svc.xray_optimize_check("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
+    assert out["keep_days"] == 30 and jobs == []
+    assert out["risk"]["workload"] == "LH_Silver dbo.orders" and out["risk"]["where"] == "fabric"
+    assert out["risk"]["result"] == "unknown"  # the capacity wasn't read
+    monkeypatch.setattr(app_settings, "value", lambda k: False if k == "allow_fabric_runs" else None)
+    assert svc.xray_optimize_check("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver")["risk"]["result"] == "blocked"
+    monkeypatch.setattr(svc, "_risk_capacity", lambda *a: (_ for _ in ()).throw(RuntimeError("no network")), raising=False)
+    broken = svc.xray_optimize_check("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver")["risk"]
+    assert broken["result"] == "unknown" and "no network" in broken["summary"]

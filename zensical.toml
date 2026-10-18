@@ -27,6 +27,7 @@ nav = [
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },
     { "Security model" = "security.md" },
+    { "Security evidence pack" = "evidence-pack.md" },
     { "Usage data" = "telemetry.md" },
   ] },
   { "Use the app" = [
@@ -51,6 +52,7 @@ nav = [
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
+    { "Running pipelines on your PC" = "orchestration/local-runs.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },

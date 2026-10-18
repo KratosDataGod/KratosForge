@@ -295,6 +295,8 @@ Monitor has two halves.
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). Fabric Desktop by KratosBI never reads your whole tenant.
 
+**How this works**, beside the list, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
+
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by** Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
 | Column | What it means |
@@ -351,7 +353,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
-The panel beside the list explains what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), what the page shows, and what is coming: shared schedules and takeover (Preview, off by default) and Run as.
+**How this works**, beside the list, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
 **The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
 

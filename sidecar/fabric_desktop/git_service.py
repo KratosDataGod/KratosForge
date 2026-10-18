@@ -122,6 +122,9 @@ class GitMixin:
         it holds (the folder's own files are left as they are)."""
         if kind:
             scopes.check_kind(kind)
+            if (_folder(path, must_exist=False) / scopes.MARKER).exists():
+                raise GitError(f"This folder already says what it holds in {scopes.MARKER}. "
+                               "Make it a repository first, then choose what it holds.", kind="confirm")
         repo = git_init(path, branch)
         if kind:
             scopes.set_kind(repo, kind)

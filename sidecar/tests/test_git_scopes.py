@@ -43,6 +43,34 @@ def test_create_refuses_unknown_kinds_and_folders_with_files(tmp_path):
     assert e.value.kind == "exists" and not (tmp_path / "full" / ".git").exists()
 
 
+
+@pytest.mark.parametrize("typed", ["~/proj", " {abs}", "$FD_TEST_HOME/proj"])
+def test_create_checks_the_folder_init_will_use_and_never_overwrites(tmp_path, monkeypatch, typed):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setenv("FD_TEST_HOME", str(tmp_path))
+    write(tmp_path / "proj", ".gitignore", "my own rules\n")
+    write(tmp_path / "proj", "platform.toml", "# mine\n")
+    with pytest.raises(GitError) as e:
+        scopes.create(typed.format(abs=tmp_path / "proj"), "platform")
+    assert e.value.kind == "exists" and not (tmp_path / "proj" / ".git").exists()
+    assert (tmp_path / "proj" / ".gitignore").read_text() == "my own rules\n"
+    assert (tmp_path / "proj" / "platform.toml").read_text() == "# mine\n"
+
+
+def test_create_never_replaces_a_file_that_appears_meanwhile(tmp_path, monkeypatch):
+    real_init = scopes.init
+
+    def racing_init(path, branch):
+        repo = real_init(path, branch)
+        write(repo.root, ".gitignore", "theirs\n")
+        return repo
+
+    monkeypatch.setattr(scopes, "init", racing_init)
+    with pytest.raises(FileExistsError):
+        scopes.create(tmp_path / "new", "notebooks")
+    assert (tmp_path / "new" / ".gitignore").read_text() == "theirs\n"
+
 def test_an_existing_repository_only_gets_the_marker_and_changing_it_asks(tmp_path):
     repo = init(tmp_path / "proj")
     write(repo.root, "environments.toml", "[dev]\n")
@@ -58,11 +86,25 @@ def test_an_existing_repository_only_gets_the_marker_and_changing_it_asks(tmp_pa
     assert scopes.read_kind(repo.root) == "platform"
 
 
-def test_a_bad_marker_is_no_kind(tmp_path):
+def test_a_bad_marker_is_no_kind_and_replacing_it_asks(tmp_path):
     write(tmp_path, scopes.MARKER, "kind = [not toml")
     assert scopes.read_kind(tmp_path) is None
     write(tmp_path, scopes.MARKER, 'kind = "everything"\n')
     assert scopes.read_kind(tmp_path) is None
+    repo = init(tmp_path)
+    with pytest.raises(GitError) as e:
+        scopes.set_kind(repo, "notebooks")
+    assert e.value.kind == "confirm" and "everything" in (tmp_path / scopes.MARKER).read_text()
+    scopes.set_kind(repo, "notebooks", confirm=True)
+    assert scopes.read_kind(tmp_path) == "notebooks"
+
+
+def test_init_with_a_kind_refuses_before_making_a_repository(tmp_path):
+    write(tmp_path / "f", scopes.MARKER, 'kind = "platform"\nversion = 1\n')
+    with pytest.raises(GitError) as e:
+        Svc(tmp_path / "app").git_init(str(tmp_path / "f"), kind="notebooks")
+    assert e.value.kind == "confirm" and not (tmp_path / "f" / ".git").exists()
+    assert scopes.read_kind(tmp_path / "f") == "platform"
 
 
 def test_mixing_scopes_is_named(tmp_path):

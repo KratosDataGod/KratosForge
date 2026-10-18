@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .cli import GitError
-from .repo import Repository, init
+from .repo import Repository, _folder, init
 
 MARKER = "fabric-desktop.repo.toml"
 
@@ -139,15 +139,16 @@ def create(path: str | Path, kind: str, branch: str = "main") -> Repository:
     """A new repository of ``kind`` at ``path``, with that kind's starting files. Refuses a folder
     inside another repository (``init`` does) and a folder that already has files in it."""
     check_kind(kind)
-    p = Path(path)
+    p = _folder(path, must_exist=False)  # the same folder init() will use (~, %VARS%, spaces)
     if p.is_dir() and any(p.iterdir()):
         raise GitError(f"{p} already has files in it. Open it and choose what it holds instead.", kind="exists")
-    repo = init(path, branch)
+    repo = init(p, branch)
     files = {MARKER: _marker(kind), ".gitignore": _GITIGNORE, **_LAYOUT[kind]}
     for rel, text in files.items():
         f = repo.root / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text, encoding="utf-8")
+        with open(f, "x", encoding="utf-8") as out:  # never replaces a file that appeared meanwhile
+            out.write(text)
     return repo
 
 
@@ -158,9 +159,13 @@ def set_kind(repo: Repository, kind: str, confirm: bool = False) -> dict[str, An
     current = read_kind(repo.root)
     if current == kind:
         return {"kind": kind, "changed": False}
-    if current and not confirm:
-        raise GitError(f"This repository says it holds {KINDS[current]['label'].lower()}. "
-                       f"Confirm to change it to {KINDS[kind]['label'].lower()}.", kind="confirm")
+    if not confirm:
+        if current:
+            raise GitError(f"This repository says it holds {KINDS[current]['label'].lower()}. "
+                           f"Confirm to change it to {KINDS[kind]['label'].lower()}.", kind="confirm")
+        if (repo.root / MARKER).exists():
+            raise GitError(f"This repository's {MARKER} isn't one this app can read. "
+                           f"Confirm to replace it with {KINDS[kind]['label'].lower()}.", kind="confirm")
     (repo.root / MARKER).write_text(_marker(kind), encoding="utf-8")
     return {"kind": kind, "changed": True}
 

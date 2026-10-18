@@ -91,7 +91,7 @@ These prove where a file came from; they don't replace code signing, which is st
 | `%LOCALAPPDATA%\FabricDesktop\app-settings.json` | What you chose in Settings. |
 | `%LOCALAPPDATA%\FabricDesktop\sidecar.log` | The engine's log. Attach it to a problem report if asked. |
 | `%LOCALAPPDATA%\FabricDesktop\local-data\` | Local data projects (Preview): each project's settings, registered folders and database. See [Local data projects](local-data.md). |
-| `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
+| `%LOCALAPPDATA%\FabricDesktop\usage_imports\` | Measured usage you imported from Capacity Metrics app and Azure Cost Management exports (Preview), one file per import. See [Measured usage](finops/usage-import.md). |
 | `%LOCALAPPDATA%\FabricDesktop\audit\audit-YYYY-MM.jsonl` | The audit trail: one line for each thing you ran or changed. See [Audit trail](user-guide.md#audit-trail). |
 | `%LOCALAPPDATA%\FabricDesktop\files`, `staging`, `onelake-cache` | Local copies of lakehouse data: file previews, tables staged before a publish, files the metadata framework read. Deleted when unused for 30 days (your organization can change that), or any time with `fabric-desktop clean-local`. |
 | `%LOCALAPPDATA%\FabricDesktop\integrations\` | External AI tools: connected tools and approvals (`integrations.sqlite`) and their audit trail (`audit\audit-YYYY-MM.jsonl`, one line per request a tool made). See [Connect your AI tool](ai/README.md). |

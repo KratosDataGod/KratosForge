@@ -15,7 +15,7 @@ from typing import Any
 
 FOLDER = "usage_imports"
 SUMMARY = ("id", "provider", "provider_label", "layout", "layout_label", "file_name", "sha256", "imported_at", "options",
-           "period", "workspaces", "rows", "total", "skipped", "notes")
+           "period", "workspaces", "capacities", "rows", "total", "cost", "skipped", "notes")
 
 
 class Store:
@@ -50,7 +50,7 @@ class Store:
                "layout_label": preview["layout"]["label"], "file_name": preview["file_name"],
                "sha256": preview["sha256"], "imported_at": now.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
                "options": preview["options"], "period": preview["period"], "workspaces": preview["workspaces"],
-               "total": preview["total"], "skipped": preview["skipped"], "notes": preview["notes"], "rows": preview["rows"]}
+               "capacities": preview.get("capacities", []), "total": preview["total"], "cost": preview.get("cost", []), "skipped": preview["skipped"], "notes": preview["notes"], "rows": preview["rows"]}
         path = self._path(doc["id"])
         if path.exists():
             raise ValueError("This file is already imported.")

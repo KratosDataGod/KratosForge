@@ -24,10 +24,11 @@ from typing import Any
 
 from .. import measurement as ms
 from . import reader
+from .cost_management import CostManagement
 from .metrics_app import MetricsApp
 from .providers import Context, Options, Provider, detect
 
-PROVIDERS: dict[str, Provider] = {p.id: p for p in (MetricsApp(),)}
+PROVIDERS: dict[str, Provider] = {p.id: p for p in (MetricsApp(), CostManagement())}
 
 _SAMPLE = 5
 
@@ -84,8 +85,8 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
     cells = reader.cells(headers, rows, fit["index"])
     try:
         tz = reader.zone(opts.tz)
-        decimal = opts.decimal or reader.decimal_mark([c.get("cu", "") for c in cells] + [c.get("duration", "") for c in cells])
-        order = opts.date_order or (reader.date_order([c.get(f, "") for c in cells for f in ("start", "end")])
+        decimal = opts.decimal or reader.decimal_mark([c.get(f, "") for c in cells for f in layout.numbers])
+        order = opts.date_order or (reader.date_order([c.get(f, "") for c in cells for f in layout.times])
                                     if layout.timed else None)
         period = _period(opts, opts.date_order, tz) if not layout.timed else (None, None)
     except reader.NeedsChoice as exc:
@@ -93,8 +94,7 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
     except reader.FileProblem as exc:
         return out | {"problem": str(exc)}
     if not layout.timed and not (period[0] and period[1]):
-        return out | {"problem": "This file has totals per item, without times. Enter the period it covers (the "
-                                 "Compute page shows the dates it was filtered to).",
+        return out | {"problem": layout.period_hint or "Enter the period this file covers.",
                       "needs": {"option": "period", "choices": {}}}
     if period[0] and period[1] and period[1] <= period[0]:
         return out | {"problem": "The period ends before it starts."}
@@ -117,7 +117,8 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
             already += 1
             continue
         kept.append(r | {"line": line})
-    workspaces = sorted({r["workspace"] for r in kept if r["workspace"]})
+    workspaces = sorted({r["workspace"] for r in kept if r.get("workspace")})
+    capacities = sorted({r["capacity"] for r in kept if r.get("capacity")})
     if not layout.timed:
         for i in imports or []:
             if i.get("layout") == layout.id and i.get("provider") == provider.id \
@@ -126,10 +127,12 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
                 return out | {"problem": f"Its period overlaps {i.get('file_name')!r}, imported on "
                                          f"{i.get('imported_at', '')[:10]}, for the same workspaces, so the same use would "
                                          "count twice. Remove that import first, or export a period that doesn't overlap."}
-    starts = [ms.parse_time(r["cu"]["period"]["start"]) for r in kept if r["cu"]["period"]["start"]]
-    ends = [ms.parse_time(r["cu"]["period"]["end"]) for r in kept if r["cu"]["period"]["end"]]
-    total = ms.total([r["cu"] for r in kept], "fabric_capacity_cu", ms.CU_HOURS)
-    billing = Counter({True: "billable", False: "non_billable", None: "not_stated"}[r["billable"]] for r in kept)
+    periods = [measure(r)["period"] for r in kept]
+    starts = [ms.parse_time(p["start"]) for p in periods if p["start"]]
+    ends = [ms.parse_time(p["end"]) for p in periods if p["end"]]
+    cu_rows = [r["cu"] for r in kept if r.get("cu")]
+    total = ms.total(cu_rows, "fabric_capacity_cu", ms.CU_HOURS) if cu_rows else None
+    billing = Counter({True: "billable", False: "non_billable", None: "not_stated"}[r.get("billable")] for r in kept)
     notes = [f"Times without a time zone are read as {opts.tz or 'UTC'}: the export doesn't say which zone it uses."
              if layout.timed else "Each row is a total for the whole period you entered."]
     if fit["private"]:
@@ -149,7 +152,22 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
         "skipped": [{"reason": k, "count": len(v), "lines": v[:_SAMPLE]} for k, v in
                     sorted(skipped.items(), key=lambda kv: -len(kv[1]))],
         "period": {"start": reader.iso(min(starts)) if starts else None, "end": reader.iso(max(ends)) if ends else None},
-        "workspaces": workspaces, "items": len({(r["workspace"], r["item"]) for r in kept}),
-        "billing": dict(billing), "total": total,
-        "sample": [{k: r[k] for k in ("workspace", "item", "item_kind", "operation", "start", "end")} | {"cu_seconds": r["cu"]["value"]}
+        "workspaces": workspaces, "capacities": capacities,
+        "items": len({(r.get("workspace"), r.get("item")) for r in kept if r.get("item")}),
+        "billing": dict(billing), "total": total, "cost": cost_totals([r["cost"] for r in kept if r.get("cost")]),
+        "sample": [{k: r.get(k) for k in ("workspace", "item", "item_kind", "operation", "capacity", "meter", "start", "end")}
+                   | {"cu": (r.get("cu") or {}).get("value"), "cost": (r.get("cost") or {}).get("value")}
                    for r in kept[:_SAMPLE]]}
+
+
+def measure(row: dict[str, Any]) -> dict[str, Any]:
+    """The row's main measurement: its CU when it has one, otherwise its cost."""
+    return row.get("cu") or row["cost"]
+
+
+def cost_totals(parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Money totals, one per currency: amounts in different currencies are never added."""
+    by: dict[str, list[dict[str, Any]]] = {}
+    for p in parts:
+        by.setdefault(p["currency"], []).append(p)
+    return [ms.total(v, "billed_cost", ms.CURRENCY, currency=c) for c, v in sorted(by.items())]

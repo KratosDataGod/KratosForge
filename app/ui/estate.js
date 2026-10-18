@@ -211,7 +211,7 @@ function measureBadge(m) {
 
 function measureValue(m, cur) {
   if (!m || m.value === null || m.value === undefined) return "Not known";
-  if (m.unit === "currency") return m.value && m.value < 0.01 ? `under ${money(0.01, cur)}` : money(m.value, cur);
+  if (m.unit === "currency") return m.value && m.value < 0.01 ? `under ${money(0.01, m.currency || cur)}` : money(m.value, m.currency || cur);
   if (m.unit === "cu_hours") return cuHours(m.value);
   if (m.unit === "cu_seconds") return `${Math.round(m.value).toLocaleString()} CU-s`;
   if (m.unit === "percent") return `${m.value < 0.1 && m.value > 0 ? "<0.1" : Number(m.value).toFixed(1)}%`;
@@ -236,14 +236,16 @@ function measureDialog(title, m, cur) {
     h("p", { class: "text" }, h("b", {}, measureValue(m, cur)), " ", measureBadge(m), " ", why),
     h("table", { class: "list compact" }, h("tbody", {},
       row("Classification", label),
-      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
+      row("Unit", { cu_hours: "CU hours (capacity use)", cu_seconds: "CU-seconds (capacity use)", percent: "Percent of a capacity over the period", currency: m.metric === "billed_cost" ? `Money (${m.currency}), as billed` : `Money (${m.currency || cur}), a price applied to CU use` }[m.unit]),
       row("Worked out as", methods.join("; ")),
       row("Source", sources.join(", ")),
       row("Period", period),
       row("Runs counted", m.parts !== undefined ? `${m.parts - (m.unknown_parts || 0)} of ${m.parts}` : ""),
       row("Not known", m.reason || ""))),
     m.assumptions?.length ? [h("p", { class: "text" }, h("b", {}, "Assumptions")), list(m.assumptions)] : null,
-    h("p", { class: "muted-text small" }, "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
+    h("p", { class: "muted-text small" }, String(m.metric || "").startsWith("billed_")
+      ? "Azure Cost Management bills a capacity per meter and day, for the whole capacity: it can't be split into single runs."
+      : "Fabric's Capacity Metrics app has the CU your capacity recorded. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run.")),
   [btn("Close", null, closeDialog, "tool outline")]);
 }
 
@@ -297,7 +299,7 @@ function capacityStrip(doc) {
       h("td", {}, capacityAge(e)))))));
 }
 
-// ---------- measured usage imported from a Capacity Metrics app export (FINOPS-003) ----------
+// ---------- measured usage imported from Capacity Metrics app and Azure Cost Management exports (FINOPS-003) ----------
 
 const USAGE_STATE = {
   matched: ["Measured", "pass", "Imported rows matched this run by workspace, item and time."],
@@ -316,9 +318,12 @@ function usageCard(u, cur) {
   if (u.error) return h("div", { class: "card pad usage-card" }, head, h("p", { class: "error-text" }, u.error));
   if (!imports.length) {
     return h("div", { class: "card pad usage-card" }, head,
-      h("p", { class: "muted-text small" }, "The figures above are estimates. For measured CU, a capacity admin exports the operations table from the Capacity Metrics app's Timepoint page (More options > Export data > CSV) and gives you the file. It stays on this PC; no admin rights are needed to import it."));
+      h("p", { class: "muted-text small" }, "The figures above are estimates. For measured CU, a capacity admin exports the operations table from the Capacity Metrics app's Timepoint page (More options > Export data > CSV) and gives you the file. For what a capacity was billed, finance can export Azure Cost Management cost details as CSV. Files stay on this PC; no admin rights are needed to import them."));
   }
   const m = u.matched, runs = u.runs;
+  if (!u.rows && u.billed?.length) {
+    return h("div", { class: "card pad usage-card" }, head, usageBilled(u.billed, cur), usageImportsList(imports));
+  }
   const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
     sub ? h("span", { class: "k" }, sub) : null);
   const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -345,16 +350,39 @@ function usageCard(u, cur) {
         h("td", {}, when(b.started_at)),
         h("td", { class: "n" }, measureFigure(`${b.name}: measured`, b.measured, cur)),
         h("td", { class: "n" }, measureFigure(`${b.name}: estimated`, b.estimated, cur)))))) : null,
-    h("details", { class: "usage-imports" }, h("summary", { class: "small" }, `${plural(imports.length, "import")} on this PC`),
-      h("table", { class: "list compact" }, h("tbody", {}, imports.map((i) => h("tr", {},
-        h("td", {}, h("b", {}, i.file_name), h("div", { class: "muted-text small" }, `${i.provider_label} · ${i.layout_label}`)),
-        h("td", { class: "small" }, i.period?.start ? `${new Date(i.period.start).toLocaleDateString()} to ${new Date(i.period.end || i.period.start).toLocaleDateString()}` : ""),
-        h("td", { class: "n" }, plural(i.rows, "row")),
-        h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
-        h("td", {}, btn("Remove", "delete", async () => {
-          if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove"))) return;
-          if (await attempt(() => rpc("usage_import_delete", { import_id: i.id }), "Not removed")) render();
-        }, "tool outline small"))))))));
+    usageBilled(u.billed, cur),
+    usageImportsList(imports));
+}
+
+function usageImportsList(imports) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return h("details", { class: "usage-imports" }, h("summary", { class: "small" }, `${plural(imports.length, "import")} on this PC`),
+    h("table", { class: "list compact" }, h("tbody", {}, imports.map((i) => h("tr", {},
+      h("td", {}, h("b", {}, i.file_name), h("div", { class: "muted-text small" }, `${i.provider_label} · ${i.layout_label}`)),
+      h("td", { class: "small" }, i.period?.start ? `${new Date(i.period.start).toLocaleDateString()} to ${new Date(Math.max(Date.parse(i.period.start), Date.parse(i.period.end || i.period.start) - 1)).toLocaleDateString()}` : ""),
+      h("td", { class: "n" }, plural(i.rows, "row")),
+      h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
+      h("td", {}, btn("Remove", "delete", async () => {
+        if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove"))) return;
+        if (await attempt(() => rpc("usage_import_delete", { import_id: i.id }), "Not removed")) render();
+      }, "tool outline small")))))));
+}
+
+// What each capacity was billed, from Azure Cost Management exports: for the whole capacity, never per run.
+function usageBilled(billed, cur) {
+  if (!billed?.length) return null;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: "UTC" });
+  return h("div", { class: "usage-billed" },
+    h("p", { class: "text" }, h("b", {}, "Billed per capacity"), h("span", { class: "muted-text small" }, " · from Azure Cost Management, for the whole capacity")),
+    h("table", { class: "list compact" },
+      h("thead", {}, h("tr", {}, ["Capacity", "Days", "Compute billed", "Cost"].map((c) => h("th", {}, c)))),
+      h("tbody", {}, billed.map((b) => h("tr", {},
+        h("td", {}, h("b", {}, b.capacity), h("div", { class: "muted-text small" },
+          b.environments.length ? `Used by ${b.environments.join(", ")}` : "Not one of your environments' capacities")),
+        h("td", { class: "small" }, `${plural(b.days, "day")}`, h("div", { class: "muted-text small" }, b.first_day === b.last_day ? day(b.first_day) : `${day(b.first_day)} to ${day(b.last_day)}`)),
+        h("td", { class: "n" }, b.cu ? measureFigure(`${b.capacity}: compute billed`, b.cu, cur) : h("span", { class: "muted-text", title: "No compute meter billed in hours in these rows" }, "None")),
+        h("td", { class: "n" }, b.cost.map((c) => h("div", {}, measureFigure(`${b.capacity}: billed cost (${c.currency})`, c, cur)))))))));
 }
 
 function usageImportDialog() {
@@ -386,7 +414,7 @@ function usageImportDialog() {
   };
   tz.onchange = check;
   showDialog("Import measured usage", h("div", { class: "scroll" },
-    h("p", { class: "text" }, "A CSV exported from the Capacity Metrics app: the Timepoint page's operations table (with Total CU (s)), or the Compute page's items matrix (with CU (s)). A capacity admin can export it and give it to you. The file is read on this PC and kept here; nothing is sent anywhere."),
+    h("p", { class: "text" }, "A CSV exported from the Capacity Metrics app (the Timepoint page's operations table with Total CU (s), or the Compute page's items matrix with CU (s)), or from Azure Cost Management (cost details with Actual cost, or FOCUS). A capacity admin or finance can export it and give it to you. The file is read on this PC and kept here; nothing is sent anywhere."),
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "File", input), h("label", { class: "field" }, "Times are in", tz)),
     out),
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
@@ -418,7 +446,9 @@ function usagePreview(p, choose) {
         (p.already_imported ? ` · ${p.already_imported} already imported` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
       p.period?.start ? row("Period", `${new Date(p.period.start).toLocaleString()} to ${new Date(p.period.end || p.period.start).toLocaleString()}`) : null,
       p.workspaces?.length ? row("Workspaces", p.workspaces.join(", ")) : null,
-      p.total && p.to_import ? row("Measured CU", measureFigure("Measured CU in this file", p.total)) : null)) : null,
+      p.capacities?.length ? row("Capacities", p.capacities.join(", ")) : null,
+      p.total && p.to_import ? row(p.provider.id === "cost_management" ? "Compute billed" : "Measured CU", measureFigure("Measured CU in this file", p.total)) : null,
+      p.cost?.length && p.to_import ? row("Billed cost", h("span", {}, p.cost.map((c) => measureFigure(`Billed cost in this file (${c.currency})`, c)))) : null)) : null,
     p.skipped?.length ? h("div", {}, h("p", { class: "text" }, h("b", {}, `${plural(p.skipped.reduce((a, s) => a + s.count, 0), "row")} skipped`)),
       h("ul", { class: "text" }, p.skipped.map((s) => h("li", {}, `${s.reason}: ${s.count} (line${s.lines.length === 1 ? "" : "s"} ${s.lines.join(", ")}${s.count > s.lines.length ? ", ..." : ""})`)))) : null,
     p.notes?.length ? h("ul", { class: "muted-text small" }, p.notes.map((n) => h("li", {}, n))) : null,

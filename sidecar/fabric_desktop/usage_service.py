@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from . import capacity as capacity_mod
 from . import costs as costs_mod
 from . import usage
 from .meta.project import ENVIRONMENTS
@@ -58,12 +59,19 @@ class UsageMixin:
                 names.setdefault(cfg["workspace_id"], cfg["workspace_name"])
         return names
 
-    def _usage_reconcile(self, days: int, fabric: list[dict[str, Any]], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    def _usage_reconcile(self, days: int, fabric: list[dict[str, Any]], rows: list[dict[str, Any]],
+                         caps: dict[str, Any] | None = None) -> dict[str, Any]:
         now = dt.datetime.now(dt.timezone.utc)
         estimates = {r["fabric_job_cu"]["run_id"]: r["fabric_job_cu"] for r in rows
                      if r["where"] == "fabric" and r["fabric_job_cu"].get("run_id")}
+        if caps is None:  # the last capacity reading on this PC; never a call to Fabric from here
+            caps = capacity_mod.load(self.root / "capacity_observations.json") or {}  # type: ignore[attr-defined]
+        envs: dict[str, list[str]] = {}
+        for e in caps.get("environments", []):
+            if (e.get("capacity") or {}).get("name"):
+                envs.setdefault(e["capacity"]["name"].lower(), []).append(e["env"])
         return reconcile_mod.reconcile(self._usage.all(), fabric, estimates, now - dt.timedelta(days=int(days)), now,
-                                       self._workspace_names(fabric), now) | {"imports_list": self._usage.summaries()}
+                                       self._workspace_names(fabric), now, envs) | {"imports_list": self._usage.summaries()}
 
     def usage_reconciliation(self, days: int = 30) -> dict[str, Any]:
         """Imported measured CU against this app's Fabric runs over the last ``days``."""

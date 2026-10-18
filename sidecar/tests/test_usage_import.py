@@ -272,3 +272,64 @@ def test_preview_is_a_read_and_import_is_audited_without_the_files_content():
     assert audit.audited("usage_import") and audit.audited("usage_import_delete")
     assert audit.target({"file_name": "t.csv", "content": OPS})["content"] == "(given)"
 
+
+
+# ---- Azure Cost Management exports: what a capacity was billed
+
+CAP = "/subscriptions/s1/resourceGroups/rg/providers/Microsoft.Fabric/capacities/contosof64"
+COST = f"""Date,MeterCategory,MeterSubCategory,MeterName,Quantity,UnitOfMeasure,CostInBillingCurrency,BillingCurrency,ResourceId,ResourceName,ChargeType,PricingModel
+10/15/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,120.5,1 Hour,21.69,EUR,{CAP},ContosoF64,Usage,OnDemand
+10/15/2026,Microsoft Fabric,Fabric Capacity,Spark Memory Optimized Capacity Usage CU,40,10 Hours,72.00,EUR,{CAP},ContosoF64,Usage,OnDemand
+10/15/2026,Microsoft Fabric,OneLake,OneLake Storage,3.2,1 GB/Month,0.08,EUR,{CAP},ContosoF64,Usage,OnDemand
+10/16/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,100,1 Hour,18.00,EUR,{CAP},ContosoF64,Usage,OnDemand
+10/16/2026,Virtual Machines,D2s v5,D2s v5,24,1 Hour,2.30,EUR,/subscriptions/s1/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1,vm1,Usage,OnDemand
+10/16/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,1,1 Hour,-0.18,EUR,{CAP},ContosoF64,Refund,OnDemand
+"""
+
+
+def test_cost_details_keep_only_fabric_capacities_and_never_mix_currencies():
+    p = read(COST)
+    assert p["ready"] and p["provider"]["id"] == "cost_management" and p["layout"]["id"] == "cost_details"
+    assert p["to_import"] == 4 and p["capacities"] == ["ContosoF64"]
+    assert {s["reason"]: s["count"] for s in p["skipped"]} == {"Not a Fabric capacity": 1,
+                                                                 "A refund or credit (negative amount)": 1}
+    first = p["rows"][0]
+    assert first["level"] == "capacity" and first["capacity_id"] == CAP.lower()
+    assert first["cost"]["classification"] == ms.MEASURED and first["cost"]["currency"] == "EUR"
+    assert first["cost"]["value"] == 21.69 and first["cu"]["unit"] == ms.CU_HOURS and first["cu"]["value"] == 120.5
+    assert first["cost"]["period"] == {"start": "2026-10-15T00:00:00+00:00", "end": "2026-10-16T00:00:00+00:00"}
+    assert p["rows"][1]["cu"]["value"] == 400  # 40 x "10 Hours"
+    assert p["rows"][2]["cu"] is None and p["rows"][2]["cost"]["value"] == 0.08  # storage: cost only
+    assert p["total"]["value"] == pytest.approx(620.5) and p["total"]["classification"] == ms.MEASURED
+    assert [c["currency"] for c in p["cost"]] == ["EUR"] and p["cost"][0]["value"] == pytest.approx(111.77)
+    usd = read(COST.replace("21.69,EUR", "21.69,USD"))
+    assert sorted(c["currency"] for c in usd["cost"]) == ["EUR", "USD"]
+
+
+def test_focus_exports_are_read_and_amortized_cost_alone_is_refused():
+    focus = ("ChargePeriodStart,ChargePeriodEnd,SkuMeter,ConsumedQuantity,ConsumedUnit,BilledCost,BillingCurrency,"
+             "ResourceId,ResourceName,ChargeCategory,PricingCategory\n"
+             f"2026-10-15T00:00:00Z,2026-10-16T00:00:00Z,Power BI Capacity Usage CU,10,Hours,1.80,USD,{CAP},ContosoF64,Usage,Standard\n")
+    p = read(focus)
+    assert p["ready"] and p["layout"]["id"] == "focus" and p["rows"][0]["cu"]["value"] == 10
+    amortized = read(focus.replace("BilledCost", "EffectiveCost"))
+    assert not amortized["ready"] and "Actual cost" in amortized["problem"]
+
+
+def test_compute_meters_not_billed_in_hours_carry_cost_only():
+    p = read(COST.replace("120.5,1 Hour", "120.5,1 CU-Second"))
+    assert p["rows"][0]["cu"] is None and p["rows"][0]["cost"]["value"] == 21.69
+
+
+def test_billed_totals_are_shown_per_capacity_and_never_matched_to_runs():
+    p = read(COST)
+    imp = {"id": "u-9", "imported_at": NOW.isoformat(), "rows": p["rows"]}
+    r = rc.reconcile([imp], [run("j1", "nb_sales", "2026-10-15T10:00:00+00:00", "2026-10-15T10:05:00+00:00")], {},
+                     NOW - dt.timedelta(days=30), NOW, now=NOW, capacity_envs={"contosof64": ["dev", "test"]})
+    assert r["rows"] == 0 and r["imported"] is None and r["matched"]["runs"] == 0
+    assert r["runs"]["not_covered"] == 1  # a bill doesn't cover single runs
+    [cap] = r["billed"]
+    assert cap["capacity"] == "ContosoF64" and cap["environments"] == ["dev", "test"]
+    assert cap["days"] == 2 and cap["first_day"] == "2026-10-15" and cap["last_day"] == "2026-10-16"
+    assert cap["cu"]["value"] == pytest.approx(620.5) and cap["cost"][0]["value"] == pytest.approx(111.77)
+    assert cap["meters"]["Data Warehouse Capacity Usage CU"] == 2

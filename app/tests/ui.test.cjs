@@ -403,6 +403,30 @@ test("a usage file that reads two ways asks before importing, and a ready one sa
   assert.match(ready, /No CU value: 1 \(line 5\)/);
 });
 
+test("billed capacity totals show each currency on its own and say which environments use the capacity", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const flat = (kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = {
+    h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
+  };
+  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  assert.strictEqual(ctx.usageBilled([], "USD"), null);
+  const out = text(ctx.usageBilled([
+    { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
+      cu: { value: 96, unit: "cu_hours", classification: "measured" },
+      cost: [{ value: 17.28, currency: "EUR", classification: "measured" }, { value: 20, currency: "USD", classification: "measured" }] },
+    { capacity: "other", environments: [], days: 1, first_day: "2026-10-01", last_day: "2026-10-01", cu: null, cost: [] },
+  ], "USD"));
+  assert.match(out, /Used by Prod/);
+  assert.match(out, /96 cu_hours measured/);
+  assert.match(out, /17.28 EUR measured/);
+  assert.match(out, /20 USD measured/);
+  assert.match(out, /Not one of your environments' capacities/);
+  assert.match(out, /None/);
+});
+
 // The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
 function sqlEditorHelpers() {
   const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");

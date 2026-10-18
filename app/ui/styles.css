@@ -403,6 +403,8 @@ h2.flush { margin: 0; }
 .usage-card .cmp-stats { margin: 10px 0; }
 .usage-card td { vertical-align: top; }
 .usage-imports summary { cursor: pointer; margin-top: 8px; }
+.usage-billed { margin-top: 10px; }
+.usage-billed > p { margin: 0 0 6px; }
 .usage-preview { margin-top: 10px; }
 .usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }

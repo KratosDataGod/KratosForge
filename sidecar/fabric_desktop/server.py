@@ -81,6 +81,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_path_info", "git_notebook_info", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
+           "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 

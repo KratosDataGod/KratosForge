@@ -84,6 +84,17 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--json", action="store_true", help="print the whole report as JSON")
     p = pipe_sub.add_parser("activities", help="print the activity registry, or one type's entry, as JSON")
     p.add_argument("type", nargs="?", help="an activity type, such as Copy or TridentNotebook")
+    p = pipe_sub.add_parser("run", help="run the pipeline on this PC (control flow, child pipelines and mocks; "
+                                        "nothing is sent to Fabric); exit 0 if it succeeds")
+    p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
+    p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="a pipeline parameter")
+    p.add_argument("--mocks", help="JSON file: {activity name: {status, output, error, seconds}}")
+    p.add_argument("--child", action="append", default=[], metavar="KEY=PATH",
+                   help="a child pipeline's definition, by referenceName or pipelineId")
+    p.add_argument("--max-parallel", type=int, default=4)
+    p.add_argument("--wait-scale", type=float, default=1.0, help="multiply every wait by this (0 for none)")
+    p.add_argument("--timeout", type=float, help="stop the run after this many seconds")
+    p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -247,6 +258,8 @@ def _pipeline(args: argparse.Namespace) -> int:
             return 0
     elif args.pipeline_command == "inspect":
         result = svc.pipeline_inspect(path=args.path)
+    elif args.pipeline_command == "run":
+        return _pipeline_run(args)
     elif args.pipeline_command == "activities":
         print(json.dumps(svc.pipeline_activity_registry(args.type), indent=2))
         return 0
@@ -277,6 +290,43 @@ def _pipeline(args: argparse.Namespace) -> int:
         return 0 if result["ok"] else 1
     print(json.dumps(result, indent=2, default=str))
     return 0 if result.get("ok") else 1
+
+
+def _pipeline_run(args: argparse.Namespace) -> int:
+    from .orchestration import load
+    from .orchestration.definition import DefinitionError
+    from .orchestration.runner import PipelineRun, RunRefused
+
+    try:
+        imp = load(args.path)
+        children = {}
+        for item in args.child:
+            key, _, path = item.partition("=")
+            children[key] = load(path)
+        mocks = json.loads(open(args.mocks, encoding="utf-8").read()) if args.mocks else None
+    except (DefinitionError, OSError, ValueError) as exc:
+        print(f"error: {exc}")
+        return 2
+    params = dict(item.partition("=")[::2] for item in args.param)
+    run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
+                      wait_scale=args.wait_scale, timeout_seconds=args.timeout)
+    try:
+        run.run()
+    except RunRefused as exc:
+        for p in exc.problems:
+            print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
+        return 2
+    record = run.to_json()
+    if args.json:
+        print(json.dumps(record, indent=2, default=str))
+    else:
+        for a in record["activities"]:
+            where = f" ({a['label']})" if a["label"] else ""
+            how = " [mock]" if a["executed_by"] == "mock" else ""
+            err = f": {a['error']['message']}" if isinstance(a.get("error"), dict) else ""
+            print(f"{a['state']:<10} {a['name']}{where}{how}{err}")
+        print(f"run {record['run_id']}: {record['state']} in {record['seconds']} s")
+    return 0 if run.state == "succeeded" else 1
 
 
 def _audit(args: argparse.Namespace) -> int:

@@ -1237,7 +1237,7 @@ test("Monitor > Agents explains agents beside the list, with links to sections o
   const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
   assert.ok(linked.length >= 6);
   for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
-  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
+  assert.match(src, /return h\("div", \{ class: "mon-how" \}, withHowItWorks\(box, agGuide\(\)\)\);/);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
@@ -1320,6 +1320,34 @@ test("confirms that delete or overwrite something pass danger", () => {
   assert.deepStrictEqual(missing, []);
 });
 
+test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const seen = {};
+  const ctx = {
+    h: (tag, attrs, ...children) => ({ tag, attrs, children }),
+    howItWorks: (id, parts) => { seen[id] = parts; return { panel: id }; },
+    withHowItWorks: (main, panel) => ({ main, panel }),
+    agDoc: (anchor) => ({ doc: anchor }),
+    loadWorkloads: () => {}, loadAgents: () => {},
+  };
+  const grab = (file, name) => {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    return src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  };
+  vm.runInNewContext(`${grab("workloads.js", "workloadsPanel")}${grab("agents.js", "agentsPanel")}${grab("agents.js", "agGuide")}
+    this.out = [workloadsPanel(), agentsPanel()];`, ctx);
+  for (const [i, id] of [[0, "monitor.workloads"], [1, "monitor.agents"]]) {
+    assert.deepStrictEqual(ctx.out[i].children[0].panel, { panel: id }, `${id} sits beside its list`);
+    const p = seen[id];
+    for (const k of ["reads", "changes", "results"]) assert.ok(String(p[k]).length > 20, `${id} says ${k}`);
+    assert.ok(anchors.has(p.anchor), `user-guide.md has #${p.anchor}`);
+  }
+  assert.match(seen["monitor.agents"].changes, /^Nothing\./);
+  assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
+});
+
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
@@ -1331,4 +1359,20 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
   assert.match(fabric, /withHowItWorks\(/);
   assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
+});
+
+// Testing item 18: Workspaces, the OneLake catalog and Data products each say how they work, naming every write.
+test("Workspaces, the catalog and data products have a How this works panel that names their writes", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
+  const ws = panel(app, "workspaces");
+  assert.match(ws, /changes: "Nothing in Fabric or OneLake. Open in notebook[^"]*makes a new notebook on this PC/);
+  const catalog = panel(app, "onelake.catalog");
+  assert.match(catalog, /changes: "Nothing in Fabric or OneLake/);
+  assert.match(catalog, /Open in notebook makes a new notebook on this PC/);
+  const products = panel(platform, "onelake.products");
+  assert.match(products, /records your project as a reader/);
+  assert.match(products, /adds a request/);
+  for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });

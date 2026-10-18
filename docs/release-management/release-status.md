@@ -37,7 +37,7 @@ Merged in this order onto `3bee0db` with `.github/scripts/integration_trial.py`:
 
 Smallest blast radius first, stacks in order, CI still running last. Chris's go is needed for the round.
 
-Added since the snapshot: #169 (staged roadmap) adds the shared UI helper `previewMarked()` for UX-021 Preview tags. Merge it before any PR that calls `previewMarked()` (Prove and hardening PRs will). #171 (UX) adds `confirmDialog`'s `{ danger, typeToConfirm }` options, and Escape or a click outside now returns false. Merge it before any PR that passes `{ danger: true }`.
+Added since the snapshot: #169 (staged roadmap) adds the shared UI helper `previewMarked()` for UX-021 Preview tags. Merge it before any PR that calls `previewMarked()` (Prove and hardening PRs will). #171 (UX) adds `confirmDialog`'s `{ danger, typeToConfirm }` options, and Escape or a click outside now returns false. Merge it before any PR that passes `{ danger: true }`. #175 (Prove) and #153 (FinOps) both edit the last paragraph of `docs/finops/cost-evidence.md`. The resolution keeps both sentences: Prove's about scorecards and receipts first, then FinOps' about imports.
 
 1. Docs and records: #137 (hardening audit; the fixes below cite it), #140 (product records)
 2. Small single-area fixes: #147, #141, #138, #152, #154, #155, #156, #157, #159

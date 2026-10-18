@@ -43,7 +43,7 @@ Table names work as they do in Fabric: `table`, `schema.table`, or either with t
 
 Every write:
 
-- is checked against the **Fabric-safe Delta profile** (reader version 1, writer version 2, classic checkpoints, no deletion vectors or column mapping), so the SQL analytics endpoint and Direct Lake can read it;
+- is checked against the **Fabric-safe Delta profile** (reader version 1, writer version 2, classic checkpoints, no deletion vectors or column mapping), so the SQL analytics endpoint and Direct Lake can read it. An existing table outside the profile (for example one where Fabric Spark turned on deletion vectors) is refused before anything is written, so the table is left exactly as it was;
 - writes the data files first and the Delta log last, so Fabric never sees a half-written version;
 - shows in **Monitor** as a notebook write, with rows, mode and Delta version.
 

@@ -279,7 +279,7 @@ Monitor has two halves.
   - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
 - **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). Fabric's Capacity Metrics app has the CU your capacity recorded. See [Capacity and cost evidence](finops/cost-evidence.md).
 
-**In Fabric** (bottom) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. **Hide** gives the top half the whole page; the app remembers it. Operations always uses the whole page.
+**In Fabric** (bottom, on Runs) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. It shows under **Runs** only. **Hide** gives Runs the whole page; the app remembers it. Every other panel always uses the whole page.
 
 ### Workloads (Preview)
 

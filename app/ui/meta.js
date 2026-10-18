@@ -111,7 +111,7 @@ async function renderMetadata() {
       h("div", {},
         h("h1", {}, "Data mesh"),
         h("p", { class: "sub" }, "Every table is a file in ", h("span", { class: "mono" }, p.path),
-          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("metadata"))),
+          ". Metadata version ", h("span", { class: "mono" }, p.version), ". ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("New entity", "add", newEntityDialog, "tool outline"),
         preview("schedules", btn("Schedule", "history", () => scheduleMetaRuns(m.env), "tool outline",
@@ -408,11 +408,30 @@ function keysCard(e) {
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 
-function confirmDialog(title, text, okLabel = "OK") {
+// opts.danger: the action deletes or overwrites data, so it is drawn red and Cancel has focus (UX-018).
+// opts.typeToConfirm: the action stays off until exactly this text is typed, for the worst overwrites.
+// Escape, the close button and a click outside count as Cancel.
+function confirmDialog(title, text, okLabel = "OK", opts = {}) {
   return new Promise((resolve) => {
-    const done = (v) => { closeDialog(); resolve(v); };
-    showDialog(title, h("p", { class: "text" }, text), [
-      btn("Cancel", null, () => done(false), "tool outline"), btn(okLabel, null, () => done(true), "tool primary")]);
+    let settled = false;
+    const done = (v) => { if (settled) return; settled = true; closeDialog(); resolve(v); };
+    const cancel = btn("Cancel", null, () => done(false), "tool outline");
+    const ok = btn(okLabel, null, () => done(true), opts.danger ? "tool danger-solid" : "tool primary");
+    let typed = null;
+    if (opts.typeToConfirm) {
+      ok.disabled = true;
+      typed = h("label", { class: "field" }, `Type ${opts.typeToConfirm} to confirm`,
+        h("input", { autocomplete: "off", spellcheck: "false",
+          oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
+          onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
+    }
+    const overlay = showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok]);
+    if (opts.danger && !typed) cancel.focus();
+    new MutationObserver((_, watch) => {
+      if (overlay.isConnected) return;
+      watch.disconnect();
+      if (!settled) { settled = true; resolve(false); }
+    }).observe(document.getElementById("dialog-root"), { childList: true });
   });
 }
 

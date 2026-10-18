@@ -51,7 +51,7 @@ Severity:
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
 | QA-030 | Low | Architecture | Domain modules import the service layer; six cycles through function-level imports | PR-QA-08 |
-| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize |
+| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fix #231 (PASS) |
 
 ## Details
 

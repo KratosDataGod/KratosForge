@@ -35,6 +35,8 @@ function h(tag, attrs = {}, ...children) {
     else if (k === "style") node.style.cssText = v;
     else node.setAttribute(k, v === true ? "" : v);
   }
+  // A clickable row or card ("click" class) is reached with Tab like a button; Enter or Space opens it (UX-012).
+  if (attrs?.onclick && node.classList.contains("click") && !node.hasAttribute("tabindex")) node.tabIndex = 0;
   for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false) continue;
     node.append(c instanceof Node ? c : document.createTextNode(String(c)));
@@ -172,24 +174,74 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
 function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
-  const menu = h("div", { class: "menu", id: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info" }, it.info)
-      : btn(it.label, it.icon, () => { closeMenu(); it.action(); })));
+  const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
+    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+      : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
+  menuOpener = anchor;
+  anchor.setAttribute?.("aria-expanded", "true");
   document.body.append(menu);
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
+  menu.querySelector("[role=menuitem]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
+
+let menuOpener = null;
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
 }
 
-function closeMenu() {
-  document.getElementById("menu")?.remove();
+function closeMenu(refocus = false) {
+  const menu = document.getElementById("menu");
+  menu?.remove();
   document.removeEventListener("mousedown", closeMenuOutside);
+  menuOpener?.setAttribute?.("aria-expanded", "false");
+  if (menu && refocus && menuOpener?.isConnected) menuOpener.focus();
+  menuOpener = null;
 }
+
+// The open menu: arrows, Home and End move, Escape closes it and returns to its button, Tab leaves it.
+// Capture phase, so Escape closes the menu before a dialog behind it sees the key.
+document.addEventListener("keydown", (e) => {
+  const menu = document.getElementById("menu");
+  if (!menu) return;
+  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const at = items.indexOf(document.activeElement);
+  const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+  if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
+  else if (e.key === "Tab") closeMenu(true);  // back on its button, so Tab goes on to the next control
+  else if (move !== undefined && items.length) {
+    e.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  }
+}, true);
+
+// Rows and cards with the "click" class (focusable, see h()): Enter or Space opens them.
+// Tabs (role="tab" in a role="tablist"): Left, Right, Home and End move to the next tab and select it.
+document.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (!(el instanceof Element) || e.altKey || e.ctrlKey || e.metaKey) return;
+  if ((e.key === "Enter" || e.key === " ") && el.classList.contains("click") && el === document.activeElement
+      && !["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) {
+    e.preventDefault();
+    el.click();
+    return;
+  }
+  if (el.getAttribute("role") !== "tab") return;
+  const tabs = [...(el.closest("[role=tablist]")?.querySelectorAll("[role=tab]") || [])];
+  const at = tabs.indexOf(el);
+  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (next === undefined || at < 0) return;
+  e.preventDefault();
+  const tab = tabs[(next + tabs.length) % tabs.length];
+  const label = tab.textContent;
+  tab.click();
+  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
+  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
+  (now || (tab.isConnected ? tab : null))?.focus();
+});
 
 // ---------- account and data ----------
 
@@ -243,11 +295,12 @@ function renderChrome() {
   // Items opened recently, each with a close button.
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
-    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, onclick: onOpen }, icon(iconName, 22), label),
+    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
+      onclick: onOpen }, icon(iconName, 22), label),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
-        await onClose();
+        if (await onClose() === false) return;  // e.g. a notebook that couldn't be saved stays open
         if (state.view === view) go("home"); else renderChrome();
       } }, icon("dismiss", 12)));
   if (state.openWorkspace) {
@@ -259,7 +312,7 @@ function renderChrome() {
   }
   if (state.notebook) {
     open.push(recent("notebook", "notebook", state.notebook.name, () => go("notebook"), async () => {
-      if (state.notebook?.dirty) await saveNotebook();  // closing never loses edits
+      if (state.notebook?.dirty && !(await saveNotebook())) return false;  // closing never loses edits
       state.notebook = null;
     }));
   }
@@ -1498,8 +1551,8 @@ function renderQuery() {
     const r = tab.result;
     if (!r) return;
     const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")), "Could not copy");
-    toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
+    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
+    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -1714,7 +1767,7 @@ function renderQuery() {
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB. No Fabric capacity is used."))),
+      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
@@ -1892,7 +1945,7 @@ function loadIntoState(nb) {
 }
 
 async function openNotebook(name) {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const nb = await attempt(() => rpc("open_notebook", { name }), "Could not open the notebook");
   if (!nb) return;
   loadIntoState(nb);
@@ -1900,7 +1953,7 @@ async function openNotebook(name) {
 }
 
 async function newNotebook(lakehouse) {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const nb = await attempt(() => rpc("new_notebook"), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
@@ -1920,15 +1973,20 @@ function notebookPayload() {
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
 }
 
+// True when the notebook is saved (or there is none). On a failure the error toast stays, the
+// notebook stays dirty, and callers that would close or replace it stop.
 async function saveNotebook() {
-  if (!state.notebook) return;
+  if (!state.notebook) return true;
   clearTimeout(saveTimer);
+  const nb = state.notebook;
   const ok = await attempt(() => rpc("save_notebook", notebookPayload()), "Could not save");
-  if (ok && state.notebook) {
-    state.notebook.dirty = false;
+  if (!ok) return false;
+  if (state.notebook === nb) {
+    nb.dirty = false;
     if (ok.check) setComputeCheck(ok.check);
     renderChrome();
   }
+  return true;
 }
 
 function markDirty() {
@@ -1944,7 +2002,7 @@ async function renameNotebook() {
   const nb = state.notebook;
   const name = await askText("Rename notebook", "Name", nb.name, "Rename");
   if (!name || name === nb.name) return;
-  await saveNotebook();
+  if (!(await saveNotebook())) return;
   const ok = await attempt(() => rpc("rename_notebook", { name: nb.name, new_name: name }), "Could not rename");
   if (ok) { nb.name = name; renderChrome(); }
 }
@@ -2022,7 +2080,7 @@ function computeMenu(nb) {
     action: () => setNotebookCompute(value) });
   return [
     { info: "Where Run all runs this notebook." },
-    option("local", "This PC (no Fabric capacity used)", "desktop"),
+    option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
       ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
@@ -2427,7 +2485,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
-    saveNotebook().then(() => toast("Saved"));
+    saveNotebook().then((ok) => { if (ok) toast("Saved"); });
   }
 });
 window.addEventListener("beforeunload", () => { if (state.notebook?.dirty) saveNotebook(); });

@@ -204,6 +204,8 @@ Checks run before every write. Each has an `on_fail`:
 3. **Promote:** Dev to Test and Test to Prod need a clean save gate, passing tests, and a green last run of every table's current logic.
 4. **After:** `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history` and `meta.deployments` in `LH_Meta`, plus `_run_id` and `_loaded_at` on every row and the run id and metadata version on every Delta commit.
 
+The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
+
 **Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
 
 ```toml
@@ -305,6 +307,18 @@ The record goes into the target's `meta.deployments` row:
 
 Rows written before this existed have these columns empty.
 
+### Released files and rollback
+
+*Preview.* A promote also keeps every file of the metadata version (configs, transforms, tests: the files the version is a hash of, without `environments.toml` and `.local`) in the target's `meta.release_files`. Test and Prod then run those files, wherever the run happens: on this PC, on an agent, or in Fabric. Editing your project folder changes what Dev runs, never what Test or Prod run, until you promote again. The first run after a release writes its files once to `.local/releases/<env>/<version>/` in the project folder and reuses them. An environment last promoted before releases kept their files runs your folder as before, and only while the folder is on that release.
+
+**Roll back...** on a Test or Prod **Last release** card puts that environment back on an earlier release it kept. It lists every release to the environment, shows what goes back entity by entity, and then:
+
+- puts the environment on the earlier release's files, exactly as that environment kept them. Nothing is read from Git, Dev or your folder, and files that don't match their recorded hashes are refused
+- records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
+- uploads the earlier files for Fabric runs when the environment runs in Fabric
+
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
 If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
@@ -383,6 +397,13 @@ lib.CRM_server_host
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
+- If a model with that name already exists (for example after a rename), Fabric Desktop by KratosBI asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+
+**When Fabric can't be read.** Fabric Desktop by KratosBI doesn't guess whether a model exists or what a table holds:
+
+- If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
+- A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
 

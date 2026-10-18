@@ -2,11 +2,11 @@
 
 What must be true before Fabric Desktop by KratosBI goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
-Last updated 2026-10-17. "Open PR" means built and tested in CI but not merged yet.
+Last updated 2026-10-17. The gates below were written while their PRs were open; all of #80, #82, #84, #86, #88 to #95 have since merged. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
 ## Verdict today
 
-**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). Every other gate has its work in an open PR.
+**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). The other gates' work has merged, but the [hardening audit](../hardening/findings.md) found defects in restore, policy loading, log redaction and OneLake writes that must be fixed first (HD-001 to HD-010).
 
 ## Pilot gates
 

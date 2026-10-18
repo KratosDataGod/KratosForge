@@ -42,7 +42,7 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    }
    ```
 
-5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there as ignored.
+5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. An invalid file or restriction fails closed: for example, a stray comma turns off runs in Fabric and stops every sign-in until it's fixed ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
 
 ## Keep the exe and the engine in step
 

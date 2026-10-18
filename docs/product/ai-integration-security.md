@@ -48,7 +48,7 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | `integrations_http` | `false` stops the local HTTP API being switched on |
 | `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
 
-A value of the wrong type fails closed: integrations off, or only `READ_METADATA`, or no HTTP, or no extensions.
+A value of the wrong type fails closed: integrations off, or no permission categories, or no HTTP, or no extensions, or every receipt part left out. A policy file that exists but can't be read applies all of those at once, and both the integrations and the rest of Fabric Desktop by KratosBI read it through the same loader (`app_settings.read_policy()`).
 
 ## Residual risks
 

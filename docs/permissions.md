@@ -121,7 +121,7 @@ Three more keys are for control rather than convenience:
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 
-The full table, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
+An invalid file or key fails closed: a file that can't be read turns off runs in Fabric and stops every sign-in until it's fixed, and a wrongly typed restriction takes its most restrictive value. The full table, what fails closed, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
 
 **People from more than one organization, with your own app.** Make the registration multitenant. If an organization doesn't let users consent, its Microsoft Entra admin approves the app once with the link in **Settings > Account > Admin approval** (`https://login.microsoftonline.com/organizations/adminconsent?client_id=<application-client-id>`).
 

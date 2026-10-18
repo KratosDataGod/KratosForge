@@ -116,7 +116,7 @@ def test_policy_can_turn_integrations_off_and_bad_values_fail_closed(store, tmp_
     assert err.value.code == "integrations_disabled" and "organization" in err.value.message
     write_policy(tmp_path, {"integrations": "yes", "integrations_max_permissions": "all"})
     rules = policy.current()
-    assert rules["enabled"] is False and rules["max_permissions"] == ["READ_METADATA"] and len(rules["problems"]) == 2
+    assert rules["enabled"] is False and rules["max_permissions"] == [] and len(rules["problems"]) == 2
     write_policy(tmp_path, {"integrations": True})
     assert policy.current()["enabled"] is None
 

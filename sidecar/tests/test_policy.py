@@ -46,7 +46,8 @@ def test_policy_problems_are_reported_not_applied(policy):
 
 def test_service_shows_problems(policy):
     policy({"show_preview": "no"})
-    assert Service.app_settings(None)["policy_problems"] == ["show_preview should be bool, not str"]  # type: ignore[arg-type]
+    assert Service.app_settings(None)["policy_problems"] == [  # type: ignore[arg-type]
+        "show_preview should be bool, not str, so it takes its most restrictive value"]
 
 
 def test_users_cannot_set_it_keys(policy):

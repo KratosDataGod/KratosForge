@@ -123,7 +123,7 @@ def test_a_policy_file_people_can_change_is_reported(files, monkeypatch):
     files({"allow_fabric_runs": False})
     monkeypatch.setattr(app_settings, "user_can_change", lambda path: path == files.path)
     [problem] = app_settings.policy_problems()
-    assert "can be changed by your Windows account" in problem and "only administrators" in problem
+    assert "can be changed by the account you're signed in" in problem and "only administrators" in problem
     assert app_settings.load()["allow_fabric_runs"] == {"value": False, "source": "policy"}  # still applies
 
 
@@ -136,6 +136,24 @@ def test_user_can_change_checks_write_access(files, monkeypatch, tmp_path):
     assert not USER_CAN_CHANGE(tmp_path / "missing.json")
     monkeypatch.setattr(app_settings.os, "geteuid", lambda: 0, raising=False)
     assert not USER_CAN_CHANGE(files.path)  # an administrator can change it anyway
+
+
+@pytest.mark.skipif(not hasattr(__import__("os"), "chown"), reason="file owners are POSIX here")
+def test_owning_the_folder_counts_even_when_the_file_is_read_only(files, monkeypatch):
+    """Someone who made the folder before IT pushed the file can delete and replace that file."""
+    import os
+    if os.geteuid() != 0:
+        pytest.skip("needs root to hand the folder to another account")
+    files({})
+    os.chmod(files.path, 0o444)
+    os.chown(files.path.parent, 1000, 1000)
+    os.chmod(files.path.parent, 0o755)
+    monkeypatch.setattr(app_settings.sys, "platform", "linux")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(app_settings.os, "access", lambda path, mode: False)  # root can open anything
+    assert USER_CAN_CHANGE(files.path)
+    os.chown(files.path.parent, 0, 0)
+    assert not USER_CAN_CHANGE(files.path)  # IT's folder and file: nothing to change
 
 
 def test_missing_file_keeps_the_defaults(files):
@@ -217,3 +235,9 @@ def test_a_damaged_copy_fails_closed(files):
     app_settings.saved_policy_path().write_text("{damaged")
     files("{broken")
     assert_everything_restricted()
+
+
+@pytest.mark.skipif(__import__("sys").platform != "win32", reason="Windows access check")
+def test_the_windows_check_runs(files):
+    files({})
+    assert USER_CAN_CHANGE(files.path) in (True, False)  # CI's account is an administrator, so usually False

@@ -12,7 +12,7 @@ Assessed against `main` at `af11938` (PR #53 merged, sidecar 0.19.0, 322 tests p
 | 2 | Reproducible project environments | Missing | Notebook program | See its plan |
 | 3 | Isolated local-versus-Fabric comparisons | Partial | Notebook program | See its plan |
 | 4 | Guided source ingestion | Missing (registry only) | This plan | Stage 4.1, after decision D2 |
-| 5 | Integrated Git and release workflow | Partial: release records and meaningful diffs merged | This plan, with the Git-native program | Promote rollback (5.3); Git and Source Control screens are the Git-native program's |
+| 5 | Integrated Git and release workflow | Partial: release records, meaningful diffs and release views merged; rollback in review | This plan, with the Git-native program | Git and Source Control screens are the Git-native program's |
 | 6 | Explainable workload compatibility | Partial (regex check) | Notebook program | See its plan |
 | 7 | Fabric pipeline handoff and remote agent control | Partial: 7.1 and 7.2 merged, untested on a tenant | This plan | 7.3 after a live run |
 | 8 | Cross-project lineage and product compatibility | Partial: 8.1 and 8.3 merged (view in review) | This plan | 8.2 (platform owner decision) |
@@ -163,7 +163,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 *Merged in [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66).* Contract 1 records go to `agents/<name>.json` every `agent.status_seconds`. Each record has `stale_after` (three beats) for offline detection and `running`/`stopping`/`stopped`, and it covers only its own environment's jobs, so one workspace's readers never see another's work. 6 tests; 362 passed in all.
 
-**7.3 Multiple workers (FD-12).** Deferred until 7.1 has run on a tenant.
+**7.3 Multiple workers (FD-12).** Built by the Workload management program as FD-124 (design in `docs/workloads/multi-worker.md`, PR #146): shared schedules and `claim = "when_free"` through the mailbox, takeover of a stale agent's request next. Additive within mailbox contract 1; untested on a tenant until 7.1 has run there.
 
 ### Capability 5: Git and release
 
@@ -175,7 +175,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 *Engine part merged in [PR #75](https://github.com/KratosDataGod/fabric-desktop/pull/75).* `meta/diff.py` compares parsed TOML. It reports contract columns, contract keys, list items (cleaning, derived columns, checks, surrogate keys, lookups), which it matches by identity so an edit reads as "changed", and any other setting by path. Each change says whether it changes the table's logic. `meta_diff` compares against the last commit or the version promoted to an environment. Promote impact lists each changed table's changes under it. `notebook_diff` compares cells by id, on source only, against another notebook or the notebook's last commit when the notebooks folder is in Git. The before-commit view moved to the Git-native development program with the other Source Control screens.
 
-**5.3 Branches, pull requests and rollback.** *Branches and pull requests moved to the Git-native development program on 2026-10-17, which owns all Git operations and Source Control screens; rollback stays here and will use its Git layer.* Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop by KratosBI). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates.
+**5.3 Branches, pull requests and rollback.** *Branches and pull requests moved to the Git-native development program on 2026-10-17, which owns all Git operations and Source Control screens; rollback stays here and will use its Git layer.* Effort M, risk medium. Commit and push a branch with the user's Git credentials and open the repository's compare page to create the pull request (no GitHub app or token stored by Fabric Desktop by KratosBI). Rollback promotes a recorded earlier commit from a temporary worktree, through the same gates. *Changed 2026-10-18: Chris chose rollback from the environment's own release record. The record alone can't restore code (an environment ran whatever files its runner held, checked only by the version hash), so each promote now keeps the release's files in the target's LH_Meta, Test and Prod run from them, and rollback points the environment at an earlier release's files. No Git is needed.*
 
 ### Capability 8: lineage and compatibility
 
@@ -202,7 +202,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 1. Merged: **1.1** (#56), **9.3** (#58), **1.2** (#61), **1.3** engine (#69), **7.1** (#64), **7.2** (#66), **1.4** (#70), **8.1** (#71), **5.1** engine (#73), **5.2** engine (#75), **8.3** engine (#76). Live use of 7.1 and 7.2 waits for FD-2 (conditional requests on OneLake).
 2. **1.5** (merged in #87).
 3. **4.1** once D2 is answered.
-4. **5.3** rollback, **8.2**, **4.2**, **4.3**, **7.3**.
+4. **5.3** rollback (in review), then **8.2**, **4.2** and **4.3**. **7.3** moved to the Workload management program (docs/workloads/multi-worker.md).
 
 Large tables come first because every later stage runs through the same write path. The pipeline contract comes before Git because the Workload management program's queue and location views read its records. Git comes after the receipt schema so promotions and proofs share one record.
 
@@ -232,6 +232,7 @@ On a non-production workspace with an environment set to "Tables in: Workspace":
 | --- | --- |
 | 2026-10-17 | #73, #75 and #76 merged. Stage 1.5 built: full loads in batches (`[load] batch_by`), one commit. Git operations, Source Control screens and branch and pull request work (5.3's Git part) moved to the Git-native development program; promote rollback stays here. |
 | 2026-10-17 | #87 (stage 1.5) merged. Release records read Git through the Git-native program's layer (`git.repo.Repository`, #85) instead of their own `git` calls; nothing a person sees changes. |
+| 2026-10-18 | #124 merged. Stage 5.3 rollback: promote keeps each release's files in `meta.release_files`, Test and Prod run the release they're on, and **Roll back...** returns an environment to an earlier kept release. Promote times are now recorded to the microsecond, so two promotes in one second keep their order. Stage 7.3 is built by the Workload management program. |
 | 2026-10-17 | Release and lineage views from the mockup: **Last release** on each promote card (from `meta.deployments`, with the record checked against its id) and **Columns** on an entity's Lineage card. Changes since the last commit belong to the Git-native program. |
 | 2026-10-16 | Stage 8.3 engine part built: column lineage from configuration. |
 | 2026-10-16 | Stage 5.2 engine part built: meaningful entity and notebook diffs, changes in promote impact. |

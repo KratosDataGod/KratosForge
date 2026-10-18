@@ -32,7 +32,7 @@ The runs go one after the other, not at the same moment, so they never write the
 | Part | What it shows |
 | --- | --- |
 | The top line | **Same results in both places**, **Results differ in N tables**, or which side failed |
-| This PC | Time from the first cell to the last, and the PC's cores and memory. No capacity is used. |
+| This PC | Time from the first cell to the last, and the PC's cores and memory. No Fabric job starts; its OneLake reads and writes still use some capacity, which isn't measured. |
 | Fabric | Time from Run all to the end of the Fabric job, split into the **session start** (Fabric starting a session and queueing) and the **run** (the notebook's cells). Below it, the estimated CU-seconds and cost. |
 | Faster | Which side was faster end to end, and on run time alone with Fabric's session start left out |
 | Tables | Each table written: rows on each side, whether the columns match, and the result |

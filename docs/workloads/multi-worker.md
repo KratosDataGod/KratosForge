@@ -47,6 +47,7 @@ Shared work goes through the environment's mailbox, which every agent serving th
 
 - **Clock skew.** Slot ids come from the due time, not from the time an agent noticed it (point 1). Skew only changes which agent writes the request first. Still to check with real machines: that an agent that is a whole interval behind doesn't create the next slot early.
 - **A paused agent that comes back.** An agent can freeze longer than `stale_after` and then wake up still running. Its next status update in `Mailbox._sync` is an `If-Match` replace, and after a takeover it fails on the etag. The agent treats that failure as "this is no longer mine" and stops, rather than as a write to retry. That is stronger than re-reading the status before each table. A table write already under way can't be stopped by a check, so the table lease is what keeps the two agents apart (see point 3).
+- **A release change mid-request.** If a promote or rollback lands between the lost agent's partial run and the takeover, the new agent runs the newer release for the tables it runs. The run log records `metadata` per table, so this shows, but nothing prevents it.
 - **OneLake conditional writes.** These are proven for create (7.1). Replace with `If-Match` is used by the incident log, but hasn't run on a tenant for takeover.
 - **Cost.** Each agent already polls the mailbox every `poll_seconds`. Shared schedules add one conditional write per due slot per agent, and most of those writes fail fast.
 

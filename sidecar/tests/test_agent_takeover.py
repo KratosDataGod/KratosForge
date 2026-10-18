@@ -253,3 +253,17 @@ def test_a_request_past_its_deadline_expires_rather_than_starting_again(tmp_path
     b.mailbox.poll()
     s = status(project, "r1")
     assert s["agent"] == "etl-02" and s["state"] == "expired"
+
+
+def test_a_paused_copy_carries_on_when_its_agent_gets_the_request_back(tmp_path, project):
+    a = claimed_by_a(tmp_path, project)
+    job = a.queue.claim("etl-01", 600)  # etl-01's worker has it, then etl-01 freezes
+    lost(project, "etl-01")
+    b = make(tmp_path, project, "etl-02")
+    b.mailbox.poll()
+    record(project, "etl-01", time.time() + 120)
+    lost(project, "etl-02")  # etl-02 is lost in turn; etl-01, back, takes the request again
+    a.mailbox.poll()
+    s = status(project, "r1")
+    assert s["agent"] == "etl-01" and s["job_id"] == job["id"] and s["state"] == "running"
+    assert a.mailbox.taken_over(job) == ""

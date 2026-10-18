@@ -347,6 +347,8 @@ class Mailbox:
         now = self.clock()
         if job is not None and "job_id" not in status and job["state"] not in ("queued", "running"):
             job = None  # this agent held it once before and was taken over; this is a new go at it
+        # A copy still queued or running here (this agent was paused, then got the request back) is
+        # carried on as it is: the request is this agent's again, so taken_over() lets it continue.
         if job is None:
             job = self.agent.enqueue(env, status.get("entities") or [], status.get("backfill", ""),
                                      bool(status.get("cascade")), source=key, dedupe_key=key)

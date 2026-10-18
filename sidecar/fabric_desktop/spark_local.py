@@ -35,6 +35,25 @@ def _arrow(df: DataFrame) -> pa.Table:
     return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
 
 
+# Writer options this PC honors, by lower-case name. Anything else is refused by name, so an
+# option that changes what gets written (replaceWhere, partitionOverwriteMode, path) can never be
+# dropped and turn into a full overwrite.
+_SCHEMA_OPTIONS = ("overwriteschema", "mergeschema")
+# Options that only change how files are laid out, not which rows end up in the table.
+_LAYOUT_OPTIONS = ("optimizewrite", "maxrecordsperfile", "compression")
+_REFUSED = {
+    "replacewhere": "replaceWhere (replace only matching rows) isn't supported on this PC, and ignoring it would "
+                    "replace the whole table. Run the cell in Fabric, or filter, union and overwrite the table yourself.",
+    "partitionoverwritemode": "partitionOverwriteMode isn't supported on this PC, and ignoring it would replace the "
+                              "whole table. Run the cell in Fabric.",
+    "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
+}
+
+
+def _true(value: Any) -> bool:
+    return value is True or str(value).strip().lower() == "true"
+
+
 class LakehouseWriter:
     """``df.write``: Delta tables in the attached lakehouse, or files on this PC."""
 
@@ -53,21 +72,33 @@ class LakehouseWriter:
         return self
 
     def option(self, key: str, value: Any) -> LakehouseWriter:
-        self._options[key] = value
+        name = str(key).lower()
+        if name in _REFUSED:
+            raise NotImplementedError(_REFUSED[name])
+        self._options[name] = value
         return self
 
     def options(self, **opts: Any) -> LakehouseWriter:
-        self._options.update(opts)
+        for k, v in opts.items():
+            self.option(k, v)
         return self
 
     def partitionBy(self, *_cols: Any) -> LakehouseWriter:
         print("Note: partitionBy is ignored on this PC; the table is written without partitions.")
         return self
 
+    def _check_options(self, allowed: tuple[str, ...], what: str) -> None:
+        for name in self._options:
+            if name in _LAYOUT_OPTIONS:
+                print(f"Note: the {name} option only changes file layout and is ignored on this PC.")
+            elif name not in allowed:
+                raise NotImplementedError(f"The {name} option isn't supported when writing {what} on this PC. "
+                                          "Leave it out, or run the cell in Fabric.")
+
     def _write_mode(self, table: str) -> str:
         if self._mode in ("overwrite", "append"):
             return self._mode
-        if self._mode == "ignore" or self._mode in ("error", "errorifexists"):
+        if self._mode == "ignore" or self._mode in ("error", "errorifexists", "default"):
             exists = lakehouse.table_exists(table)
             if exists and self._mode == "ignore":
                 return "skip"
@@ -76,20 +107,63 @@ class LakehouseWriter:
             return "overwrite"
         raise ValueError(f"Unknown save mode {self._mode!r}. Use overwrite, append, ignore or error.")
 
-    def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None, **_kw: Any) -> None:  # noqa: A002
+    def _schema_mode(self, how: str) -> str | None:
+        """Delta's schema rules, as Spark applies them: a different schema is an error unless
+        overwriteSchema (overwrite only) or mergeSchema allows it."""
+        if _true(self._options.get("overwriteschema")):
+            if how == "overwrite":
+                return "overwrite"
+            print("Note: overwriteSchema only applies to an overwrite; this append keeps the table's schema.")
+        return "merge" if _true(self._options.get("mergeschema")) else None
+
+    def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
+        if schema_mode is None:
+            current = _columns(name)
+            extra = [c for c in data.column_names if c.lower() not in {x.lower() for x in current or []}]
+            if current is not None and extra:
+                raise ValueError(
+                    f"Table {name} has no column {', '.join(extra)}. To replace the table's schema, add "
+                    ".option(\"overwriteSchema\", \"true\") to an overwrite; to add the columns, add "
+                    ".option(\"mergeSchema\", \"true\").")
+        print(_write_table(data, name, how, schema_mode))
+
+    def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002
+                    partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
         if mode:
             self.mode(mode)
+        if partitionBy:
+            self.partitionBy(partitionBy)
+        self.options(**options)
         if (format or self._format) not in ("delta", None):
             raise ValueError("Lakehouse tables are Delta tables. Leave out format, or use format(\"delta\").")
+        self._check_options(_SCHEMA_OPTIONS, "a Delta table")
         how = self._write_mode(name)
         if how != "skip":
-            print(lakehouse.write_table(_arrow(self._df), name, mode=how))
+            self._write(_arrow(self._df), name, how, self._schema_mode(how))
 
-    insertInto = saveAsTable
+    def insertInto(self, tableName: str, overwrite: bool | None = None) -> None:  # noqa: N802, N803
+        """Spark's insertInto: the table must exist, columns match by position, and it appends
+        unless ``overwrite=True`` or ``.mode("overwrite")``. The table's schema never changes."""
+        self._check_options((), "with insertInto")
+        if overwrite is None:
+            overwrite = self._mode == "overwrite"
+        current = _columns(tableName)
+        if current is None:
+            raise ValueError(f"Table {tableName} doesn't exist. insertInto writes to an existing table; "
+                             "use saveAsTable to create one.")
+        data = _arrow(self._df)
+        if len(current) != data.num_columns:
+            raise ValueError(f"insertInto matches columns by position: the data has {data.num_columns} columns "
+                             f"and table {tableName} has {len(current)}.")
+        self._write(data.rename_columns(current), tableName, "overwrite" if overwrite else "append", None)
 
-    def save(self, path: str | None = None, format: str | None = None, mode: str | None = None, **_kw: Any) -> None:  # noqa: A002
+    def save(self, path: str | None = None, format: str | None = None, mode: str | None = None,  # noqa: A002
+             partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
         if mode:
             self.mode(mode)
+        if partitionBy:
+            self.partitionBy(partitionBy)
+        self.options(**options)
         fmt = format or self._format
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta" and rel and rel.startswith("Tables/"):
@@ -99,17 +173,39 @@ class LakehouseWriter:
             raise ValueError(f"On this PC, write lakehouse tables with saveAsTable or a Tables/ path. "
                              f"Writing files to {rel} runs in Fabric.")
         if fmt == "parquet":
+            self._check_options((), "a Parquet file")
             return self._df.relation.write_parquet(path)
         if fmt == "csv":
-            return self._df.relation.write_csv(path, header=bool(self._options.get("header", True)))
+            self._check_options(("header",), "a CSV file")
+            return self._df.relation.write_csv(path, header=_true(self._options.get("header", True)))
         raise ValueError(f"Can't write format {fmt!r} to {path} on this PC.")
 
-    def parquet(self, path: str, mode: str | None = None, **_kw: Any) -> None:
-        self.save(path, format="parquet", mode=mode)
+    def parquet(self, path: str, mode: str | None = None, partitionBy: Any = None, **options: Any) -> None:  # noqa: N803
+        self.save(path, format="parquet", mode=mode, partitionBy=partitionBy, **options)
 
-    def csv(self, path: str, mode: str | None = None, header: Any = True, **_kw: Any) -> None:
-        self._options["header"] = header in (True, "true", "True")
-        self.save(path, format="csv", mode=mode)
+    def csv(self, path: str, mode: str | None = None, header: Any = None, **options: Any) -> None:
+        if header is not None:
+            self.option("header", header)
+        self.save(path, format="csv", mode=mode, **options)
+
+
+def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None) -> Any:
+    from deltalake.exceptions import SchemaMismatchError
+    try:
+        return lakehouse.write_table(data, name, mode=how, schema_mode=schema_mode)
+    except SchemaMismatchError as e:
+        raise ValueError(f"The data doesn't match table {name}'s schema ({e}). Nothing was written. To replace "
+                         "the schema, add .option(\"overwriteSchema\", \"true\") to an overwrite; to add columns, "
+                         "add .option(\"mergeSchema\", \"true\").") from None
+
+
+def _columns(table: str) -> list[str] | None:
+    """The table's column names, or None when it doesn't exist."""
+    from deltalake.exceptions import TableNotFoundError
+    try:
+        return [f.name for f in lakehouse.open_table(table).schema().fields]
+    except TableNotFoundError:
+        return None
 
 
 class LakehouseReader:
@@ -133,10 +229,38 @@ class LakehouseReader:
             self.option(k, v)
         return self
 
-    def schema(self, _schema: Any) -> LakehouseReader:
-        return self  # DuckDB infers types; an explicit schema is not applied on this PC
+    def schema(self, schema: Any) -> LakehouseReader:
+        """Applied after reading: CSV columns take the schema's names and types by position, other
+        formats by name (a missing column is null). A value that doesn't fit is null, as in Spark's
+        default PERMISSIVE mode."""
+        if isinstance(schema, str) or not hasattr(schema, "fields"):
+            raise NotImplementedError("On this PC, give read.schema() a StructType. A DDL string isn't supported.")
+        self._schema = schema
+        return self
+
+    def _apply(self, df: DataFrame, by_position: bool) -> DataFrame:
+        schema = getattr(self, "_schema", None)
+        if schema is None:
+            return df
+        rel = df.relation
+        have = rel.columns
+        if by_position and len(have) != len(schema.fields):
+            raise ValueError(f"The schema has {len(schema.fields)} columns and the file has {len(have)}.")
+        lower = {c.lower(): c for c in have}
+        cols = []
+        for i, f in enumerate(schema.fields):
+            src = have[i] if by_position else lower.get(f.name.lower())
+            value = "NULL" if src is None else '"' + src.replace('"', '""') + '"'
+            cols.append(f'TRY_CAST({value} AS {f.dataType.duckdb_type}) AS "' + f.name.replace('"', '""') + '"')
+        return DataFrame(rel.project(", ".join(cols)), self._session)
+
+    def _no_schema(self, what: str) -> None:
+        if getattr(self, "_schema", None) is not None:
+            raise NotImplementedError(f"read.schema() can't be applied to {what} on this PC. Leave it out and cast "
+                                      "the columns after reading.")
 
     def table(self, name: str) -> DataFrame:
+        self._no_schema("a table")
         return self._session.table(name)
 
     def _local(self, path: str) -> str:
@@ -147,6 +271,7 @@ class LakehouseReader:
         fmt = (format or self._format or "parquet").lower()
         rel = lakehouse.relative_path(path) if path else None
         if fmt == "delta":
+            self._no_schema("a Delta table")
             if rel and rel.startswith("Tables/"):
                 return self._session.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
@@ -167,17 +292,18 @@ class LakehouseReader:
         sep = self._options.get("sep", self._options.get("delimiter", sep))
         conn = self._session.conn
         rel = conn.read_csv(self._local(path), header=header in (True, "true", "True"),
-                            **({"sep": sep} if sep else {}))
-        return DataFrame(rel, self._session)
+                            **({"sep": sep} if sep else {}), **({"all_varchar": True} if getattr(self, "_schema", None) else {}))
+        return self._apply(DataFrame(rel, self._session), by_position=True)
 
     def parquet(self, *paths: str, **_opts: Any) -> DataFrame:
         files = [self._local(p) for p in paths]
-        return DataFrame(self._session.conn.read_parquet(files if len(files) > 1 else files[0]), self._session)
+        return self._apply(DataFrame(self._session.conn.read_parquet(files if len(files) > 1 else files[0]), self._session), False)
 
     def json(self, path: str, **_opts: Any) -> DataFrame:
-        return DataFrame(self._session.conn.read_json(self._local(path)), self._session)
+        return self._apply(DataFrame(self._session.conn.read_json(self._local(path)), self._session), False)
 
     def text(self, path: str, **_opts: Any) -> DataFrame:
+        self._no_schema("text files")
         conn = self._session.conn
         rel = conn.sql("SELECT line AS value FROM read_csv(?, columns={'line': 'VARCHAR'}, header=false, "
                        "delim=chr(1), quote='', escape='')", params=[self._local(path)])
@@ -250,7 +376,12 @@ class LocalSparkSession(SparkSession):
                 query = statement.expression.copy()
                 _sql.bind_tables(query, self.conn, self._bound(), self._is_local)
                 data = self.conn.sql(query.sql("duckdb"))
-                mode = "append" if isinstance(statement, exp.Insert) and not statement.args.get("overwrite") else "overwrite"
+                insert = isinstance(statement, exp.Insert)
+                mode = "append" if insert and not statement.args.get("overwrite") else "overwrite"
+                if insert and (statement.find(exp.Partition) or statement.args.get("where")):
+                    # A static partition or REPLACE WHERE replaces part of the table; ignoring it would replace all of it.
+                    raise NotImplementedError("INSERT with PARTITION or REPLACE WHERE isn't supported on this PC, and "
+                                              "ignoring it would replace the whole table. Run the cell in Fabric.")
                 # CREATE TABLE as Spark does it: an existing table is kept (IF NOT EXISTS) or is an
                 # error, and only CREATE OR REPLACE overwrites it.
                 if isinstance(statement, exp.Create) and not statement.args.get("replace") and lakehouse.table_exists(name):
@@ -259,7 +390,20 @@ class LocalSparkSession(SparkSession):
                         return None
                     raise ValueError(f"Table {name} already exists. Use CREATE OR REPLACE TABLE, "
                                      "INSERT OVERWRITE or INSERT INTO.")
-                print(lakehouse.write_table((getattr(data, "to_arrow_table", None) or data.arrow)(), name, mode=mode))
+                arrow = (getattr(data, "to_arrow_table", None) or data.arrow)()
+                if insert:
+                    # INSERT matches columns by position and never changes the table's schema, as in Spark.
+                    current = _columns(name)
+                    if current is None:
+                        raise ValueError(f"Table {name} doesn't exist. Create it with CREATE TABLE ... AS SELECT.")
+                    if isinstance(statement.this, exp.Schema):
+                        current = [c.name for c in statement.this.expressions]
+                    if len(current) != arrow.num_columns:
+                        raise ValueError(f"INSERT matches columns by position: the query has {arrow.num_columns} "
+                                         f"columns and table {name} has {len(current)}.")
+                    print(_write_table(arrow.rename_columns(current), name, mode, None))
+                else:
+                    print(lakehouse.write_table(arrow, name, mode=mode))
                 return None
         _sql.bind_tables(statement, self.conn, self._bound(), self._is_local)
         text = statement.sql("duckdb")

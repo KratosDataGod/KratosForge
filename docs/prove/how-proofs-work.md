@@ -55,7 +55,9 @@ Every number says what it is:
 | Fabric total, job, run and session start | Measured | Publish to finish; the job's start and end from Fabric's job API; the notebook's own run time from its log |
 | Fabric CPU and memory | Not available | Fabric doesn't report them for a notebook run. A Python notebook starts with 2 vCores and 16 GB unless `%%configure` changes it. |
 | Fabric capacity and cost | Estimate | Job time x CUs for a Python notebook x price per CU hour, from **Monitor > Cost**. The assumptions are listed. On a capacity you already pay for, this is a share of it, not an added charge. |
-| This PC's cost | Measured | No Fabric capacity used. Power and hardware aren't counted. |
+| This PC's cost | Not available | No Fabric job starts, so its Fabric job CU is 0 (measured). Its OneLake reads and writes still use capacity and aren't measured, so the total isn't known. Power and hardware aren't counted. |
+
+The two cost rows also carry each side's Fabric job CU as a classified measurement (Measured, Estimated, Scenario or Unknown, as in **Monitor > Cost**), so a receipt's cost reads the same way as the Cost panel. Neither side counts OneLake reads and writes. When Fabric doesn't report the job's start and end, Fabric's side is **Unknown** with no value, never 0. See [Capacity and cost evidence](../finops/cost-evidence.md).
 
 ## Receipts
 
@@ -65,7 +67,8 @@ A receipt is a JSON document whose id is the SHA-256 of its content (keys sorted
 - the inputs: tables and the versions read on each side, files and their SHA-256;
 - the environment on each side: Python and the versions of the packages the notebook imports;
 - who ran it (your user and tenant) and where (workspace and lakehouse);
-- each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found.
+- each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found;
+- the cost of each side: its Fabric job CU as a classified measurement.
 
 Receipts are kept in `%LOCALAPPDATA%\FabricDesktop\receipts`, written once and never replaced. A receipt can be exported as an HTML or Markdown report, leaving out your identity, workspace and lakehouse names, example row values, or this PC's details.
 

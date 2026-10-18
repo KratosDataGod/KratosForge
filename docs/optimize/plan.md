@@ -65,9 +65,9 @@ Tables (columns abbreviated): `installations`, `analysis_runs`, `artifacts`, `fi
 
 | PR | Content | UI? |
 | --- | --- | --- |
-| OPT-001a (built) | `optimize/` package: schema, local store (works offline, tests on local Delta), migrations, initialize/attach/validate against a Lakehouse path. Engine only. | No |
+| OPT-001a (merged, #186) | `optimize/` package: schema, local store (works offline, tests on local Delta), migrations, initialize/attach/validate against a Lakehouse path. Engine only. | No |
 | OPT-001b | Set up Optimize screen + Optimize page shell, after the mockup | Yes, mockup first |
-| OPT-002 | Shared read/write service, dedup, concurrency tests (two writers on one table) | No |
+| OPT-002 (built) | Shared read/write service (`optimize/shared.py`): stable ids, bounded batches, run row written last, findings deduplicated by fingerprint, recommendation lifecycle as events, reads scoped to the person's workspaces; concurrency tests with four writers | No |
 | OPT-006 | Offline queue and sync status (SQLite queue, backoff, partial sync) | Small |
 | OPT-007 | Multiple Lakehouses: register, switch, validate, upgrade, disconnect | Settings |
 | OPT-003 | Local execution recording from the engines in section 1 | No |

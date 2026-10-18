@@ -798,7 +798,12 @@ async function renderWorkspaces() {
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
-    signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
+    signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
+      reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook, in an item's preview, makes a new notebook on this PC that reads the table. Stars and pins are kept on this PC, not in Fabric.",
+      results: "Only you see your stars, pins and new notebooks. Clicking a workspace opens its own page, where New lakehouse creates a lakehouse in Fabric after you name it.",
+      anchor: "workspaces",
+    }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
     wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
@@ -1088,7 +1093,14 @@ async function renderOneLake() {
         h("span", { class: "muted-text" }, "Every item in every workspace you can open"), h("span", { class: "spacer" }), note, search,
         btn("Refresh", "sync", () => { cp.data = null; render(); }, "tool outline"),
         btn("Open Fabric's catalog", "open", () => openInFabric("catalog"), "tool outline")),
-      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list)))));
+      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list))),
+    // Under the catalog, not beside it: the table needs the page's full width for its row actions.
+    howItWorks("onelake.catalog", {
+      reads: "Every item in every workspace you can open, and each lakehouse's table names, from Fabric with your sign-in. It reads when the page opens and when you press Refresh.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook makes a new notebook on this PC that reads the table; SQL query reads it without changing it. Stars are kept on this PC.",
+      results: "Only you see your stars. The list shows only what your own Fabric permissions let you open.",
+      anchor: "catalog",
+    })));
   if (!state.user) return;
 
   const here = () => state.view === "onelake" && list.isConnected;

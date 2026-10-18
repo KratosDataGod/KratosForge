@@ -85,10 +85,13 @@ function preview(id, node) {
   return node;
 }
 
-// The node with a Preview tag while preview features are shown; the node alone otherwise. For core
-// steps (promote, sync keys) that are untested on a tenant but must not disappear with the setting.
+// Core steps that are untested on a tenant but must not disappear when preview features are hidden:
+// they always show, always with the Preview tag (previewMarked).
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay"];
+
+// The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
-  if (PREVIEW_FEATURES[id] && previewShown()) node.append(previewTag());
+  if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
 }
 

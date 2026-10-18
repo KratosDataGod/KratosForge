@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..redact import secrets as redact_secrets
+
 # The codes a caller can rely on. Messages change; codes don't.
 CODES = {
     "invalid_input": "The arguments don't match what the capability takes.",
@@ -66,23 +68,6 @@ class IntegrationError(Exception):
 
 
 # ---- secrets out of messages
-
-try:  # the enterprise program's redaction (PR #84); until it merges, the same core patterns here
-    from ..redact import secrets as redact_secrets  # type: ignore[import-not-found]
-except ImportError:  # pragma: no cover - depends on merge order
-    _SECRET_PATTERNS = [
-        (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), "[removed]"),
-        (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1[removed]"),
-        (re.compile(r"(?i)([?&]sig=)[^&\s\"'<>]+"), r"\1[removed]"),
-        (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token"
-                    r"|id_token|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2[removed]"),
-    ]
-
-    def redact_secrets(text: str) -> str:
-        for pattern, repl in _SECRET_PATTERNS:
-            text = pattern.sub(repl, text)
-        return text
-
 
 def redact_result(value: Any) -> Any:
     """Every string in a result, with secrets removed. Applied to every capability's result, so a

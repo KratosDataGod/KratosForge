@@ -2223,7 +2223,7 @@ function scheduleForm() {
 async function scheduleNotebook() {
   const nb = state.notebook;
   // Where it runs by default: the notebook's own choice, else the environment's compute.
-  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.env]?.compute === "fabric");
+  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
     title: `Schedule ${nb.name}`,
     mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",

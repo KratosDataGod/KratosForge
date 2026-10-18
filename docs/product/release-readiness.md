@@ -19,8 +19,9 @@ An enterprise security or IT team approving Fabric Desktop by KratosBI would ask
 | 3 | Token cache encryption | The MSAL token cache is a plain file in the user's profile; security reviews expect it protected with Windows DPAPI | Chris: decision D-C2 |
 | 4 | Pin a build and roll back | Each channel keeps only its newest build, so IT can't hold a known build or go back one | Release management: keep every build as its own release asset |
 | 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
-| 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md), SBOMs and attestations on each release) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
-| 7 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
+| 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
+| 7 | Open High security findings | A security review will find them: an external tool's run-notebook approval isn't bound to the code it approves ([EN-1](../hardening/findings.md#en-1-high-external-run-notebook-approval-isnt-bound-to-the-code)), no Content Security Policy ([SH-1](../hardening/findings.md#sh-1-high-no-content-security-policy-tauri-api-on-the-page)), and updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)) | Hardening: HD-006 and HD-020; HD-021 also needs signing (1) |
+| 8 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
 
 Settings could show the parts of this a person can see on their own PC (signed build, policy applied, token cache protected, updates managed by IT). That is a UI change, so it starts with a mockup.
 
@@ -31,9 +32,9 @@ Settings could show the parts of this a person can see on their own PC (signed b
 | G1 Live verification | The FD-101 harness run on a non-production workspace with every check passing, results attached below | Harness merged (#80); not run yet |
 | G2 Signed builds | Azure Trusted Signing account (D-C3), signing in CI (PR #28) | Blocked on Chris |
 | G3 Update integrity | FD-102a (checksums enforced), FD-103 (scanning, SBOM, provenance) | Merged (#82, #86, #88) |
-| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy in [#165](https://github.com/KratosDataGod/fabric-desktop/pull/165). Pinning a build and rollback still need per-build releases |
-| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95); more secret patterns in [#181](https://github.com/KratosDataGod/fabric-desktop/pull/181). Token cache encryption waits on D-C2 |
-| G6 Audit | FD-125 audit trail | Merged (#89); one chain across processes in [#182](https://github.com/KratosDataGod/fabric-desktop/pull/182) |
+| G4 Admin controls | FD-105 policies, FD-104 deployment guide | Merged (#90). A broken policy file keeps the last good copy (#165, merged). Pinning a build and rollback still need per-build releases |
+| G5 Data protection | FD-131a redaction, FD-138 safe support report, FD-131b local retention | Merged (#84, #95, and more secret patterns in #181). Token cache encryption waits on D-C2 |
+| G6 Audit | FD-125 audit trail | Merged (#89, and one chain across processes in #182) |
 | G7 Recovery | FD-126 backup and restore | Merged (#91) |
 | G8 Documentation | This page, the security model, install, enterprise install, backup, troubleshooting | Written; a security evidence pack and privacy statement are missing (row 6 above) |
 

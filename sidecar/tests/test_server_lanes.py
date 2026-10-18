@@ -141,3 +141,39 @@ def test_concurrent_saves_of_one_notebook_never_share_a_temp_file(tmp_path):
     for t in threads:
         t.join()
     assert errors == [] and not list(tmp_path.rglob("*.tmp"))
+
+
+def test_a_save_refused_for_a_moment_is_tried_again(tmp_path, monkeypatch):
+    # Windows refuses a replace while a reader or scanner briefly has the notebook open.
+    from fabric_desktop import notebook
+    store = notebook.NotebookStore(tmp_path)
+    store.save("nb", [{"type": "code", "source": "0"}], None)
+    real, calls = notebook.os.replace, []
+
+    def flaky(src, dst):
+        calls.append(dst)
+        if len(calls) <= 2:
+            raise PermissionError(13, "Access is denied")
+        real(src, dst)
+
+    monkeypatch.setattr(notebook.os, "replace", flaky)
+    monkeypatch.setattr(notebook.time, "sleep", lambda _s: None)
+    store.save("nb", [{"type": "code", "source": "1"}], None)
+    assert len(calls) == 3 and store.load("nb")["cells"][0]["source"] == "1"
+    assert not list(tmp_path.rglob("*.tmp"))
+
+
+def test_a_save_that_stays_refused_reports_it_and_leaves_no_temp_file(tmp_path, monkeypatch):
+    import pytest
+
+    from fabric_desktop import notebook
+    store = notebook.NotebookStore(tmp_path)
+
+    def refused(src, dst):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(notebook.os, "replace", refused)
+    monkeypatch.setattr(notebook.time, "sleep", lambda _s: None)
+    with pytest.raises(PermissionError):
+        store.save("nb", [{"type": "code", "source": "1"}], None)
+    assert not list(tmp_path.rglob("*.tmp"))

@@ -868,12 +868,34 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
             "workspace": ours.get("workspace")}
 
 
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def _write_lock(path: Path) -> threading.Lock:
+    key = os.path.normcase(str(path.resolve()))
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.Lock())
+
+
 def _write_atomic(path: Path, text: str) -> None:
-    """Write through a temporary file of this write's own, so two writers never share one."""
+    """Write through a temporary file of this write's own, so two writers never share one.
+
+    Saves of one notebook take turns: Windows refuses a second os.replace onto a file
+    another replace is still finishing, and briefly while a reader (or a virus scanner)
+    has it open, so a refused replace is tried a few more times before giving up."""
     tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        with _write_lock(path):
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
     finally:
         tmp.unlink(missing_ok=True)
 

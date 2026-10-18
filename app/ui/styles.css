@@ -343,8 +343,8 @@ h2.flush { margin: 0; }
 .problems { padding: 10px 14px; margin: 0 0 14px; border-radius: 8px; background: #fff4d6; color: #5c3b00; font-size: 13px; }
 .problems .icon { color: #8a5300; }
 .gate-list { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.6; }
-.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.subtabs .tab { min-height: 38px; }
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; overflow-x: auto; }
+.subtabs .tab { min-height: 38px; white-space: nowrap; flex: none; }
 .meta-body { display: flex; flex-direction: column; gap: 14px; }
 .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .arrow { color: #a19f9d; }
@@ -398,10 +398,37 @@ h2.flush { margin: 0; }
 .capacity-strip { margin-bottom: 12px; }
 .capacity-strip .row { gap: 12px; align-items: center; }
 .capacity-strip td { vertical-align: top; }
+.usage-card { margin-bottom: 12px; }
+.usage-card > .row { gap: 8px; align-items: center; }
+.usage-card .cmp-stats { margin: 10px 0; }
+.usage-card td { vertical-align: top; }
+.usage-imports summary { cursor: pointer; margin-top: 8px; }
+.usage-billed { margin-top: 10px; }
+.usage-billed > p { margin: 0 0 6px; }
+/* Risk check before a run (risk.js) */
+.risk-panel { border: 1px solid var(--border, #e0e0e0); border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.risk-panel.warning { border-color: #f2c27a; background: #fff8ec; }
+.risk-panel.blocked { border-color: #e8b4b9; background: #fdf3f4; }
+.risk-panel summary { cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.risk-panel ul { margin: 6px 0 0; padding-left: 20px; line-height: 1.6; }
+.risk-head { display: flex; align-items: center; gap: 8px; }
+.risk-pills { display: inline-flex; align-items: center; gap: 6px; }
+.risk-finding { display: flex; gap: 10px; align-items: flex-start; }
+.risk-finding > svg { flex: none; margin-top: 1px; }
+.risk-finding.warning > svg { color: #a15c00; }
+.risk-finding.blocked > svg { color: #b10e1c; }
+.risk-finding.pass > svg { color: #1b6b3a; }
+.risk-remedy { margin-top: 4px; }
+.risk-ack { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.usage-preview { margin-top: 10px; }
+.usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .info p { margin: 0; }
 .tool.danger { color: var(--danger); }
+.tool.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.tool.danger-solid:hover:not(:disabled) { background: #8e0b16; }
+.tool.danger-solid:disabled { background: var(--border); border-color: var(--border); color: var(--muted); }
 .list select { min-height: 28px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
 .page h1 .mono { font-size: 21px; }
 .mini td.n { white-space: nowrap; }
@@ -546,6 +573,8 @@ h2.flush { margin: 0; }
 .source-item:hover { background: var(--hover); }
 .source-item.picked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .source-item.add { flex-direction: row; align-items: center; gap: 6px; color: var(--accent); }
+.source-head { padding: 12px 14px 4px; }
+.source-group { padding: 8px 14px 2px; text-transform: uppercase; letter-spacing: .04em; font-size: 11px; }
 .source-form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
 .seg { display: inline-flex; border: 1px solid var(--border-input); border-radius: 6px; overflow: hidden; }
@@ -946,7 +975,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .plat-stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); margin-bottom: 14px; }
 .plat-stat { min-height: 92px; gap: 2px; }
 .plat-stat .plat-n { font-size: 24px; font-weight: 600; }
-.plat-two { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.plat-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
 .plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
 @media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }
 
@@ -1036,6 +1065,14 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .inc-what { display: flex; flex-direction: column; gap: 10px; }
 .inc-likely { gap: 8px; align-items: center; flex-wrap: wrap; }
 .inc-card .wl-finding.click { cursor: pointer; }
+/* Agents (agents.js) */
+.ag-overlap { background: #fff8e6; border: 1px solid #f3dca5; border-radius: 6px; padding: 10px 16px; margin: 8px 0; color: #242424; }
+.ag-overlap b { color: #6b4100; }
+.ag-overlap ul { margin: 4px 0; padding-left: 18px; }
+.ag-overlap p { margin: 4px 0 0; }
+/* Queue (queue.js) */
+.qu-chips { gap: 6px; margin: 8px 0; }
+.qu-group td { background: var(--surface-2, #fafafa); font-size: 12px; font-weight: 600; color: var(--muted); }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }
@@ -1072,6 +1109,9 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .wizard-templates { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .wizard-template { display: flex; flex-direction: column; gap: 4px; padding: 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); text-align: left; font: inherit; cursor: pointer; }
 .wizard-template:hover { border-color: var(--accent); }
+.wizard-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+.wizard-groups .tool.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wizard-fields textarea { font: inherit; resize: vertical; }
 .wizard-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .wizard-cells { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
 .wizard-cells pre { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--canvas); white-space: pre-wrap; font-size: 12px; }
@@ -1244,6 +1284,25 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .dbg-watch .warn { color: #8a5300; overflow-wrap: anywhere; }
 .dbg-hidden-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+/* Failure replay bundles (replay.js): the offer under a failed cell and the Save dialog. */
+.replay-offer { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.replay-dialog { display: flex; flex-direction: column; max-width: 560px; font-size: 13px; }
+.replay-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.replay-row input { margin-top: 3px; }
+.replay-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.replay-what > span { overflow-wrap: anywhere; }
+.replay-limits { padding: 8px 0 0; border-top: 1px solid var(--border); }
+.replay-limits ul { margin: 4px 0 0; padding-left: 18px; }
+.replay-banner { background: #e9eef7; border: 1px solid #c7d3ea; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.replay-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice select { width: auto; max-width: 100%; }
+.replay-result { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-left: 3px solid var(--danger); background: var(--surface, #fff); }
+.replay-result.ok { border-left-color: #1b3664; }
+.replay-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.replay-list { display: flex; flex-direction: column; }
+.replay-list .replay-row { align-items: center; justify-content: space-between; }
+
 /* Release records on the promote card, and the column lineage dialog. */
 .release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .release-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; }
@@ -1274,3 +1333,31 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .release-row { grid-template-columns: 1fr; gap: 0; }
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* Monitor > Workloads and Agents: the list with How this works beside it */
+.mon-how { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
+.mon-how .wl-panel { overflow: visible; }
+
+/* Optimize (optimize.js) */
+.optimize-band { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; font-size: 13px; }
+.card.pad.optimize-setup { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.optimize-body .cmp-stats { margin-bottom: 16px; }
+
+/* Platform > Overview: changes in a narrow card, one per row, long names cut with the full text on hover */
+.audit-compact { display: flex; flex-direction: column; }
+.audit-row { padding: 6px 0; border-bottom: 1px solid var(--border-soft); min-width: 0; }
+.audit-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg.small button { min-height: 26px; padding: 0 10px; font-size: 12px; }
+
+/* "How this works" beside a page's content (howItWorks in features.js) */
+.with-how { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+.with-how-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.how-it-works h2 { margin: 0; font-size: 15px; }
+.how-body { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; font-size: 13px; }
+.how-part p { margin: 2px 0 0; color: var(--muted); }
+@media (max-width: 1100px) { .with-how { grid-template-columns: minmax(0, 1fr); } }
+/* The Fabric portal fills the page beside its panel; the panel keeps its own height. */
+.fabric-page .with-how { flex: 1; min-height: 0; align-items: stretch; }
+.fabric-page .with-how-main { min-height: 0; }
+.fabric-page .how-it-works { align-self: start; }
+@media (max-width: 1100px) { .fabric-page .with-how { grid-template-rows: minmax(320px, 1fr) auto; } }

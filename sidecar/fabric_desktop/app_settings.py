@@ -36,6 +36,8 @@ Keys:
                      the PC (default true)
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
+    allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
+                     (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
                      signed out again (default: any)
     local_retention_days  IT only: local copies of lakehouse data (file previews, staged writes, the
@@ -55,6 +57,9 @@ Keys:
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
                      goes to the organization's own Azure Monitor instead of KratosBI's
+    incident_sla     IT only: minutes to acknowledge and resolve an incident, per priority:
+                     {"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}; 0 for no target
+                     (default: workloads/sla.py DEFAULT_TARGETS)
 
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
@@ -63,7 +68,7 @@ Restrictions fail closed. A policy file that exists but can't be read is replace
 that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
 last applied settings; with no copy, and for a restriction with the wrong kind of value, that
 restriction takes its most restrictive value (RESTRICTED here, and integrations/policy.py's for its
-keys) rather than the default. A missing file means no policy, and deletes the copy.
+keys) rather than the default, except that an unreadable file with no copy doesn't stop sign-in. A missing file means no policy, and deletes the copy.
 Other keys of the wrong kind are skipped, so the next place (environment, user, default) applies.
 policy_problems() says what in the policy file was ignored or restricted and why, so a typo doesn't
 fail silently.
@@ -82,13 +87,14 @@ from .auth import MICROSOFT_CLIENT_ID
 CHANNELS = ("stable", "preview")
 DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable", "show_preview": True, "support_url": "",
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
-                            "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
+                            "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "allow_optimize_lakehouse": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
-                                            "allow_fabric_runs": bool, "allowed_tenants": list,
+                                            "allow_fabric_runs": bool, "allow_replay_samples": bool,
+                                            "allowed_tenants": list,
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
@@ -108,6 +114,9 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 
+# Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
+DEFAULTS["incident_sla"] = {}
+TYPES["incident_sla"] = dict
 # Read by integrations/policy.py, which decides what each means; listed here so the policy file has
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
@@ -169,8 +178,8 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
-                "external AI tools off"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
+                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
@@ -195,7 +204,7 @@ def _saved_at(saved: Path) -> str:
 
 def read_policy() -> tuple[dict[str, Any], str | None]:
     """The policy file's settings, and why nothing can stand in for it when it exists but can't be
-    read (then every restriction takes its most restrictive value). A broken file is replaced by the
+    read (then every restriction but sign-in takes its most restrictive value). A broken file is replaced by the
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
@@ -207,7 +216,7 @@ def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
     if key not in RESTRICTED:
         return False
     if error:
-        return True
+        return key != "allowed_tenants"  # people can still sign in and work on their PC (Chris, 2026-10-18)
     if key not in policy:
         return False
     v = policy[key]
@@ -235,6 +244,9 @@ def policy_problems() -> list[str]:
     if reason and not from_copy:
         return [reason]
     problems = [reason] if reason else []
+    if not from_copy and user_can_change(policy_path()):
+        problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
+                        "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
@@ -262,10 +274,62 @@ def policy_problems() -> list[str]:
             problems.append("allowed_tenants must list tenant ids, like 11111111-2222-3333-4444-555555555555"
                             + ("; with other values in it, no account can sign in"
                                if not all(isinstance(t, str) for t in value) else ""))
+        elif key == "incident_sla":
+            from .workloads.sla import targets
+            problems.extend(targets(value)[1])
     if any(key in data for key in INTEGRATION_KEYS):
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
     return problems
+
+
+def user_can_change(path: Path) -> bool:
+    """Whether the account running the app can change or replace ``path``: write it, delete it, or
+    take over its permissions or its folder's (the folder's owner can do all of these). An
+    administrator, who can change it anyway, isn't counted. Only a warning: the engine itself is in
+    the person's own profile, so the policy file stops mistakes, not someone set on getting round
+    it (security.md)."""
+    try:
+        if not path.is_file():
+            return False
+        if sys.platform == "win32":
+            return _windows_can_change(path)
+        if os.geteuid() == 0:
+            return False
+        folder = path.parent
+        return (os.access(path, os.W_OK) or os.stat(path).st_uid == os.geteuid()
+                or os.stat(folder).st_uid == os.geteuid()
+                or (os.access(folder, os.W_OK) and not os.stat(folder).st_mode & 0o1000))
+    except (OSError, AttributeError):
+        return False
+
+
+# Rights that let someone change or replace a file without writing to it first. Creating files in
+# the folder isn't one: everyone may create files under %ProgramData%, but not replace IT's file.
+_FILE_RIGHTS = (0x2, 0x10000, 0x40000, 0x80000)  # FILE_WRITE_DATA, DELETE, WRITE_DAC, WRITE_OWNER
+_FOLDER_RIGHTS = (0x40, 0x40000, 0x80000)  # FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER
+
+
+def _windows_can_change(path: Path) -> bool:
+    import ctypes
+    from ctypes import wintypes
+    if ctypes.windll.shell32.IsUserAnAdmin():
+        return False
+    create = ctypes.windll.kernel32.CreateFileW
+    create.restype = wintypes.HANDLE
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.HANDLE)
+    invalid = wintypes.HANDLE(-1).value
+
+    def opens(target: Path, access: int) -> bool:
+        # Opening only asks for the right; nothing is written. Share everything so IT's push isn't blocked.
+        handle = create(str(target), access, 0x7, None, 3, 0x02000000, None)  # OPEN_EXISTING, BACKUP_SEMANTICS
+        if handle in (None, invalid):
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    return (any(opens(path, right) for right in _FILE_RIGHTS)
+            or any(opens(path.parent, right) for right in _FOLDER_RIGHTS))
 
 
 def _typed(key: str, value: Any) -> bool:

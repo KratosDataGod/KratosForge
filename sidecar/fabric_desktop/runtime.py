@@ -11,8 +11,9 @@ from __future__ import annotations
 import json
 import os
 import socket
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterator
 
 from .agent_config import AgentConfig
 from .auth import EXECUTE_SCOPES
@@ -103,9 +104,11 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
     # ---- running
 
     def run_environment(self, env: str, entities: list[str] | None = None, backfill: str | None = None,
-                        cascade: bool = False, job: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+                        cascade: bool = False, job: dict[str, Any] | None = None,
+                        guard: Callable[[], None] | None = None) -> list[dict[str, Any]]:
         """Run an environment's entities on this machine, each table under a write lease. Returns
-        one result per entity, as the desktop's Run does."""
+        one result per entity, as the desktop's Run does. ``guard`` is called once each table's
+        lease is held, before anything is written; it raises ``Abandoned`` to stop the run."""
         project = self._project()
         self.check_allowed(project, env)
         # The agent never creates lakehouses: an environment is set up by promoting to it.
@@ -116,9 +119,17 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
         leases = Leases(self.lease_backend(project, env, store), owner=self.config.name,
                         ttl=self.config.table_lease_seconds, wait=self.config.table_lease_seconds)
         job = job or {}
+
+        @contextmanager
+        def table_lock(e: Any) -> Iterator[None]:
+            with leases.hold(table_key(project.layer(e.layer).lakehouse, e.schema, e.table)):
+                if guard:
+                    guard()
+                yield
+
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
                         link_table=self._link_table(project, env),
-                        table_lock=lambda e: leases.hold(table_key(project.layer(e.layer).lakehouse, e.schema, e.table)),
+                        table_lock=table_lock,
                         run_context={"worker": self.config.name, "host": socket.gethostname(),
                                      "attempt": int(job.get("attempts") or 1), "job_id": job.get("id", "")})
         engine.batch_prefix = "agent-"

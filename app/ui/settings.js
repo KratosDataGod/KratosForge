@@ -9,6 +9,16 @@ const SOURCE_TEXT = {
   built_in: "Comes with Fabric Desktop by KratosBI",
   default: "Default",
 };
+// When sign-in isn't Microsoft's own, people see that app's name, publisher and consent prompt instead,
+// so Settings says so plainly and how to go back (unit testing item 4).
+function clientIdNote(source) {
+  const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
+  if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
+  if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart Fabric Desktop by KratosBI and sign in again.`;
+  if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
+  if (source === "built_in") return `${lead} It came with this build.`;
+  return null;
+}
 // Shown under the app ID when nothing set one.
 const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
@@ -54,6 +64,7 @@ async function signOut() {
   await attempt(() => rpc("sign_out"), "Sign-out failed");
   await invoke("fabric_view_sign_out").catch(() => {});
   Object.assign(state, { user: null, tenant: null, workspaces: null, openWorkspace: null });
+  try { localStorage.removeItem("fd.ready.write"); } catch { /* */ }
   toast("Signed out");
   go("home");
 }
@@ -96,7 +107,7 @@ function redactReport(text, level = "support") {
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
-    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
@@ -224,6 +235,11 @@ async function renderSettings() {
           if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
         }, "tool outline")),
       s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
+    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
+      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
+      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
+        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
+      }, "tool outline small") : null) : null,
     s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve Fabric Desktop by KratosBI, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
@@ -249,7 +265,8 @@ async function renderSettings() {
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
     settingRow("Show features in preview",
-      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.values(PREVIEW_FEATURES).join(", ")}.`,
+      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.entries(PREVIEW_FEATURES).filter(([id]) => !PREVIEW_ALWAYS_SHOWN.includes(id)).map(([, name]) => name).join(", ")}. `
+        + `${PREVIEW_ALWAYS_SHOWN.map((id) => PREVIEW_FEATURES[id]).join(", ")} are core steps: they stay visible, tagged Preview, either way.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
       s.show_preview.source === "policy" ? "policy" : null),
@@ -314,17 +331,21 @@ async function renderSettings() {
       h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
+  // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
+  const platform = previewShown() ? h("section", { class: "card pad platform-link" },
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
+      h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
+    btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
-  // The platform's status comes from the engine; it fills in after the page shows.
-  const platform = await platformSection();
-  if (state.view === "settings" && previewShown()) notify.before(platform);
+  const optimize = previewShown() ? await optimizeSettingsSection() : null;
+  if (state.view === "settings" && optimize) notify.before(optimize);
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the
@@ -455,7 +476,7 @@ function writeTestDialog(done) {
     const result = await attempt(() => rpc("readiness_write_test",
       { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace_name: ws.textContent }), "Write test");
     closeDialog();
-    if (result) done(result);
+    done(result, { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace: ws.textContent });  // no result: refused or failed
   }, "tool primary", { disabled: true });
   const canGo = () => { start.disabled = !(wsSelect.value && lhSelect.value); };
   wsSelect.addEventListener("change", async () => {
@@ -482,13 +503,38 @@ function writeTestDialog(done) {
   }).catch((err) => { why.textContent = friendlyError(err).text; });
 }
 
+// A passed write test is remembered for a week, for the same account, tenant and lakehouse, so Home
+// doesn't ask for it on every visit (#191). A failed or refused test and signing out forget it.
+const WRITE_PASS_DAYS = 7;
+
+function savedWriteRow(saved, user, tenant, now = Date.now()) {
+  if (!saved || !user || saved.user !== user || saved.tenant !== tenant || !saved.lakehouse_id) return null;
+  const at = Date.parse(saved.at);
+  if (Number.isNaN(at) || now - at > WRITE_PASS_DAYS * 86400000 || at > now) return null;
+  return { key: "write", title: "Writing to OneLake", status: "ok",
+    text: `Test write passed in ${saved.workspace || "a lakehouse"} on ${new Date(at).toLocaleDateString()}. Checked again after ${WRITE_PASS_DAYS} days.` };
+}
+
+function rememberWrite(row, target) {
+  try {
+    if (row?.status === "ok" && target?.lakehouse_id && state.user) {
+      localStorage.setItem("fd.ready.write", JSON.stringify({ user: state.user, tenant: state.tenant || null, ...target,
+        at: new Date().toISOString() }));
+    } else localStorage.removeItem("fd.ready.write");
+  } catch { /* not remembered */ }
+}
+
 function readinessCard() {
   let hidden = false;
   try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
   if (hidden) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
+  try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user, state.tenant || null); } catch { /* ask again */ }
+  let lastRows = [];
+  const retest = () => writeTestDialog((r, target) => { rememberWrite(r, target); writeRow = r || null; draw(lastRows, "just now"); });
   const draw = (rows, checkedAt) => {
+    lastRows = rows;
     const all = writeRow ? [...rows, writeRow] : rows;
     const good = all.filter((r) => r.status === "ok").length;
     const head = h("div", { class: "row" }, h("h2", { class: "grow", id: "ready-title" }, "Ready to work"),
@@ -497,19 +543,24 @@ function readinessCard() {
       btn("Hide", null, () => { try { localStorage.setItem("fd.ready.hidden", "1"); } catch { /* */ } box.remove(); }, "tool link small"));
     if (rows.every((r) => r.status === "ok") && writeRow?.status === "ok") {
       box.replaceChildren(h("div", { class: "row" }, icon("ok", 18), h("b", { class: "grow" }, "Ready to work."),
-        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small")));
+        h("span", { class: "muted-text small" }, `Checked ${checkedAt}`), btn("Check again", null, run, "tool link small"),
+        btn("Test again", null, retest, "tool link small")));
       return;
     }
     const capacityOk = rows.find((r) => r.key === "capacity")?.status === "ok";
     const write = writeRow || { key: "write", title: "Writing to OneLake", status: "wait",
       text: capacityOk ? "Not checked. It writes a small test file, so it waits until you ask."
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
-    const tester = btn("Test a write", null, () => writeTestDialog((r) => { writeRow = r; draw(rows, "just now"); }),
+    const tester = btn(writeRow?.status === "ok" ? "Test again" : "Test a write", null, retest,
       "tool outline small", { disabled: capacityOk ? null : true });
-    box.replaceChildren(head,
-      h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
-      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, write.status === "ok" ? null : tester)),
-      h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
+    box.replaceChildren(head, withHowItWorks(
+      h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
+      howItWorks("home.ready", {
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
+        results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
+        anchor: "ready-to-work",
+      })));
   };
   async function run() {
     box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));

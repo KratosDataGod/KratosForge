@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -37,6 +38,9 @@ STORAGE_SCOPES = ["https://storage.azure.com/user_impersonation"]
 # Asked for the first time a feature needs them (one extra consent prompt, as you):
 # OneLake shortcuts and data access roles, cloud connections, and finding a person by email.
 ONELAKE_SCOPES = ["https://api.fabric.microsoft.com/OneLake.ReadWrite.All"]
+# A OneLake write keeps the token it started with until it commits, so a storage token is handed
+# out only with at least this long left (HD-034): one that has less is refreshed first.
+STORAGE_MIN_SECONDS = 30 * 60
 CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
@@ -88,12 +92,39 @@ def default_cache_path() -> Path:
     return Path(base) / "FabricDesktop" / "msal_cache.bin"
 
 
+
+class SignInError(RuntimeError):
+    """Microsoft sign-in returned no token. The message starts with Entra's code (``AADSTS50076``)
+    when there is one, so the app can say what happened and what to do; see docs/troubleshooting.md."""
+
+    def __init__(self, code: str, description: str):
+        self.code, self.description = code, description
+        super().__init__(f"{code}: {description}" if description else code)
+
+
+class SignInCancelled(SignInError):
+    """The person closed or cancelled the sign-in window: nothing to report."""
+
+
+def sign_in_error(result: dict) -> SignInError:
+    """The error for an MSAL result without a token. A cancel is recognised from the Windows sign-in's
+    UserCanceled status or Entra's ``error_subcode=cancel`` (unverified on a live tenant)."""
+    description = str(result.get("error_description") or "").strip()
+    error = str(result.get("error") or "unknown_error")
+    status = str(result.get("_broker_status") or "")
+    if "usercancel" in (status + description).replace("_", "").lower() or result.get("error_subcode") == "cancel":
+        return SignInCancelled("cancelled", "The sign-in window was closed before signing in.")
+    code = re.search(r"\bAADSTS\d+\b", description)
+    return SignInError(code.group(0) if code else error,
+                       description[code.end():].lstrip(": ").strip() if code and code.start() == 0 else description)
+
 class Authenticator:
     def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
         self.microsoft = self.client_id == MICROSOFT_CLIENT_ID  # no app registration
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
+        self._short_lived = False  # the tenant issues tokens with less than STORAGE_MIN_SECONDS to live
         self.cache = msal.SerializableTokenCache()
         if self.cache_path.exists():
             try:
@@ -130,12 +161,23 @@ class Authenticator:
                 tmp.chmod(0o600)  # refresh tokens: this user only
             os.replace(tmp, self.cache_path)
 
-    def _token(self, scopes: list[str]) -> str:
+    def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
         scopes = self.scopes_for(scopes)
         result = None
         accounts = self.app.get_accounts()
         if accounts:
             result = self.app.acquire_token_silent(scopes, account=accounts[0])
+            if (result and "access_token" in result and not self._short_lived
+                    and int(result.get("expires_in") or min_seconds) < min_seconds):
+                # MSAL hands out a cached token until 5 minutes before it expires. Through Windows
+                # sign-in the broker keeps its own cache and may still return the same token.
+                fresh = self.app.acquire_token_silent(scopes, account=accounts[0], force_refresh=True)
+                if fresh and "access_token" in fresh:
+                    # A new token that is still short: the tenant's tokens live shorter than that, so
+                    # don't refresh on every call. The same token back (the broker's cache) says nothing.
+                    self._short_lived = (fresh["access_token"] != result["access_token"]
+                                         and int(fresh.get("expires_in") or min_seconds) < min_seconds)
+                    result = fresh
         if not result and not self.interactive:
             raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop by KratosBI and sign in, "
                                "and scheduled runs will work again.")
@@ -146,7 +188,7 @@ class Authenticator:
                 result = self.app.acquire_token_interactive(scopes)
         self._save()
         if "access_token" not in result:
-            raise RuntimeError(f"Sign-in failed: {result.get('error')}: {result.get('error_description')}")
+            raise sign_in_error(result)
         self._check_tenant(result)
         return result["access_token"]
 
@@ -158,9 +200,6 @@ class Authenticator:
         if app_settings.tenant_allowed(tenant):
             return
         self.sign_out()
-        if app_settings.read_policy()[1]:  # a broken policy file lets no account in: say so, not "wrong account"
-            raise RuntimeError("Your organization's settings file for Fabric Desktop by KratosBI can't be read, so "
-                               "no account can sign in until IT fixes it. Settings > Help and about shows the problem.")
         raise RuntimeError("Your organization only allows signing in with its own work accounts, and this account "
                            "belongs to another organization. Sign in with your work account.")
 
@@ -180,7 +219,7 @@ class Authenticator:
         return self._token(FABRIC_SCOPES)
 
     def storage_token(self) -> str:
-        return self._token(STORAGE_SCOPES)
+        return self._token(STORAGE_SCOPES, STORAGE_MIN_SECONDS)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

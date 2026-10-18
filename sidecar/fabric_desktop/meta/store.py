@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
+import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
 
 META_LAKEHOUSE = "LH_Meta"
@@ -173,11 +175,18 @@ class Store:
             return None
 
     def count(self, lakehouse: str, schema: str, table: str) -> int:
-        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        """Rows in the table, from the Delta log's file statistics: no data is read. A file written
+        without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
+        the rows are counted from the files themselves."""
+        uri = self.uri(lakehouse, schema, table)
         try:
-            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+            dt_ = DeltaTable(uri, storage_options=self.options())
         except TableNotFoundError:
             return 0
+        actions = pa.table(dt_.get_add_actions(flatten=True))
+        if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
+            return dt_.count()
+        return int(lazy(dt_, uri, self.options()).select(pl.len()).collect().item())
 
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
               metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:
@@ -386,6 +395,22 @@ class LocalStore(Store):
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
+
+    # Runs at once on this PC can hit the Windows Delta log race (retrying.windows_log_race). Each call here
+    # is safe to repeat: a read, create-if-absent, or an insert-only MERGE (a repeat after a commit
+    # that landed inserts nothing, and one pinned to a version fails with CommitFailedError instead).
+    def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
+        return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
+
+    def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+
+    def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+                     version: int | None = None) -> int:
+        return local_retry(lambda: super(LocalStore, self).merge_insert(lakehouse, schema, table, df, on, version))
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:

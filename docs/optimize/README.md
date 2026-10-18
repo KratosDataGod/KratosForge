@@ -1,14 +1,18 @@
-# Optimize: the shared optimization lakehouse
+# Optimize and the central lakehouse
 
 Optimize keeps optimization results in one Microsoft Fabric lakehouse that every Fabric Desktop by KratosBI installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
 
-> **Status: Preview, engine only.** This release adds the engine that creates, connects to and checks an optimization lakehouse. The Optimize page and its setup screen come in a later release, and none of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
+> **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
 
 ## One lakehouse for the organization
 
 - One lakehouse is enough for a whole organization. You don't need one per developer, project or workspace.
 - If you need separate boundaries, such as business units, regulated data or separate environments, use separate optimization lakehouses. Each installation is connected to one at a time and can switch between the ones it knows.
-- The default name is `FabricDesktop_Optimization`. It is a separate item from the platform's `LH_Meta`.
+- The default name is `FabricDesktop_Central`: it is Fabric Desktop's central lakehouse, where other features keep their organization-wide data too ([Table families](#table-families)). It is a separate item from the platform's `LH_Meta`, which is per environment. A lakehouse created before this release under the old default name, `FabricDesktop_Optimization`, keeps working as it is.
+
+## Where it is in the app
+
+**Optimize** in the left rail (Preview), in the place the Fabric page had; the Fabric portal is now a tab of Workspaces. It has three tabs: **Overview**, **Opportunities** and **Cost and savings** ([user guide](../user-guide.md#optimize-preview)). The lakehouses this PC uses are in **Settings > Optimize lakehouses**.
 
 ## Setting it up
 
@@ -85,12 +89,44 @@ Every installation adds what its analysis finds to the shared lakehouse, and eve
 
 All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/fabric-desktop/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
 
+## Table families
+
+The central lakehouse holds more than Optimize's tables. Each feature that keeps organization-wide data there has its own family of tables, with its own prefix, schema version and upgrades:
+
+| Prefix | Owner | Holds |
+| --- | --- | --- |
+| `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
+| `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
+| `fdcap_` | FinOps (planned) | Capacity setting history |
+| `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
+| `fdinc_` | Incident management (planned) | Incident history |
+
+Every family follows the same rules: insert-only rows with a `record_id`, provenance on every row, upgrades that only add, and a newer schema opening that family read-only (the others keep working). A family never writes to or migrates another family's tables; reading them, for example a view that combines two families, is fine. Each family has one owner, so two features that store rows of the same shape still use two families (and can share the column definitions). The first time a feature writes to a connected central lakehouse, it asks you, then adds its own tables beside the others; nothing that is already there changes. Tables that name people, such as the access cache, also get their own OneLake security role at table level, set up by the feature that adds them.
+
+### Tenant settings history
+
+A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenantsettings`) is kept in three `fdten_` tables, in the same row shape as FinOps' capacity settings (`fdcap_`), so one view reads both:
+
+| Table | One row per | Columns besides provenance |
+| --- | --- | --- |
+| `fdten_snapshot` | Setting whose value differs from its last row | `taken_at`, `scope_type` (`tenant`), `scope_id` (tenant id), `setting`, `value_json`, `value_hash` (SHA-256 of the canonical JSON), `source`, `read_by` |
+| `fdten_change` | Difference found | `changed_after` and `changed_by_time` (the two reads it happened between), `scope_type`, `scope_id`, `setting`, `old_json` (empty the first time), `new_json` (empty when a setting disappears), `source`, `read_by` |
+| `fdten_read` | Read attempt | `read_at`, `scope_type`, `scope_id`, `source`, `outcome` (`read`, `unreadable` or `failed`), `reason` (with secrets removed), `read_by` |
+
+- **What counts as a value.** A setting's value is everything Fabric returns for it except its name, title and group, with security groups and properties in a fixed order. Microsoft renaming a setting isn't a change.
+- **When and by whom.** A change is only ever "between these two reads". Fabric's tenant settings API says neither when a setting changed nor who changed it, so the history doesn't claim either.
+- **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
+- **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
+- **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
+
+For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
+
 ## For IT admins
 
 Set this in `%ProgramData%\FabricDesktop\policy.json` ([Configure Azure and Fabric](../azure-setup.md#4-push-settings-to-everyone)):
 
 | Key | Effect |
 | --- | --- |
-| `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to optimization lakehouses. Analysis on the PC is not affected |
+| `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to the central lakehouse, for Optimize or any other table family. Analysis on the PC is not affected |
 
 Optimize is separate from usage data. Its rows go to a lakehouse in your own tenant, never to KratosBI, so the usage data switch doesn't affect it.

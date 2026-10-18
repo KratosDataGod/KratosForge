@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
@@ -37,11 +38,16 @@ from .central.governance_service import GovernanceMixin
 from .shortcut_service import ShortcutMixin
 from .workload_service import WorkloadMixin
 from .incident_service import IncidentMixin
+from .incident_desk import IncidentDeskMixin
+from .platform_notify_service import PlatformNotifyMixin
 from .git_service import GitMixin
-from .pipeline_service import PipelineMixin
+from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
+from .risk_service import RiskMixin
+from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .tenant_history_service import TenantHistoryMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore, check_watches
 from .onelake import FileStore, TableCatalog
@@ -56,7 +62,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, OptimizeMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -393,7 +399,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -409,6 +415,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
     # every cell so a restarted sidecar picks it up again.
 
     def run_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        self._replay_guard(None)
         self._attach(lakehouse_ref)
         return self.kernel.run(code)
 
@@ -421,6 +428,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
         ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
+        self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
         # Busy is checked before attaching, under the lock external runs take: a refused start must
         # not re-point the running cell, and an external run can't re-point this one as it starts.
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
@@ -585,11 +593,11 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
                 sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query, dialect, sandbox=sandbox)
-        columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
+        result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
+        columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
-                "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
+                "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
                  dialect: str = "spark") -> dict[str, Any]:
@@ -604,14 +612,18 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
-        """Write the full result to the Downloads folder."""
+        """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        result = sql.run(query, dialect)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
-        pa_csv.write_csv(result, str(path))
-        return {"path": str(path), "rows": result.num_rows}
+        rows = 0
+        with sql.Stream(query, dialect) as result:
+            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+                for batch in result:
+                    out.write_batch(batch)
+                    rows += batch.num_rows
+        return {"path": str(path), "rows": rows}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)
@@ -645,7 +657,8 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
-        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"])}
+        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+                     "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:

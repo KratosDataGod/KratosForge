@@ -14,10 +14,10 @@ import polars as pl
 
 from ..meta.store import LocalStore, OneLakeStore
 from ..onelake import FileStore, TableRef
+from ..retrying import local_retry
 from . import schema
 
 NAME = "optimization"  # the one lakehouse these stores hold, as meta/store.py's methods name it
-
 
 class _Tables:
     """The calls Optimize makes, by table name (``fdopt_...``)."""
@@ -43,7 +43,7 @@ class _Tables:
     def add_columns(self, name: str, columns: dict[str, pl.DataType]) -> list[str]:
         """Add the ``columns`` the table doesn't have yet, as nullable columns: one schema-merge
         commit of no rows. Existing rows read the new columns as null."""
-        have = self.columns_of(name)
+        have = _Tables.columns_of(self, name)  # not LocalLakehouse's: the caller already retries
         new = {c: t for c, t in columns.items() if c not in have}
         if new:
             self.write(NAME, schema.SCHEMA, name, pl.DataFrame(schema=have | new), mode="append")  # type: ignore[attr-defined]
@@ -66,6 +66,18 @@ class LocalLakehouse(_Tables, LocalStore):
 
     def uri(self, lakehouse: str, schema_: str, table: str) -> str:
         return str(self.root / "Tables" / (f"{schema_}/{table}" if self.schemas else table))
+
+    # Two installations sharing a folder on Windows can hit the Delta log race (retrying.windows_log_race).
+    # LocalStore already retries read, create_if_absent and merge_insert (rows, create, insert_new);
+    # these cover the calls it doesn't: exists, scan and the add-columns append.
+    def has(self, name: str) -> bool:
+        return local_retry(lambda: super(LocalLakehouse, self).has(name))
+
+    def columns_of(self, name: str) -> dict[str, pl.DataType]:
+        return local_retry(lambda: super(LocalLakehouse, self).columns_of(name))
+
+    def add_columns(self, name: str, columns: dict[str, pl.DataType]) -> list[str]:
+        return local_retry(lambda: super(LocalLakehouse, self).add_columns(name, columns))
 
     def table_names(self) -> list[str]:
         folder = self.root / "Tables" / (schema.SCHEMA if self.schemas else "")

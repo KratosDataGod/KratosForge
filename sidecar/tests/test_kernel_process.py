@@ -74,6 +74,47 @@ def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
 
 
+def alive(pid):
+    """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
+    if sys.platform == "win32":
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    try:
+        return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
+    except OSError:
+        return True
+
+
+def test_stop_ends_the_processes_a_cell_started_too(kernel):
+    """HD-037 (EN-8): Stop used to end only the kernel, leaving a process its cell started running."""
+    kernel.start("import subprocess, sys, time\n"
+                 "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+                 "print(child.pid, flush=True)\ntime.sleep(120)")
+    deadline = time.monotonic() + 30
+    pid = None
+    while pid is None and time.monotonic() < deadline:
+        out = text(kernel.poll(-1, 0.5)).strip()
+        pid = int(out) if out.isdigit() else None
+    assert pid and alive(pid)
+    assert kernel.stop() == {"stopped": True}
+    deadline = time.monotonic() + 10
+    while alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not alive(pid)
+
+
 def test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel(kernel):
     kernel.start("import os\nos._exit(3)")
     snap = until_done(kernel)
@@ -163,9 +204,16 @@ def test_a_cell_past_the_time_limit_is_interrupted_and_keeps_variables(kernel, q
 
 def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_limits):
     kernel.run("kept = 1")
-    kernel.time_limit = 0.5
     pid = kernel.pid
-    kernel.start("import time\ntime.sleep(600)")  # one long call: the interrupt waits for it
+    # One long call: the interrupt waits for it. The limit is set only once the cell is inside it,
+    # or a slow machine could interrupt the bytecode before the call, and the cell would just stop.
+    kernel.time_limit = 0
+    kernel.start("import time\nprint('in', flush=True)\ntime.sleep(600)")
+    deadline = time.monotonic() + 30
+    while "in" not in text(kernel.poll(-1, 0.2)) and time.monotonic() < deadline:
+        pass
+    time.sleep(0.3)
+    kernel.time_limit = 0.5
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
     out = kernel.run("'kept' in dir()")

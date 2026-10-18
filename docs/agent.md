@@ -90,6 +90,9 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `pipeline.allow_backfill` | false | Let pipelines ask for full rebuilds and cascades |
 | `pipeline.poll_seconds` | 30 | How often to look for new requests |
 | `pipeline.retention_days` | 14 | When finished requests are removed |
+| `pipeline.claim` | `"always"` | `"when_free"` (Preview): take a new request only while a worker is free, so a busy agent leaves it for one that isn't. See [Shared schedules](#shared-schedules-preview) |
+| `pipeline.take_over` | false | (Preview) Take over requests held by an agent that stopped reporting. See [Taking over from a lost agent](#taking-over-from-a-lost-agent-preview) |
+| `schedule.shared` | false | (Preview) Share this schedule with other agents through the mailbox, so each due time runs once. See [Shared schedules](#shared-schedules-preview) |
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
 | `incidents.digest_over` | 5 | More changes than this in one evaluation go to Teams as one digest |
@@ -172,13 +175,14 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Agents ([user guide](user-guide.md#agents-preview)) read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
+| `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
@@ -190,7 +194,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
 
-Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
+Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity`, `credential` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
 
 ### Incidents (Preview)
 
@@ -306,6 +310,40 @@ A final status never changes again. Fields may be added within version 1; reader
 - **Deadlines.** A request not started by its `deadline`, including one waiting for a retry, is `expired` and its job is cancelled.
 - **Housekeeping.** Finished requests and their status and cancel files are removed after `pipeline.retention_days`.
 
+### Shared schedules (Preview)
+
+Give the same schedule to several agents and set `shared = true` on it. Each due time then runs once, on whichever agent claims it, rather than once per agent. If one agent is down, the others still run the schedule. The design, and what is still to come, is in [Multiple workers](workloads/multi-worker.md).
+
+```toml
+[pipeline]
+enabled = true
+environments = ["prod"]
+claim = "when_free"          # optional: a busy agent leaves new requests for one with a free worker
+
+[[schedule]]
+id = "prod-hourly"           # the same id, env, entities and times on every agent that shares it
+env = "prod"
+entities = ["silver.orders"]
+every_minutes = 60
+shared = true
+```
+
+- **How it works.** When a shared schedule is due, each agent tries to create `requests/sched-<id>-<slot>.json` in the environment's mailbox with `If-None-Match: *`. Only the first create lands. The request is then claimed like any pipeline request, so one agent runs it. The `<slot>` comes from the due time in UTC, for example `sched-prod-hourly-20270115T0900Z`.
+- **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
+- **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
+- **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > Operations > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+
+### Taking over from a lost agent (Preview)
+
+With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences.
+
+- **One agent takes it.** The takeover replaces the request's status file only if it hasn't changed since it was read (`If-Match`), so when several agents try at once, one wins. The status then names the new agent, `taken_over_from`, `taken_over_at`, and `agents`, every agent that has held it.
+- **The whole request runs again.** Tables the lost agent finished are run again. A request whose `deadline` has passed ends `expired` instead of starting again. Before it writes each table, the new agent takes that table's write lease, so it waits for a lease the lost agent still holds to run out.
+- **The lost agent stands down.** An agent that comes back after its request was taken over (it was paused, or its network was down) cancels its own copy. A run it is still in stops before its next table, without writing or recording it, and its audit log says `handed_over`. A table write already under way when it comes back can't be stopped; the table lease is what keeps the two writers apart then.
+- **Not forever.** A request that `retry.max_attempts` agents have held ends `failed`, with each of them named, so a request that crashes every agent doesn't go round them all for ever.
+- **What isn't taken over.** An agent without a status record, or with one that can't be read, keeps its requests, because nothing shows it is lost. An agent doesn't take over a request it would refuse as new (its `pipeline.entities`, `allow_backfill` or environments). With `claim = "when_free"`, it takes one over only while a worker is free.
+
 ## Verify on your tenant
 
 Nothing here has run against a live Fabric tenant yet. Before Prod, check these on a Dev workspace (roadmap M0):
@@ -318,14 +356,16 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 6. Pipeline requests: with `[pipeline] enabled = true`, run a pipeline whose Notebook activity runs `run_on_agent.ipynb` with `entities` set to one bronze entity. The activity succeeds, `status/<RunId>.json` in `LH_Meta/Files/_fabric_desktop/` ends `succeeded` with the agent's `job_id`, and the Monitor shows the run. Then run it with a pipeline identity that can't write `LH_Meta` and check the activity fails to write the request. Then write `cancel/<id>.json` before the agent's next poll and check the status ends `cancelled`.
 
 7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
+8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
+9. Takeover (Preview): with `take_over = true` on two agents, end one agent's process with Task Manager or `kill -9` while it runs a pipeline request. After its `stale_after` and one poll, the other agent's name is in `status/<id>.json`, `agents` lists both, and the run ends `succeeded`. Start the first agent again and check its log says the request was taken over and it writes nothing for it. This is the first time `If-Match` replace on OneLake is used for takeover.
 
 ## Limits in this version
 
 - Pipeline requests don't record who wrote the request file, only the `submitted_by` text the pipeline gives. Whether OneLake reports a file's writer to the agent is still to verify.
-- One agent per queue. Two agents on different machines each keep their own queue; table leases still stop them from writing the same table at once, but nothing stops both from running the same schedule. Give each environment's schedules to one agent. A shared queue is roadmap M3.
+- One agent per queue. Two agents on different machines each keep their own queue. Table leases still stop them writing the same table at once, but nothing stops both from running the same schedule, unless it is a [shared schedule](#shared-schedules-preview) (Preview, untested on a tenant). Otherwise, give each environment's schedules to one agent.
 - The desktop app and runs in Fabric don't take write leases. Their writes are still safe (each commits against the version it read and merges again on a conflict), but a busy table means retries instead of waiting in turn.
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
 - Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
-- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
+- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Operations > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

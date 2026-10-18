@@ -1,6 +1,6 @@
 # Capacity and cost evidence
 
-Every capacity unit (CU) and cost figure in **Monitor > Cost** (Preview) says where it came from. A badge next to the number gives its classification, and clicking the number shows how it was worked out: the method, the source, the period, how many runs it covers and every assumption behind it.
+Every capacity unit (CU) and cost figure in **Optimize > Cost and savings** (Preview) says where it came from. A badge next to the number gives its classification, and clicking the number shows how it was worked out: the method, the source, the period, how many runs it covers and every assumption behind it.
 
 ## The four classifications
 
@@ -38,4 +38,4 @@ The schema, validation and unit rules are in `sidecar/fabric_desktop/measurement
  "assumptions": ["…"], "uncertainty": null, "reconciliation": "not_applicable", "reason": ""}
 ```
 
-`measurement.validate` refuses a measured value without a source and collection time or with assumptions, an estimate or scenario without a method and assumptions, an unknown value that isn't `None`, negative or non-finite values, money without a currency and utilization over 100%. `measurement.total` never adds scenario figures to measured or estimated ones. Proof scorecards and run receipts carry the same shape: each side of `cost` has a `classification` and a `measurement` of its Fabric job CU (see [how proofs work](../prove/how-proofs-work.md)). Later FinOps features (imported Capacity Metrics exports, reconciliation) build on the same shape; see the [program plan](plan.md).
+`measurement.validate` refuses a measured value without a source and collection time or with assumptions, an estimate or scenario without a method and assumptions, an unknown value that isn't `None`, negative or non-finite values, money without a currency and utilization over 100%. `measurement.total` never adds scenario figures to measured or estimated ones. Proof scorecards and run receipts carry the same shape: each side of `cost` has a `classification` and a `measurement` of its Fabric job CU (see [how proofs work](../prove/how-proofs-work.md)). Imported Capacity Metrics app and Azure Cost Management exports ([Measured usage](usage-import.md)) use the same shape; see the [program plan](plan.md).

@@ -382,6 +382,8 @@ In an environment whose keys are in the platform, the project doesn't make its o
 
 **Data mesh > Design > Source systems** keeps every source's fixed id, code (like `CRM`), name, type, owner and active flag, and its connection in Dev, Test and Prod: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Switch environment with the Dev / Test / Prod buttons above the connection fields.
 
+With Preview features on, the platform's list is the one list of source systems: **Add a source this project reads** picks a source from it with its id, code, name, owner and type, and the project keeps only its connection. Sources made before the platform's list existed show under "Only in this project" until **Move sources to the platform** copies them there with the same ids. See [One list of source systems](platform.md#one-list-of-source-systems-preview).
+
 **Passwords and keys never go here.** Give the Key Vault URL and the secret's name; the notebook reads the secret when it runs.
 
 **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection`, one row per source per environment, so notebooks and pipelines can look up connection values by code.
@@ -530,6 +532,10 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 | `separate_promoter` | `true`: whoever promoted this version to the environment before can't promote it here ([Who can promote](#who-can-promote)) |
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
+
+No two environments can use the same workspace, as their own `workspace_id` or as a designation's: each environment's lakehouses have the same names (`LH_Meta`, `LH_Bronze`, ...), so a run in one would write the other's tables. Saving such a change is refused, and if the file is edited by hand to share one, both environments refuse to read or write until it's fixed.
+
+A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote.
 
 ### Data mesh files
 

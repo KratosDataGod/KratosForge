@@ -43,8 +43,10 @@ const PREVIEW_FEATURES = {
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",
+  replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",
+  usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",
@@ -52,6 +54,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   tests: "Tests",
   xray: "Estate X-ray",
+  optimize: "Optimize",
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",
@@ -59,6 +62,8 @@ const PREVIEW_FEATURES = {
   workloads: "Workloads",
   incidents: "Incidents",
   agents: "Agents",
+  queue: "Queue",
+  runAs: "Run as",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
@@ -67,6 +72,7 @@ const PREVIEW_FEATURES = {
   syncKeys: "Sync keys",
   varlib: "Variable library",
   replay: "Quarantine replay",
+  risk: "Risk check before a run",
 };
 
 function previewShown() {
@@ -85,10 +91,13 @@ function preview(id, node) {
   return node;
 }
 
-// The node with a Preview tag while preview features are shown; the node alone otherwise. For core
-// steps (promote, sync keys) that are untested on a tenant but must not disappear with the setting.
+// Core steps that are untested on a tenant but must not disappear when preview features are hidden:
+// they always show, always with the Preview tag (previewMarked).
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay", "risk"];
+
+// The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
-  if (PREVIEW_FEATURES[id] && previewShown()) node.append(previewTag());
+  if (PREVIEW_FEATURES[id]) node.append(previewTag());
   return node;
 }
 
@@ -98,6 +107,22 @@ function learnMore(anchor, label = "Learn more") {
     e.preventDefault();
     attempt(() => invoke("open_doc", { page: `user-guide.md${anchor ? `#${anchor}` : ""}` }), "Could not open the guide");
   } }, label);
+}
+
+// "How this works": the panel beside a page or tab that says what it reads, what it changes and where
+// its results go, then links to its section of the guide. It folds to its title, remembered on this
+// PC. Every new page or tab gets one (docs/ui-guidelines.md); withHowItWorks puts it on the right,
+// or under the content in a narrow window.
+function howItWorks(id, { reads, changes, results, more = [], anchor }) {
+  const part = (title, text) => (text ? h("div", { class: "how-part" }, h("b", {}, title), h("p", {}, text)) : null);
+  return foldable(`how.${id}`, h("h2", {}, "How this works"),
+    h("div", { class: "how-body" }, part("What it reads", reads), part("What it changes", changes),
+      part("Where results go", results), ...more.map(([title, text]) => part(title, text)), anchor ? learnMore(anchor) : null),
+    { cls: "card pad how-it-works" });
+}
+
+function withHowItWorks(main, panel) {
+  return h("div", { class: "with-how" }, h("div", { class: "with-how-main" }, main), panel);
 }
 
 // ---------- command bar (Ctrl+K) ----------
@@ -148,7 +173,7 @@ function openPalette(initial = "") {
       const row = h("button", { class: `palette-item${i === palette.selected ? " on" : ""}`, role: "option",
         onmousemove: () => { if (palette.selected !== i) { palette.selected = i; draw(); } },
         onclick: () => { close(); it.run(); } }, icon(it.icon, 16), it.label);
-      return [head, row];
+      return head ? [head, row] : [row];  // replaceChildren would print a null as the text "null"
     }) : [h("div", { class: "palette-empty" }, "Nothing matches. Try fewer letters.")]));
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
     return items;

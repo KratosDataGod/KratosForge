@@ -15,9 +15,9 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 
 | ID | Feature | Status | PR | Depends on |
 | --- | --- | --- | --- | --- |
-| ORCH-001 | Pipeline definition engine: import, validate, inspect, export | In review | see [continuation](continuation.md) | none |
-| ORCH-002 | Activity compatibility registry | Planned, waits for ORCH-001 approval | | ORCH-001 |
-| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Planned | | ORCH-001, ORCH-002 |
+| ORCH-001 | Pipeline definition engine: import, validate, inspect, export | Merged | #130 | none |
+| ORCH-002 | Activity compatibility registry | Merged | #150 | ORCH-001 |
+| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | In review | #218 | ORCH-001, ORCH-002 |
 | ORCH-004 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
@@ -42,14 +42,47 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 
 **Rollback.** Revert the PR. It adds new files and adds one mixin to `Service`, four names to `server.METHODS` and `audit.READ_ONLY`, three capabilities and one CLI command; nothing stores data, so nothing needs cleaning up.
 
-## ORCH-002: activity compatibility registry (planned)
+## ORCH-002: activity compatibility registry
 
-A versioned registry describing, per activity type and property, whether Fabric Desktop can run it on this PC, simulate it, only check it statically, or must leave it to Fabric, plus implemented versus planned, the sign-in it needs, its side effects and external dependencies, and whether it needs paid Fabric capacity. Every imported activity gets a classification; unknown types are `unsupported` and kept. No activity is labelled locally executable until ORCH-003 ships a working adapter with tests. Reports come from ORCH-001's schema record, with no cloud calls. Registered in the capability registry for external tools.
+**Source files.** `sidecar/fabric_desktop/orchestration/registry.py` (entry model, overclaim rules, `StaticAdapter`, pipeline reports), `orchestration/activities.py` (the 28 entries and `default_registry()`), Service methods `pipeline_compatibility` and `pipeline_activity_registry` in `pipeline_service.py`, CLI `fabric-desktop pipeline compat|activities`, capabilities `fabric_desktop_check_pipeline_compatibility` and `fabric_desktop_get_activity_registry` (Preview). User guide: [Pipeline activity compatibility](activity-registry.md).
 
-## ORCH-003: local pipeline execution engine (planned)
+**Design.** One entry per activity type, with aliases. Classifications are `local`, `simulated`, `static`, `cloud` and `unsupported`; `planned` support (with the stage) is reported apart from what is implemented. The registry rejects an entry that claims `local` or `simulated` without an executing adapter and tests, or `cloud` without capacity. Adapters share one interface: `validate(activity, ctx)` for static checks and, from ORCH-003, `execute(activity, run)`. Reports run ORCH-001's validation, then each activity's adapter checks, and summarize the pipeline by its least capable activity. The registry has a version and a fingerprint test, so an entry can't change without a version bump and a changelog line.
 
-A DAG scheduler over ORCH-001's model with adapters declared in ORCH-002: dependency order, bounded parallel branches, the states pending, ready, running, succeeded, failed, skipped and cancelled, dependency conditions, cancellation, timeouts, stable run and activity run ids, and run records that survive a restart. It reuses the job queue (`jobqueue.py`) and run history rather than adding a scheduler (coordinated with the Workload program, which owns them), calls Prove's execution path for notebooks, never runs unsupported or cloud-required activities, never submits work to Fabric, and never replays a non-idempotent activity after a restart without asking. A fixture-only reference pipeline (checkpoint, mock ingest, mock transform, validate, record) runs with no Fabric connectivity.
+**Test evidence.** `sidecar/tests/test_activity_registry.py` (74 tests, no network): coverage of every activity type in the brief, the overclaim rules, unknown types (kept, reported, never a parse failure), property reporting, each static check, fixture reports, the example report in [examples/](examples/orders-daily-compatibility.json), the APIs, the allowlists and the CLI.
+
+**Compatibility claims.** None against Fabric. Data Factory type names and limits (ForEach `batchCount` 1 to 50, timespan format) follow Microsoft's documentation; Fabric-only type names are marked unverified until a tenant export confirms them.
+
+**Known limitations.**
+
+- No activity runs on this PC; nothing is `local` or `simulated` until ORCH-003 adds executing adapters with tests.
+- Source, sink and connection settings are carried, not checked against each connector's schema.
+- `fabric_capacity` says whether an activity can only run in Fabric (`fabric_only`) or is metered when it runs there (`metered_in_fabric`); Fabric meters every activity run. A report counts every activity that can't run on this PC as needing capacity. It doesn't estimate capacity units; that belongs to the FinOps program.
+- Activity policy (timeout, retry, secure input and output) is read but not applied.
+
+**Rollback.** Revert the PR. It adds two modules, two Service methods (and their names in `server.METHODS` and `audit.READ_ONLY`), two capabilities and two CLI subcommands; nothing is stored.
+
+## ORCH-003: local pipeline execution engine
+
+**Source files.** `sidecar/fabric_desktop/orchestration/evaluate.py` (expressions, a fixed function list), `adapters.py` (the control-flow and child pipeline adapters), `runner.py` (`PipelineRun`: checks, DAG scheduling, mocks, policy, cancel, timeouts, the record), `runs.py` (`RunStore`), Service methods `pipeline_run_check`, `pipeline_run_start`, `pipeline_run_status`, `pipeline_run_cancel` and `pipeline_runs` (`PipelineRunMixin` in `pipeline_service.py`), CLI `fabric-desktop pipeline run`, five Preview capabilities. Reference pipeline `sidecar/tests/pipelines/reference_local.json`. User guide: [Running pipelines on your PC](local-runs.md).
+
+**Design.** A run checks every reachable activity first and refuses the whole run if one isn't `local` in the registry and has no mock, so nothing that needs Fabric runs. Each list of sibling activities is scheduled by its dependencies and conditions, independent activities in parallel (up to `max_parallel`, containers excluded); containers run their lists through the same scheduler, ForEach iterations in parallel up to `batchCount` with results of their own. Outcomes follow Data Factory's documented leaf rule. Expressions use a fixed list of functions written here, never Python's `eval`. Records are one JSON file per run, written as the run goes; a run left going by an app that stopped is marked interrupted and never resumed.
+
+**What was reused, and what wasn't.** The ORCH-001 model and validation, the ORCH-002 registry (adapters register there and classify themselves `local`), the background-run pattern the Prove and SQL runs use (a record, a cancel flag, a status call), and the capability registry. Not reused, on purpose: the agent's job queue (`jobqueue.py`) is a durable, single-claimer SQLite queue for the headless agent, with no dependencies between jobs and no way to stop a running job, so it can't schedule activities; a pipeline run could become one job there when the agent runs pipelines (the Workload program owns that). Prove's notebook execution isn't callable with parameters outside a proof yet, so Notebook stays `static` and needs a mock. No existing run history has runs with child activity runs, so local runs keep their own records; Monitor doesn't show them yet.
+
+**Test evidence.** `sidecar/tests/test_pipeline_runs.py` (101 tests, no network): expressions and their errors, dependency conditions, parallelism, the leaf rule (try-catch and if-else patterns), every adapter, inactive activities, mocks, retries, policy and run timeouts, cancel, stable ids, secure values, refusals, child pipelines, the reference pipeline (success, validation failure, refused without mocks), the store (atomic files, trimming, interrupted runs), the Service methods, allowlists, capabilities and the CLI. The ORCH-002 tests cover the registry changes (version 2).
+
+**Compatibility claims.** None against Fabric. Semantics follow Microsoft's Data Factory documentation (dependency conditions, the leaf rule, ForEach defaults, Until timeout, activity policy); the differences known so far are listed in the user guide.
+
+**Known limitations.**
+
+- Data and compute activities (Copy, Notebook, Lookup and the rest) need mocks; nothing reads or writes data.
+- Execute and Invoke pipeline wait for the child even when `waitOnCompletion` is false.
+- Timeouts can't stop an adapter mid-step; they end waits and mocks, which are the only steps that take time today.
+- Runs live in the engine process: at most two at once, and an app restart interrupts them.
+- No UI; Monitor doesn't list local pipeline runs. Both need a mockup first.
+
+**Rollback.** Revert the PR. It adds four modules, one mixin with five Service methods (names in `server.METHODS`, the three reads in `audit.READ_ONLY`), five capabilities and one CLI subcommand, and moves eleven registry entries to `local` (registry version 2). Run records in `pipeline_runs/` can be deleted.
 
 ## Next recommended PR
 
-ORCH-002, once ORCH-001 is reviewed and Chris authorizes it.
+After ORCH-003 is reviewed: a Notebook adapter through Prove's execution path (it needs Prove to accept parameters outside a proof, so it is a joint change with the Prove program), or a mockup for a pipeline runs page, whichever Chris prefers. Both need his go.

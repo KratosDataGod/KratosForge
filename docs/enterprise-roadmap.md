@@ -38,7 +38,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/` or `.git
 | Surrogate keys | Central LH_Keys; Delta MERGE on business key, retried on `CommitFailedError`, duplicate-key detection | `meta/keys.py` | yes |
 | Environments and promote | Dev/Test/Prod each with workspace, "Tables in" and "Runs on"; promote gates | `meta_service.py`, `meta/promote.py`, `meta/testing.py` | yes |
 | Fabric compute | Bundle upload to LH_Meta, runner notebook, RunNotebook, result file | `fabric_compute.py`, `fabric_api.py` | unit only |
-| Fabric REST client | 429 retry with `Retry-After`, long-running operations, paging; workspaces, lakehouses, notebooks, jobs, schedules, maintenance, models, roles, shortcuts, connections, variable libraries | `fabric_api.py` | unit only |
+| Fabric REST client | 429 retry, and 5xx retry on reads, with a capped `Retry-After` (seconds or HTTP date), long-running operations, paging; workspaces, lakehouses, notebooks, jobs, schedules, maintenance, models, roles, shortcuts, connections, variable libraries | `fabric_api.py` | unit only |
 | Local schedules | Windows Task Scheduler; on other systems saved but never started; per-schedule lock file | `local_schedules.py`, `schedule_service.py` | yes |
 | Fabric schedules | List, create, enable, delete Fabric job schedules | `schedule_service.py` | unit only |
 | Alerts | Teams Workflows webhook for freshness misses and failed PC schedules | `dataops_service.py`, `meta/freshness.py` | yes |

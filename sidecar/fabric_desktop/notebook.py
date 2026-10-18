@@ -256,6 +256,8 @@ class Kernel:
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.reset()
+        from . import lakehouse
+        lakehouse.reads_reset()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
 
@@ -441,7 +443,7 @@ class Kernel:
         write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric."""
         if re.search(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", query, re.IGNORECASE):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
-                    "On this PC, Metadata > Run does the same surrogate key MERGE.\n")
+                    "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
             return "ok"
         try:
@@ -518,6 +520,11 @@ class Kernel:
         log = self._proof.finish(modules)
         self._proof = None
         return log
+
+    def reads(self) -> dict[str, Any]:
+        """What the cells have read since the kernel started (lakehouse.reads), for replay bundles."""
+        from . import lakehouse
+        return json.loads(json.dumps(lakehouse.reads))
 
     def stop(self) -> dict[str, Any]:
         """This kernel runs inside the engine: only ending the engine stops a cell stuck in native code."""

@@ -670,12 +670,12 @@ async function renderMonitor() {
   const bad = (r) => (r.status === "failed" || r.status === "needs_decision" ? 0 : r.status === "running" ? 1 : 2);
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
   local.replaceWith(rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
+    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
     h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
+      h("td", {}, ENV_LABEL[r.env] || r.env || h("span", { class: "muted-text", title: "Notebook writes and this PC's schedules aren't tied to an environment" }, "None")), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"

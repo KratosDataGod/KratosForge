@@ -24,7 +24,9 @@ function riskLocalAlternative(risk) {
 function riskPanel(risk, opts = {}) {
   if (!risk) return null;
   const findings = risk.findings || [];
-  const pill = h("span", { class: `pill-s ${RISK_PILL[risk.result] || "neu"}` }, risk.label || risk.result);
+  // Always shown, tagged Preview: a warning shouldn't vanish because preview features are hidden.
+  const pill = previewMarked("risk", h("span", { class: "risk-pills" },
+    h("span", { class: `pill-s ${RISK_PILL[risk.result] || "neu"}` }, risk.label || risk.result)));
   const line = (f) => h("li", {}, f.title, f.measurement ? [" ", measureBadge(f.measurement)] : null);
   if (risk.result === "pass") {
     return h("details", { class: "risk-panel pass" },

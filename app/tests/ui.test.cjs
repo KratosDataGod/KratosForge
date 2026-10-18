@@ -726,7 +726,8 @@ test("the risk panel shows what matters, folds the rest and never offers this PC
   const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
   const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids }), icon: () => null,
-    measureBadge: (m) => ({ tag: "badge", kids: [m.classification] }) };
+    measureBadge: (m) => ({ tag: "badge", kids: [m.classification] }),
+    previewMarked: (id, node) => { node.kids.push(`Preview:${id}`); return node; } };
   vm.runInNewContext(`${src}; Object.assign(this, { riskPanel, riskLocalAlternative });`, ctx);
   const f = (check, outcome, title, measurement = null) => ({ check, outcome, title, detail: "", evidence: [], remedy: "", measurement });
   const blocked = { result: "blocked", label: "Blocked", summary: "This run can't start: paused", findings: [
@@ -736,13 +737,61 @@ test("the risk panel shows what matters, folds the rest and never offers this PC
   assert.match(out, /fabcapdev is paused/);
   assert.match(out, /This PC could run it too/);
   assert.match(out, /1 other check passed or isn't known/);
+  assert.match(out, /Preview:risk/);
   assert.strictEqual(ctx.riskLocalAlternative(blocked), true);
   assert.strictEqual(ctx.riskLocalAlternative({ findings: [f("local_alternative", "pass", "Needs Fabric")] }), false);
   const pass = ctx.riskPanel({ result: "pass", label: "Pass", summary: "Nothing found", findings: [
     f("consumption", "pass", "The last run used about 0.42 CU hours", { classification: "measured" })] });
   assert.strictEqual(pass.tag, "details");
   assert.match(text(pass), /0.42 CU hours\s+measured/);
+  assert.match(text(pass), /Preview:risk/);
   assert.strictEqual(ctx.riskPanel(null), null);
+});
+
+// FINOPS-004: the run gate stays quiet on a pass, offers no run on a block, and waits for the tick.
+test("the risk gate passes quietly, never runs a blocked item and needs the tick when asked", async () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const node = (tag, attrs, ...kids) => ({ tag, attrs, kids, querySelector: () => node.box });
+  let dialog = null;
+  const acks = [];
+  const toasts = [];
+  const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
+    btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
+    showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
+    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
+  const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
+  ctx.ran = [];
+  const settle = () => new Promise((r) => setImmediate(r));
+  const press = (label) => dialog.actions.find((a) => a.label === label).onClick();
+
+  for (const result of ["pass", "unknown"]) {
+    ctx.result = { result, findings: [] };
+    assert.strictEqual(await ctx.riskGate(target), true);
+    assert.strictEqual(dialog, null, `${result} shows no dialog`);
+  }
+
+  ctx.result = { id: "r1", result: "blocked", summary: "paused", findings: [{ check: "local_alternative", outcome: "pass", title: "This PC could run it too" }] };
+  let gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Check again", "Run on this PC", "Close"]);
+  press("Run on this PC");
+  assert.strictEqual(await gate, false);
+  assert.deepStrictEqual(ctx.ran, ["pc"]);
+
+  ctx.result = { id: "r2", result: "warning", summary: "check", needs_acknowledgement: true, findings: [] };
+  node.box = { checked: false };
+  gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Run anyway"]);
+  await press("Run anyway");
+  assert.ok(dialog, "ran without the tick");
+  assert.strictEqual(acks.length, 0);
+  assert.match(toasts[0], /Tick/);
+  node.box.checked = true;
+  await press("Run anyway");
+  assert.strictEqual(await gate, true);
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
 });
 
 // The pure helpers at the top of replay.js.
@@ -963,7 +1012,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 

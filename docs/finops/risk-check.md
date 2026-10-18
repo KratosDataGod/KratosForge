@@ -2,7 +2,7 @@
 
 Before a workload starts, Fabric Desktop by KratosBI checks what could stop the run or make it costly, and shows the evidence. The check only reads. Nothing is started, published, paused or changed to work it out.
 
-It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked. It's a Preview feature.
+It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked. It's a Preview feature: its panel carries the Preview tag, and it still shows when **Settings > Preview features** is off, because hiding a warning would hide the reason a run may fail.
 
 ## Where you see it
 

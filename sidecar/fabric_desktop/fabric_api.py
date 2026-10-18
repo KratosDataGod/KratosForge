@@ -247,11 +247,15 @@ class FabricClient:
         return self._paged(f"/workspaces/{workspace_id}/semanticModels")
 
     def save_semantic_model(self, workspace_id: str, name: str, parts: dict[str, str],
-                            description: str = "") -> dict[str, Any]:
-        """Create the semantic model from TMDL files, or replace the definition of the one with this name."""
+                            description: str = "", replace: bool = True) -> dict[str, Any]:
+        """Create the semantic model from TMDL files, or replace the definition of the one with this name.
+        Without ``replace``, an existing one raises FileExistsError(message, its id) and nothing is written.
+        A failed list raises too, so a model that couldn't be looked up is never treated as new."""
         definition = {"parts": [{"path": path, "payload": base64.b64encode(text.encode()).decode(),
                                  "payloadType": "InlineBase64"} for path, text in parts.items()]}
         existing = next((m for m in self.list_semantic_models(workspace_id) if m["displayName"] == name), None)
+        if existing is not None and not replace:
+            raise FileExistsError(f"{name} already exists; replacing its definition needs confirming", existing["id"])
         if existing is None:
             body: dict[str, Any] = {"displayName": name, "definition": definition}
             if description:

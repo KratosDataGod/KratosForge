@@ -114,6 +114,16 @@ nav = [
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
     { "UI guidelines" = "ui-guidelines.md" },
+    { "UX and simplicity" = [
+      { "Assessment" = "ux/README.md" },
+      { "Scorecard" = "ux/scorecard.md" },
+      { "Configuration" = "ux/configuration.md" },
+      { "Navigation" = "ux/navigation.md" },
+      { "Workflows" = "ux/workflows.md" },
+      { "Documentation coverage" = "ux/documentation-coverage.md" },
+      { "Backlog" = "ux/backlog.md" },
+      { "Release gates and reviews" = "ux/release-review.md" },
+    ] },
   ] },
 ]
 

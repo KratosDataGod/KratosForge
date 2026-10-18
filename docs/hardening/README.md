@@ -67,8 +67,55 @@ Weighted overall: 0.10×7.0 + 0.05×6.5 + 0.10×7.0 + 0.20×6.0 + 0.20×5.0 + 0.
 
 ## F. Implementation results
 
-Filled in as the hardening PRs are built. The project was in a merge freeze when the audit finished, so PRs are prepared locally and opened when the freeze lifts.
+Status at `main` 4b72e92 (2026-10-18 09:28Z). All eleven code fixes below were merged on Chris's go on 2026-10-18, in priority order, after a full engine and UI test run on all of them merged together (that run found one test in #180 that assumed no retry; it was fixed before #180 merged). Each PR was built on its own branch from `main` with a test that fails on `main` and passes with the fix, and each was opened only after the full engine suite passed locally. Every PR had all required checks green on its last commit before merging; the `review` (Codex) check is excluded because it fails on every PR until the OpenAI quota is topped up. Nothing here was run against a live Fabric tenant.
+
+| PR | Backlog | Finding | What changed | State |
+| --- | --- | --- | --- | --- |
+| #137 | HD-009 | EN-7, DOC-1 | Audit documents; security, permissions and release-readiness pages corrected | **Merged** 2026-10-18 |
+| #138 | HD-001 | DI-1, DI-4 | No table write after the commit; quarantine written after the commit; a retry finds the committed run in the table's commit metadata instead of writing again | **Merged** 2026-10-18 |
+| #152 | HD-002 | DI-2 | Delta profile checked before writing, so committed data is never reported as failed | **Merged** 2026-10-18 |
+| #154 | HD-003 | DI-3 | `notebookutils.fs` deletes need `recurse=True` like Fabric, refuse managed `Tables/`, and honour the external-run write guard | **Merged** 2026-10-18 |
+| #162 | HD-004 | EP-1 | A running cell keeps its lakehouse; a second start or an external-tool run can't re-point it, and waits at most 10 s instead of freezing the engine | **Merged** 2026-10-18 |
+| #155 | HD-005 | EP-2 | Restore removes stale SQLite WAL files, refuses databases in use and verifies each file's SHA-256 | **Merged** 2026-10-18 |
+| #156 | HD-006 | EN-1 | Run-notebook approvals show the cells and are bound to their exact content; notebooks over 20,000 characters are refused | **Merged** 2026-10-18 |
+| #157 | HD-007 | EN-5 | Log fields are redacted before JSON encoding | **Merged** 2026-10-18 |
+| #158 | HD-008 | SH-3, SH-4 | The shell requires a checksum and falls back to another channel only on a 404, never on a network error. The Rust tests for this don't run in CI yet (HD-011) | **Merged** 2026-10-18 |
+| #159 | HD-016 | EN-6, AR-1 | Leases are atomic across processes and a lost lease stops the write | **Merged** 2026-10-18 |
+| #179 | QA-006 | (quality review) | Fabric 429 and 503 responses are retried, honouring Retry-After (GET only for 5xx); one retry rule shared by capacity, workloads and integrations | **Merged** 2026-10-18 |
+| #180 | QA-003, QA-004, QA-007, QA-010 | (quality review) | Vacuum, Optimize, semantic model builds and lakehouse reads stop with the reason when a lookup fails instead of guessing; replacing a model asks first; X-ray marks a finding fixed only when its Fabric job completes | **Merged** 2026-10-18 |
+| #165 | HD-010 | EP-4 | Policy "last known good" (Chris's decision). Built by the Enterprise readiness thread | Open, owned there |
+
+**Not started, and why.**
+
+- **Need Chris.** These can't be built or verified from here:
+  - HD-013 token cache encryption (decision D-C2).
+  - Code signing (Trusted Signing account, gate 3).
+  - A live tenant run of the harness (gate 4).
+- **Next in this thread, one PR at a time:**
+  - HD-011: `cargo test` in CI. This is a workflow change, so Chris reviews it.
+  - The `updater.py` checksum half of HD-008.
+  - HD-012, HD-014 and HD-015.
+- **Owned by other threads:**
+  - HD-017 and QA-012: Enterprise readiness.
+  - HD-035, HD-037 and HD-040: Prove.
+- **Waiting on other PRs:**
+  - UX-018 dangerous-action confirmations wait on #171.
+  - UX-021 Preview tag on Create workspace waits on #169.
 
 ## G. Revised rating
 
-Not revised yet. A score moves only when a fix is merged and its tests run in CI, and reliability and enterprise readiness can't pass 8 without live verification (gate 3).
+**Overall: 5.9 → 6.5** (re-scored 2026-10-18 after the eleven fixes merged). A score moves only for fixes merged with CI green; nothing is credited for live behaviour, because nothing has been run on a live tenant.
+
+| Area | Weight | Audit | Now | Why it moved, and what holds it back |
+| --- | --- | --- | --- | --- |
+| Architecture | 10% | 7.0 | **7.5** | EP-1 fixed (#162): a running cell keeps its lakehouse. `Service` size (AR-2) and the serial RPC pipe (SH-11) unchanged |
+| Code organization | 5% | 6.5 | 6.5 | One retry rule now shared (#179); the rest unchanged |
+| Local execution design | 10% | 7.0 | 7.0 | EN-4, EN-8, DI-5 and DI-8 still open |
+| Security | 20% | 6.0 | **6.5** | EN-1 (#156), EN-5 (#157), SH-3 and SH-4 (#158) fixed. No CSP (SH-1), unsigned builds (SH-2), tokens readable by AI-tool code (EN-2, EN-10) and policy fail-open (EP-4, #165 open) remain |
+| Reliability | 20% | 5.0 | **6.5** | DI-1 to DI-4 (#138, #152, #154), EP-2 (#155), EN-6 (#159) fixed; failed lookups stop instead of guessing (#180); Fabric 429/503 retried (#179). Not verified on a live tenant |
+| Testing | 15% | 6.5 | **7.0** | Failure-injection tests for post-commit, lookup and retry failures. Rust and browser tests still don't run in CI (SH-6, UI-8) |
+| Enterprise readiness | 15% | 4.0 | **4.5** | Restore and update-channel defects fixed. Still no signing, live harness run, rollback or build pinning; policy and audit defects open |
+| Documentation | 5% | 7.0 | **8.0** | #137 corrected the false security statements and the stale readiness page |
+| **Overall (weighted)** | | 5.9 | **6.5** | 0.10×7.5 + 0.05×6.5 + 0.10×7.0 + 0.20×6.5 + 0.20×6.5 + 0.15×7.0 + 0.15×4.5 + 0.05×8.0 = 6.50 |
+
+6.5 is not ready for a 5,000-person rollout. Reliability and enterprise readiness can't pass 8 without the live harness run and signed releases (gates 3 and 4), and both need Chris. Next re-score after the next merge round, counting only what merged with CI green.

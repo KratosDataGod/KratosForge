@@ -1098,16 +1098,27 @@ async function renderModelTab(body) {
   }
   body.replaceChildren(h("p", { class: "muted-text" }, "Reading the layer's tables and relationships..."));
   if (!state.user && !(await signIn())) return;
-  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null });
-  if (!plan || state.view !== "metadata" || m.tab !== "model") return;
+  const plan = await metaCall("meta_model_plan", { env: m.env, layer: m.modelLayer || null }, "Semantic model not checked");
+  if (state.view !== "metadata" || m.tab !== "model") return;
+  if (!plan) {  // whether the model exists isn't known, so neither Create nor Update is offered
+    body.replaceChildren(h("p", { class: "muted-text" }, "Couldn't check the semantic model in Fabric, so Create and Update are off until it can be read. Open this tab again to retry."));
+    return;
+  }
   const layer = h("select", { onchange: (e) => { m.modelLayer = e.target.value; renderModelTab(body); } },
     plan.layers.map((l) => h("option", { value: l, selected: l === plan.layer ? true : null }, l)));
   const name = h("input", { value: m.modelName || plan.name, oninput: (e) => { m.modelName = e.target.value; } });
   const result = h("div", {});
-  const build = async () => {
+  const build = async (replace = false) => {
     toast(`Building ${name.value} in ${plan.workspace_name || "the workspace"}...`);
-    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value }, "Model not built");
+    const res = await metaCall("meta_build_model", { env: m.env, layer: plan.layer, name: name.value, replace }, "Model not built");
     if (!res) return;
+    if (res.confirm) {  // the model exists: nothing is written until the user says to replace it
+      const c = res.confirm;
+      if (await confirmDialog(`Replace ${c.name}?`,
+        `${c.name} already exists in ${c.workspace_name || plan.workspace_name || "the workspace"}. Its definition will be replaced by this layer's tables and relationships; measures, tables and relationships added to it in Fabric are lost.`,
+        `Replace ${c.name}`)) build(true);
+      return;
+    }
     toast(`${res.created ? "Created" : "Updated"} ${res.name}`);
     result.replaceChildren(h("div", { class: "pass-box" }, icon("ok", 16),
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
@@ -1119,7 +1130,7 @@ async function renderModelTab(body) {
     h("div", { class: "card pad" },
       h("div", { class: "row wrap" }, h("b", {}, "Direct Lake semantic model"), h("span", { class: "spacer" }),
         plan.existing ? btn("Open in Fabric", "open", () => openInFabric(plan.existing.url), "tool outline small") : null,
-        btn(plan.existing ? "Update model" : "Create model", "cube", build, "tool primary small")),
+        btn(plan.existing ? "Update model" : "Create model", "cube", () => build(), "tool primary small")),
       h("p", { class: "muted-text" }, `Reads ${plan.lakehouse} in ${plan.workspace_name || plan.workspace_id} through its SQL analytics endpoint, with no import and no refresh schedule. Relationships come from the metadata. Surrogate keys and the framework's _run_id and _loaded_at columns are hidden; every fact gets a row count measure. Updating keeps every column's lineage tag, so reports built on the model keep working.`),
       h("div", { class: "row wrap" }, h("label", { class: "field" }, "Layer", layer), h("label", { class: "field grow" }, "Model name", name)),
       result),

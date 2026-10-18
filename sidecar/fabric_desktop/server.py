@@ -89,6 +89,11 @@ from .localdata_service import METHODS as LOCAL_DATA_METHODS  # noqa: E402
 
 METHODS |= LOCAL_DATA_METHODS
 
+# Optimize's shared lakehouse (optimize_service.py).
+from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
+
+METHODS |= OPTIMIZE_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

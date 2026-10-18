@@ -456,6 +456,7 @@ def _prove_actions() -> list[Capability]:
             "Proves a notebook: runs it on this PC and as a copy in Fabric, then compares every table it writes.",
             schema({"name": NAME}, ["name"]), schema({"id": STR, "state": STR}, ["id"], extra=True),
             "MODIFY_FABRIC_ARTIFACTS", services.start_proof, workspaces=scope.notebook, read_only=False, approval="always",
+            bind=services.bind_proof,
             locations=("this_pc", "fabric"), artifact_types=("Notebook",), timeout=120,
             limitations=("Publishes a copy of the notebook to Fabric and runs it there.",)),
         Capability(

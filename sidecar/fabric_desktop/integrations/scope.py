@@ -92,6 +92,14 @@ def enforce(cap: Any, limit: frozenset[str] | None, resolve: Callable[[], set[st
                                hint=f"The person can change its workspaces in {WHERE}.")
 
 
+def enforce_on(ctx: CallContext, reached: set[str] | None) -> None:
+    """The same refusal as enforce, inside a handler, for what it reached after an approval wait."""
+    limit = getattr(ctx, "workspaces", None)
+    if limit and (reached is None or reached - limit):
+        raise IntegrationError("permission_denied", "This tool is limited to other workspaces.",
+                               hint=f"The person can change its workspaces in {WHERE}.")
+
+
 def unconfined_reason(cap: Any) -> str:
     return (f"This tool is limited to some workspaces, and Fabric Desktop by KratosBI can't tell which workspace "
             f"{cap.title.lower()} would reach, so it isn't allowed.")

@@ -209,6 +209,25 @@ def test_notebook_changed_after_binding_runs_nothing(svc):
     assert call(svc, "fabric_desktop_list_executions")["items"] == []
 
 
+def test_proof_lakehouse_changed_during_approval_starts_nothing(svc, monkeypatch):
+    # The workspace limit is checked before the approval wait; a lakehouse swapped during it is refused.
+    started = []
+    monkeypatch.setattr(svc, "prove_start", lambda *a: started.append(a) or {"id": "p1"}, raising=False)
+    cap = reg().get("fabric_desktop_start_proof")
+    bound = cap.bind(svc, {"name": "nb"})
+    svc.notebooks.save("nb", [{"type": "code", "source": "x = 6"}], LH | {"workspace_id": "ws2", "lakehouse_id": "lh2"})
+    limited = ctx()
+    limited.workspaces = frozenset({"ws1"})
+    with pytest.raises(IntegrationError, match="changed after it was approved"):
+        cap.handler(svc, limited, name="nb", **bound)
+    # Even bound to the swapped notebook, a tool limited to ws1 can't start it.
+    with pytest.raises(IntegrationError) as e:
+        cap.handler(svc, limited, name="nb", **cap.bind(svc, {"name": "nb"}))
+    assert e.value.code == "permission_denied" and started == []
+    with pytest.raises(TypeError):
+        cap.handler(svc, limited, name="nb")  # only invoke's bind supplies the hash
+
+
 def test_external_notebook_cant_run_other_notebooks(svc):
     # %run and notebookutils.notebook.run would run code the person wasn't shown.
     svc.notebooks.save("outer", [{"type": "code", "source": "%run nb"}], LH)

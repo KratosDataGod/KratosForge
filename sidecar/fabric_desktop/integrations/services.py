@@ -406,8 +406,26 @@ def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str,
 
 # ---- Prove this notebook: actions that ask the person first
 
-def start_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+def _proof_inputs(nb: dict[str, Any]) -> str:
+    """SHA-256 of what a proof uses: the cells, the lakehouse, the compute and where it publishes."""
+    used = [nb.get("cells"), nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")]
+    return hashlib.sha256(json.dumps(used, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def bind_proof(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Read before the person approves a proof, so the approval is bound to this version of the
+    notebook and its lakehouse (Capability.bind), as bind_notebook does for a run."""
+    return {"notebook_sha256": _proof_inputs(svc.notebooks.load(arguments["name"]))}
+
+
+def start_proof(svc: Any, ctx: CallContext, name: str, *, notebook_sha256: str) -> dict[str, Any]:
+    """Starts only if the saved notebook still matches what was checked and approved: a lakehouse
+    changed during the approval wait would reach a workspace the tool's limit never saw."""
     nb = svc.notebooks.load(name)
+    if _proof_inputs(nb) != notebook_sha256:
+        raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
+                               hint="Call again so the person can approve the notebook as it is now.")
+    scope.enforce_on(ctx, scope.notebook_of(nb))
     return _metadata_only(svc.prove_start(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")))
 
 

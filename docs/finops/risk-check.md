@@ -4,7 +4,7 @@ Before a workload starts, Fabric Desktop by KratosBI checks what could stop the 
 
 It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked.
 
-This first version is the engine. It is returned with each run dialog's details (`workload_preflight`) and through the `risk_check` call. The run dialogs will show it in the next release (FINOPS-004, part 2).
+This first version is the engine, and it **reports only: it doesn't block runs**. It is returned with each run dialog's details (`workload_preflight`) and through the `risk_check` call, with `"enforced": false`. Starting a run (`workload_act`) doesn't check it, so a run started another way isn't stopped by a blocked result. The run dialogs will show it in the next release (FINOPS-004, part 2).
 
 ## Results
 
@@ -42,7 +42,6 @@ The check makes at most two reads in Fabric: the workspace and the capacity list
 | `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. |
 | `warn_failed_runs` | 2 | Warn when this many of the last five runs failed. 0 turns it off. |
 | `schedule_window_minutes` | 60 | Warn when a schedule on this PC runs the workload within this many minutes. |
-| `require_acknowledgement` | off | A warning must be acknowledged before the run starts. The run dialogs will use it in part 2. |
 
 ## Going ahead with warnings
 

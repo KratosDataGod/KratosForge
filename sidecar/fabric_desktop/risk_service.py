@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 from typing import Any
 
 from . import app_settings
@@ -17,12 +18,12 @@ from . import capacity as capacity_mod
 from . import costs as costs_mod
 from . import risk
 from .auth import CAPACITY_SCOPES, FABRIC_SCOPES
-from .fabric_api import FabricClient
 from .fabric_run import compute_check
 
 # Actions that start work; cancel needs no assessment.
 ASSESSED = ("run", "run_in_fabric", "run_item", "run_schedule")
 _ACKS = "risk_acknowledgements.jsonl"
+log = logging.getLogger(__name__)
 
 
 class RiskMixin:
@@ -33,8 +34,7 @@ class RiskMixin:
         return self._risk_settings()
 
     def set_risk_settings(self, warn_run_cu_hours: float | None = None, warn_failed_runs: int | None = None,
-                          schedule_window_minutes: int | None = None,
-                          require_acknowledgement: bool | None = None) -> dict[str, Any]:
+                          schedule_window_minutes: int | None = None) -> dict[str, Any]:
         """Change when the risk check warns. A CU threshold of 0 or "" turns that warning off."""
         cfg = self._risk_settings()
         if warn_run_cu_hours is not None:
@@ -49,8 +49,6 @@ class RiskMixin:
                 if int(value) < low:
                     raise ValueError(f"{key.replace('_', ' ')} can't be negative")
                 cfg[key] = int(value)
-        if require_acknowledgement is not None:
-            cfg["require_acknowledgement"] = bool(require_acknowledgement)
         self._save_settings(risk=cfg)  # type: ignore[attr-defined]
         return cfg
 
@@ -63,50 +61,53 @@ class RiskMixin:
         now = dt.datetime.now(dt.timezone.utc)
         try:
             health = self.capacity_health(refresh=refresh)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no reading is a fact too
+        except Exception as exc:  # noqa: BLE001 - the workspace is read directly below instead
+            log.warning("Risk check: the environments' capacity reading failed: %s", exc)
+            reads.append(f"The environments' capacity reading failed ({str(exc)[:200]}); the workspace was read instead")
             health = {"environments": []}
         for e in health.get("environments", []):
             if e.get("workspace_id") and e["workspace_id"] == workspace_id:
                 if refresh:
                     reads.append("Capacity of the environments (GET /workspaces/{id}, GET /capacities)")
                 return e | capacity_mod.freshness(e, now)
-        fabric_token = self._wl_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
-        if not fabric_token:
+        fabric = self._silent_client(FABRIC_SCOPES)  # type: ignore[attr-defined]
+        if fabric is None:
             return None
-        cap_token = self._wl_token(CAPACITY_SCOPES)  # type: ignore[attr-defined]
+        cap_client = self._silent_client(CAPACITY_SCOPES)  # type: ignore[attr-defined]
         caps, cap_error = None, None
-        if cap_token:
+        if cap_client:
             try:
-                caps = {str(c.get("id", "")).lower(): c for c in FabricClient(lambda: cap_token).list_capacities()
-                        if c.get("id")}
+                caps = {str(c.get("id", "")).lower(): c for c in cap_client.list_capacities() if c.get("id")}
             except Exception as exc:  # noqa: BLE001
                 cap_error = capacity_mod.classify_error(exc)
                 if cap_error in ("workspace_no_access", "workspace_not_found"):
                     cap_error = "scope_not_granted"
         else:
             cap_error = "scope_not_granted"
-        reads.append("Capacity of the workspace (GET /workspaces/{id}" + (", GET /capacities)" if cap_token else ")"))
-        obs = capacity_mod.observe_env("", workspace_id, workspace_name, FabricClient(lambda: fabric_token).get_workspace,
-                                       caps, cap_error, now)
+        reads.append("Capacity of the workspace (GET /workspaces/{id}" + (", GET /capacities)" if cap_client else ")"))
+        obs = capacity_mod.observe_env("", workspace_id, workspace_name, fabric.get_workspace, caps, cap_error, now)
         return obs | capacity_mod.freshness(obs, now)
 
-    def _risk_cu(self, runs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    def _risk_cu(self, runs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
         """Measured (from usage imports matched to these runs) and estimated CU of the given Fabric
-        runs, newest first. Nothing is read from Fabric."""
+        runs, newest first, and why the imports couldn't be read ("" when they could). Nothing is
+        read from Fabric."""
         job_ids = [r["job_id"] for r in runs if r.get("job_id")]
         if not job_ids:
-            return [], []
+            return [], [], ""
         fabric = self.fabric_runs(limit=500, refresh=False)  # type: ignore[attr-defined]
         rows = costs_mod.activities([], fabric, [], self._cost_settings())  # type: ignore[attr-defined]
         est = {r["fabric_job_cu"]["run_id"]: r["fabric_job_cu"] for r in rows
                if r["where"] == "fabric" and r["fabric_job_cu"].get("run_id")}
         measured: dict[str, dict[str, Any]] = {}
+        problem = ""
         try:
             rec = self._usage_reconcile(90, fabric, rows)  # type: ignore[attr-defined]
             measured = {b["job_id"]: b["measured"] for b in rec.get("by_run", []) if b.get("measured")}
-        except Exception:  # noqa: BLE001 - no imports or unreadable: measured stays empty
-            measured = {}
-        return [measured[j] for j in job_ids if j in measured], [est[j] for j in job_ids if j in est]
+        except Exception as exc:  # noqa: BLE001 - the estimate is still shown, with why nothing is measured
+            log.warning("Risk check: imported usage couldn't be read: %s", exc)
+            problem = f"Imported usage couldn't be read ({str(exc)[:200]}), so nothing is measured."
+        return [measured[j] for j in job_ids if j in measured], [est[j] for j in job_ids if j in est], problem
 
     def _risk_facts(self, w: dict[str, Any], action: str, env: str | None, refresh: bool) -> dict[str, Any]:
         dep = next((d for d in w["deployments"] if (d.get("env") or None) == (env or None)
@@ -132,7 +133,8 @@ class RiskMixin:
                 if (r.get("where") == "fabric") == (where == "fabric") and (not env or not r.get("env") or r["env"] == env)]
         facts["runs"] = runs
         if where == "fabric":
-            facts["measured"], facts["estimated"] = self._risk_cu([r for r in runs if r.get("where") == "fabric"])
+            facts["measured"], facts["estimated"], facts["measured_problem"] = self._risk_cu(
+                [r for r in runs if r.get("where") == "fabric"])
         if w["kind"] == "notebook":
             try:
                 nb = self.notebooks.load(w["name"])  # type: ignore[attr-defined]
@@ -163,8 +165,9 @@ class RiskMixin:
         try:
             return risk.analyze(self._risk_facts(w, action, env, False), self._risk_settings())
         except Exception as exc:  # noqa: BLE001 - the check is advice, the preflight still works
+            log.warning("Risk check failed for %s: %s", w.get("id"), exc)
             return {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
-                    "needs_acknowledgement": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
+                    "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
 
     def risk_acknowledge(self, id: str, action: str, risk_id: str, env: str | None = None,  # noqa: A002
                          note: str = "") -> dict[str, Any]:

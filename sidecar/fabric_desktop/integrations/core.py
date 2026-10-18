@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..retrying import TRANSIENT_STATUS, status_of
+
 # The codes a caller can rely on. Messages change; codes don't.
 CODES = {
     "invalid_input": "The arguments don't match what the capability takes.",
@@ -68,8 +70,14 @@ class IntegrationError(Exception):
 # ---- secrets out of messages
 
 try:  # the enterprise program's redaction (PR #84); until it merges, the same core patterns here
+    from ..redact import secret_key
     from ..redact import secrets as redact_secrets  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - depends on merge order
+    def secret_key(name: object) -> bool:
+        key = str(name).lower().replace("-", "").replace("_", "")
+        return any(part in key for part in ("password", "passwd", "secret", "token", "apikey", "connectionstring",
+                                            "authorization")) or key.startswith("sas") or key.endswith("sas")
+
     _SECRET_PATTERNS = [
         (re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*"), "[removed]"),
         (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1[removed]"),
@@ -85,20 +93,17 @@ except ImportError:  # pragma: no cover - depends on merge order
 
 
 def redact_result(value: Any) -> Any:
-    """Every string in a result, with secrets removed. Applied to every capability's result, so a
-    token that slipped into a notebook, a log line or a receipt doesn't leave through a tool."""
+    """Every string in a result, with secrets removed, and the text of every field named like a
+    secret (password, token, ...) blanked; counts and flags such as secrets_ignored stay. Applied to
+    every capability's result, so a token that slipped into a notebook, a log line or a receipt
+    doesn't leave through a tool."""
     if isinstance(value, str):
         return redact_secrets(value)
     if isinstance(value, dict):
-        return {k: redact_result(v) for k, v in value.items()}
+        return {k: "[removed]" if secret_key(k) and isinstance(v, str) else redact_result(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact_result(v) for v in value]
     return value
-
-
-def _status_of(exc: BaseException) -> int | None:
-    response = getattr(exc, "response", None)
-    return getattr(response, "status_code", None)
 
 
 def error_from(exc: BaseException) -> IntegrationError:
@@ -108,13 +113,13 @@ def error_from(exc: BaseException) -> IntegrationError:
         return exc
     message = redact_secrets(str(exc) or type(exc).__name__)
     name = type(exc).__name__
-    status = _status_of(exc)
+    status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):
         if status in (401, 403) or "Unauthorized" in message or "Forbidden" in message:
             return IntegrationError("permission_denied", message, hint="Your account can't do this in Fabric. Check your workspace role.")
         if status == 404 or "NotFound" in message:
             return IntegrationError("not_found", message)
-        if status == 429 or (status or 0) >= 500 or name in ("ConnectionError", "Timeout"):
+        if status in TRANSIENT_STATUS or name in ("ConnectionError", "Timeout"):
             return IntegrationError("upstream", message, retryable=True, hint="Fabric is busy or can't be reached; try again shortly.")
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason

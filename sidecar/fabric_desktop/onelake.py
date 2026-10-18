@@ -93,11 +93,14 @@ class FileStore:
         return {"Authorization": f"Bearer {self._token()}", "x-ms-version": "2023-11-03"}
 
     def list(self, workspace_id: str, lakehouse_id: str, directory: str = "Files",
-             recursive: bool = False) -> list[dict[str, Any]]:
-        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size", "modified"}``."""
+             recursive: bool = False, max_results: int | None = None) -> list[dict[str, Any]]:
+        """Children of ``directory`` (all the way down with ``recursive``) as ``{"name", "path", "is_dir", "size", "modified"}``.
+        With ``max_results``, only the first page of at most that many."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "true" if recursive else "false",
                   "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+        if max_results:
+            params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
         while True:
             resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
@@ -108,7 +111,7 @@ class FileStore:
                                 "is_dir": str(p.get("isDirectory", "")).lower() == "true",
                                 "size": int(p.get("contentLength") or 0), "modified": _iso(p.get("lastModified"))})
             token = resp.headers.get("x-ms-continuation")
-            if not token:
+            if not token or max_results:
                 break
             params["continuation"] = token
         return sorted(entries, key=lambda e: (not e["is_dir"], e["name"].lower()))
@@ -164,9 +167,11 @@ class FileStore:
             resp = self._http.request(method, url, params=params, data=body, headers=self._headers(), timeout=300)
             resp.raise_for_status()
 
-    def delete(self, workspace_id: str, lakehouse_id: str, path: str) -> None:
-        """Delete a file or a whole folder; a missing one is fine."""
+    def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
+        """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
+        refuses (409) a folder that isn't empty."""
         url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
-        resp = self._http.request("DELETE", url, params={"recursive": "true"}, headers=self._headers(), timeout=300)
+        resp = self._http.request("DELETE", url, params={"recursive": "true" if recursive else "false"},
+                                  headers=self._headers(), timeout=300)
         if resp.status_code != 404:
             resp.raise_for_status()

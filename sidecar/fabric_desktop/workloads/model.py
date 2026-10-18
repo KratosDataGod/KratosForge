@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from ..retrying import TRANSIENT_STATUS, status_of
+
 KINDS = ("meta_entity", "notebook", "fabric_item")
 KIND_LABELS = {"meta_entity": "Metadata entity", "notebook": "Notebook", "fabric_item": "Fabric item"}
 
@@ -114,8 +116,11 @@ def classify_error(exc: BaseException) -> tuple[str, str]:
     if isinstance(exc, PermissionError) or " 401" in low or " 403" in low or "forbidden" in low \
             or "unauthorized" in low or "insufficientscopes" in low:
         return "unauthorized", "Your sign-in can't read this. Ask for access, or sign in with an account that has it."
-    if " 429" in low or "too many requests" in low:
+    status = status_of(exc)
+    if status == 429 or " 429" in low or "too many requests" in low:
         return "throttled", "Fabric asked to slow down. Try again in a few minutes."
+    if status in TRANSIENT_STATUS:
+        return "offline", "Fabric isn't answering right now. Try again in a few minutes."
     if "sign in" in low or "no account" in low or "interaction_required" in low or "login" in low:
         return "signed_out", "Sign in to read this."
     if isinstance(exc, LookupError) and ("assign a workspace" in low or "no metadata project" in low):

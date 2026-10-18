@@ -41,6 +41,42 @@ def test_agent_log_lines_carry_no_tokens():
     assert json.loads(line)["message"] == "token [removed]"
 
 
+def _log_line(message, **extra):
+    record = logging.LogRecord("x", logging.INFO, __file__, 1, "%s", (message,), None)
+    record.fields = extra
+    return logs.JsonFormatter("w1").format(record)
+
+
+@pytest.mark.parametrize("case", CASES, ids=lambda c: c["in"][:40])
+def test_shared_cases_in_agent_log_lines_stay_valid_json(case):
+    # Redacted value by value before JSON escapes quotes, so "password": "x" still matches.
+    expected = redact.secrets(case["in"])
+    if case["level"] == "secrets":
+        assert expected == case["out"]
+    line = json.loads(_log_line(case["in"], detail=case["in"], nested={"items": [case["in"]]}))
+    assert line["message"] == line["detail"] == line["nested"]["items"][0] == expected
+
+
+@pytest.mark.parametrize("message, secret", [
+    ('conn "password": "hunter2"', "hunter2"),
+    ('client_secret=s3cr3tvalue"', "s3cr3tvalue"),
+])
+def test_agent_log_lines_with_quotes_leak_nothing(message, secret):
+    raw = _log_line(message, detail=message)
+    assert secret not in raw
+    line = json.loads(raw)
+    assert line["message"] == line["detail"] == redact.secrets(message)
+
+
+def test_agent_log_fields_named_like_secrets_are_blanked():
+    raw = _log_line("connecting", password="plain words", job_id="j1", attempt=2,
+                    conn={"Connection_String": "Server=x;Pwd2=y", "API-Key": "k1", "secrets_ignored": 3})
+    line = json.loads(raw)
+    assert "plain words" not in raw and "Server=x" not in raw and "k1" not in raw
+    assert line["password"] == line["conn"]["Connection_String"] == line["conn"]["API-Key"] == "[removed]"
+    assert line["job_id"] == "j1" and line["attempt"] == 2 and line["conn"]["secrets_ignored"] == 3
+
+
 def test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out(tmp_path, monkeypatch):
     import zipfile
 

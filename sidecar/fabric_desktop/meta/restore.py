@@ -88,7 +88,7 @@ def restore(uri: str, options: dict[str, str] | None, version: int, metadata: di
     metrics = table.restore(int(version), ignore_missing_files=False,
                             commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None)
     after = DeltaTable(uri, storage_options=options)
-    delta_profile.check_table(after)
+    delta_profile.note_after_write(after)
     return {"from_version": before, "to_version": int(version), "new_version": after.version(),
             "files_restored": int(metrics.get("numRestoredFile", 0) or 0),
             "files_removed": int(metrics.get("numRemovedFile", 0) or 0)}

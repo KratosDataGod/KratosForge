@@ -31,6 +31,7 @@ from typing import Any, Callable, Iterable, Protocol
 
 from urllib.parse import quote, unquote
 
+from . import scope
 from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
 
 # Permission categories, from least to most trust. Each capability needs exactly one.
@@ -90,6 +91,10 @@ class Capability:
     # bind(service, arguments) returns more arguments (a notebook's code cells and their hash) that
     # the approval shows and is bound to and the handler gets. A caller can never supply them.
     bind: Handler | None = None
+    # How a tool limited to some workspaces is kept inside them (scope.py): scope.NONE, ARGUMENT,
+    # FILTERED, UNKNOWN or a resolver (service, arguments, ctx) -> workspace ids or None. Left
+    # unset, a limited tool is refused it.
+    workspaces: Any = None
 
     @property
     def resource_params(self) -> list[str]:
@@ -111,9 +116,11 @@ class Capability:
 
 class Authorizer(Protocol):
     def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
-              bind: Callable[[], dict[str, Any]] | None = None) -> None:
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
         """Raise an IntegrationError to refuse the call; return to allow it. Once the call is
-        permitted, and before any approval, ``bind()``'s arguments are added to ``arguments``."""
+        permitted, and before any approval, ``bind()``'s arguments are added to ``arguments``.
+        ``workspaces()`` is the workspace ids the call reaches, or None if that can't be told."""
 
     def availability(self, capability: Capability, ctx: CallContext | None) -> tuple[str, str]:
         """(status, reason) for listing: whether this caller could use it now."""
@@ -126,7 +133,8 @@ class ReadOnlyAuthorizer:
     REASON = "Needs the permission and approval framework, which isn't switched on in this build."
 
     def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
-              bind: Callable[[], dict[str, Any]] | None = None) -> None:
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
         if not capability.read_only or capability.permission not in READ_PERMISSIONS:
             raise IntegrationError("unavailable", f"{capability.title} isn't available to external tools yet.",
                                    hint=self.REASON)
@@ -192,6 +200,7 @@ class Registry:
         _check_schema(cap.output_schema, "output_schema", cap.id)
         if cap.resource:
             _check_resource(cap)
+        scope.check_declaration(cap)
         with self._lock:
             if cap.resource:
                 clash = next((c for c in self._caps.values() if c.id != cap.id and _pattern(c.resource) is not None
@@ -335,7 +344,8 @@ class Registry:
         ctx.decision = ""
         args = validate(cap.input_schema, arguments)
         bind = (lambda: self._bind(service, cap, args)) if cap.bind else None
-        self.authorizer.check(cap, args, ctx, bind)  # may wait for the person's approval
+        workspaces = lambda: scope.targets(cap, service, args, ctx)  # noqa: E731 - read only for a limited tool
+        self.authorizer.check(cap, args, ctx, bind, workspaces=workspaces)  # may wait for the person's approval
         ctx.decision = ctx.decision or "allowed"
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout

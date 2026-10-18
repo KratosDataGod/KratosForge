@@ -220,6 +220,8 @@ class CallContext:
     progress: Callable[[float, float | None, str], None] | None = None
     seconds: float = 0.0  # how long the handler ran, set by Registry.invoke
     decision: str = ""  # "allowed" or "approved", set by the authorizer; for the audit line
+    # The workspaces the caller is limited to, set by the authorizer; None is no limit (scope.keep).
+    workspaces: frozenset[str] | None = None
 
     @property
     def deadline(self) -> float:

@@ -148,8 +148,11 @@ class SideBySideMixin:
         record: dict[str, Any] = {
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "local",
             "started_at": _now(), "finished_at": None, "message": "",
-            "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", "")},
-            "workspace_name": ws["workspace_name"], "machine": sbs.machine(),
+            # Workspace ids, so a tool limited to some workspaces can be shown the run (HD-014).
+            "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", ""),
+                          "workspace_id": lakehouse_ref.get("workspace_id", ""),
+                          "lakehouse_id": lakehouse_ref.get("lakehouse_id", "")},
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": sbs.machine(),
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
             "tables": [], "verdict": None, "speed": {}, "_cancel": False}

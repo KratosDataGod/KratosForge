@@ -11,7 +11,7 @@ import pytest
 from mcp import Client
 
 from fabric_desktop import server
-from fabric_desktop.integrations import policy
+from fabric_desktop.integrations import policy, scope
 from fabric_desktop.integrations.capabilities import register_core
 from fabric_desktop.integrations.core import CallContext, Caller, IntegrationError
 from fabric_desktop.integrations.mcp_server import build_server
@@ -51,7 +51,7 @@ def registry(store, wait=0.3):
     reg.register(Capability("ext_write", "Write OneLake", "Writes.", schema(), schema(extra=True), "WRITE_ONELAKE",
                             ran, read_only=False, approval="always", needs_service=False))
     reg.register(Capability("ext_ws", "Workspace thing", "Reads a workspace.", schema({"workspace_id": {"type": "string"}}),
-                            schema(extra=True), "READ_METADATA", ran, needs_service=False))
+                            schema(extra=True), "READ_METADATA", ran, needs_service=False, workspaces=scope.ARGUMENT))
     return reg
 
 
@@ -123,9 +123,13 @@ def test_policy_can_turn_integrations_off_and_bad_values_fail_closed(store, tmp_
 
 def test_workspace_scope(store):
     reg = registry(store)
-    client = enabled_client(store, workspaces=["ws-allowed"])
+    client = enabled_client(store, workspaces=["ws-allowed"], grants=["READ_METADATA", "READ_DATA"], auto=["READ_DATA"])
     assert code_of(reg, "ext_ws", client["id"], {"workspace_id": "ws-allowed"}) == "ok"
     assert code_of(reg, "ext_ws", client["id"], {"workspace_id": "ws-other"}) == "permission_denied"
+    # naming no workspace, it reaches none (HD-014; test_integrations_workspace_scope covers every capability)
+    assert code_of(reg, "ext_ws", client["id"]) == "ok"
+    # one that doesn't say which workspace it reaches is refused to a limited tool
+    assert code_of(reg, "ext_preview", client["id"], {"table": "t"}) == "permission_denied"
 
 
 def test_approval_waits_for_the_person_and_is_single_use(store):

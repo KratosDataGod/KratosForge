@@ -22,6 +22,7 @@ from typing import Any
 
 from .. import __version__
 from ..fabric_run import compute_check
+from . import scope
 from .core import CallContext, IntegrationError, redact_secrets
 
 MAX_PAGE = 500
@@ -55,12 +56,18 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}
 
 
+def _notebooks(svc: Any, ctx: CallContext) -> list[dict[str, Any]]:
+    """The saved notebooks a caller may see: for a tool limited to some workspaces, those whose
+    lakehouse and publish workspace are in them (or that have neither)."""
+    return scope.keep(ctx, svc.notebooks.list(), lambda n: scope.notebook_of(svc.notebooks.load(n["name"])))
+
+
 def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The work on this PC: the notebooks folder, and the metadata project if one is open."""
     projects = [{"id": "notebooks", "kind": "notebooks", "name": "Notebooks on this PC",
-                 "items": len(svc.notebooks.list())}]
+                 "items": len(_notebooks(svc, ctx))}]
     meta = svc.meta_project()
-    if meta.get("path"):
+    if meta.get("path") and scope.keep(ctx, [meta], scope.metadata_of):
         projects.append({"id": "metadata", "kind": "metadata", "name": (meta.get("project") or {}).get("name") or "Metadata project",
                          "path": meta["path"], "entities": len(meta.get("entities", [])),
                          "layers": [l.get("name") for l in meta.get("layers", [])], "errors": len(meta.get("errors", []))})
@@ -70,7 +77,7 @@ def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the project id
     if id == "notebooks":
         return {"id": "notebooks", "kind": "notebooks", "notebooks": [
-            {"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()]}
+            {"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)]}
     if id == "metadata":
         meta = svc.meta_project()
         if not meta.get("path"):
@@ -108,7 +115,7 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def list_workspaces(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
     rows = [{"id": w["id"], "name": w.get("displayName", ""), "type": w.get("type", "Workspace"),
              "capacity_id": w.get("capacityId")} for w in svc.list_workspaces()]
-    return page(rows, offset, limit)
+    return page(scope.keep(ctx, rows, lambda w: {w["id"]}), offset, limit)
 
 
 def list_artifacts(svc: Any, ctx: CallContext, workspace_id: str, type: str = "", offset: int = 0,  # noqa: A002
@@ -147,7 +154,7 @@ def get_table_schema(svc: Any, ctx: CallContext, workspace_id: str, lakehouse_id
 # ---- notebooks on this PC
 
 def list_notebooks(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    return page([{"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()], offset, limit)
+    return page([{"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)], offset, limit)
 
 
 def get_notebook(svc: Any, ctx: CallContext, name: str, include_source: bool = True) -> dict[str, Any]:
@@ -266,7 +273,7 @@ def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
 
 
 def list_proofs(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.prove_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.prove_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -275,7 +282,8 @@ def get_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A
 
 
 def list_receipts(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(svc.receipts_list(name or None, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, svc.receipts_list(name or None, limit=ALL), lambda r: scope.receipt_of(svc, r["id"]))
+    return page(rows, offset, limit)
 
 
 def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the receipt id
@@ -284,7 +292,7 @@ def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
 
 
 def list_side_by_side(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.side_by_side_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.side_by_side_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -388,7 +396,8 @@ def get_execution_logs(svc: Any, ctx: CallContext, execution_id: str, offset: in
 
 
 def list_executions(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(_executions(svc).list(ctx.caller.client_id, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, _executions(svc).list(ctx.caller.client_id, limit=ALL), scope.execution_of)
+    return page(rows, offset, limit)
 
 
 def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str, Any]:

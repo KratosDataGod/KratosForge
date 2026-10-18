@@ -282,7 +282,7 @@ function editTool(status, c, refresh) {
   };
   showDialog(`Edit ${c.name}`, h("div", { class: "setup integ-scroll" },
     h("label", { class: "field" }, "Name", name), perms.node,
-    h("label", { class: "field" }, "Only these workspace ids (comma separated). A tool limited to some workspaces can't run code.", workspaces),
+    h("label", { class: "field" }, "Only these workspace ids (comma separated). A tool limited to some workspaces can't run code, and sees only notebooks, proofs and receipts in them.", workspaces),
     c.kind !== "http" && c.config[c.kind] ? h("div", {}, h("div", { class: "muted-text small" }, c.config[c.kind].where),
       h("button", { class: "snippet", onclick: () => copyText(c.config[c.kind].text, "Setup") }, h("span", { class: "t" }, "Copy setup"), h("code", {}, c.config[c.kind].text))) : null),
   [c.transport === "http" ? btn("New token", null, newToken, "tool outline") : null, h("span", { class: "spacer" }),

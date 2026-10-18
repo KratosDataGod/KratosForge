@@ -52,6 +52,10 @@ EXTERNAL_ENV_ALLOW = (
     "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there
     "HOME",          # the same on Linux and macOS
     "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
+    # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
+    # reads fail. A proxy address can carry the proxy's own password; that is the network's, not Fabric's.
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
 )
 EXTERNAL_ENV_PREFIXES = ("LC_",)
 # Set by the engine itself, never copied from its environment.

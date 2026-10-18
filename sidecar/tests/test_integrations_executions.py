@@ -179,10 +179,10 @@ def test_the_external_environment_is_the_allowlist_and_nothing_else():
     parent = {"PATH": "/bin", "Path": "/x", "SystemRoot": r"C:\Windows", "TEMP": "/t", "LC_TIME": "C", "LANG": "C.UTF-8",
               "HOME": "/h", "USERPROFILE": "/u", "AGENT_SP_SECRET": "s", "AZURE_CLIENT_SECRET": "s",
               "FABRIC_DESKTOP_CLIENT_ID": "c", "PYTHONPATH": "/elsewhere", "PYTHONSTARTUP": "/evil.py",
-              "HTTPS_PROXY": "http://user:pw@proxy", "LOCALAPPDATA": "/l", "APPDATA": "/a", "USERNAME": "me"}
+              "https_proxy": "http://proxy:8080", "SSL_CERT_FILE": "/ca.pem", "LOCALAPPDATA": "/l", "APPDATA": "/a", "USERNAME": "me"}
     env = external_environment(parent)
     assert set(env) == {"PATH", "Path", "SystemRoot", "TEMP", "LC_TIME", "LANG", "HOME", "USERPROFILE",
-                        "PYTHONPATH", "PYTHONUNBUFFERED"}
+                        "https_proxy", "SSL_CERT_FILE", "PYTHONPATH", "PYTHONUNBUFFERED"}
     assert env["PYTHONPATH"] != "/elsewhere" and Path(env["PYTHONPATH"], "fabric_desktop", "kernel_host.py").exists()
 
 

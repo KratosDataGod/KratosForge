@@ -24,7 +24,7 @@ What code an external tool runs can do is limited on purpose:
   wasn't shown to the person. The app's own kernels still run them.
 - Output is capped, images and HTML are left out, and every string has secrets removed.
 - The kernel's environment has only the variables Python needs to start (kernel_proc.EXTERNAL_ENV_ALLOW:
-  PATH, the Windows system folders, temp, home, locale), so a secret in an environment variable
+  PATH, the Windows system folders, temp, home, locale, proxy and certificate settings), so a secret in an environment variable
   isn't visible to the code. It isn't a sandbox: the code runs as the person and can read their
   files, including the token cache, until that cache is encrypted (HD-013).
 

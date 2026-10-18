@@ -15,7 +15,7 @@ Everything here runs against the platform you already have: `SQL_Platform` throu
 | **Category** | Naming standards, Schema standards, Data quality requirements, Classification requirements, Ownership and stewardship, Data contract requirements, Deployment readiness. |
 | **Owner** | The person or team who answers for the policy. |
 | **Severity** | Low, Medium, High or Critical. |
-| **Enforcement** | Advisory (shown only), Warn (shown as a warning) or Block (stops the step it guards, once checks are built in GOV-002 and GOV-003). |
+| **Enforcement** | Advisory (shown only), Warn (shown as a warning) or Block. Block is not enforced yet: the app shows it as **Block (not enforced yet)** until checks arrive in GOV-002 and GOV-003, and until then it stops nothing. |
 | **Mandatory** | When on, nothing below where the policy is assigned can make it weaker. |
 | **Can be assigned at** | Which of enterprise, domain, project and entity it may be assigned to. |
 | **Applies to** | Optional: only some layers or environments. |

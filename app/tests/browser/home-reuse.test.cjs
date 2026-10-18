@@ -48,3 +48,13 @@ test("leaving Home before it finished loading reads it again next time", { skip 
   await homeLoaded();
   assert.ok(app.calls.slice(before).some((c) => c.method === "list_notebooks"));
 });
+
+test("opening another project draws Home again", { skip }, async () => {
+  await page().evaluate(() => { go("create"); go("home"); });
+  await homeLoaded();
+  await page().evaluate(() => { state.meta.project = { ...(state.meta.project || {}), path: "C:/work/other" }; });
+  const before = app.calls.length;
+  await page().evaluate(() => { go("create"); go("home"); });
+  await homeLoaded();
+  assert.ok(app.calls.slice(before).some((c) => c.method === "list_notebooks"));
+});

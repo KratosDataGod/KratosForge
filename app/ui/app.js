@@ -394,7 +394,7 @@ function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
 const HOME_REUSE_MS = 5 * 60 * 1000;
 const homeCache = { page: null, key: "", at: 0, stamp: null, done: false };
 function homeKey() {
-  return JSON.stringify([state.user, state.query, previewShown(), activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
+  return JSON.stringify([state.user, state.query, previewShown(), state.meta?.project?.path, activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
 }
 function homeUpdatedText() {
   const min = Math.floor((Date.now() - homeCache.at) / 60000);

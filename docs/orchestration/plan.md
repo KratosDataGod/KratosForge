@@ -16,7 +16,7 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 | ID | Feature | Status | PR | Depends on |
 | --- | --- | --- | --- | --- |
 | ORCH-001 | Pipeline definition engine: import, validate, inspect, export | Merged | #130 | none |
-| ORCH-002 | Activity compatibility registry | In review | see [continuation](continuation.md) | ORCH-001 |
+| ORCH-002 | Activity compatibility registry | In review | #150 | ORCH-001 |
 | ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Planned, waits for ORCH-002 approval | | ORCH-001, ORCH-002 |
 | ORCH-004 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 

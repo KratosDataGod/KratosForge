@@ -33,6 +33,7 @@ from .local_schedules import next_run
 from .logs import fields
 from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
+from .meta.engine import Abandoned
 from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
@@ -70,7 +71,8 @@ class Agent:
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
-                                   p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim)
+                                   p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim,
+                                   take_over=p.take_over, max_attempts=config.max_attempts)
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""
@@ -232,9 +234,17 @@ class Agent:
         beat = threading.Thread(target=self._heartbeat, args=(job, done), daemon=True)
         beat.start()
         t0 = time.monotonic()
+        extra: dict[str, Any] = {}
+        if self.mailbox and str(job.get("source") or "").startswith("pipeline:"):
+            extra["guard"] = lambda: self._still_ours(job)
         try:
             results = self.runtime.run_environment(p["env"], p.get("entities") or None, p.get("backfill") or None,
-                                                   bool(p.get("cascade")), job=job)
+                                                   bool(p.get("cascade")), job=job, **extra)
+        except Abandoned as exc:
+            self.queue.cancel(job["id"], str(exc), owner=owner)
+            self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
+            self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
+            return
         except Exception as exc:
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
@@ -276,6 +286,12 @@ class Agent:
             self.queue.fail(job["id"], owner, error, summary)
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
+
+    def _still_ours(self, job: dict[str, Any]) -> None:
+        """Before each table: stop if another agent took this job's pipeline request over."""
+        other = self.mailbox.taken_over(job) if self.mailbox else ""
+        if other:
+            raise Abandoned(f"agent {other} took this request over")
 
     def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
@@ -341,6 +357,10 @@ class Agent:
             if self.mailbox.cancel_requested(job):
                 self.queue.cancel(job["id"], "the pipeline cancelled it", owner=self.config.name)
                 self.mailbox.job_changed(self.queue.get(job["id"]) or job)
+                return
+            other = self.mailbox.taken_over(job)
+            if other:  # it was taken over while this agent was away: not this agent's to run
+                self.queue.cancel(job["id"], f"agent {other} took this request over", owner=self.config.name)
                 return
             self.mailbox.job_changed(job)
         try:

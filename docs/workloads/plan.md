@@ -491,3 +491,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | The roadmap thread agreed four status-record fields: `owner`, `identity`, and each schedule's `entities` (empty = every table) and `when`. Stage 5B builds "Scheduled in two places" on them (item 36). |
 | 2026-10-17 | Stage 5C: Monitor > Queue (item 34), mockup board 9. Read only, no new Fabric calls; agent queued jobs are counts, as the status record has them. |
 | 2026-10-17 | FD-124 designed ([multi-worker.md](multi-worker.md)) and agreed with the roadmap thread. Part 1 built off by default: shared schedules through the mailbox, `claim = "when_free"`. |
+| 2026-10-18 | Chris chose to build FD-124 before a tenant test. Part 2 built off by default: `take_over = true` moves a request from an agent past `stale_after` to another, at most `max_attempts` agents. |

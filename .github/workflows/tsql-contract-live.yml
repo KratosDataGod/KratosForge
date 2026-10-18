@@ -48,7 +48,7 @@ jobs:
           if [ -z "$FABRIC_DESKTOP_TSQL_WORKSPACE_ID" ] || [ -z "$FABRIC_DESKTOP_TSQL_ITEM" ] || \
              [ -z "$FABRIC_DESKTOP_TSQL_TARGET" ] || [ -z "$FABRIC_DESKTOP_TSQL_TENANT_ID" ] || \
              [ -z "$FABRIC_DESKTOP_TSQL_CLIENT_ID" ] || [ "$HAS_SECRET" != "true" ]; then
-            echo "::notice::No test workspace configured, so nothing was run. Set the FABRIC_TSQL_* repository variables and the FABRIC_TSQL_CLIENT_SECRET secret (docs/live-testing.md)."
+            echo "::notice::No test workspace configured, so nothing was run. Set the FABRIC_TSQL_* repository variables and the FABRIC_TSQL_CLIENT_SECRET environment secret (docs/live-testing.md)."
             echo "configured=false" >> "$GITHUB_OUTPUT"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"

@@ -747,7 +747,7 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"),
+  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
@@ -856,11 +856,19 @@ function openInFabric(page) {
   }
 }
 
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+function workspacesTabs(active) {
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label)));
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
-  setView(h("div", { class: "page monitor fabric-page" },
+  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"),
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
@@ -2452,7 +2460,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
 });
 registerFeature({
@@ -2466,13 +2474,17 @@ registerFeature({
     { label: "OneLake access", icon: "shield", keywords: "permissions roles security", preview: true, run: () => { catalogPage.tab = "access"; go("onelake"); } },
   ],
 });
-registerFeature({ id: "fabric", rail: { label: "Fabric", icon: "cloud", order: 60 }, views: { fabric: renderFabric } });
+// Fabric's own portal is a tab of Workspaces; its rail slot went to Optimize (optimize.js).
+registerFeature({
+  id: "fabric", views: { fabric: renderFabric },
+  commands: [{ label: "Fabric portal", icon: "cloud", keywords: "fabric web browser app.fabric.microsoft.com", run: () => go("fabric") }],
+});
 registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
     { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
-    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { monitorPage.panel = "cost"; go("monitor"); } },
+    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });
 

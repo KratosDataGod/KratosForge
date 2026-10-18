@@ -872,6 +872,41 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
+// PR-OPT-001b: Optimize takes the Fabric page's rail slot; Fabric's portal is a Workspaces tab.
+test("Optimize is a rail page in Fabric's old slot, and the rail stays within its limit", () => {
+  const sources = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
+  const rails = [...sources.matchAll(/rail: \{ label: "([^"]+)"[^}]*\}/g)].filter((m) => !/bottom: true/.test(m[0])).map((m) => m[1]);
+  assert.ok(rails.includes("Optimize"), rails.join(", "));
+  assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
+  assert.ok(rails.length <= 8, rails.join(", "));
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
+  const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(opt, /id: "optimize", preview: true/);
+  // Cost and savings is the Cost panel without Fabric's Monitoring hub underneath.
+  assert.match(opt, /costPanel\(\)/);
+  assert.ok(!/dockFabricView|fabric_view_show/.test(opt));
+});
+
+test("Optimize offers only the recommendation moves the engine allows", () => {
+  const src = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const REC_MOVES = \{[\s\S]*?\n\};\n/)[0]}; this.REC_MOVES = REC_MOVES;`, ctx);
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "optimize", "shared.py"), "utf8");
+  const block = py.match(/TRANSITIONS[^=]*= \{([\s\S]*?)\n\}/)[1];
+  const allowed = {};
+  for (const [, from, to] of block.matchAll(/\n\s+(\w+): (\{[^}]*\}|set\(\)),/g)) {
+    allowed[from.toLowerCase()] = to === "set()" ? [] : to.slice(1, -1).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  }
+  for (const [from, moves] of Object.entries(ctx.REC_MOVES)) {
+    for (const [to] of moves) assert.ok((allowed[from] || []).includes(to), `${from} -> ${to}`);
+  }
+  // Disconnecting and a new installation id both ask first.
+  assert.match(src, /confirmDialog\(`Disconnect/);
+  assert.match(src, /confirmDialog\("Use a new installation ID\?"/);
+});
+
 // The Schedule dialog opens on Fabric when the current environment runs on Fabric (it once read
 // state.env, which is never set, so it always opened on This PC).
 test("Schedule follows the current environment's Runs on", () => {

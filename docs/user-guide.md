@@ -130,7 +130,7 @@ New items:
 
 ## Workspaces
 
-Every Fabric workspace you can open.
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -259,9 +259,20 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 ## Fabric
 
-The Fabric page is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
+**Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+
+The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
+
+## Optimize (Preview)
+
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+
+- **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
+- **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
+- **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
+- **Cost and savings:** the capacity each run used in Fabric and, for runs on this PC, what they would have used in Fabric (a scenario), each figure with its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. **Prices** sets your price per CU hour. It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor).
 
 ## Monitor
 
@@ -374,6 +385,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library and quarantine Replay are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |

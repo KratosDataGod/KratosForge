@@ -1308,3 +1308,8 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .release-row { grid-template-columns: 1fr; gap: 0; }
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* Optimize (optimize.js) */
+.optimize-band { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; font-size: 13px; }
+.card.pad.optimize-setup { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.optimize-body .cmp-stats { margin-bottom: 16px; }

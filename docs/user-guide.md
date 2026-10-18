@@ -240,7 +240,7 @@ The Platform page (Preview) is the central data team's home, and where every oth
 | Tab | What's there |
 | --- | --- |
 | **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
-| **Landing zone** | Every source in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source** |
+| **Landing zone** | The one list of source systems for every project, each with its id, and what landed in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source**. Projects pick theirs on Data mesh > Source systems ([One list of source systems](platform.md#one-list-of-source-systems-preview)) |
 | **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
 | **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |

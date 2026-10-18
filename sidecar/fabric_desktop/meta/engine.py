@@ -420,7 +420,7 @@ class Engine:
                 if where != LANDING_LAKEHOUSE:
                     raise
                 raise CheckStop(f"there's no landing zone for {self.store.env} yet: create or join the platform in "
-                                f"Settings > Platform ({exc})") from exc
+                                f"Platform > Settings ({exc})") from exc
             if not listed:
                 raise CheckStop(f"no files match {pattern} in {where}/Files")
             todo, detail = listed, f"{plural(len(listed), 'file')}"

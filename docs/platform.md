@@ -108,6 +108,14 @@ landing = "erp/customers/*.csv"
 
 In Test and Prod that reads `LH_Landing` in the environment's Platform workspace. In Dev on a PC it reads `%LOCALAPPDATA%\FabricDesktop\platform\landing-dev\Files`, one folder shared by every project on that PC. Give teams **Viewer** on the Platform workspace, or a OneLake data access role on the landing folders they may read; only the central team gets Contributor or above, so only it can write. When a project joins the mesh, the catalog records which sources it reads, so the Landing zone tab shows each source's readers and a source still read can't be removed.
 
+## One list of source systems (Preview)
+
+The source systems on **Platform > Landing zone** are the one list for every project. Each has an **id** (a whole number that never changes, used by business keys and loaded rows), a **code** (its folder name in any case, like `SAP` for `Files/sap/`), a name, owner and system type. A project doesn't define its own sources: on **Data mesh > Design > Source systems** it chooses **Add a source this project reads**, picks one from the platform's list, and gives only its own connection in Dev, Test and Prod. The name, id, owner and type stay read only there, with **Edit in Platform**.
+
+**Projects made before this keep their sources.** They show under "Only in this project" and work as before. **Move sources to the platform** copies them into the platform's list with the **same ids**, like Move keys; their connections stay in the project. Only platform admins move sources. A code or id the platform already uses for another source is reported and left alone, because rows already loaded keep the project's id: nothing is renumbered. The tab lists any source whose id differs from the platform's, so a platform admin can decide which stays.
+
+A platform made before this update gets ids for its sources the first time it's read: in name order, after the highest id it has. In Fabric, a platform admin runs **Platform > Settings > Finish or repair** once after updating, so `UDF_Platform` has the new functions (the `catalog.source` table gains the columns `source_id`, `code`, `system_type` and `active`; schema version 5).
+
 ## One business key system
 
 Once an environment's platform is in Fabric, every project's surrogate keys in that environment come from `SQL_Platform`. A new project never gets an `LH_Keys` of its own, so Customer ABC has one key across every team. Keys are still kept apart per environment: Dev keys never mix with Prod keys.

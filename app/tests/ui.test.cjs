@@ -699,3 +699,17 @@ test("domains, the glossary and platform setup are edited only on the Platform p
   assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
   assert.match(settings, /goPlatform\("settings"\)/);
 });
+
+// UX-009: a project's source systems come from the platform's one list when Preview is on.
+test("a project reads source systems from the platform's list and can move its own there", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const tab = meta.match(/async function renderSourcesTab\([\s\S]*?\n}\n/)[0];
+  assert.match(tab, /meta_keys", \{ env: m\.env, platform: previewShown\(\) \}/);
+  assert.match(tab, /"Add a source this project reads"/);
+  assert.match(tab, /"Move sources to the platform"/);
+  assert.match(tab, /"New source system"/, "without the platform the project keeps its own list");
+  assert.match(meta, /metaCall\("meta_source_read"/);
+  assert.match(meta, /metaCall\("meta_sources_move"/);
+  const server = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "server.py"), "utf8");
+  for (const m of ["meta_source_read", "meta_sources_move"]) assert.ok(server.includes(`"${m}"`), `${m} isn't allowed by the engine`);
+});

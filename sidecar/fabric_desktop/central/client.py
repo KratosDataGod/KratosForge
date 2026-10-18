@@ -87,7 +87,7 @@ class FabricPlatform:
             raise PermissionError("The platform refused this call. Ask your platform team for at least Viewer "
                                   "on the Platform workspace and Execute on UDF_Platform.")
         if resp.status_code == 404:
-            raise LookupError("UDF_Platform wasn't found. Open Settings > Platform and check the platform's workspace.")
+            raise LookupError("UDF_Platform wasn't found. Open Platform > Settings and check the platform's workspace.")
         body = resp.json() if resp.content else {}
         if resp.status_code >= 400 or body.get("status") == "Failed" or body.get("errors"):
             errors = body.get("errors") or [{"message": resp.text[:300]}]

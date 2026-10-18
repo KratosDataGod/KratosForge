@@ -48,6 +48,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run and no capacity used (Preview) |
+| [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or need Fabric capacity, per activity and property (Preview) |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |

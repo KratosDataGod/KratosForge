@@ -154,6 +154,9 @@ def register_core(reg: Registry) -> None:
 PIPELINE_LIMIT = ("Reads only the definition you pass; it doesn't fetch pipelines from Fabric.",
                   "Expressions are read, never evaluated; nothing in the pipeline runs.",
                   "Definitions up to 1 MB (the local API's request limit); the desktop app reads larger ones.")
+COMPAT_LIMIT = ("No activity runs on this PC yet: local execution arrives with ORCH-003. 'planned' is a proposal, "
+                "not support.",
+                "No entry has been compared against Fabric yet; Fabric-only type names are marked unverified.")
 DEFINITION = {"type": "string", "minLength": 2, "maxLength": 1_000_000,
               "description": "pipeline-content.json, or a getDefinition result with base64 parts, as text."}
 DIAGNOSTICS = {"ok": {"type": "boolean"}, "diagnostics": {"type": "array"}, "counts": {"type": "object"},
@@ -193,6 +196,28 @@ def _pipelines() -> list[Capability]:
                     "diagnostics": {"type": "array"}}, ["ok"], extra=True),
             "READ_METADATA", services.export_pipeline, artifact_types=("DataPipeline",), status="preview",
             limitations=PIPELINE_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_check_pipeline_compatibility", "Check what can run on this PC",
+            "For every activity in a Fabric pipeline definition (nested ones included): whether Fabric Desktop by "
+            "KratosBI can run it here, simulate it, only check it, or must leave it to Fabric; what is planned and in "
+            "which stage; the properties it can't use; the sign-in it needs; its side effects; and whether it needs "
+            "paid Fabric capacity. Unknown activity types are kept and reported as unsupported.",
+            schema({"definition": DEFINITION}, ["definition"]),
+            schema(DIAGNOSTICS | {"registry_version": STR, "summary": {"type": "object"},
+                                  "activities": {"type": "array"}}, ["ok", "diagnostics"], extra=True),
+            "READ_METADATA", services.check_pipeline_compatibility, artifact_types=("DataPipeline",),
+            status="preview", limitations=PIPELINE_LIMIT + COMPAT_LIMIT, timeout=60),
+        Capability(
+            "fabric_desktop_get_activity_registry", "List pipeline activity support",
+            "The versioned registry of Fabric pipeline activity types: each type's classification, evidence, "
+            "planned support, property-level support, sign-in, side effects, external dependencies and Fabric "
+            "capacity need. Pass an activity type for one entry.",
+            schema({"activity_type": {"type": "string", "maxLength": 200, "default": "",
+                                      "description": "One activity type, such as Copy; empty for all."}}, []),
+            schema({"registry_version": STR, "activities": {"type": "array"}, "activity": {"type": "object"}},
+                   ["registry_version"], extra=True),
+            "READ_METADATA", services.get_activity_registry, artifact_types=("DataPipeline",), status="preview",
+            limitations=COMPAT_LIMIT, timeout=30),
     ]
 
 

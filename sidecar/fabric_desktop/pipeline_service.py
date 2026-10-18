@@ -1,4 +1,5 @@
-"""Fabric pipeline definitions (ORCH-001): import, validate, inspect and export, on this PC only.
+"""Fabric pipeline definitions on this PC only: import, validate, inspect and export (ORCH-001), and
+what this version can do with each activity (ORCH-002).
 
 Each call takes the definition as ``text`` (pipeline-content.json or an item definition with
 parts) or a ``path`` (one of those files, or a Fabric Git ``<name>.DataPipeline`` folder). Nothing
@@ -10,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from .orchestration import definition, expressions
+from .orchestration.activities import default_registry
 from .orchestration.definition import Activity, DefinitionError, ImportedPipeline
 from .orchestration.validate import own_json, summary, validate
 
@@ -104,3 +106,24 @@ class PipelineMixin:
             return failed(exc)
         key = "files" if isinstance(out, dict) else "text"
         return {"ok": True, "format": format or imp.source_format, key: out}
+
+    def pipeline_compatibility(self, text: str | None = None, path: str | None = None) -> dict[str, Any]:
+        """For every activity (nested ones included): its classification (local, simulated, static,
+        cloud, unsupported), what is planned, the properties this version can't use, the sign-in it
+        needs, its side effects and whether it needs Fabric capacity, plus a pipeline summary.
+        Reads the definition only: nothing runs and no Fabric call is made."""
+        try:
+            imp = read(text, path)
+        except DefinitionError as exc:
+            return failed(exc) | {"registry_version": default_registry().version}
+        report = default_registry().compatibility(imp)
+        return {"ok": report["counts"]["error"] == 0} | report
+
+    def pipeline_activity_registry(self, activity_type: str | None = None) -> dict[str, Any]:
+        """The activity registry: every known activity type and what this version does with it, or
+        one type's entry (an unknown type gets the entry for unknown types)."""
+        reg = default_registry()
+        if activity_type:
+            return {"registry_version": reg.version, "known": reg.known(activity_type),
+                    "activity": reg.get(activity_type).to_json()}
+        return reg.describe()

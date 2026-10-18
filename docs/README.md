@@ -19,6 +19,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md), [Data mesh](data-mesh.md) and [Governance policies](governance.md) |
 | Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Check a Fabric pipeline definition on my PC | [Pipeline definitions](orchestration/pipeline-definitions.md) |
+| See which pipeline activities need Fabric capacity | [Pipeline activity compatibility](orchestration/activity-registry.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
 | Prove the app works with my tenant before a pilot | [Live testing](live-testing.md) |
 | Suggest a feature or vote on one | [Submitting ideas](ideas.md) |
@@ -50,6 +51,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
 | [orchestration/pipeline-definitions.md](orchestration/pipeline-definitions.md) | Engineers | Reading, checking and converting Fabric pipeline definitions on your PC (Preview) |
+| [orchestration/activity-registry.md](orchestration/activity-registry.md) | Engineers | Which pipeline activities run on your PC, are only checked, or need Fabric capacity (Preview) |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [live-testing.md](live-testing.md) | Admins, maintainers | The live test: checking sign-in, the Fabric API, OneLake and Delta against a workspace set aside for tests, with cleanup and a report |
@@ -122,7 +124,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 
 **Source control** (Preview) is Git on your PC and doesn't call Fabric. Its tests run real Git against local repositories on every build; it hasn't yet been tried with Git Credential Manager and SSH on many PCs and servers ([source-control.md](source-control.md)).
 
-**Pipeline definitions** (Preview) are read and checked on your PC and don't call Fabric. Their tests use hand-built definitions in Microsoft's documented formats; reading real exports from a tenant hasn't been tried yet ([pipeline-definitions.md](orchestration/pipeline-definitions.md)).
+**Pipeline definitions** (Preview) are read and checked on your PC and don't call Fabric. Their tests use hand-built definitions in Microsoft's documented formats; reading real exports from a tenant hasn't been tried yet ([pipeline-definitions.md](orchestration/pipeline-definitions.md)). The **activity compatibility registry** (Preview) is tested the same way; no activity runs on your PC yet and no entry has been compared against Fabric ([activity-registry.md](orchestration/activity-registry.md)).
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

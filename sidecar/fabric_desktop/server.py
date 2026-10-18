@@ -76,6 +76,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
+           "pipeline_compatibility", "pipeline_activity_registry",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 

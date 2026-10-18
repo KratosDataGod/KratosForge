@@ -2,26 +2,29 @@
 
 The working state of the [orchestration plan](plan.md). Whoever picks this up next starts here. Updated with every PR.
 
-Last updated: 2026-10-17.
+Last updated: 2026-10-18.
 
 ## Branches and PRs
 
 | Feature | Branch | PR | State |
 | --- | --- | --- | --- |
-| ORCH-001 Pipeline definition engine | `claude/orch-001-pipeline-definitions-b6ql2h` | see GitHub | Open for review |
+| ORCH-001 Pipeline definition engine | `claude/orch-001-pipeline-definitions-b6ql2h` | #130 | Merged 2026-10-17 |
+| ORCH-002 Activity compatibility registry | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | see GitHub | Open for review |
 
-ORCH-002 and ORCH-003 start only after Chris reviews and authorizes the PR before them. Chris merges PRs himself.
+Chris authorized ORCH-002 on 2026-10-18. ORCH-003 starts only after he reviews and authorizes ORCH-002. Chris merges PRs himself.
 
 ## Where things are
 
-- Code: `sidecar/fabric_desktop/orchestration/`, `sidecar/fabric_desktop/pipeline_service.py`.
-- Tests and fixtures: `sidecar/tests/test_pipeline_definitions.py`, `sidecar/tests/pipelines/`.
+- Code: `sidecar/fabric_desktop/orchestration/` (ORCH-002: `registry.py`, `activities.py`), `sidecar/fabric_desktop/pipeline_service.py`.
+- Tests and fixtures: `sidecar/tests/test_pipeline_definitions.py`, `sidecar/tests/test_activity_registry.py`, `sidecar/tests/pipelines/`.
+- Example compatibility report: `docs/orchestration/examples/orders-daily-compatibility.json` (a test keeps it current).
 - External tools: the `_pipelines()` group in `sidecar/fabric_desktop/integrations/capabilities.py`.
 
 ## Decisions and assumptions
 
 - 2026-10-17, Chris approved the ORCH-001 plan ("go") with these defaults: files and pasted JSON only, no `getDefinition` calls to the tenant; hand-built fixtures until he exports real ones from his non-prod workspace (secrets removed); no UI in ORCH-001, and any pipeline screen gets a mockup first.
 - The import is not stored anywhere in ORCH-001. ORCH-003 decides where imported pipelines and their runs live.
+- ORCH-002: nothing is `local` or `simulated` until an adapter that executes has tests; Fabric-only type names are unverified until a tenant export confirms them; changing an entry needs a `REGISTRY_VERSION` bump, a changelog line in `activity-registry.md` and the new fingerprint in the test.
 - Diagnostics have `code`, `severity` (error, warning, info), `message`, `path` (JSON path), `activity` and `hint`. Codes are stable: tools and later stages may match on them.
 
 ## Overlaps with other programs
@@ -35,5 +38,5 @@ ORCH-002 and ORCH-003 start only after Chris reviews and authorizes the PR befor
 
 ## Open questions for Chris
 
-- Real pipeline exports for fixtures (two or three, secrets removed).
+- Real pipeline exports for fixtures (two or three, secrets removed). They would also confirm the Fabric-only activity type names.
 - Whether ORCH-001 may later read a pipeline straight from a workspace with `getDefinition` (a read; no capacity use).

@@ -7,25 +7,24 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | Field | Value |
 | --- | --- |
 | Last updated | 2026-10-17 |
-| Base | `main` at `f16ba6a` |
-| Stage | Stages 0, 1, 2.1/2.2 and 2.3A (#79) merged. Stage 2.3B (incident screens, #125) ready for review; 2.3C (the app's freshness alerts as incidents) open after it. |
+| Base | `main` at `9715e28` |
+| Stage | Stages 0, 1, 2 (2.1 to 2.3C) and 5A merged. #125 (2.3B), #127 (2.3C) and #133 (5A) merged on 2026-10-17. Next: the rest of stage 5. |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-incident-screens-4su03b` | #125 (2.3B) | Monitor > Incidents, incident page, workload page card, agent incident settings in status records | Ready for review |
-| `claude/workload-freshness-incidents-4su03b` | 2.3C | The app checks incidents every 10 minutes for environments no running agent checks; bell and Teams alerts come from incidents | Open, merge after #125 |
-| `claude/workload-agents-4su03b` | 5A | Monitor > Agents and the agent page (FD-122), stacked on 2.3C | Draft, waiting on Chris's reaction to boards 7 and 8 |
+| `claude/workload-management-plan-4su03b` | this PR | Status update after #125, #127 and #133 merged | Docs only |
 
 ## Completed backlog items
 
-44 (agent evaluates on a timer; the app evaluates on request), 45 (lifecycle in engine and screens; mitigation is a note). In part: 38 (agent-offline incident; version and capability views in stage 5), 43 (objectives: success rate; completion time is the freshness `by`), 47 (dedup, digest, delayed delivery, routes, quiet hours, escalation; routes are per agent, not shared).
+38 (agent-offline incident, Monitor > Agents with version and state), 44 (agent evaluates on a timer; the app checks environments no running agent checks), 45 (lifecycle in engine and screens; mitigation is a note). In part: 31 and 37 (agent page shows what each agent runs and its last jobs; no owner yet), 43 (objectives: success rate; completion time is the freshness `by`), 47 (dedup, digest, delayed delivery, routes, quiet hours, escalation; routes are per agent, not shared).
 
 ## Work in progress
 
-- 2.3B (#125) ready for review; merge main into it once #122 lands. 2.3C built on top of it: `incidents_watch` checks each environment in one of three modes (agent: a live agent with incidents on checks it, the app only reads; app: the app evaluates and posts to Teams; unreadable). With Preview features hidden the old per-table freshness alerts stay as they were.
-- 5A (FD-122) built as a draft: `agents_list` RPC over `workloads/agents.py` `fleet`, `app/ui/agents.js`. Read-only. Next in stage 5: overlap warning (board 7's "Scheduled in two places", item 36; needs agent schedules to name their entities), the queue view across locations (item 34), then FD-124 multi-worker.
+- Next action: stage 5 overlap warning (board 7's "Scheduled in two places", item 36). Agent schedules don't name their entities, so ask the roadmap thread (owner of `agent_status.py` and the status records) before adding a field. Then the queue view across locations (item 34), then FD-124 multi-worker.
+- Agent owner and identity type are not in the status records either; same question to the roadmap thread.
+- Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.

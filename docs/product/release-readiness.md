@@ -2,11 +2,11 @@
 
 What must be true before Fabric Desktop by KratosBI goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
-Last updated 2026-10-17. "Open PR" means built and tested in CI but not merged yet.
+Last updated 2026-10-17. The gates below were written while their PRs were open; all of #80, #82, #84, #86, #88 to #95 have since merged. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
 ## Verdict today
 
-**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). Every other gate has its work in an open PR.
+**Not ready for an enterprise pilot.** Two gates need Chris: a run of the live test harness on a non-production workspace (G1) and a code signing account (G2). The other gates' work has merged, but the [hardening audit](../hardening/findings.md) found defects in restore, policy loading, log redaction and OneLake writes that must be fixed first (HD-001 to HD-010).
 
 ## Pilot gates
 
@@ -44,7 +44,7 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | --- | --- |
 | Sign-in | Microsoft's Fabric CLI public client with Windows' account broker; no app registration and no secrets in the app. Tokens stay in the user's MSAL cache. An organization can limit sign-in to its own tenants (`allowed_tenants`) |
 | Access | Every call uses the person's own token, so the app can do no more than their Fabric roles allow. Scopes are listed in `docs/permissions.md` |
-| UI to engine | The engine is a child process on stdio with a fixed method allowlist. It runs no server; only a browser sign-in with an own app registration briefly listens on `localhost` for Microsoft's redirect |
+| UI to engine | The engine is a child process on stdio with a fixed method allowlist. It listens on no port by default. A browser sign-in with an own app registration briefly listens on `localhost` for Microsoft's redirect. If someone switches on **Settings > Integrations > Local HTTP**, a separate process serves MCP and the REST API on `127.0.0.1:47615` only, with a bearer token per client, `Host` and `Origin` checks, rate limits and an audit line per call ([AI integration](../architecture/ai-integration.md)) |
 | Updates | The exe and engine come from the repository's GitHub releases. Their SHA-256 must match `version.json` and the engine's build must match the release. IT can turn self-updates off |
 | Build | Actions pinned by SHA, dependency scanning, SBOMs and build provenance attestations (PR #88). Not code signed yet (G2) |
 | Data leaving the PC | Usage data only if a person turns it on, or their organization does: daily counts of actions, failures and timings, with no data, names, account or tenant ([telemetry.md](../telemetry.md)). Policy can turn it off for everyone. Error messages and logs have secrets removed; problem reports and support bundles also remove personal details |

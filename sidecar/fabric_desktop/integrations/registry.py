@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterable, Protocol
 
 from urllib.parse import quote, unquote
 
-from .core import CallContext, IntegrationError, redact_result, run_call, validate
+from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
 
 # Permission categories, from least to most trust. Each capability needs exactly one.
 PERMISSIONS = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE", "WRITE_ONELAKE",
@@ -86,6 +86,10 @@ class Capability:
     public: bool = False
     # A fabric-desktop:// URI template that also serves this capability as an MCP resource.
     resource: str = ""
+    # Reads what the call will really do, once it is permitted and before the person approves it:
+    # bind(service, arguments) returns more arguments (a notebook's code cells and their hash) that
+    # the approval shows and is bound to and the handler gets. A caller can never supply them.
+    bind: Handler | None = None
 
     @property
     def resource_params(self) -> list[str]:
@@ -106,8 +110,10 @@ class Capability:
 
 
 class Authorizer(Protocol):
-    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
-        """Raise an IntegrationError to refuse the call; return to allow it."""
+    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None) -> None:
+        """Raise an IntegrationError to refuse the call; return to allow it. Once the call is
+        permitted, and before any approval, ``bind()``'s arguments are added to ``arguments``."""
 
     def availability(self, capability: Capability, ctx: CallContext | None) -> tuple[str, str]:
         """(status, reason) for listing: whether this caller could use it now."""
@@ -119,10 +125,13 @@ class ReadOnlyAuthorizer:
 
     REASON = "Needs the permission and approval framework, which isn't switched on in this build."
 
-    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext) -> None:
+    def check(self, capability: Capability, arguments: dict[str, Any], ctx: CallContext,
+              bind: Callable[[], dict[str, Any]] | None = None) -> None:
         if not capability.read_only or capability.permission not in READ_PERMISSIONS:
             raise IntegrationError("unavailable", f"{capability.title} isn't available to external tools yet.",
                                    hint=self.REASON)
+        if bind is not None:
+            arguments.update(bind())
 
     def availability(self, capability: Capability, ctx: CallContext | None) -> tuple[str, str]:
         if not capability.read_only or capability.permission not in READ_PERMISSIONS:
@@ -325,7 +334,8 @@ class Registry:
             raise IntegrationError("unavailable", f"{cap.title} isn't available: {cap.reason}")
         ctx.decision = ""
         args = validate(cap.input_schema, arguments)
-        self.authorizer.check(cap, args, ctx)  # may wait for the person's approval
+        bind = (lambda: self._bind(service, cap, args)) if cap.bind else None
+        self.authorizer.check(cap, args, ctx, bind)  # may wait for the person's approval
         ctx.decision = ctx.decision or "allowed"
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
@@ -335,6 +345,18 @@ class Registry:
         result = run_call(lambda: cap.handler(service, ctx, **args), ctx)
         ctx.seconds = round(time.monotonic() - started, 3)
         return redact_result(result)
+
+    @staticmethod
+    def _bind(service: Any, cap: Capability, args: dict[str, Any]) -> dict[str, Any]:
+        if service is None:
+            raise IntegrationError("unavailable", "The Fabric Desktop by KratosBI engine isn't running here.")
+        try:
+            derived = cap.bind(service, dict(args))  # type: ignore[misc]
+        except Exception as exc:  # noqa: BLE001 - the engine's message, as for a handler
+            raise error_from(exc) from exc
+        if set(derived) & (set(args) | set(cap.input_schema.get("properties", {}))):
+            raise IntegrationError("internal", f"{cap.id}: a bound argument can't also be an input.")
+        return derived
 
 
 def _shape(template: str) -> str:

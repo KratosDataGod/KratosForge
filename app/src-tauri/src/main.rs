@@ -85,6 +85,14 @@ fn engine_tags() -> &'static [&'static str] {
     if release_tag() == "stable" { &["stable", "latest"] } else { &["latest"] }
 }
 
+/// Whether a failed download means the release has no such file (curl --fail reports HTTP 404),
+/// the one case where a Stable PC may fall back to the Preview engine: before anything has been
+/// promoted there is no Stable release. A timeout, a stall or a server error is a failure to report,
+/// never a reason to install the untested Preview engine instead.
+fn missing_release_file(err: &str) -> bool {
+    err.contains("returned error: 404")
+}
+
 fn release_file(tag: &str, file: &str) -> String {
     format!("https://github.com/KratosDataGod/fabric-desktop/releases/download/{tag}/{file}")
 }
@@ -114,9 +122,9 @@ fn sha256_file(path: &std::path::Path) -> Result<String, String> {
 }
 
 /// Checks a downloaded engine zip against its release's version.json, which CI writes after the
-/// files: the zip's SHA-256 must be the one it gives. Releases from before checksums give none;
-/// those are accepted, and the build check after unpacking still runs. Returns the build the
-/// release names, if any.
+/// files: the zip's SHA-256 must be the one it gives. A release that gives none is refused (every
+/// release CI publishes has one, so only a stripped or hand-made version.json lacks it). Returns
+/// the build the release names, if any.
 fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<String>, String> {
     let commit = release["commit"].as_str().filter(|c| c.len() == 40 && c.bytes().all(|b| b.is_ascii_hexdigit()));
     match release["engine_sha256"].as_str() {
@@ -124,7 +132,7 @@ fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<Strin
         Some(_) => Err("The engine download doesn't match the checksum its release gives, so it wasn't installed. \
              A new build may be being published; try again in a few minutes."
             .into()),
-        None => Ok(commit.map(str::to_owned)),
+        None => Err("The engine's release gives no checksum for it, so it wasn't installed.".into()),
     }
 }
 
@@ -423,6 +431,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             .arg(&zip)
             .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
         result = run_tool(curl, "download the engine");
+        if result.as_ref().is_err_and(|e| !missing_release_file(e)) {
+            break;
+        }
         if result.is_ok() {
             // Its checksum comes from the same release, fetched after the zip: CI uploads
             // version.json last, so it never names a zip older than the one just downloaded.
@@ -456,9 +467,6 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
             return Err(e);
         }
     };
-    if release["engine_sha256"].is_null() {
-        say("This release gives no engine checksum (it was published before checksums); checking its build instead.");
-    }
 
     say("Unpacking the engine…");
     let _ = std::fs::remove_dir_all(&staging);
@@ -1014,10 +1022,24 @@ mod integrity_tests {
     }
 
     #[test]
-    fn a_release_from_before_checksums_still_names_its_build() {
+    fn a_release_without_an_engine_checksum_is_refused() {
         let release = json!({ "commit": BUILD, "notes": "first stable" });
-        assert_eq!(check_engine_zip(&"cd".repeat(32), &release), Ok(Some(BUILD.to_string())));
-        assert_eq!(check_engine_zip(&"cd".repeat(32), &json!({ "commit": "not-a-commit" })), Ok(None));
+        let err = check_engine_zip(&"cd".repeat(32), &release).unwrap_err();
+        assert!(err.contains("gives no checksum"), "{err}");
+        assert!(check_engine_zip(&"cd".repeat(32), &json!({ "commit": "not-a-commit" })).is_err());
+    }
+
+    #[test]
+    fn only_a_missing_release_file_falls_back_to_another_channel() {
+        assert!(missing_release_file("Could not download the engine: curl: (22) The requested URL returned error: 404"));
+        for err in [
+            "Could not download the engine: curl: (22) The requested URL returned error: 503",
+            "Could not download the engine: curl: (28) Operation too slow. Less than 1024 bytes/sec transferred the last 60 seconds",
+            "Could not download the engine: curl: (6) Could not resolve host: github.com",
+            "Could not download the engine: curl: (7) Failed to connect to github.com port 443",
+        ] {
+            assert!(!missing_release_file(err), "{err}");
+        }
     }
 
     #[test]

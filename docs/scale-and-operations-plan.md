@@ -32,7 +32,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/`, `docs/`
 What exists:
 
 - Incremental loads by watermark: the last value is kept in `meta.watermarks` and only later rows are kept (`meta/engine.py` `_read`, `_watermark`).
-- Keyed merge for incremental tables, Type 1 and Type 2 dimensions, quarantine, replay, surrogate keys from LH_Keys, per-table leases for the agent (`table_lock`), commit-race retry (`WRITE_ATTEMPTS`), Fabric-safe profile check after every write (`delta_profile.check_table`), run history in `meta.run_log`.
+- Keyed merge for incremental tables, Type 1 and Type 2 dimensions, quarantine, replay, surrogate keys from LH_Keys, per-table leases for the agent (`table_lock`), commit-race retry (`WRITE_ATTEMPTS`), Fabric-safe profile check before every write (`delta_profile.check_target`), run history in `meta.run_log`.
 - `Store.merge_insert` already uses a Delta MERGE, for key tables only (`meta/store.py`).
 
 Gaps before stage 1.1:

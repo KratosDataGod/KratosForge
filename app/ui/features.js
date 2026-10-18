@@ -28,7 +28,8 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, onclick: () => go(view) }, icon(f.rail.icon, 22), f.rail.label);
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
+    icon(f.rail.icon, 22), f.rail.label);
 }
 
 // ---------- preview ----------

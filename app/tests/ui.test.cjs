@@ -799,13 +799,17 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
     assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
     assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
   }
-  // A marked step keeps working when someone hides preview features; it only loses the tag.
+  // A marked step stays, and keeps its tag, when someone hides preview features.
   const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
   vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
   const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   ctx.shown = false;
-  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  // and Settings names them as staying
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay"]);
+  assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
 // QA review of #173: only a cancelled sign-in is silent; an error with no message still says something.

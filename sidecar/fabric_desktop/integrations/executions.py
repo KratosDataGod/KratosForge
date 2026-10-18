@@ -91,15 +91,21 @@ def shape_outputs(outputs: list[dict[str, Any]], budget: list[int]) -> list[dict
     return out
 
 
-def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float = 30.0) -> None:
+def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float = 30.0,
+                            lock: threading.Lock | None = None) -> None:
     """Interrupt a DuckDB query until it has stopped: DuckDB drops an interrupt that lands just
-    before it starts a statement (localdata/engine.py's _interrupt_until_stopped does the same)."""
+    before it starts a statement (localdata/engine.py's _interrupt_until_stopped does the same).
+    ``lock`` is held by whoever closes ``con`` too, so an interrupt never overlaps the close."""
+    lock = lock or threading.Lock()
     deadline = time.monotonic() + seconds
-    while not stopped.is_set() and time.monotonic() < deadline:
-        try:
-            con.interrupt()
-        except Exception:  # noqa: BLE001 - the connection closed as the query ended
-            return
+    while time.monotonic() < deadline:
+        with lock:
+            if stopped.is_set():
+                return
+            try:
+                con.interrupt()
+            except Exception:  # noqa: BLE001 - the connection closed as the query ended
+                return
         stopped.wait(0.05)
 
 
@@ -315,6 +321,7 @@ class ExecutionManager:
                 query, memory_mb=sql_exec.memory_mb(int(limits["sql_memory_limit_percent"])),
                 threads=sql_exec.run_threads(limits))
         stopped = threading.Event()
+        con_lock = threading.Lock()  # an interrupt and the close never overlap
         have_slot = False
         try:
             # One external query runs at a time, each with the SQL page's memory share. Waiting for
@@ -322,7 +329,7 @@ class ExecutionManager:
             while not (have_slot := self._sql_slot.acquire(timeout=0.05)):
                 if run.cancel_event.is_set():
                     raise self._stopped(run)
-            run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped), daemon=True,
+            run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped, 30.0, con_lock), daemon=True,
                                                      name=f"execution-stop-{run.id}").start()
             started = time.monotonic()
             # _stop sets cancel_event before it reads on_cancel: a stop that came before on_cancel was
@@ -335,9 +342,10 @@ class ExecutionManager:
                 raise self._stopped(run) from None
             raise
         finally:
-            stopped.set()
             run.on_cancel = None
-            con.close()
+            with con_lock:
+                stopped.set()
+                con.close()
             if have_slot:
                 self._sql_slot.release()
         out = sql_result(result, max_rows, started)

@@ -128,7 +128,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Platform (admins, landing zone, business keys, requests) | Platform, Settings, Data mesh > Surrogate keys |
 | Data products for everyone | OneLake > Data products |
 | Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
-| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Workloads, Home |
+| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Operations > Workloads, Home |
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

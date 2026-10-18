@@ -232,6 +232,7 @@ class ScheduleMixin:
             except Exception:
                 pass
             return [{"id": s["id"], "enabled": s.get("enabled", False), "text": describe_schedule(s),
+                     "owner": s.get("owner") if isinstance(s.get("owner"), dict) else None,  # Fabric runs it as its owner
                      "configuration": s.get("configuration") or {}, "job_type": job,
                      "workspace_id": it["workspace_id"], "workspace_name": it["workspace_name"],
                      "item_id": it["id"], "name": it.get("displayName"), "type": TYPE_LABELS[it["type"]], "item_type": it["type"],

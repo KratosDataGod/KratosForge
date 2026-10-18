@@ -305,7 +305,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: every management action shows environment, identity, target, consequence first; the full preflight reuses Prove's planner. Validation: U, UI. PR: —
 
 **34. Unified queue view** · Missing · Stage 5 · *Dep roadmap (agent queue records)*
-- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: —
+- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: 5C (Monitor > Queue: agents' running and queued work and schedules, this PC's schedules, Fabric jobs this app started and Fabric schedules as last read; no tenant polling)
 
 **35. Supported lifecycle controls** · Enhance · Stage 1
 - Today: run, cancel, enable/disable and run-now exist on separate pages. Enhancement: offered on the workload page only where the adapter supports them for that deployment. Acceptance: no pause/resume where none exists. Validation: U, UI. PR: —
@@ -410,7 +410,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 ### H. Governance, access and security
 
 **71. Effective identity visibility** · Enhance · Stage 1 (per deployment), Stage 9
-- Today: signed-in user in the account menu; agent auth type in agent.toml. Enhancement: each deployment says which identity runs it (you on this PC; you for runs started here; the schedule's owner for Fabric schedules; the agent's configured identity). Validation: U. PR: —
+- Today: signed-in user in the account menu; agent auth type in agent.toml. Enhancement: each deployment says which identity runs it (you on this PC; you for runs started here; the schedule's owner for Fabric schedules; the agent's configured identity). Validation: U. PR: engine in stage 9A (`run_as_list`), screen after Chris picks its place (board 10).
 
 **72. Access posture** · Enhance · Stage 9 · Today: OneLake Access tab, workspace access review, shortcut readers. PR: —
 
@@ -425,9 +425,9 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 
 **77. Sensitive-data handling posture** · Enhance · Stage 9 · Today: classification on entities and enrichment. PR: —
 
-**78. Credential lifecycle awareness** · Enhance · Stage 4 · Today: sign-in state; agent certificate path. Adds certificate expiry and failed refresh, never storing a copy. PR: —
+**78. Credential lifecycle awareness** · Enhance · Stage 4 · Today: sign-in state; agent certificate path. Adds certificate expiry and failed refresh, never storing a copy. PR: stage 9A (agents publish `credential` facts; `run_as_list` flags certificates expiring within 30 days and failed token requests).
 
-**79. External execution boundaries** · Missing · Stage 8 · Where data and credentials go for this PC, an agent and Fabric, shown when choosing. PR: —
+**79. External execution boundaries** · Missing · Stage 8 · Where data and credentials go for this PC, an agent and Fabric, shown when choosing. PR: stage 9A gives each place its boundary line; showing it when choosing where to run is later.
 
 **80. Governance exceptions** · Enhance · Stage 9 · Today: project exceptions with entity, rule and expiry. Adds owner, approval and re-evaluation. PR: —
 
@@ -489,3 +489,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |
 | 2026-10-17 | #125 (2.3B), #127 (2.3C) and #133 (5A) merged. Next: overlap warning, queue view across locations, FD-124. |
 | 2026-10-17 | The roadmap thread agreed four status-record fields: `owner`, `identity`, and each schedule's `entities` (empty = every table) and `when`. Stage 5B builds "Scheduled in two places" on them (item 36). |
+| 2026-10-17 | Stage 5C: Monitor > Queue (item 34), mockup board 9. Read only, no new Fabric calls; agent queued jobs are counts, as the status record has them. |
+| 2026-10-17 | FD-124 designed ([multi-worker.md](multi-worker.md)) and agreed with the roadmap thread. Part 1 built off by default: shared schedules through the mailbox, `claim = "when_free"`. |
+| 2026-10-18 | Chris chose to build FD-124 before a tenant test. Part 2 built off by default: `take_over = true` moves a request from an agent past `stale_after` to another, at most `max_attempts` agents. |
+| 2026-10-18 | Stage 9 split with the governance thread: this program keeps items 71, 78 and 79 (read-only views), the governance thread keeps 72 to 75 and 80. Stage 9A engine: agents publish `credential` facts; `run_as_list` says who runs each workload, with what, and where data goes. Mockup board 10. |

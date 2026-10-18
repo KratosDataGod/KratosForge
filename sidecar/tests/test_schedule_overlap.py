@@ -76,3 +76,12 @@ def test_the_newest_record_speaks_for_an_agent():
     newer = agent("etl-01", [sched("a", ["y"])])
     out = overlaps({"prod": [newer, older]}, [pc("p1", "prod", ["x"])], NOW)
     assert out["overlaps"] == []
+
+
+def test_agents_sharing_one_schedule_through_the_mailbox_are_not_an_overlap():
+    shared = {**sched("hourly", ["x"]), "shared": True}
+    out = overlaps({"prod": [agent("etl-01", [shared]), agent("etl-02", [shared])]}, [], NOW)
+    assert out["overlaps"] == []
+    other = {**sched("hourly", ["x"]), "shared": False}
+    out = overlaps({"prod": [agent("etl-01", [shared]), agent("etl-02", [other])]}, [], NOW)
+    assert len(out["overlaps"]) == 1  # only one side shares it: both still run it

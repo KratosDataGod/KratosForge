@@ -47,6 +47,17 @@ def test_a_hand_edited_file_that_shares_a_workspace_is_refused_before_any_read(s
     assert not calls  # refused before Fabric was asked for anything
 
 
+def test_a_file_where_every_environment_shares_one_workspace_can_be_fixed_one_save_at_a_time(svc):
+    (svc._project().root / "environments.toml").write_text(
+        '[dev]\ntarget = "onelake"\nworkspace_id = "ws"\n\n[test]\nworkspace_id = "ws"\n\n[prod]\nworkspace_id = "ws"\n')
+    svc.meta_set_environment("prod", "ws-prod", "Prod")  # Dev and Test still clash, but that clash was already there
+    svc.meta_set_environment("dev", "ws-dev", "Dev")
+    with pytest.raises(ValueError, match="Dev and Test both use workspace ws-dev"):
+        svc.meta_set_environment("test", "ws-dev", "Dev")  # a new clash is still refused
+    svc.meta_set_environment("test", "ws-test", "Test")
+    assert not shared_workspaces(svc._project().environments)
+
+
 def _job(tmp_path, workspace_id, lakehouse="LH_Scratch", table="t"):
     return Job("j", "sql", tmp_path, Target(workspace_id, lakehouse, table), sql="SELECT 1")
 

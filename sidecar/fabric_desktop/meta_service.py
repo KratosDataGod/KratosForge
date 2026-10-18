@@ -35,18 +35,21 @@ def _env_workspaces(cfg: dict[str, Any]) -> set[str]:
     return ids - {""}
 
 
-def shared_workspaces(envs: dict[str, dict[str, Any]]) -> list[str]:
+def _clashes(envs: dict[str, dict[str, Any]]) -> list[tuple[str, str, str]]:
+    """Every pair of environments that name the same workspace, as (first, second, workspace)."""
+    spaces = {env: _env_workspaces(envs.get(env, {})) for env in ENVIRONMENTS}
+    return [(a, b, ws) for i, a in enumerate(ENVIRONMENTS) for b in ENVIRONMENTS[i + 1:]
+            for ws in sorted(spaces[a] & spaces[b])]
+
+
+def shared_workspaces(envs: dict[str, dict[str, Any]], before: dict[str, dict[str, Any]] | None = None) -> list[str]:
     """Why these environments can't be saved or used: two of them name the same workspace, so a run
-    in one would write the other's tables (LH_Meta, LH_Bronze, ... have the same names in each)."""
-    errors, seen = [], {}
-    for env in ENVIRONMENTS:
-        for ws in sorted(_env_workspaces(envs.get(env, {}))):
-            if ws in seen:
-                errors.append(f"{seen[ws].title()} and {env.title()} both use workspace {ws}. Each environment "
-                              "needs its own workspace, or a run in one writes the other's tables.")
-            else:
-                seen[ws] = env
-    return errors
+    in one would write the other's tables (LH_Meta, LH_Bronze, ... have the same names in each).
+    With ``before``, only clashes it didn't already have, so a file that shares a workspace can be
+    fixed one environment at a time."""
+    old = set(_clashes(before)) if before is not None else set()
+    return [f"{a.title()} and {b.title()} both use workspace {ws}. Each environment needs its own "
+            "workspace, or a run in one writes the other's tables." for a, b, ws in _clashes(envs) if (a, b, ws) not in old]
 
 
 def _toml(v: Any) -> str:
@@ -167,8 +170,10 @@ class MetaMixin:
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         # environments.toml can be edited by hand: never read or write one environment's tables as another's.
-        if clash := [e for e in shared_workspaces(project.environments) if env.title() in e]:
-            raise ValueError(clash[0])
+        if clash := [(a, b, w) for a, b, w in _clashes(project.environments) if env in (a, b)]:
+            a, b, w = clash[0]
+            raise ValueError(f"{a.title()} and {b.title()} both use workspace {w}, so neither is read or written "
+                             f"until one gets its own workspace (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
         spaces = cfg.get("workspaces") or {}
@@ -234,7 +239,7 @@ class MetaMixin:
         return any(keys_mod.entity_keys(e) for n, e in project.entities.items() if names is None or n in names)
 
     def _write_environments(self, project: Project, envs: dict[str, dict[str, Any]]) -> None:
-        if errors := shared_workspaces(envs):
+        if errors := shared_workspaces(envs, before=project.environments):
             raise ValueError(errors[0])
         lines = ["# Each environment's workspace, and where its tables live: target = \"onelake\" (the workspace's",
                  "# lakehouses, LH_<Layer>, created when first needed) or \"local\" (offline, in .local).",

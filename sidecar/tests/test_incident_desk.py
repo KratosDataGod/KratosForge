@@ -5,14 +5,13 @@ import json
 import types
 
 import pytest
+from test_agent import Clock
 
 from fabric_desktop import app_settings
 from fabric_desktop.leases import LocalBackend
 from fabric_desktop.service import Service
 from fabric_desktop.workloads import evaluate, sla
 from fabric_desktop.workloads.incidents import KEY, IncidentLog, default_priority
-
-from test_agent import Clock
 
 
 def run(entity, status, run_id, started="2026-10-16T10:00:00+00:00"):
@@ -148,7 +147,7 @@ def test_the_timeline_records_every_change_and_stays_bounded(backend):
 # ---------------------------------------------------------------------------- SLA
 
 
-T0 = dt.datetime(2026, 10, 18, 6, 0, tzinfo=dt.timezone.utc)
+T0 = dt.datetime(2026, 10, 18, 6, 0, tzinfo=dt.UTC)
 
 
 def at(minutes):
@@ -231,8 +230,9 @@ def test_the_sla_policy_call_says_where_targets_come_from(svc, policy):
 
 @pytest.fixture
 def central(svc, tmp_path, monkeypatch):
-    from fabric_desktop.optimize.lakehouse import LocalLakehouse
     from test_optimize_service import FakeFabric
+
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
     fabric = FakeFabric()
     monkeypatch.setattr(Service, "fabric", property(lambda self: fabric))
     lakes = tmp_path / "onelake"
@@ -299,8 +299,8 @@ def test_an_open_incident_acknowledged_late_counts_as_breached(svc, policy):
     svc.incident_report("dev", "Late ack", priority="P3")  # acknowledge within 4 h, resolve within 2 days
     log = svc._incident_log("dev")
     doc = json.loads(log.backend.read(KEY).data)
-    opened = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=5)
-    iso = lambda t: t.isoformat(timespec="seconds").replace("+00:00", "Z")  # noqa: E731
+    opened = dt.datetime.now(dt.UTC) - dt.timedelta(hours=5)
+    iso = lambda t: t.isoformat(timespec="seconds").replace("+00:00", "Z")
     doc["incidents"][0].update(opened_at=iso(opened), state="acknowledged",
                                acknowledged_at=iso(opened + dt.timedelta(hours=4, minutes=10)))
     log.backend.replace(KEY, json.dumps(doc).encode(), log.backend.read(KEY).etag)

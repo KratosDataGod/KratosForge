@@ -38,7 +38,7 @@ class IncidentDeskMixin:
         """The environment's incidents with priority and SLA state, and the counts the list shows."""
         out = self.incidents_list(env, include_resolved)  # type: ignore[attr-defined]
         table, problems, source = self._sla_targets()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         me = (out.get("user") or "").casefold()
         counts = {"open": 0, "mine": 0, "unassigned": 0, "at_risk": 0, "breached": 0}
         for inc in out["incidents"]:
@@ -61,7 +61,7 @@ class IncidentDeskMixin:
         """Open an incident for a problem a person noticed. With a workload, its team, technical
         owner and criticality come from the workload's assignment."""
         assigned = self.workload_store.assignments([workload]).get(workload, {}) if workload else {}  # type: ignore[attr-defined]
-        pick = lambda field: str((assigned.get(field) or {}).get("value") or "")  # noqa: E731
+        pick = lambda field: str((assigned.get(field) or {}).get("value") or "")
         return self._incident_log(env).report(  # type: ignore[attr-defined]
             title, self._incident_user(), text=text, priority=priority, workload=workload or None,  # type: ignore[attr-defined]
             name=name, owner=pick("technical_owner"), team=pick("team"), criticality=pick("criticality"))
@@ -123,7 +123,7 @@ class IncidentDeskMixin:
         lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))  # type: ignore[attr-defined]
         try:
             df = lake.rows(FAMILY.table("incident_snapshot"))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if "not found" not in str(exc).lower() and "TableNotFound" not in type(exc).__name__:
                 raise
             df = None

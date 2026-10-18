@@ -25,7 +25,7 @@ from . import capacity as capacity_mod
 from . import costs as costs_mod
 from . import shortcuts as shortcuts_mod
 from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, FabricError
 from .meta import impact
 from .meta import restore as restore_mod
 from .meta import testing as testing_mod
@@ -45,6 +45,19 @@ def _who(service: Any) -> str:
     except Exception:  # noqa: BLE001
         return os.environ.get("USERNAME") or os.environ.get("USER") or ""
 
+
+
+def _put_roles(api: FabricClient, workspace_id: str, item_id: str, roles: list[dict[str, Any]],
+               etag: str | None) -> None:
+    """Replace the roles only if nobody changed them since ``etag`` was read: the PUT replaces the
+    whole list, so writing over someone else's change would silently undo it."""
+    try:
+        api.put_data_access_roles(workspace_id, item_id, roles, etag=etag)
+    except FabricError as exc:
+        if exc.code == "PreconditionFailed" or exc.status == 412:
+            raise PermissionError("Someone changed this lakehouse's roles while you were editing. Nothing was "
+                                  "saved; open it again to see their change, then make yours.") from exc
+        raise
 
 class EstateMixin:
 
@@ -442,20 +455,20 @@ class EstateMixin:
     def access_save_role(self, workspace_id: str, item_id: str, name: str, paths: list[str], members: list[str],
                          original_name: str | None = None) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
         names = {r.get("name") for r in roles}
         if (original_name is None or name != original_name) and name in names:
             raise ValueError(f"There is already a role named {name}.")
         keep = next((r for r in roles if r.get("name") == (original_name or name)), None)
         role = access_mod.make_role(name, paths, members, self.auth.signed_in_tenant() or "", keep)  # type: ignore[attr-defined]
-        api.put_data_access_roles(workspace_id, item_id,
-                                  [r for r in roles if r.get("name") not in (original_name, name)] + [role])
+        _put_roles(api, workspace_id, item_id,
+                   [r for r in roles if r.get("name") not in (original_name, name)] + [role], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
     def access_delete_role(self, workspace_id: str, item_id: str, name: str) -> dict[str, Any]:
         api = self._scoped(ONELAKE_SCOPES)
-        roles = api.list_data_access_roles(workspace_id, item_id)
-        api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
+        roles, etag = api.list_data_access_roles_tagged(workspace_id, item_id)
+        _put_roles(api, workspace_id, item_id, [r for r in roles if r.get("name") != name], etag)
         return self.access_lakehouse(workspace_id, item_id)
 
     def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:

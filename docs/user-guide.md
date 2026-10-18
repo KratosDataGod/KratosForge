@@ -93,7 +93,7 @@ Home answers "what happened since I was last here". From the top:
 
 ### Ready to work
 
-A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window.
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel beside the list says what it reads, the one thing it can write and where results are kept.
 
 | Check | Ready when | If not |
 | --- | --- | --- |

@@ -139,3 +139,24 @@ def test_valid_values_still_apply(files):
     files({"support_url": 5})  # not a restriction: ignored and reported, as before
     assert app_settings.load()["support_url"] == {"value": "", "source": "default"}
     assert app_settings.load()["allow_fabric_runs"]["value"] is True
+
+
+def test_sign_in_blocked_by_a_broken_file_says_so(files):
+    from fabric_desktop.auth import Authenticator
+
+    class Signed:
+        signed_out = False
+
+        def sign_out(self):
+            self.signed_out = True
+
+        def signed_in_tenant(self):
+            return HOME
+    me = Signed()
+    files("{not json")
+    with pytest.raises(RuntimeError, match="settings file .* can't be read"):
+        Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
+    assert me.signed_out
+    files({"allowed_tenants": [AWAY]})
+    with pytest.raises(RuntimeError, match="belongs to another organization"):
+        Authenticator._check_tenant(Signed(), {"id_token_claims": {"tid": HOME}})

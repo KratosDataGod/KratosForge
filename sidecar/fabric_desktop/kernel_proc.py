@@ -2,7 +2,8 @@
 
 ProcessKernel has the in-process Kernel's methods (start, poll, interrupt, run, restart,
 variables, complete) and runs the same Kernel class in a child process (kernel_host.py). The
-engine stays responsive whatever a cell does: Stop ends only the child, a crash in a native
+engine stays responsive whatever a cell does: Stop ends only the child and every process its
+cells started (a process group on Linux and macOS, a Job Object on Windows), a crash in a native
 library ends only the child (the next cell starts a fresh one and says so), and a kernel that
 stops answering times out instead of freezing the app.
 
@@ -18,6 +19,7 @@ WATCH_SECONDS, so a sudden spike can go past the limit before it's seen.
 
 from __future__ import annotations
 
+import functools
 import itertools
 import json
 import os
@@ -58,6 +60,7 @@ class ProcessKernel:
         self.notebook_name = ""
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
+        self._tree: _Tree | None = None  # the process and everything its cells start
         self._send_lock = threading.Lock()
         self._waiting: dict[str, dict[str, Any]] = {}
         self._ids = itertools.count(1)
@@ -82,7 +85,11 @@ class ProcessKernel:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
+                                    start_new_session=sys.platform != "win32",
                                     env=dict(os.environ, PYTHONUNBUFFERED="1"))
+            if self._tree is not None:
+                self._tree.release()  # processes a crashed kernel left behind
+            self._tree = _Tree(proc)
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()
@@ -90,7 +97,7 @@ class ProcessKernel:
             self._proc = proc
             self._attached = object()
             if not ready.wait(60):
-                proc.kill()
+                self._tree.kill()
                 raise KernelGone("The notebook's Python process didn't start.")
             slot = self._waiting.pop("ready", {})
             self.pid = (slot.get("result") or {}).get("pid")
@@ -149,7 +156,7 @@ class ProcessKernel:
             if proc is not self._proc or proc.poll() is not None:
                 return
             self._ended = why
-            proc.kill()
+            self._tree.kill()
 
     def _limit_note(self, snap: dict[str, Any]) -> dict[str, Any]:
         """A finished cell that was interrupted for running too long says so, in every snapshot of it."""
@@ -302,7 +309,7 @@ class ProcessKernel:
             if proc is None or proc.poll() is not None:
                 return {"stopped": False}
             self._ended = STOPPED_TEXT
-            proc.kill()
+            self._tree.kill()
         proc.wait(10)
         deadline = time.monotonic() + 5
         while self._proc is proc and time.monotonic() < deadline:  # the reader marks it gone
@@ -368,6 +375,82 @@ class ProcessKernel:
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()
+
+
+class _Tree:
+    """The kernel process and every process its cells start, so Stop ends them all (HD-037).
+
+    On Linux and macOS the kernel leads its own process group. On Windows it is in a Job Object
+    that also ends the whole tree if the engine itself goes away; if the job can't be made (an
+    older Windows that doesn't allow nested jobs), only the kernel process is ended."""
+
+    def __init__(self, proc: subprocess.Popen[str]):
+        self.proc = proc
+        self.job = _job_for(proc) if sys.platform == "win32" else None
+
+    def release(self) -> None:
+        """On Windows, close the job, which ends anything still in it."""
+        if self.job:
+            kernel32 = _kernel32()
+            kernel32.TerminateJobObject(self.job, 1)
+            kernel32.CloseHandle(self.job)
+            self.job = None
+
+    def kill(self) -> None:
+        if sys.platform == "win32":
+            self.release()
+        else:
+            import signal
+            try:
+                os.killpg(self.proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        self.proc.kill()
+
+
+@functools.cache
+def _kernel32() -> Any:
+    """kernel32 with the Job Object calls typed, so handles pass as pointers on 64-bit Windows."""
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return kernel32
+
+
+def _job_for(proc: subprocess.Popen[str]) -> int | None:
+    """A Job Object holding ``proc`` that ends every process in it when closed, or None."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):  # JOBOBJECT_BASIC_LIMIT_INFORMATION
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class Extended(ctypes.Structure):  # JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    kernel32 = _kernel32()
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = Extended()
+    info.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if (kernel32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))  # extended limits
+            and kernel32.AssignProcessToJobObject(job, int(proc._handle))):  # type: ignore[attr-defined]
+        return job
+    kernel32.CloseHandle(job)
+    return None
 
 
 def memory_used(pid: int) -> int | None:

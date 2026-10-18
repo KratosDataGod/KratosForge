@@ -27,6 +27,7 @@ nav = [
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },
     { "Security model" = "security.md" },
+    { "Security evidence pack" = "evidence-pack.md" },
     { "Usage data" = "telemetry.md" },
   ] },
   { "Use the app" = [
@@ -47,6 +48,7 @@ nav = [
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
     { "Governance policies" = "governance.md" },
+    { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },

@@ -533,6 +533,10 @@ One section per environment (`[dev]`, `[test]`, `[prod]`):
 
 Changing this file doesn't change the metadata version, so it never forces a re-promote.
 
+No two environments can use the same workspace, as their own `workspace_id` or as a designation's: each environment's lakehouses have the same names (`LH_Meta`, `LH_Bronze`, ...), so a run in one would write the other's tables. Saving such a change is refused, and if the file is edited by hand to share one, both environments refuse to read or write until it's fixed.
+
+A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a table the metadata project manages, or anything in a workspace that Test or Prod uses: those change only through a framework run and promote.
+
 ### Data mesh files
 
 `project.toml` (the project's domain and team), `metadata/products/<name>.toml` (data products) and `metadata/links/<alias>.toml` (links to other teams' products), plus an optional `[catalog]` block in an entity file. All are described in [Data mesh](data-mesh.md).

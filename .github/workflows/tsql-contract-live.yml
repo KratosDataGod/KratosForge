@@ -1,0 +1,69 @@
+# HD-054: run the T-SQL contract cases (sidecar/tests/tsql_contract) against a real Fabric SQL
+# endpoint. Only ever a DEDICATED TEST workspace: its description must contain
+# fabric-desktop-live-test, its name mustn't look like production, and the test reads the server
+# from Fabric for the named item in that workspace. Read-only cases only, rolled back.
+# Until the repository variables and secret below exist, it stops at once and runs nothing.
+# See docs/live-testing.md#t-sql-contract-cases.
+name: T-SQL contract (live)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 5 * * 1" # Mondays 05:23 UTC
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tsql-contract-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: sidecar
+    env:
+      FABRIC_DESKTOP_TSQL_WORKSPACE_ID: ${{ vars.FABRIC_TSQL_TEST_WORKSPACE_ID }}
+      FABRIC_DESKTOP_TSQL_ITEM: ${{ vars.FABRIC_TSQL_TEST_ITEM }}
+      FABRIC_DESKTOP_TSQL_TARGET: ${{ vars.FABRIC_TSQL_TEST_TARGET }}
+      FABRIC_DESKTOP_TSQL_TENANT_ID: ${{ vars.FABRIC_TSQL_TENANT_ID }}
+      FABRIC_DESKTOP_TSQL_CLIENT_ID: ${{ vars.FABRIC_TSQL_CLIENT_ID }}
+    steps:
+      - name: Check a test workspace is configured
+        id: gate
+        working-directory: .
+        env:
+          HAS_SECRET: ${{ secrets.FABRIC_TSQL_CLIENT_SECRET != '' }}
+        run: |
+          if [ -z "$FABRIC_DESKTOP_TSQL_WORKSPACE_ID" ] || [ -z "$FABRIC_DESKTOP_TSQL_ITEM" ] || \
+             [ -z "$FABRIC_DESKTOP_TSQL_TARGET" ] || [ -z "$FABRIC_DESKTOP_TSQL_TENANT_ID" ] || \
+             [ -z "$FABRIC_DESKTOP_TSQL_CLIENT_ID" ] || [ "$HAS_SECRET" != "true" ]; then
+            echo "::notice::No test workspace configured, so nothing was run. Set the FABRIC_TSQL_* repository variables and the FABRIC_TSQL_CLIENT_SECRET secret (docs/live-testing.md)."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.configured == 'true'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - if: steps.gate.outputs.configured == 'true'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - if: steps.gate.outputs.configured == 'true'
+        run: python -m pip install -e ".[dev]" -c constraints.txt pyodbc==5.2.0
+      - if: steps.gate.outputs.configured == 'true'
+        env:
+          FABRIC_DESKTOP_TSQL_LIVE: "1"
+          FABRIC_DESKTOP_TSQL_CLIENT_SECRET: ${{ secrets.FABRIC_TSQL_CLIENT_SECRET }}
+          FABRIC_DESKTOP_TSQL_RESULTS: ${{ runner.temp }}/tsql-contract-results.json
+        run: python -m pytest -q -rfs tests/test_tsql_contract.py -k live
+      - if: always() && steps.gate.outputs.configured == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tsql-contract-results
+          path: ${{ runner.temp }}/tsql-contract-results.json
+          if-no-files-found: ignore

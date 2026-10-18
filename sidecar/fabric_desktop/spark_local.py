@@ -125,6 +125,8 @@ class LakehouseWriter:
                     f"Table {name} has no column {', '.join(extra)}. To replace the table's schema, add "
                     ".option(\"overwriteSchema\", \"true\") to an overwrite; to add the columns, add "
                     ".option(\"mergeSchema\", \"true\").")
+            if current is not None:
+                _check_types(data, name, how)
         print(_write_table(data, name, how, schema_mode))
 
     def saveAsTable(self, name: str, format: str | None = None, mode: str | None = None,  # noqa: A002
@@ -197,6 +199,32 @@ def _write_table(data: pa.Table, name: str, how: str, schema_mode: str | None) -
         raise ValueError(f"The data doesn't match table {name}'s schema ({e}). Nothing was written. To replace "
                          "the schema, add .option(\"overwriteSchema\", \"true\") to an overwrite; to add columns, "
                          "add .option(\"mergeSchema\", \"true\").") from None
+
+
+_KINDS = (("a whole number", pa.types.is_integer), ("a decimal", pa.types.is_decimal),
+          ("a floating-point number", pa.types.is_floating), ("text", lambda t: pa.types.is_string(t)
+          or pa.types.is_large_string(t) or getattr(pa.types, "is_string_view", bool)(t)), ("binary", lambda t: pa.types.is_binary(t)
+          or pa.types.is_large_binary(t)), ("true/false", pa.types.is_boolean), ("a date", pa.types.is_date),
+          ("a timestamp", pa.types.is_timestamp))
+
+
+def _kind(t: pa.DataType) -> str | None:
+    return next((name for name, test in _KINDS if test(t)), None)
+
+
+def _check_types(data: pa.Table, table: str, how: str) -> None:
+    """Refuse a column whose type would change, as Delta does in Fabric: writing it would cast
+    the values silently (1.7 into a whole-number column becomes 1)."""
+    have = {f.name.lower(): f.type for f in pa.schema(lakehouse.open_table(table).schema().to_arrow())}
+    for field in data.schema:
+        old = have.get(field.name.lower())
+        new_kind, old_kind = _kind(field.type), old is not None and _kind(old)
+        if old is None or pa.types.is_null(field.type) or not new_kind or not old_kind or new_kind == old_kind:
+            continue
+        fix = ("add .option(\"overwriteSchema\", \"true\") to replace the table's schema, or cast the column"
+               if how == "overwrite" else "cast the column to the table's type")
+        raise ValueError(f"Column {field.name} is {new_kind} here but {old_kind} in table {table}. Nothing was "
+                         f"written. To write it, {fix}.")
 
 
 def _columns(table: str) -> list[str] | None:

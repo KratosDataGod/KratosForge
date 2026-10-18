@@ -62,6 +62,31 @@ def test_overwrite_keeps_the_schema_unless_overwriteSchema(lake):
     assert rows(lake) == [{"id": 1, "amount": 2.5}]
 
 
+@pytest.mark.parametrize("data, mode, kind", [
+    ("[(1.7, 'EU')], ['id', 'region']", "overwrite", "id is a floating-point number here but a whole number"),
+    ("[(1, 5)], ['id', 'region']", "overwrite", "region is a whole number here but text"),
+    ("[(1.7, 'EU')], ['id', 'region']", "append", "id is a floating-point number here but a whole number"),
+])
+def test_a_column_type_change_is_refused_unless_overwriteSchema(lake, data, mode, kind):
+    """HD-040 (DI-8): Delta in Fabric refuses a changed column type; writing it here would cast
+    silently, and 1.7 would land in the table as 1."""
+    write = f"spark.createDataFrame({data}).write.mode({mode!r})"
+    status, text = run(f"{write}.saveAsTable('dbo.sales')")
+    assert status == "error" and kind in text and "Nothing was written" in text
+    assert rows(lake) == ORIGINAL
+    if mode == "overwrite":
+        status, text = run(f"{write}.option('overwriteSchema', 'true').saveAsTable('dbo.sales')")
+        assert status == "ok", text
+        assert len(rows(lake)) == 1
+
+
+def test_a_narrower_type_of_the_same_kind_still_writes(lake):
+    status, text = run("spark.sql('SELECT CAST(4 AS INT) AS id, \\'US\\' AS region')"
+                       ".write.mode('append').saveAsTable('dbo.sales')")
+    assert status == "ok", text
+    assert rows(lake)[-1] == {"id": 4, "region": "US"}
+
+
 def test_same_columns_overwrite_as_before(lake):
     status, text = run("df.write.mode('overwrite').saveAsTable('dbo.sales')")
     assert status == "ok", text

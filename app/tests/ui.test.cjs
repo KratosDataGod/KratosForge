@@ -1285,3 +1285,15 @@ test("confirms that delete or overwrite something pass danger", () => {
   }
   assert.deepStrictEqual(missing, []);
 });
+
+// QA-032: X-ray's Optimize asks first, says it runs in Fabric and uses capacity, and shows the risk check.
+test("Estate X-ray's Optimize confirms with the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function optimizeDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /showDialog\(`Optimize \$\{label\}\?`/);
+  assert.match(dialog, /runs in Fabric[\s\S]*uses capacity/);
+  assert.match(dialog, /rpc\("xray_optimize_check"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /result === "blocked"/);
+  assert.ok(dialog.indexOf('rpc("xray_optimize_check"') > -1 && !/optimize: \(\) => btn\("Optimize", "sync", async/.test(xray),
+    "the line's button opens the dialog instead of starting the job");
+});

@@ -143,13 +143,7 @@ function xrayFinding(f, box, res) {
   const sev = { high: ["fail", "Fix first"], medium: ["wrn", "Worth fixing"], low: ["neu", "Good to know"] }[f.severity];
   const lakehouseLink = () => openInFabric(fabricItemLink({ type: "Lakehouse", item_id: f.lakehouse_id, workspace_id: f.workspace_id }));
   const action = {
-    optimize: () => btn("Optimize", "sync", async (e) => {
-      e.target.disabled = true;
-      const r = await attempt(() => rpc("xray_optimize", { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table,
-        schema: f.schema, lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id }), "Optimize not started");
-      if (r) { f.fix = { state: "submitted", job_id: r.job_id }; toast(`Optimizing ${f.table} in Fabric. Follow it in Monitor.`); drawXray(box, res); }
-      else e.target.disabled = false;
-    }, "tool primary"),
+    optimize: () => btn("Optimize", "sync", () => optimizeDialog(f, box, res), "tool primary"),
     vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), "tool outline"),
     open: () => btn("Open in Fabric", "publish", lakehouseLink, "tool outline"),
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
@@ -180,6 +174,38 @@ function xrayFix(f) {
 function vacuumArgs(f) {
   return { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table, schema: f.schema,
     lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id };
+}
+
+// Optimize one table: say what runs in Fabric and the risk check (FINOPS-004) first. Blocked has
+// no Optimize button; warnings need the box ticked when the settings ask for it.
+async function optimizeDialog(f, box, res, refresh = false) {
+  const label = f.schema ? `${f.schema}.${f.table}` : f.table;
+  const body = h("div", { class: "wl-confirm" }, h("p", { class: "muted-text" }, `Checking ${label} and its capacity...`));
+  const start = btn("Optimize", "sync", async () => {
+    if (ack && !ack.querySelector("input").checked) { toast("Tick \"I've looked at these\" first, or cancel.", true); return; }
+    start.disabled = true;
+    const r = await attempt(() => rpc("xray_optimize", vacuumArgs(f)), "Optimize not started");
+    if (!r) { start.disabled = false; return; }
+    closeDialog();
+    f.fix = { state: "submitted", job_id: r.job_id };
+    toast(`Optimizing ${label} in Fabric. Follow it in Monitor.`, false, { log: true });
+    drawXray(box, res);
+  }, "tool primary");
+  let ack = null;
+  start.disabled = true;
+  showDialog(`Optimize ${label}?`, body, [btn("Cancel", null, closeDialog, "tool outline"), start]);
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
+  const p = await attempt(() => rpc("xray_optimize_check", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh }),
+    "Could not check the table");
+  if (!p) { closeDialog(); return; }
+  ack = riskAckBox(p.risk);
+  body.replaceChildren(
+    h("p", { class: "text" }, `Optimize runs in Fabric as a table maintenance job on ${label}, and uses capacity. `,
+      "It compacts small files into larger ones with V-Order, then removes old files that no version in the last ",
+      `${p.keep_days} days reads, so Restore and time travel still reach back that far (${p.why}).`),
+    riskPanel(p.risk, { onRecheck: () => { closeDialog(); optimizeDialog(f, box, res, true); }, box: ack }));
+  start.disabled = p.risk?.result === "blocked";
+  if (start.disabled) start.title = "The risk check found something that stops this run";
 }
 
 // Vacuum one table: a dry run first says what it would delete and how much history it keeps.

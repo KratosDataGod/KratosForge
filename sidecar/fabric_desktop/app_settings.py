@@ -178,8 +178,8 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
-                "external AI tools off"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
+                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:

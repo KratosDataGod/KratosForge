@@ -157,6 +157,8 @@ def test_a_broken_file_still_lets_people_sign_in(files):
     Authenticator._check_tenant(me, {"id_token_claims": {"tid": HOME}})
     assert not me.signed_out
     assert app_settings.load()["allowed_tenants"]["source"] != "policy"
+    [problem] = app_settings.policy_problems()
+    assert "Sign-in still works" in problem and "no sign-in" not in problem
     files({"allowed_tenants": [AWAY]})
     with pytest.raises(RuntimeError, match="belongs to another organization"):
         Authenticator._check_tenant(Signed(), {"id_token_claims": {"tid": HOME}})

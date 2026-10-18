@@ -458,13 +458,15 @@ class EstateMixin:
         api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
         return self.access_lakehouse(workspace_id, item_id)
 
-    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> list[dict[str, Any]]:
+    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:
+        """Who can read one table: {readers, partial, problem}. When the data access roles can't be
+        read (other than OneLake security being off), the list is marked partial, never passed off
+        as complete."""
         assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
-        try:
-            roles = self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id)
-        except Exception:  # noqa: BLE001 - without OneLake security, the workspace roles decide
-            roles = None
-        return access_mod.who_can_read(table, assignments, roles)
+        roles, problem = access_mod.read_roles(
+            lambda: self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id))
+        return {"readers": access_mod.who_can_read(table, assignments, roles), "partial": problem is not None,
+                "problem": problem}
 
     # ---- tests that gate a promote
 

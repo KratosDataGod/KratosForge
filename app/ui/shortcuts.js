@@ -230,7 +230,7 @@ async function renderShortcuts() {
       const box = h("div", {}, h("p", { class: "muted-text" }, "Reading workspace roles and data access roles..."));
       inner.append(box);
       rpc("shortcut_readers", { shortcut: s }).then((r) => {
-        fill(box, h("p", { class: r.gap ? "warn-text" : "" }, r.text),
+        fill(box, h("p", { class: r.gap || r.partial ? "warn-text" : "" }, r.text),
           r.readers?.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Person or group", "Reads it as", "Target"].map((x) => h("th", {}, x)))),
             h("tbody", {}, r.readers.map((p) => h("tr", {}, h("td", {}, p.name, p.email ? h("div", { class: "muted-text small" }, p.email) : null),
               h("td", { class: "small" }, p.how),
@@ -313,7 +313,7 @@ async function renderShortcuts() {
         fill(box, h("b", {}, "Where readers and targets don't match"), h("p", { class: "muted-text" }, "Reading workspace roles and data access roles of every shortcut..."));
         return;
       }
-      const rows = sp.data.rows.map((s) => ({ s, a: sp.access.items[s.id] || {} })).filter(({ a }) => a.gap);
+      const rows = sp.data.rows.map((s) => ({ s, a: sp.access.items[s.id] || {} })).filter(({ a }) => a.gap || a.partial);
       fill(box, h("b", {}, "Where readers and targets don't match"),
         rows.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Shortcut", "Readers here", "Target lets in", "What it means", ""].map((x) => h("th", {}, x)))),
           h("tbody", {}, rows.map(({ s, a }) => h("tr", {},
@@ -577,13 +577,15 @@ async function shortcutDialog(mode, opts = {}) {
     timer = setTimeout(async () => {
       const l = host();
       if (!l) return;
+      // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
       verdict = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
-        target_workspace_name: targetWs() }).catch(() => ({ blocked: [], warnings: [] }));
+        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${err}`], warnings: [], unchecked: true }));
       fill(notice,
-        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
+        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
+          : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
         verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
-      primary.lastChild.textContent = mode === "create" && verdict.blocked.length ? "Send as a request instead" : label;
-      primary.disabled = mode === "repoint" && verdict.blocked.length > 0;
+      primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
+      primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
     }, 250);
   };
   const sync = () => {

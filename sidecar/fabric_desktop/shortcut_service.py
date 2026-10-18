@@ -159,29 +159,35 @@ class ShortcutMixin:
                 cache[workspace_id] = None
         return cache[workspace_id]
 
-    def _sc_roles(self, api: FabricClient, workspace_id: str, item_id: str, cache: dict[str, Any]) -> list[dict[str, Any]]:
+    def _sc_roles(self, api: FabricClient, workspace_id: str, item_id: str, cache: dict[str, Any],
+                  problems: list[str]) -> list[dict[str, Any]]:
         key = f"{workspace_id}/{item_id}"
         if key not in cache:
-            try:
-                cache[key] = api.list_data_access_roles(workspace_id, item_id)
-            except Exception:  # noqa: BLE001 - OneLake security off: workspace roles decide
-                cache[key] = []
-        return cache[key]
+            cache[key] = access_mod.read_roles(lambda: api.list_data_access_roles(workspace_id, item_id))
+        roles, problem = cache[key]
+        if problem:
+            problems.append(problem)
+        return roles
 
     def _sc_readers(self, s: dict[str, Any], api: FabricClient, cache: dict[str, Any]) -> dict[str, Any]:
         mine = self._sc_assignments(s["host_workspace_id"], cache)
         if mine is None:
             return {"mode": center.exposure(s), "here": None, "target": None, "gap": None, "missing": [],
                     "readers": [], "text": "You can't see the roles of the workspace it's in"}
+        problems: list[str] = []
         here = access_mod.who_can_read("/" + s["full_path"], mine,
-                                       self._sc_roles(api, s["host_workspace_id"], s["lakehouse_id"], cache))
+                                       self._sc_roles(api, s["host_workspace_id"], s["lakehouse_id"], cache, problems))
         there = None
         if s["target_type"] == "OneLake" and s.get("workspace_id") and s.get("item_id"):
             theirs = self._sc_assignments(s["workspace_id"], cache)
             if theirs is not None:
                 there = access_mod.who_can_read("/" + str(s.get("target_path") or "").strip("/"), theirs,
-                                                self._sc_roles(api, s["workspace_id"], s["item_id"], cache))
-        return center.readers_gap(here, there, center.exposure(s)) | {"readers": here}
+                                                self._sc_roles(api, s["workspace_id"], s["item_id"], cache, problems))
+        out = center.readers_gap(here, there, center.exposure(s)) | {"readers": here, "partial": bool(problems),
+                                                                     "problem": "; ".join(problems) or None}
+        if problems:
+            out["text"] = f"Not complete: {out['text']}. {problems[0]}"
+        return out
 
     def shortcut_readers(self, shortcut: dict[str, Any]) -> dict[str, Any]:
         """Who reads one shortcut, and whether the target lets them in."""
@@ -252,10 +258,13 @@ class ShortcutMixin:
     def shortcut_preflight(self, workspace_id: str, source: dict[str, Any], workspace_name: str = "",
                            target_workspace_name: str = "") -> dict[str, Any]:
         """What the rules say before a shortcut is made: {blocked, warnings}."""
+        # The catalog is always there (a file on this PC until a platform is set up), so a failed
+        # call means the rules are unknown, not that there are none: block until they can be read.
         try:
             rules = self._catalog().call("shortcut_rules")  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no platform: nothing to enforce
-            return {"blocked": [], "warnings": []}
+        except Exception as exc:  # noqa: BLE001
+            return {"blocked": [f"The platform's shortcut rules couldn't be read, so nothing can be checked: {exc}. "
+                                "Try again once the platform answers."], "warnings": [], "unchecked": True}
         return center.check_rules(rules, self._sc_new(workspace_id, workspace_name, source, target_workspace_name),
                                   self._sc_admin())
 

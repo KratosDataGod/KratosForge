@@ -263,10 +263,11 @@ def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str) -> Write
     from . import delta_profile
 
     def write(uri: str, data: pa.Table, how: str = "overwrite") -> DeltaTable:
+        delta_profile.check_target(uri, proof.options())
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
                         schema_mode="overwrite" if how == "overwrite" else None)
         table = DeltaTable(uri, storage_options=proof.options())
-        delta_profile.check_table(table)
+        delta_profile.note_after_write(table)
         return table
     uri = proof.write_location(ref.schema, ref.table, mode, write)
     table = write(uri, arrow, mode)

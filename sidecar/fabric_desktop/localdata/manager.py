@@ -130,7 +130,8 @@ class LocalData:
         record = self._queries.get(query_id)
         if record is None or record["state"] != "running":
             return {"cancelled": False}
-        return {"cancelled": self.engine(record["project"]).cancel(query_id)}
+        # The query's thread may not have reached the engine yet: it is then stopped as it starts.
+        return {"cancelled": self.engine(record["project"]).cancel(query_id, not_started=True)}
 
     def _sweep(self) -> None:
         now = time.time()

@@ -204,6 +204,8 @@ Checks run before every write. Each has an `on_fail`:
 3. **Promote:** Dev to Test and Test to Prod need a clean save gate, passing tests, and a green last run of every table's current logic.
 4. **After:** `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history` and `meta.deployments` in `LH_Meta`, plus `_run_id` and `_loaded_at` on every row and the run id and metadata version on every Delta commit.
 
+The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
+
 **Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
 
 ```toml
@@ -383,6 +385,13 @@ lib.CRM_server_host
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
+- If a model with that name already exists (for example after a rename), Fabric Desktop by KratosBI asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+
+**When Fabric can't be read.** Fabric Desktop by KratosBI doesn't guess whether a model exists or what a table holds:
+
+- If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
+- A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
 

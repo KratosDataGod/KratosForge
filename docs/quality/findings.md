@@ -51,6 +51,7 @@ Severity:
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
 | QA-030 | Low | Architecture | Domain modules import the service layer; six cycles through function-level imports | PR-QA-08 |
+| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize |
 
 ## Details
 
@@ -319,3 +320,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 **Evidence: Code.** Domain modules import the service layer: `agent.py:30,36` (`dataops_service.post_teams`, `runtime`), `sql_exec.py:554` (`service._json_value`), `integrations/http_server` and `mcp_server` (`service`). No module-level cycles, but six through function-level imports: `app_settings`, `auth` and `telemetry`; `lakehouse` and `sql`; four `integrations` modules; three `meta` modules; `sqlcompat.analyzer` and `rules`; `service` and `sql_exec`. 110 imports sit inside functions.
 
 **Fix.** PR-QA-08 moves `post_teams` and `_json_value` down to domain modules. **Verify:** an import-graph test that `*_service` modules are imported only by `service.py`, `server.py`, `cli.py` and the integrations host.
+
+### QA-032 X-ray Optimize starts a Fabric job without asking (Medium)
+
+`xray.js:162` calls `xray_optimize` as soon as **Optimize** is pressed. That starts a Fabric table maintenance job (`fabric_api.run_table_maintenance`), which rewrites the table's files in OneLake and uses capacity. The table's rows and history are unchanged, so no data is lost, but it is a OneLake write and a capacity spend with no confirmation and no FinOps risk check, unlike Vacuum (preview, then confirm) and the run dialogs. AGENTS.md asks for confirmation before OneLake writes. Fix: a plain (not danger) confirm that names the table, says it runs in Fabric and uses capacity, and goes through the risk check like other Fabric runs. Found grading #230, whose panel describes the behavior correctly.
+

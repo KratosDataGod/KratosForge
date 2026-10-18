@@ -24,6 +24,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from ..retrying import TRANSIENT_STATUS, status_of
+
 # The codes a caller can rely on. Messages change; codes don't.
 CODES = {
     "invalid_input": "The arguments don't match what the capability takes.",
@@ -96,11 +98,6 @@ def redact_result(value: Any) -> Any:
     return value
 
 
-def _status_of(exc: BaseException) -> int | None:
-    response = getattr(exc, "response", None)
-    return getattr(response, "status_code", None)
-
-
 def error_from(exc: BaseException) -> IntegrationError:
     """The engine's exception as an IntegrationError. The engine's messages are already written for
     people, so they are kept, without secrets."""
@@ -108,13 +105,13 @@ def error_from(exc: BaseException) -> IntegrationError:
         return exc
     message = redact_secrets(str(exc) or type(exc).__name__)
     name = type(exc).__name__
-    status = _status_of(exc)
+    status = status_of(exc)
     if name == "FabricError" or status is not None or name in ("HTTPError", "ConnectionError", "Timeout"):
         if status in (401, 403) or "Unauthorized" in message or "Forbidden" in message:
             return IntegrationError("permission_denied", message, hint="Your account can't do this in Fabric. Check your workspace role.")
         if status == 404 or "NotFound" in message:
             return IntegrationError("not_found", message)
-        if status == 429 or (status or 0) >= 500 or name in ("ConnectionError", "Timeout"):
+        if status in TRANSIENT_STATUS or name in ("ConnectionError", "Timeout"):
             return IntegrationError("upstream", message, retryable=True, hint="Fabric is busy or can't be reached; try again shortly.")
         return IntegrationError("upstream", message)
     if hasattr(exc, "errors"):  # a metadata gate: its message lists every reason

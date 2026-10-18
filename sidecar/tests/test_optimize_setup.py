@@ -12,7 +12,7 @@ from deltalake import write_deltalake
 
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.installation import Installation
-from fabric_desktop.meta.store import LocalStore
+from fabric_desktop.meta.store import Store
 from fabric_desktop import retrying
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.optimize.registry import Registry
@@ -97,7 +97,7 @@ WINDOWS_RACE = OSError(
 def test_windows_delta_log_race_is_retried(lake, monkeypatch):
     # On Windows a second writer can briefly be refused the log file the first is renaming.
     calls = []
-    real = LocalStore.create_if_absent
+    real = Store.create_if_absent
 
     def flaky(self, *args, **kwargs):
         calls.append(1)
@@ -105,7 +105,7 @@ def test_windows_delta_log_race_is_retried(lake, monkeypatch):
             raise WINDOWS_RACE
         return real(self, *args, **kwargs)
 
-    monkeypatch.setattr(LocalStore, "create_if_absent", flaky)
+    monkeypatch.setattr(Store, "create_if_absent", flaky)
     monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
     assert lake.create("fdopt_config", {schema.KEY: pl.String}) is True
     assert len(calls) == 2 and lake.has("fdopt_config")
@@ -118,10 +118,31 @@ def test_other_errors_are_not_retried(lake, monkeypatch):
         calls.append(1)
         raise OSError("Access is denied. (os error 5)")  # not the Delta log race
 
-    monkeypatch.setattr(LocalStore, "create_if_absent", broken)
+    monkeypatch.setattr(Store, "create_if_absent", broken)
     with pytest.raises(OSError):
         lake.create("fdopt_config", {schema.KEY: pl.String})
     assert len(calls) == 1
+
+
+def test_race_retries_are_bounded(lake, monkeypatch):
+    # One level of retry per call: LocalStore's or LocalLakehouse's, never both (6 tries, not 36).
+    calls = {"create": 0, "exists": 0}
+
+    def race(name):
+        def fail(self, *args, **kwargs):
+            calls[name] += 1
+            raise WINDOWS_RACE
+        return fail
+
+    monkeypatch.setattr(Store, "create_if_absent", race("create"))
+    monkeypatch.setattr(Store, "exists", race("exists"))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    with pytest.raises(OSError):
+        lake.create("fdopt_config", {schema.KEY: pl.String})
+    with pytest.raises(OSError):
+        lake.has("fdopt_config")
+    assert calls == {"create": 6, "exists": 6}
+
 
 def test_unrelated_tables_are_left_alone(tmp_path, lake):
     other = lake.uri("optimization", "dbo", "sales")

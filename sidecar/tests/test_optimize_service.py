@@ -1,0 +1,126 @@
+"""Optimize's app calls: create, connect, switch, disconnect, and the IT policy switch."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from fabric_desktop import app_settings, audit, server
+from fabric_desktop.optimize import setup
+from fabric_desktop.optimize.lakehouse import LocalLakehouse
+from fabric_desktop.service import Service
+
+
+class FakeFabric:
+    def __init__(self):
+        self.lakehouses: dict[str, list[dict]] = {"w1": [{"id": "lh-sales", "displayName": "Sales"}]}
+        self.created: list[str] = []
+
+    def list_lakehouses(self, workspace_id):
+        return self.lakehouses.get(workspace_id, [])
+
+    def find_lakehouse(self, workspace_id, name):
+        return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
+
+    def create_lakehouse(self, workspace_id, name):
+        lh = {"id": f"lh-{len(self.created) + 1}", "displayName": name}
+        self.lakehouses.setdefault(workspace_id, []).append(lh)
+        self.created.append(name)
+        return lh
+
+
+@pytest.fixture
+def svc(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_settings, "policy_path", lambda: tmp_path / "policy.json")
+    monkeypatch.setattr(app_settings, "user_path", lambda: tmp_path / "user.json")
+    s = Service(root=tmp_path / "app")
+    fabric = FakeFabric()
+    monkeypatch.setattr(Service, "fabric", property(lambda self: fabric))
+    lakes = tmp_path / "onelake"
+    monkeypatch.setattr(Service, "_optimize_lake",
+                        lambda self, ws, lh, schemas=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
+    s.fake = fabric
+    s.lakes = lakes
+    return s
+
+
+def test_calls_are_registered_and_audited_as_they_should_be():
+    from fabric_desktop.optimize_service import METHODS
+    assert METHODS <= server.METHODS
+    assert not audit.audited("optimize_status") and not audit.audited("optimize_inspect")
+    assert not audit.audited("optimize_discover")
+    assert audit.audited("optimize_create") and audit.audited("optimize_connect") and audit.audited("optimize_disconnect")
+
+
+def test_create_initializes_and_connects(svc):
+    out = svc.optimize_create("w1", workspace_name="Platform")
+    assert out["connected"] and out["created"] and out["access"]["write"]
+    assert svc.fake.created == ["FabricDesktop_Optimization"]
+    conn = svc.optimize_status()["active"]
+    assert conn["lakehouse_name"] == "FabricDesktop_Optimization" and conn["access"] == "write"
+    assert conn["schema_version"] == 1
+    assert svc.optimize_inspect("w1", conn["lakehouse_id"])["state"] == setup.READY
+
+
+def test_create_that_fails_part_way_says_how_to_finish(svc, monkeypatch):
+    monkeypatch.setattr(setup, "initialize", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("network down")))
+    with pytest.raises(RuntimeError, match="Connect to it to finish"):
+        svc.optimize_create("w1")
+
+
+def test_create_refuses_a_name_already_used(svc):
+    with pytest.raises(ValueError, match="already has a lakehouse called Sales"):
+        svc.optimize_create("w1", name="Sales")
+    assert svc.fake.created == []
+
+
+def test_connect_to_a_lakehouse_with_other_tables_asks_first(svc):
+    out = svc.optimize_connect("w1", "lh-sales")
+    assert out == {"connected": False, "needs_confirmation": True, "inspection": out["inspection"]}
+    assert out["inspection"]["state"] == setup.EMPTY
+    assert svc.optimize_status()["connections"] == []
+    assert svc.optimize_connect("w1", "lh-sales", initialize=True)["connected"]
+
+
+def test_second_installation_connects_to_the_same_lakehouse(svc, tmp_path, monkeypatch):
+    lh = svc.optimize_create("w1")["connection"]["lakehouse_id"]
+    other = Service(root=tmp_path / "other-pc")
+    out = other.optimize_connect("w1", lh, lakehouse_name="FabricDesktop_Optimization")
+    assert out["connected"] and out["access"]["write"]
+    lake = LocalLakehouse(svc.lakes / "w1" / lh)
+    assert len(lake.rows("fdopt_installations")) == 2
+    assert len(lake.rows("fdopt_schema_version")) == 1
+
+
+def test_discover_marks_optimization_lakehouses(svc):
+    svc.optimize_create("w1")
+    found = svc.optimize_discover("w1")
+    assert [(f["lakehouse_name"], f["optimize"]) for f in found] == [("FabricDesktop_Optimization", True), ("Sales", False)]
+
+
+def test_disconnect_keeps_the_lakehouse(svc):
+    lh = svc.optimize_create("w1")["connection"]["lakehouse_id"]
+    lake = LocalLakehouse(svc.lakes / "w1" / lh)
+    rows = len(lake.rows("fdopt_installations"))
+    assert svc.optimize_disconnect(lh)["active"] is None
+    assert setup.inspect(lake)["state"] == setup.READY and len(lake.rows("fdopt_installations")) == rows
+    assert svc.optimize_connect("w1", lh)["connected"]  # reconnect: nothing new to create
+
+
+def test_policy_can_turn_it_off(svc, tmp_path):
+    (tmp_path / "policy.json").write_text(json.dumps({"allow_optimize_lakehouse": False}))
+    assert svc.optimize_status()["allowed"] is False
+    with pytest.raises(PermissionError, match="allow_optimize_lakehouse"):
+        svc.optimize_create("w1")
+    with pytest.raises(PermissionError):
+        svc.optimize_connect("w1", "lh-sales", initialize=True)
+    assert svc.fake.created == [] and not Path(svc.lakes).exists()
+    assert app_settings.policy_problems() == []
+
+
+def test_installation_id_reset_and_label(svc):
+    first = svc.optimize_status()["installation_id"]
+    assert svc.optimize_new_installation_id()["installation_id"] != first
+    assert svc.optimize_set_label("  Build server ")["label"] == "Build server"

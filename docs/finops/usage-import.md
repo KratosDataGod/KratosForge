@@ -1,4 +1,4 @@
-# Measured usage from the Capacity Metrics app
+# Measured usage from Capacity Metrics and Cost Management exports
 
 Fabric Desktop by KratosBI estimates what each Fabric run used from its run time ([Capacity and cost evidence](cost-evidence.md)). For the CU your capacity actually recorded, import a file exported from Microsoft's **Fabric Capacity Metrics app**. The app reads the file on this PC, keeps its rows as **Measured** figures, and sets them beside its own estimates.
 
@@ -8,7 +8,7 @@ Fabric Desktop by KratosBI estimates what each Fabric run used from its run time
 
 No supported Fabric API gives a developer the CU their runs used. The Capacity Metrics app has it, but only capacity admins can open it, and its semantic model is only supported for the app's own reports, so Fabric Desktop by KratosBI never queries it. A capacity admin can export a table from the app and hand you the CSV. You don't need admin rights to import it, and nothing is sent anywhere.
 
-[The usage source decision](plan.md#finops-003-usage-source-decision) records which sources are supported and why. Azure Cost Management exports (billed money per capacity and day) are the next provider.
+[The usage source decision](plan.md#finops-003-usage-source-decision) records which sources are supported and why. For what a capacity was billed, import an [Azure Cost Management export](#billed-per-capacity-from-azure-cost-management) too.
 
 ## Getting the file
 
@@ -63,6 +63,24 @@ Runs that didn't match are counted by reason: **No row** (an import covers that 
 
 The cost figures above the card are unchanged: they stay estimates, so you can compare the two.
 
+## Billed per capacity, from Azure Cost Management
+
+Azure bills a Fabric capacity per meter and day. Someone with **Cost Management Reader** on the capacity's subscription (usually finance or the platform team) can export it and hand you the CSV. You need no Azure access yourself, and the app never calls Azure.
+
+Two documented layouts are read:
+
+- **Cost details**, with **Actual cost** (Azure portal > Cost Management > Exports, or a downloaded cost details report). The columns used are Date, MeterName, Quantity, UnitOfMeasure, CostInBillingCurrency (Cost in pay-as-you-go files), BillingCurrency, ResourceId, ResourceName, ChargeType and PricingModel. Column names are compared without case, because Microsoft notes they differ between account types.
+- **FOCUS** cost and usage: ChargePeriodStart, ChargePeriodEnd, SkuMeter, ConsumedQuantity, ConsumedUnit, BilledCost and BillingCurrency. A file that has only EffectiveCost is refused: that is the amortized cost, and a reservation purchase would be counted twice.
+
+Only rows of a Fabric capacity are kept (a ResourceId of type `Microsoft.Fabric/capacities`); every other row is skipped with its reason, and so are refunds and credits (negative amounts). Each kept row is measured and shows:
+
+- its **cost**, in its own billing currency, before credits and taxes. Amounts in different currencies are never added together;
+- its **CU hours**, only for a compute meter (Microsoft names them "... Capacity Usage CU") billed in hours. Storage meters and a reservation's own meter carry cost only.
+
+Month-to-date exports repeat the earlier days of the month, and their last day may still be growing. A row for a capacity, meter, day and charge type that an earlier import already has replaces it: the export imported last counts, and the preview says how many rows it replaces. An identical row is skipped as already imported. Import the newest export last.
+
+The card's **Billed per capacity** table shows each capacity, the days covered, the compute CU hours billed and the cost per currency, and which of your environments use that capacity (from the last capacity reading on this PC; see [Capacity of each environment](capacity.md)). These figures are for the whole capacity, so they are never matched to single runs or added to the Capacity Metrics figures.
+
 ## On this PC
 
 Imports are kept in `usage_imports` in the app's data folder (`%LOCALAPPDATA%\FabricDesktop` on Windows), one file per import, with the file's name and SHA-256. **Remove** deletes an import's local copy; your exported file isn't touched. Importing and removing are recorded in the [audit trail](../user-guide.md#audit-trail); the file's contents aren't.
@@ -72,4 +90,5 @@ Imports are kept in `usage_imports` in the app's data folder (`%LOCALAPPDATA%\Fa
 - Matching uses names. Renaming a notebook or workspace between the run and the export stops it matching.
 - Operation ids in the export aren't documented to equal Fabric job ids, so they're used only to spot the same operation imported twice.
 - CSV only; up to 64 MB and 250,000 rows per file.
-- Not yet validated against a live tenant's export: the column names come from Microsoft Learn's description of the app's tables.
+- Not yet validated against a live tenant's export: the column names come from Microsoft Learn's description of the app's tables and of Cost Management's cost details and FOCUS files.
+- A Cost Management export's ResourceName is taken as the capacity's name, which is how its environments are found. A capacity renamed in Azure won't match its environment.

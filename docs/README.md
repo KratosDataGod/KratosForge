@@ -45,7 +45,8 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [finops/capacity.md](finops/capacity.md) | Engineers, platform owners | The capacity each environment is on, whether it is running, and what to do when it can't be read |
-| [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates |
+| [finops/risk-check.md](finops/risk-check.md) | Engineers, FinOps, IT | What the risk check before a run looks at, its results, settings and acknowledgements |
+| [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The shared optimization lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
@@ -130,7 +131,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Platform (admins, landing zone, business keys, requests) | Platform, Settings, Data mesh > Surrogate keys |
 | Data products for everyone | OneLake > Data products |
 | Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
-| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Workloads, Home |
+| Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Operations > Workloads, Home |
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

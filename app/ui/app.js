@@ -446,9 +446,9 @@ async function renderHome() {
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
   const projectCall = rpc("meta_project").catch(() => null);
-  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => []);
+  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
-  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {} }));
+  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {}, failed: true }));
 
   // Coming up: this PC's schedules straight away, Fabric's added once read (only when signed in).
   const upcomingDone = (async () => {
@@ -500,13 +500,18 @@ async function renderHome() {
     const cloudFailed = (cloud || []).filter((r) => r.status === "Failed" && Date.now() - new Date(r.started_at) < 86400000);
 
     const problems = failing.length + cloudFailed.length;
+    // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
+    const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
       const late = (fresh.items || []).filter((x) => x.status === "late").length;
       const total = problems + late;
       summary.textContent = [
-        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention` : "Nothing needs your attention",
+        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
+        unread.length ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();
@@ -565,7 +570,20 @@ function renderCreate() {
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs" };
+const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads" };
+// Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
+const MONITOR_OPS = [
+  { panel: "workloads", feature: "workloads", label: "Workloads", anchor: "workloads-preview",
+    text: "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner" },
+  { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
+    text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
+  { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
+    text: "Fabric Desktop by KratosBI on your own servers, from the status they report" },
+  { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
+    text: "Which identity runs your workloads in each place, and with what credential" },
+  { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
+    text: "One record per problem, shared by everyone who can read the environment" },
+];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
@@ -582,6 +600,11 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
+  const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
+  const op = ops.find((o) => o.panel === monitorPage.panel);
+  if (op) monitorPage.opsView = op.panel;
+  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
+  const show = (panel) => () => { monitorPage.panel = panel; render(); };
   // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
   const wide = monitorPage.panel !== "runs";
   const fabricShown = monitorPage.showFabric && !wide;
@@ -590,20 +613,20 @@ async function renderMonitor() {
       h("div", { class: "monitor-band" },
         h("h2", {}, "From Fabric Desktop by KratosBI"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
-          preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
-          preview("incidents", h("button", { class: monitorPage.panel === "incidents" ? "on" : null, onclick: () => { monitorPage.panel = "incidents"; render(); } }, "Incidents")),
-          preview("agents", h("button", { class: monitorPage.panel === "agents" ? "on" : null, onclick: () => { monitorPage.panel = "agents"; render(); } }, "Agents")),
-          preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
-          preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
-        h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
-          : monitorPage.panel === "incidents" ? "One record per problem, shared by everyone who can read the environment"
-          : monitorPage.panel === "agents" ? "Fabric Desktop by KratosBI on your own servers, from the status they report"
+          segment(monitorPage.panel === "runs", "Runs", show("runs")),
+          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
+          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null,
+          preview("cost", segment(monitorPage.panel === "cost", "Cost", show("cost")))),
+        h("span", { class: "muted-text" }, op ? op.text
           : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
-        ["workloads", "incidents", "agents"].includes(monitorPage.panel) ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        op ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
+        h("span", { class: "muted-text small" }, "Show"),
+        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -632,6 +655,8 @@ async function renderMonitor() {
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
+  if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
+  if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
   const [writes, meta, cloud, scheduled] = await Promise.all([
     attempt(() => rpc("history")),
@@ -747,7 +772,7 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"),
+  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
@@ -856,11 +881,19 @@ function openInFabric(page) {
   }
 }
 
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+function workspacesTabs(active) {
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label)));
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
-  setView(h("div", { class: "page monitor fabric-page" },
+  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"),
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
@@ -2167,6 +2200,10 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
+  // not yet linked to its Fabric item can't be checked and runs as before.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
+    runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
   const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
   if (!run) return;
@@ -2452,7 +2489,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
 });
 registerFeature({
@@ -2466,13 +2503,17 @@ registerFeature({
     { label: "OneLake access", icon: "shield", keywords: "permissions roles security", preview: true, run: () => { catalogPage.tab = "access"; go("onelake"); } },
   ],
 });
-registerFeature({ id: "fabric", rail: { label: "Fabric", icon: "cloud", order: 60 }, views: { fabric: renderFabric } });
+// Fabric's own portal is a tab of Workspaces; its rail slot went to Optimize (optimize.js).
+registerFeature({
+  id: "fabric", views: { fabric: renderFabric },
+  commands: [{ label: "Fabric portal", icon: "cloud", keywords: "fabric web browser app.fabric.microsoft.com", run: () => go("fabric") }],
+});
 registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
     { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
-    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { monitorPage.panel = "cost"; go("monitor"); } },
+    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });
 

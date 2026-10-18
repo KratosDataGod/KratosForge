@@ -142,7 +142,39 @@ function backToAgents() {
 function agentsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading agent status records..."));
   loadAgents(box);
-  return box;
+  return h("div", { class: "sc-two ag-two" }, box, agGuide());
+}
+
+// A link to a section of docs/agent.md.
+function agDoc(anchor, label) {
+  return h("a", { href: "#", class: "learn-more", onclick: (e) => {
+    e.preventDefault();
+    attempt(() => invoke("open_doc", { page: `agent.md#${anchor}` }), "Could not open the guide");
+  } }, label);
+}
+
+// How agents work and where they are going, beside the list (testing item 34).
+function agGuide() {
+  return h("div", { class: "sc-col sc-side" },
+    h("div", { class: "card pad" }, h("b", {}, "What an agent is"),
+      h("p", { class: "small" }, "Fabric Desktop by KratosBI running on a server of yours, with no one signed in. It runs a metadata project's tables on their schedules, and the runs Fabric pipelines ask it for, so work keeps going when your PC is off."),
+      h("p", { class: "small" }, "It signs in as a service principal or a managed identity, never as you, and writes tables to OneLake like this PC does."),
+      agDoc("what-it-does", "What it does")),
+    h("div", { class: "card pad" }, h("b", {}, "Setting one up"),
+      h("ol", { class: "small ag-steps" },
+        h("li", {}, "Give it an identity with access to the environment's workspaces. ", agDoc("set-up-the-identity", "Identity")),
+        h("li", {}, "Write agent.toml: the project, the environments, its schedules. ", agDoc("configure", "Configure")),
+        h("li", {}, "Install it as a service on Windows or Linux, or run the container. ", agDoc("install", "Install")),
+        h("li", {}, "Check it here: it shows in this list within a minute of starting. ", agDoc("verify-on-your-tenant", "Verify")))),
+    h("div", { class: "card pad" }, h("b", {}, "What this page shows"),
+      h("p", { class: "small" }, "Each agent writes a status record to every environment it serves, in that environment's LH_Meta. This page reads those records with your sign-in. It never reaches the agent's server, and nothing here starts, stops or changes an agent."),
+      h("p", { class: "muted-text small" }, "An agent that misses its promised report shows Stopped reporting, with its last report as it was. ", agDoc("status-records", "Status records"))),
+    h("div", { class: "card pad" }, h("b", {}, "Where this is going"),
+      h("ul", { class: "small ag-steps" },
+        h("li", {}, h("b", {}, "Now: "), "an agent per server, with its own durable queue, retries and a write lease per table."),
+        h("li", {}, h("b", {}, "Preview, off by default: "), "several agents sharing a schedule, and taking over from one that stops reporting. ", agDoc("shared-schedules-preview", "Shared schedules")),
+        h("li", {}, h("b", {}, "Preview: "), "Run as shows which identity each agent uses and when its certificate expires.")),
+      h("p", { class: "muted-text small" }, "Agents haven't been run against a live tenant yet.")));
 }
 
 async function loadAgents(box) {
@@ -163,7 +195,7 @@ async function loadAgents(box) {
       h("p", { class: "muted-text small grow" }, "Each agent writes a status file in every environment it serves; this page reads those files. Nothing here starts, stops or changes an agent."),
       btn("Refresh", "sync", () => loadAgents(box), "tool outline")),
     h("div", { class: "wl-sources inc-watchers" }, sources),
-    agOverlaps(out),
+    agOverlaps(out) || "",  // replaceChildren would print a null
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
       h("thead", {}, h("tr", {}, ["Agent", "State", "Serves", "Doing now", "Next scheduled", "Last 10 jobs", "Checks incidents", "Version"].map((c) => h("th", {}, c)))),
       h("tbody", {}, rows.map((a) => h("tr", { class: `click${a.state === "stopped" ? " inc-done" : ""}`, onclick: () => openAgent(a.agent) },
@@ -222,11 +254,12 @@ function agRuns(a, e) {
     h("div", {}, p.enabled ? `Pipeline jobs for ${(p.entities || []).join(", ") || "every entity"} · ${e.concurrency || 1} at a time · backfill ${p.allow_backfill ? "allowed" : "not allowed"}`
       : "Doesn't take pipeline jobs"),
     scheds.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Schedule", "Runs", "Next", ""].map((c) => h("th", {}, c)))),
-      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id),
+      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id, s.shared ? h("span", { class: "pill-s neu", title: "Shared with other agents through the mailbox: each due time runs once, on whichever claims it" }, "Shared") : null),
         h("td", { class: Array.isArray(s.entities) ? null : "muted-text" }, !Array.isArray(s.entities) ? "Doesn't say (an older version)"
           : s.entities.join(", ") || "Every table"),
         h("td", {}, s.next ? agAt(s.next) : "None"),
         h("td", { class: a.state === "live" ? "muted-text" : "reason" }, a.state === "live" ? ""
+          : s.shared ? "Runs on the other agents that share it, if any are up"
           : s.next && new Date(s.next) < new Date() ? "Missed; runs once when the agent is back" : "Won't run while it is down")))))
       : h("p", { class: "muted-text" }, "No schedules here."));
 }

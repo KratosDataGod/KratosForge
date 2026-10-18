@@ -54,6 +54,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   tests: "Tests",
   xray: "Estate X-ray",
+  optimize: "Optimize",
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",
@@ -61,6 +62,8 @@ const PREVIEW_FEATURES = {
   workloads: "Workloads",
   incidents: "Incidents",
   agents: "Agents",
+  queue: "Queue",
+  runAs: "Run as",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
@@ -69,6 +72,7 @@ const PREVIEW_FEATURES = {
   syncKeys: "Sync keys",
   varlib: "Variable library",
   replay: "Quarantine replay",
+  risk: "Risk check before a run",
 };
 
 function previewShown() {
@@ -89,7 +93,7 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay", "risk"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {

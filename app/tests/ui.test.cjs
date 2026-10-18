@@ -659,3 +659,19 @@ test("with platform keys, no Keys button makes a project key table", () => {
   platform.onClick(); local.onClick();
   assert.deepStrictEqual([platform.label, local.label, ...opened], ["Use a key table", "New key table", "use", "new"]);
 });
+
+test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const features = read("features.js");
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+    assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
+    assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
+  }
+  // A marked step keeps working when someone hides preview features; it only loses the tag.
+  const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
+  vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
+  const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  ctx.shown = false;
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
+});

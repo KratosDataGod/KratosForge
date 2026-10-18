@@ -661,7 +661,7 @@ async function renderEnvTab(body, p) {
       box.replaceWith(res.notes?.length ? h("div", {}, verdict, h("div", { class: "card pad warn-box" }, gateList(res.notes))) : verdict);
     });
     return h("div", { class: "card pad" },
-      h("div", { class: "row" }, h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`), h("span", { class: "spacer" }),
+      h("div", { class: "row" }, previewMarked("promote", h("b", {}, `Promote ${ENV_LABEL[source]} to ${ENV_LABEL[target]}`)), h("span", { class: "spacer" }),
         btn(`Promote to ${ENV_LABEL[target]}`, "publish", async () => {
           if (!state.user && !(await signIn())) return;
           toast(`Promoting to ${ENV_LABEL[target]}...`);
@@ -813,7 +813,7 @@ async function renderKeysTab(body) {
         h("div", { class: "muted-text" }, "One table per business key. Every run MERGEs new business keys here first, then puts the key on every row."),
         h("div", { class: "muted-text small" }, keysWhere(k)))),
     k.local ? null : btn(k.workspace_id ? "Change Keys workspace" : "Pick Keys workspace", "workspace", () => pickKeysWorkspace(k.env), "tool outline small"),
-    btn("Sync to LH_Keys", "sync", async () => {
+    previewMarked("syncKeys", btn("Sync to LH_Keys", "sync", async () => {
       if (!k.local && !state.user && !(await signIn())) return;
       const res = await metaCall("meta_keys_sync", { env: k.env }, "Not synced");
       if (res) {
@@ -822,7 +822,7 @@ async function renderKeysTab(body) {
           : `Synced: ${res.config.source_system} source systems${res.created.length ? `, created ${res.created.map((n) => `sk.${n}`).join(", ")}` : ""}`);
         rerender();
       }
-    }, "tool outline small"),
+    }, "tool outline small")),
     addKeyTableButton(k, rerender, "tool primary small")));
 
   const problems = [...k.errors, ...(k.problem ? [k.problem] : [])];

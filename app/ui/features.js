@@ -61,6 +61,10 @@ const PREVIEW_FEATURES = {
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
+  promote: "Promote",
+  syncKeys: "Sync keys",
+  varlib: "Variable library",
+  replay: "Quarantine replay",
 };
 
 function previewShown() {
@@ -76,6 +80,13 @@ function preview(id, node) {
   if (!PREVIEW_FEATURES[id]) return node;
   if (!previewShown()) return null;
   node.append(previewTag());
+  return node;
+}
+
+// The node with a Preview tag while preview features are shown; the node alone otherwise. For core
+// steps (promote, sync keys) that are untested on a tenant but must not disappear with the setting.
+function previewMarked(id, node) {
+  if (PREVIEW_FEATURES[id] && previewShown()) node.append(previewTag());
   return node;
 }
 

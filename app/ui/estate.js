@@ -151,7 +151,7 @@ function varlibBody(v, reload) {
   const cell = (x, env) => env !== "dev" && x[env] === x.dev ? h("td", { class: "muted-text small" }, "same as Dev")
     : h("td", { class: "mono small" }, x[env] || h("span", { class: "muted-text" }, "empty"));
   return [
-    h("div", { class: "row wrap" }, h("b", { class: "grow" }, `Variable library ${v.library}`),
+    h("div", { class: "row wrap" }, previewMarked("varlib", h("b", { class: "grow" }, `Variable library ${v.library}`)),
       envs.map((env) => {
         const ws = v.environments[env];
         return btn(`Publish to ${ENV_LABEL[env]}`, "publish", () => publish(env), "tool outline small",

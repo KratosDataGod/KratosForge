@@ -293,7 +293,7 @@ function quarantinePanel(e, q) {
   const edits = {};
   const editable = new Set(q.editable || []);
   const count = h("span", { class: "muted-text" });
-  const replayBtn = btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true });
+  const replayBtn = previewMarked("replay", btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true }));
   const discardBtn = btn("Discard selected", "delete", () => discard(), "tool outline small", { disabled: true });
   const sync = () => {
     const edited = Object.keys(edits).filter((id) => Object.keys(edits[id]).length).length;

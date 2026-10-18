@@ -22,6 +22,7 @@ import io
 import json
 import keyword
 import os
+import uuid
 import re
 import sys
 import threading
@@ -867,6 +868,16 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
             "workspace": ours.get("workspace")}
 
 
+def _write_atomic(path: Path, text: str) -> None:
+    """Write through a temporary file of this write's own, so two writers never share one."""
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 class NotebookStore:
     def __init__(self, folder: Path):
         self.folder = folder
@@ -911,9 +922,7 @@ class NotebookStore:
         nb = merge_saved(to_ipynb(cells, lakehouse, compute, workspace), before) if before else \
             to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        _write_atomic(path, json.dumps(nb, indent=1))
         return {"name": name, "cell_ids": ids}
 
     def extra(self, name: str, key: str) -> Any:
@@ -934,9 +943,7 @@ class NotebookStore:
             fd.pop(key, None)
         else:
             fd[key] = value
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        _write_atomic(path, json.dumps(nb, indent=1))
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}

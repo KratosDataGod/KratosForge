@@ -118,3 +118,26 @@ def test_notebook_writes_stay_in_order_with_publish():
     # publish queued behind a long call, the publish would write the older cells over it.
     writers = {"new_notebook", "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook"}
     assert writers <= server.METHODS and not writers & server.QUICK
+
+
+def test_concurrent_saves_of_one_notebook_never_share_a_temp_file(tmp_path):
+    import threading
+
+    from fabric_desktop.notebook import NotebookStore
+    store = NotebookStore(tmp_path)
+    store.save("nb", [{"type": "code", "source": "0"}], None)
+    errors: list[Exception] = []
+
+    def save(i: int) -> None:
+        try:
+            for _ in range(20):
+                store.save("nb", [{"type": "code", "source": str(i)}], None)
+        except Exception as exc:  # noqa: BLE001 - collected for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and not list(tmp_path.rglob("*.tmp"))

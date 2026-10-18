@@ -613,11 +613,12 @@ fn fabric_host(host: &str) -> bool {
 /// The only hosts the Fabric view itself navigates to (top-level pages and pop-ups), matched
 /// exactly, https only. Images, scripts and frames inside a page aren't filtered by this.
 /// The list and its reasons are in docs/security.md (SH-12).
-const FABRIC_VIEW_HOSTS: [&str; 4] = [
+const FABRIC_VIEW_HOSTS: [&str; 5] = [
     "app.fabric.microsoft.com",  // Fabric's portal: Monitoring hub, OneLake catalog, item pages
     "app.powerbi.com",           // Fabric's former portal host; older item links redirect through it
     "login.microsoftonline.com", // Entra ID sign-in and sign-out
     "login.microsoft.com",       // Entra ID's other sign-in host, used on some sign-in redirects
+    "login.windows.net",         // Entra ID's legacy sign-in host; older links and redirects still use it
 ];
 
 /// What the Fabric view does with a page it is about to open.
@@ -738,16 +739,10 @@ async fn fabric_view_show(
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
     // The organization's identity provider hosts, read once for this view.
     let sign_in_hosts = Arc::new(fabric_view_sign_in_hosts());
-    let for_pop_ups = sign_in_hosts.clone();
+    let (app_, for_pop_ups) = (app.clone(), sign_in_hosts.clone());
     let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
         .on_navigation(move |url| fabric_nav_allows(url, false, &sign_in_hosts))
-        .on_new_window(move |url, _| {
-            if fabric_nav_allows(&url, true, &for_pop_ups) {
-                NewWindowResponse::Allow
-            } else {
-                NewWindowResponse::Deny
-            }
-        });
+        .on_new_window(move |url, features| fabric_pop_up(&app_, &for_pop_ups, url, features));
     #[cfg(windows)]
     let builder = match sso::environment(&app) {
         Ok(environment) => builder.with_environment(environment),
@@ -764,6 +759,44 @@ async fn fabric_view_show(
     view.navigate(target).map_err(|e| e.to_string())?;
     signin::keep_saving(app.clone());
     Ok(())
+}
+
+/// Pop-ups the Fabric view opens (sign-in windows, mostly). An allowed one gets a window the app
+/// builds itself, with the same navigation and pop-up filter, rather than WebView2's own window,
+/// which would share the sign-in but follow any link. The new webview is handed to WebView2 as the
+/// pop-up (SetNewWindow), so `window.opener` and postMessage back to the opener keep working.
+/// `window_features` puts it in the opener's WebView2 environment, so it shares the sign-in.
+fn fabric_pop_up(
+    app: &tauri::AppHandle,
+    sign_in_hosts: &Arc<Vec<String>>,
+    url: Url,
+    features: tauri::webview::NewWindowFeatures,
+) -> NewWindowResponse<tauri::Wry> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    if !fabric_nav_allows(&url, true, sign_in_hosts) {
+        return NewWindowResponse::Deny;
+    }
+    let label = format!("{FABRIC_VIEW}-popup-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let blank = Url::parse("about:blank").expect("about:blank parses");
+    let (hosts, app_, hosts_) = (sign_in_hosts.clone(), app.clone(), sign_in_hosts.clone());
+    let built = tauri::WebviewWindowBuilder::new(app, label, WebviewUrl::External(blank))
+        .window_features(features)
+        .title(url.host_str().unwrap_or("Sign in"))
+        .on_navigation(move |u| fabric_nav_allows(u, false, &hosts))
+        .on_new_window(move |u, f| fabric_pop_up(&app_, &hosts_, u, f))
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&title);
+        })
+        .build();
+    match built {
+        Ok(window) => NewWindowResponse::Create { window },
+        Err(e) => {
+            // Never fall back to WebView2's own, unfiltered window.
+            eprintln!("Fabric view: could not open the pop-up ({e})");
+            NewWindowResponse::Deny
+        }
+    }
 }
 
 /// Keeps the Fabric view's sign-in between launches. Microsoft's sign-in cookies are usually
@@ -1179,6 +1212,7 @@ mod fabric_nav_tests {
             "https://app.powerbi.com/groups/me/reports/1",
             "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x",
             "https://login.microsoft.com/common/oauth2/authorize",
+            "https://login.windows.net/common/oauth2/authorize",
             "about:blank",
         ] {
             assert_eq!(nav(url), FabricNav::Stay, "{url}");
@@ -1199,6 +1233,8 @@ mod fabric_nav_tests {
             "https://microsoft.com/",
             "https://learn.microsoft.com/fabric/",
             "https://login.microsoftonline.com.evil.com/",
+            "https://login.windows.net.evil.com/",
+            "https://windows.net/",
             "https://login.live.com/",
             "https://app.fabric.microsoft.com./",
             "https://app.fabric.microsoft.com:8443/",
@@ -1243,6 +1279,14 @@ mod fabric_nav_tests {
         assert_eq!(popup("https://example.com/"), FabricNav::Browser);
         assert_eq!(popup("about:blank"), FabricNav::Refuse);
         assert_eq!(popup("javascript:alert(1)"), FabricNav::Refuse);
+    }
+
+    #[test]
+    fn pop_ups_never_get_webview2s_own_unfiltered_window() {
+        // Allow hands the pop-up to WebView2's own window, which has no navigation filter;
+        // allowed pop-ups must be Create with fabric_pop_up's filtered window instead.
+        let allow = ["NewWindowResponse", "::Allow"].concat();
+        assert!(!include_str!("main.rs").contains(&allow));
     }
 
     #[test]

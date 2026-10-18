@@ -33,6 +33,8 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Local data engine and OneLake publishing | FD-LDE-001..020 | Its project thread; tracked here as PB-099, with overlaps noted on PB-015, PB-019..PB-024, PB-067 and PB-079 |
 | Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
 | Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
+| Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
+| UX and simplicity oversight | none yet | Its project thread (docs/ux/): UX audit and simplicity scorecard; its backlog ids are recorded here when it sends them |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,

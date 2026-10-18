@@ -193,8 +193,8 @@ def total(parts: list[dict[str, Any]], metric: str, unit: str, *, currency: str 
 
     Unknown parts aren't counted as 0: the total covers only the known parts and says how many
     were unknown (``unknown_parts``) and is labeled incomplete. Scenario figures can only be
-    added to other scenario figures."""
-    scen = {p["classification"] == SCENARIO for p in parts}
+    added to other scenario figures; unknown parts can sit beside either."""
+    scen = {p["classification"] == SCENARIO for p in parts if p["classification"] != UNKNOWN}
     if len(scen) > 1:
         raise ValueError("scenario figures can't be added to measured or estimated ones")
     known = [p for p in parts if p["value"] is not None]

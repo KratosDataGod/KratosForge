@@ -359,6 +359,9 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+  // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
+  assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
+  assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
 });
 
 test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {

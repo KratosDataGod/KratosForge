@@ -6,6 +6,7 @@ Each project is a folder (under ``<data>/local-data/`` unless the person picks a
                    and the catalog of discovered tables from the last refresh
     data.duckdb    the database: tables people create, and views over discovered files
     tmp/           DuckDB spills here when a query needs more memory than its limit
+    Tables/        the project's Delta tables, <schema>/<table>, as a lakehouse lays them out (delta.py)
 
 ``storage = "memory"`` keeps nothing between sessions except project.json: the views are made again
 when it opens, and any tables are gone. Nothing here needs a Fabric sign-in or capacity.

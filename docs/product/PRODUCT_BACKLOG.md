@@ -32,6 +32,12 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Local Fabric pipeline execution | ORCH-001..010 | Its project thread |
 | Local data engine and OneLake publishing | FD-LDE-001..020 | Its project thread; tracked here as PB-099, with overlaps noted on PB-015, PB-019..PB-024, PB-067 and PB-079 |
 | Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
+| Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
+| Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
+| UX and simplicity oversight | UX-001..021 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management. UX-021 (Preview tags on untested Fabric writes, absorbs QA-020): Prove for Publish and Run all in Fabric, Staged roadmap for Promote, Sync keys, variable library and quarantine replay, Codebase audit and hardening for Create workspace; UX-018 (absorbs QA-019) stays with this thread |
+| Engineering quality review | QA-001..030, PR-QA-01..14 | Its project thread ([docs/quality/](https://github.com/KratosDataGod/fabric-desktop/pull/176)): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; tracked here as PB-103, a blocker because QA-001 and QA-002 lose data. Routed to other owners: QA-001, QA-002 and QA-009 Prove; QA-003, QA-004, QA-006, QA-007 and QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012 and QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 |
+| Optimize central lakehouse | PR-OPT-001..009 | Its project thread, from Chris's Optimize brief of 2026-10-18: a shared optimization lakehouse (fdopt_ tables), local execution and optimization savings tracking, reporting, offline sync, multiple lakehouses, security and its own cost accounting; tracked here as PB-104. Works with the Administration and FinOps sprint on CU labels (PB-050) and measured CU import (PB-089). Its Cost and savings tab replaces Monitor > Cost (unit testing item 36) |
+| Simplified incident management | none yet | Its project thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off incidents, stored in a central lakehouse or handed to ServiceNow or Jira; tracked here as PB-105. Builds on the Workload management thread's incidents (PB-047) |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,
@@ -63,14 +69,14 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Data Engineering and Transformation](#data-engineering-and-transformation) | 0 | 0 | 5 | 0 | 5 |
 | [Pipelines and Orchestration](#pipelines-and-orchestration) | 0 | 1 | 4 | 3 | 8 |
 | [Fabric Integration and Deployment](#fabric-integration-and-deployment) | 0 | 1 | 5 | 0 | 6 |
-| [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 0 | 3 |
+| [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 1 | 4 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 2 | 6 | 0 | 8 |
-| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 2 | 5 | 1 | 8 |
-| [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 3 | 5 | 2 | 10 |
+| [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 5 | 1 | 9 |
+| [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
-| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 1 | 7 | 2 | 0 | 10 |
-| [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **3** | **28** | **47** | **10** | **88** |
+| [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
+| [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
+| **Total** | **5** | **30** | **47** | **11** | **93** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -177,7 +183,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Owned and specified by the Local data engine and OneLake publishing thread (FD-LDE-001..020); not restated here. Its plan (docs/local-data-engine-plan.md section 3) names the owner of each story; stories owned by other threads are FD-LDE-003 and 014 (SQL thread) and the FD-114/117 base of FD-LDE-011 (staged roadmap).
 - **Current-state evidence:** DuckDB, sqlglot and delta-rs already in the engine (sql.py, spark_local.py, publish.py, meta/store.py); Audit, story owners and PR plan in docs/local-data-engine-plan.md (PR #126, which also carries FD-LDE-001/002)
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-NB-11](FEATURE_INVENTORY.md#feat-nb-11), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-004 screens for local data projects (Local data engine) (UX and simplicity backlog, PB-102), Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Local data engine and OneLake publishing (FD-LDE-001..020)
 - **Priority set by the product owner:** P0 (Chris (product owner), 2026-10-17): Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size
 - **Merged duplicates:** Overlaps PB-021..PB-025 and PB-020 (SQL sprint: SQL editor, dialect, execution, connectivity, local Warehouse); Overlaps PB-015 (local Delta writes), PB-019 (incremental), PB-067 (large datasets), PB-050/PB-090 (FinOps), PB-079 (TOML job runner) and the metadata framework
@@ -190,9 +196,9 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-020](#pb-020) | Local Warehouse simulation | P3 | SQL development sprint | XL | Proposed |
-| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | In progress |
-| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | In progress |
-| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | In progress |
+| [PB-021](#pb-021) | SQL editor with IntelliSense and formatting | P2 | SQL development sprint | M | In review |
+| [PB-022](#pb-022) | Fabric SQL dialect compatibility analyzer | P1 | SQL development sprint | M | In review |
+| [PB-023](#pb-023) | Managed SQL execution with cancel and streaming | P2 | SQL development sprint | M | In review |
 | [PB-024](#pb-024) | Native Warehouse and SQL database connectivity | P3 | SQL development sprint | L | Proposed |
 | [PB-025](#pb-025) | SQL object explorer | P2 | SQL development sprint | M | Proposed |
 | [PB-026](#pb-026) | Notebook debugger | P3 | Prove | L | Proposed |
@@ -214,40 +220,43 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-021
 
-**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · In progress
+**SQL editor with IntelliSense and formatting** · P2 (score 2.42) · M · confidence High · In review
 
 - **Problem:** The SQL page is a plain textarea with no completion or formatting.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-001).
-- **Current-state evidence:** app/ui/app.js SQL page uses a textarea
+- **Current-state evidence:** app/ui/app.js SQL page uses a textarea; PR #118 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-001)
+- **Pull requests:** [#118](https://github.com/KratosDataGod/fabric-desktop/pull/118)
 - **Acceptance criteria:**
     - As defined in SQL-001 by its owning thread
 
 ### PB-022
 
-**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · In progress
+**Fabric SQL dialect compatibility analyzer** · P1 (score 2.73) · M · confidence Medium · In review
 
 - **Problem:** Spark SQL translated to DuckDB can succeed locally and still fail in Fabric (or the reverse), and nothing says so.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-002).
-- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report
+- **Current-state evidence:** sql.py translates with sqlglot without a compatibility report; PR #120 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-002)
+- **Pull requests:** [#120](https://github.com/KratosDataGod/fabric-desktop/pull/120)
 - **Acceptance criteria:**
     - As defined in SQL-002 by its owning thread
 
 ### PB-023
 
-**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · In progress
+**Managed SQL execution with cancel and streaming** · P2 (score 2.27) · M · confidence High · In review
 
 - **Problem:** SQL queries can't be cancelled, show only the first 1,000 rows, and Download CSV runs the query again.
 - **Proposed capability:** Owned and specified by the SQL development sprint (SQL-003).
-- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL
+- **Current-state evidence:** service.py run_sql returns a fixed page; No cancel RPC for SQL; PR #134 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
-- **Dependencies:** Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)
+- **Dependencies:** Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)
 - **Owner:** SQL development sprint (SQL-003)
+- **Pull requests:** [#134](https://github.com/KratosDataGod/fabric-desktop/pull/134)
 - **Acceptance criteria:**
     - As defined in SQL-003 by its owning thread
 
@@ -366,7 +375,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A run dialog showing the estimate and choices, and cleanup of files a stopped batch wrote.
 - **Current-state evidence:** meta_preflight has no caller in app/ui; meta/batches.py
 - **Inventory features:** [FEAT-META-06](FEATURE_INVENTORY.md#feat-meta-06)
-- **Dependencies:** Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)
+- **Dependencies:** Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-114)
 - **Acceptance criteria:**
     - The run dialog shows the estimate before a large run (after a mockup)
@@ -380,7 +389,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.
 - **Current-state evidence:** meta/keys.py read_keys
 - **Inventory features:** [FEAT-META-05](FEATURE_INVENTORY.md#feat-meta-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101), Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to a Fabric SQL database in a dedicated workspace; per environment or shared is Chris's open decision
 - **Owner:** Staged roadmap (FD-115)
 - **Acceptance criteria:**
     - A keyed run reads only matching key rows, shown by a test on a large key table
@@ -404,7 +413,7 @@ review moves it to Accepted; a merge alone does neither.
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-030](#pb-030) | Data pipeline and Copy job scope after decision D2 | P3 | Staged roadmap | L | Proposed |
-| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In progress |
+| [PB-035](#pb-035) | Pipeline definition engine | P2 | Local Fabric pipeline execution | L | In review |
 | [PB-036](#pb-036) | Pipeline activity compatibility registry | P1 | Local Fabric pipeline execution | M | Proposed |
 | [PB-037](#pb-037) | Local DAG execution engine | P3 | Local Fabric pipeline execution | XL | Proposed |
 | [PB-044](#pb-044) | Agent queue pruning and dead-job requeue | P2 | Master product (unassigned) | S | Proposed |
@@ -420,7 +429,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Decision D2 first; then guided ingestion as the staged roadmap defines it.
 - **Current-state evidence:** fabric_api.py has no pipeline or Copy job create; Open question D2 in project memory
 - **Inventory features:** [FEAT-FAB-10](FEATURE_INVENTORY.md#feat-fab-10), [FEAT-MESH-03](FEATURE_INVENTORY.md#feat-mesh-03)
-- **Dependencies:** Product-owner decision D2: who lands data and creates Copy jobs
+- **Dependencies:** Product-owner decision D2: who lands data and creates Copy jobs, Direction change (Chris's unit testing, 2026-10-18, item 24): one landing workspace shared by Dev, Test and Prod, split by domain with secure zones; who writes to it is still D2
 - **Owner:** Staged roadmap (FD-116)
 - **Acceptance criteria:**
     - D2 answered by the product owner
@@ -428,14 +437,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-035
 
-**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · In progress
+**Pipeline definition engine** · P2 (score 2.15) · L · confidence Medium · In review
 
 - **Problem:** Fabric Data pipeline definitions can't be read, validated or run outside Fabric.
 - **Proposed capability:** Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).
-- **Current-state evidence:** No pipeline definition parsing in the repo
+- **Current-state evidence:** No pipeline definition parsing in the repo; PR #130 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-FAB-10](FEATURE_INVENTORY.md#feat-fab-10)
 - **Dependencies:** none
 - **Owner:** Local Fabric pipeline execution (ORCH-001)
+- **Pull requests:** [#130](https://github.com/KratosDataGod/fabric-desktop/pull/130)
 - **Acceptance criteria:**
     - As defined in ORCH-001 by its owning thread
 
@@ -530,7 +540,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-041](#pb-041) | Deployment preview and item deploy | P2 | Git-native development | L | Proposed |
 | [PB-042](#pb-042) | Release rollback and the committed-revision rule | P2 | Staged roadmap | M | Proposed |
 | [PB-043](#pb-043) | Cancel a Fabric run from the app | P2 | Master product (unassigned) | S | Proposed |
-| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Master product (unassigned) | S | Proposed |
+| [PB-051](#pb-051) | Fabric REST client resilience | P1 | Codebase audit and hardening | S | Proposed |
 
 ### PB-018
 
@@ -581,7 +591,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Release-level rollback from meta.deployments and decision D1 enforced.
 - **Current-state evidence:** meta/release.py; docs/scale-and-operations-plan.md D1
 - **Inventory features:** [FEAT-META-09](FEATURE_INVENTORY.md#feat-meta-09), [FEAT-META-10](FEATURE_INVENTORY.md#feat-meta-10)
-- **Dependencies:** Product-owner decision D1
+- **Dependencies:** Product-owner decision D1, Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-121)
 - **Pull requests:** [#113](https://github.com/KratosDataGod/fabric-desktop/pull/113)
 - **Acceptance criteria:**
@@ -612,8 +622,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Bounded retries on safe 5xx for idempotent calls, one token refresh on 401, configurable LRO timeout.
 - **Current-state evidence:** fabric_api.py retry handles 429 only (code reading)
 - **Inventory features:** [FEAT-FAB-01](FEATURE_INVENTORY.md#feat-fab-01)
-- **Dependencies:** none
-- **Owner:** Master product (unassigned)
+- **Dependencies:** Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)
+- **Owner:** Codebase audit and hardening (HD-039/HD-051)
 - **Mandatory (required):** Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.
 - **Implementation package:** [pr-ready/PB-051.md](pr-ready/PB-051.md)
 - **Acceptance criteria:**
@@ -628,6 +638,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-052](#pb-052) | Verify the central platform on a tenant | P1 | Master product (unassigned) | M | Proposed |
 | [PB-053](#pb-053) | Scheduled shortcut health check with alerts | P2 | Master product (unassigned) | S | Proposed |
 | [PB-054](#pb-054) | Screens for platform revoke and source list | P2 | Master product (unassigned) | S | Proposed |
+| [PB-105](#pb-105) | Simplified incident management | P3 | Simplified incident management | L | In progress |
 
 ### PB-052
 
@@ -637,7 +648,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A live check of setup, join, key issue, requests and domain import on a non-production tenant before anyone moves real keys.
 - **Current-state evidence:** docs/platform.md lists the unverified points; central/setup.py setup() and join() have no tests
 - **Inventory features:** [FEAT-MESH-01](FEATURE_INVENTORY.md#feat-mesh-01), [FEAT-MESH-02](FEATURE_INVENTORY.md#feat-mesh-02), [FEAT-MESH-04](FEATURE_INVENTORY.md#feat-mesh-04)
-- **Dependencies:** [PB-002](#pb-002)
+- **Dependencies:** [PB-002](#pb-002), Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** Central business keys are shared data; a defect would corrupt keys across every domain.
 - **Acceptance criteria:**
@@ -672,29 +683,44 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - An admin revokes a grant with confirmation and it is audited
 
+### PB-105
+
+**Simplified incident management** · P3 (score 1.43) · L · confidence Low · In progress
+
+- **Problem:** Incidents open automatically from workload health, but there is no simple way to triage them across teams or hand them to the service desk an organization already uses; ServiceNow-style tools are complex.
+- **Proposed capability:** Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.
+- **Current-state evidence:** Chris's unit testing, 2026-10-18, item 33; Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)
+- **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
+- **Dependencies:** none
+- **Owner:** Simplified incident management
+- **Merged duplicates:** Builds on PB-047 incident screens (Workload management)
+- **Acceptance criteria:**
+    - As defined by its owning thread
+
 ## Data Governance and Quality
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
-| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In progress |
+| [PB-056](#pb-056) | Enterprise policy registry | P2 | Enterprise governance foundation | M | In review |
 | [PB-057](#pb-057) | Offline policy validation | P1 | Enterprise governance foundation | M | Proposed |
 | [PB-059](#pb-059) | Governance exception requests and approvals | P2 | Enterprise governance foundation | M | Proposed |
 | [PB-060](#pb-060) | Sensitive data classification that complements Purview | P2 | Enterprise readiness | L | Proposed |
-| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | Proposed |
+| [PB-081](#pb-081) | Column lineage view | P1 | Staged roadmap | M | In review |
 | [PB-082](#pb-082) | Versioned data contracts with consumer declarations | P2 | Staged roadmap | M | Proposed |
 | [PB-083](#pb-083) | Endorsed items scope in the catalog | P2 | Master product (unassigned) | S | Proposed |
-| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | Proposed |
+| [PB-084](#pb-084) | One late-table alert, not two | P2 | Workload management | S | In review |
 
 ### PB-056
 
-**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · In progress
+**Enterprise policy registry** · P2 (score 2.38) · M · confidence Medium · In review
 
 - **Problem:** Policies (naming, schema, quality, classification, ownership) live in project files with no central, versioned source.
 - **Proposed capability:** Owned and specified by the Enterprise governance foundation thread (GOV-001).
-- **Current-state evidence:** No policy registry in the repo
+- **Current-state evidence:** No policy registry in the repo; PR #119 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise governance foundation (GOV-001)
+- **Pull requests:** [#119](https://github.com/KratosDataGod/fabric-desktop/pull/119)
 - **Acceptance criteria:**
     - As defined in GOV-001 by its owning thread
 
@@ -732,21 +758,22 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Classification captured in contracts and carried to products, reading and writing Purview labels rather than replacing them.
 - **Current-state evidence:** central/udf.py set_classification has no caller
 - **Inventory features:** [FEAT-GOV-06](FEATURE_INVENTORY.md#feat-gov-06)
-- **Dependencies:** [PB-056](#pb-056)
+- **Dependencies:** [PB-056](#pb-056), Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features
 - **Owner:** Enterprise readiness (FD-131, GOV-00x)
 - **Acceptance criteria:**
     - As defined in FD-131 and the governance foundation thread
 
 ### PB-081
 
-**Column lineage view** · P1 (score 3.06) · M · confidence High · Proposed
+**Column lineage view** · P1 (score 3.06) · M · confidence High · In review
 
 - **Problem:** Column lineage is computed but no screen shows it.
 - **Proposed capability:** A lineage view after a mockup, as the staged roadmap plans.
-- **Current-state evidence:** meta_lineage has no caller in app/ui
+- **Current-state evidence:** meta_lineage has no caller in app/ui; PR #124 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-META-17](FEATURE_INVENTORY.md#feat-meta-17)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-128)
+- **Pull requests:** [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
 - **Acceptance criteria:**
     - As defined in FD-128 by its owning program
 
@@ -778,14 +805,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-084
 
-**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · Proposed
+**One late-table alert, not two** · P2 (score 1.84) · S · confidence High · In review
 
 - **Problem:** Freshness alerts and incidents can both post the same late table to Teams.
 - **Proposed capability:** Freshness evaluated as incidents with one routing path.
-- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py
+- **Current-state evidence:** docs/agent.md notes duplicates; meta/freshness.py and workloads/incidents.py; PR #127 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
+- **Pull requests:** [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
 - **Acceptance criteria:**
     - A late table produces one Teams message
 
@@ -800,7 +828,8 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-085](#pb-085) | Declare cell dependencies and mark stale on new table versions | P2 | Prove | S | Proposed |
 | [PB-086](#pb-086) | Ready to work checklist | P1 | Enterprise readiness | S | In review |
 | [PB-087](#pb-087) | Clean up downloaded preview files | P2 | Master product (unassigned) | S | Proposed |
-| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In progress |
+| [PB-100](#pb-100) | Fuller What's new dialog | P3 | Fuller What's new dialog | S | In review |
+| [PB-102](#pb-102) | UX and simplicity program | P1 | UX and simplicity oversight | XL | In progress |
 
 ### PB-034
 
@@ -837,7 +866,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Each mismatch fixed in the docs, with a doc-claims checklist added to the review template.
 - **Current-state evidence:** See FEATURE_INVENTORY.md limitations for FEAT-SHL-10, FEAT-ORC-04, FEAT-ORC-05, FEAT-OPS-02, FEAT-FAB-06
 - **Inventory features:** [FEAT-SHL-10](FEATURE_INVENTORY.md#feat-shl-10), [FEAT-ORC-04](FEATURE_INVENTORY.md#feat-orc-04), [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102), Theme (Chris's unit testing, 2026-10-18, items 9, 14, 18, 28, 34): a docs page per area, linked from each page's in-app guidance
 - **Owner:** Master product (unassigned)
 - **Implementation package:** [pr-ready/PB-077.md](pr-ready/PB-077.md)
 - **Acceptance criteria:**
@@ -852,7 +881,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A PREVIEW_FEATURES id for each, or the docs changed where the feature is not exposed in the UI.
 - **Current-state evidence:** app/ui/features.js PREVIEW_FEATURES has 19 ids; docs/metadata-guide.md Preview labels
 - **Inventory features:** [FEAT-SHL-05](FEATURE_INVENTORY.md#feat-shl-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.
 - **Implementation package:** [pr-ready/PB-078.md](pr-ready/PB-078.md)
@@ -880,9 +909,9 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** First-run failures (no capacity, no workspace access) appear as errors later.
 - **Proposed capability:** Built by the enterprise program as FD-136 (PR #94).
-- **Current-state evidence:** PR #94 merged after this assessment's commit
+- **Current-state evidence:** PR #94 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-04](FEATURE_INVENTORY.md#feat-adm-04)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)
 - **Owner:** Enterprise readiness (FD-136)
 - **Pull requests:** [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94)
 - **Acceptance criteria:**
@@ -904,31 +933,48 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-100
 
-**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In progress
+**Fuller What's new dialog** · P3 (score 1.65) · S · confidence Medium · In review
 
 - **Problem:** The What's new dialog shows only the current build, so people who skip updates miss what changed.
 - **Proposed capability:** Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.
-- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link)
+- **Current-state evidence:** app/ui/settings.js showWhatsNew (What's new menu item and Settings link); PR #132 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** none
 - **Owner:** Fuller What's new dialog
+- **Pull requests:** [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
 - **Acceptance criteria:**
     - As defined by its owning thread
+
+### PB-102
+
+**UX and simplicity program** · P1 (score 2.66) · XL · confidence Medium · In progress
+
+- **Problem:** Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.
+- **Proposed capability:** Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.
+- **Current-state evidence:** UX audit by the oversight thread, 2026-10-18 (PR #166)
+- **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
+- **Dependencies:** Theme (Chris's unit testing, 2026-10-18, items 9, 12, 13, 17, 18, 20): best-practice actions and in-app guidance on every page (item 18 routed to this thread)
+- **Owner:** UX and simplicity oversight (UX-001..021, PR-UX-13)
+- **Merged duplicates:** Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)
+- **Acceptance criteria:**
+    - As defined in UX-001..021 by its owning thread
+    - Routed items follow the owner named in docs/ux/backlog.md
 
 ## Enterprise Administration and FinOps
 
 | Id | Item | Priority | Owner | Effort | State |
 | --- | --- | --- | --- | --- | --- |
 | [PB-017](#pb-017) | Local vs Fabric execution advisor | P1 | Administration and FinOps sprint | M | Proposed |
-| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | Proposed |
-| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | In progress |
-| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | Proposed |
+| [PB-047](#pb-047) | Incident screens | P2 | Workload management | M | In review |
+| [PB-050](#pb-050) | Label every CU number measured, estimated, scenario or unknown | P1 | Administration and FinOps sprint | M | In review |
+| [PB-088](#pb-088) | Capacity inventory and health | P2 | Administration and FinOps sprint | M | In review |
 | [PB-089](#pb-089) | Measured CU import and reconciliation | P2 | Administration and FinOps sprint | L | Proposed |
 | [PB-090](#pb-090) | Preflight risk analyzer | P1 | Administration and FinOps sprint | M | Proposed |
-| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | Proposed |
+| [PB-091](#pb-091) | Agent dashboard | P2 | Workload management | M | In review |
 | [PB-092](#pb-092) | Shared workload ownership | P3 | Workload management | M | Proposed |
-| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | Proposed |
+| [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | In review |
 | [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Proposed |
+| [PB-104](#pb-104) | Optimize central lakehouse program | P1 | Optimize central lakehouse | XL | In progress |
 
 ### PB-017
 
@@ -945,40 +991,43 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-047
 
-**Incident screens** · P2 (score 2.27) · M · confidence High · Proposed
+**Incident screens** · P2 (score 2.27) · M · confidence High · In review
 
 - **Problem:** The incident engine runs only in the agent; the app has six incident methods and no screen.
 - **Proposed capability:** Incident list and detail with acknowledge, assign, resolve, after a mockup.
-- **Current-state evidence:** incident_service.py RPCs have no caller in app/ui
+- **Current-state evidence:** incident_service.py RPCs have no caller in app/ui; PR #125 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-GOV-07](FEATURE_INVENTORY.md#feat-gov-07), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
-- **Dependencies:** none
+- **Dependencies:** Simplified incident management (PB-105, Chris's unit testing, 2026-10-18, item 33) extends these screens
 - **Owner:** Workload management (FD-123, Workloads stage 2.3B)
+- **Pull requests:** [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125)
 - **Acceptance criteria:**
     - As defined in FD-123 by its owning program
 
 ### PB-050
 
-**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · In progress
+**Label every CU number measured, estimated, scenario or unknown** · P1 (score 3.48) · M · confidence High · In review
 
 - **Problem:** Cost panel figures are estimates from fixed defaults and aren't calibrated against the Capacity Metrics app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-001).
-- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU
+- **Current-state evidence:** costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU; PR #117 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01), [FEAT-PRV-05](FEATURE_INVENTORY.md#feat-prv-05)
-- **Dependencies:** none
+- **Dependencies:** Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104), Monitor > Cost moves to Optimize > Cost and savings (Chris's unit testing, 2026-10-18, item 36; PB-104)
 - **Owner:** Administration and FinOps sprint (FINOPS-001)
 - **Merged duplicates:** Calibrate cost estimates against the Capacity Metrics app (feature inventory, FEAT-ADM-01)
+- **Pull requests:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
 - **Acceptance criteria:**
     - As defined in FINOPS-001 by its owning thread
 
 ### PB-088
 
-**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · Proposed
+**Capacity inventory and health** · P2 (score 2.52) · M · confidence Medium · In review
 
 - **Problem:** Admins can't see their capacities' size, state and load from the app.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-002).
-- **Current-state evidence:** fabric_api.py lists capacities only
+- **Current-state evidence:** fabric_api.py lists capacities only; PR #123 merged 2026-10-17; awaiting implementation review
 - **Dependencies:** [PB-050](#pb-050)
 - **Owner:** Administration and FinOps sprint (FINOPS-002)
+- **Pull requests:** [#123](https://github.com/KratosDataGod/fabric-desktop/pull/123)
 - **Acceptance criteria:**
     - As defined in FINOPS-002 by its owning thread
 
@@ -989,7 +1038,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Problem:** Estimates are never reconciled with what Fabric actually charged.
 - **Proposed capability:** Owned and specified by the Administration and FinOps sprint (FINOPS-003).
 - **Current-state evidence:** No Capacity Metrics import
-- **Dependencies:** [PB-050](#pb-050)
+- **Dependencies:** [PB-050](#pb-050), Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)
 - **Owner:** Administration and FinOps sprint (FINOPS-003)
 - **Acceptance criteria:**
     - As defined in FINOPS-003 by its owning thread
@@ -1009,14 +1058,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-091
 
-**Agent dashboard** · P2 (score 2.4) · M · confidence High · Proposed
+**Agent dashboard** · P2 (score 2.4) · M · confidence High · In review
 
 - **Problem:** Agent status records are written but nothing shows them.
 - **Proposed capability:** Agent list, queue and availability view.
-- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents
+- **Current-state evidence:** agent_status.py; workloads/agents.py read only by incidents; PR #133 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-122)
+- **Pull requests:** [#133](https://github.com/KratosDataGod/fabric-desktop/pull/133)
 - **Acceptance criteria:**
     - As defined in FD-122 by its owning program
 
@@ -1035,14 +1085,15 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-093
 
-**Telemetry decision** · P3 (score 1.15) · M · confidence Low · Proposed
+**Telemetry decision** · P3 (score 1.15) · M · confidence Low · In review
 
 - **Problem:** There is no usage data, and whether to collect any is undecided.
 - **Proposed capability:** Decision D-C1, then build only what it allows.
-- **Current-state evidence:** No telemetry code
+- **Current-state evidence:** No telemetry code; PR #121 merged 2026-10-17; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-06](FEATURE_INVENTORY.md#feat-adm-06)
 - **Dependencies:** Product-owner decision D-C1
 - **Owner:** Enterprise readiness (FD-137)
+- **Pull requests:** [#121](https://github.com/KratosDataGod/fabric-desktop/pull/121)
 - **Acceptance criteria:**
     - D-C1 recorded
     - Nothing is collected without consent and a policy switch
@@ -1060,6 +1111,22 @@ review moves it to Accepted; a merge alone does neither.
 - **Acceptance criteria:**
     - Scorecard resources match the kernel process in a test
 
+### PB-104
+
+**Optimize central lakehouse program** · P1 (score 1.27) · XL · confidence Low · In progress
+
+- **Problem:** Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.
+- **Proposed capability:** Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).
+- **Current-state evidence:** Chris's Optimize brief, 2026-10-18 08:55Z; No code or plan merged yet
+- **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01)
+- **Dependencies:** none
+- **Owner:** Optimize central lakehouse (PR-OPT-001..009)
+- **Priority set by the product owner:** P1 (Chris (product owner), 2026-10-18): Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3
+- **Merged duplicates:** Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item
+- **Acceptance criteria:**
+    - As defined in PR-OPT-001..009 by its owning thread
+    - Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized
+
 ## Extensibility, APIs, CLI, and MCP
 
 | Id | Item | Priority | Owner | Effort | State |
@@ -1075,9 +1142,9 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** External AI tools can't see or drive the app's capabilities.
 - **Proposed capability:** The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.
-- **Current-state evidence:** PRs #99-#108, #110, #112 open; #98 plan merged
+- **Current-state evidence:** PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Bring your own AI integration (PR-AI-001..012)
 - **Pull requests:** [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99), [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100), [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101), [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102), [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103), [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104), [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105), [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106), [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107), [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108), [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110), [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112)
 - **Acceptance criteria:**
@@ -1133,10 +1200,11 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-007](#pb-007) | Audit trail of runs and changes | P1 | Enterprise readiness | M | In review |
 | [PB-008](#pb-008) | Keep the embedded Fabric view on Fabric hosts | P1 | Enterprise readiness | S | Proposed |
 | [PB-009](#pb-009) | Local data retention | P1 | Enterprise readiness | S | In review |
-| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Master product (unassigned) | S | Proposed |
+| [PB-010](#pb-010) | Security and network docs match the shipped app | P1 | Codebase audit and hardening | S | Proposed |
 | [PB-061](#pb-061) | Missing policy keys | P2 | Enterprise readiness | M | Proposed |
 | [PB-063](#pb-063) | Assistive technology audit | P1 | Enterprise readiness | M | Proposed |
 | [PB-065](#pb-065) | Separation of duties by signed-in identity | P2 | Enterprise readiness | S | Proposed |
+| [PB-101](#pb-101) | Codebase audit and hardening program | P0 | Codebase audit and hardening | XL | In progress |
 
 ### PB-001
 
@@ -1146,7 +1214,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Azure Trusted Signing in the release workflow for the exe and engine binaries.
 - **Current-state evidence:** ci.yml signs only when Trusted Signing secrets exist; PR #28 blocked
 - **Inventory features:** [FEAT-SEC-01](FEATURE_INVENTORY.md#feat-sec-01), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
-- **Dependencies:** Chris creates the Azure Trusted Signing account (D-C3)
+- **Dependencies:** Chris creates the Azure Trusted Signing account (D-C3), Overlaps HD-021 enforce signing (waits on Chris, D-C3) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-103, FD-104)
 - **Mandatory (blocker):** Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people.
 - **Pull requests:** [#28](https://github.com/KratosDataGod/fabric-desktop/pull/28)
@@ -1162,7 +1230,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** DPAPI-protected cache through msal-extensions.
 - **Current-state evidence:** auth.py writes a plain cache file
 - **Inventory features:** [FEAT-AUTH-03](FEATURE_INVENTORY.md#feat-auth-03)
-- **Dependencies:** Decision D-C2
+- **Dependencies:** Decision D-C2, Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-131b)
 - **Mandatory (required):** Refresh tokens on disk unencrypted are a security finding any enterprise review will raise.
 - **Acceptance criteria:**
@@ -1177,7 +1245,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Move notebook HTML output to another origin, then set a CSP.
 - **Current-state evidence:** tauri.conf.json csp: null, withGlobalTauri: true
 - **Inventory features:** [FEAT-SEC-02](FEATURE_INVENTORY.md#feat-sec-02)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-102b)
 - **Mandatory (required):** Defense in depth for a webview that renders user and notebook content.
 - **Acceptance criteria:**
@@ -1190,9 +1258,9 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Nothing records who ran or changed what in a tamper-evident way.
 - **Proposed capability:** Hash-chained audit lines, built in PR #89.
-- **Current-state evidence:** PR #89 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #89 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-02](FEATURE_INVENTORY.md#feat-adm-02), [FEAT-PRV-03](FEATURE_INVENTORY.md#feat-prv-03)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-125)
 - **Mandatory (required):** Enterprise compliance needs an audit record of changes to shared data.
 - **Pull requests:** [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89)
@@ -1208,7 +1276,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Navigation limited to Fabric, Power BI and sign-in hosts; others open in the browser.
 - **Current-state evidence:** main.rs fabric_view host check (code reading)
 - **Inventory features:** [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05)
-- **Dependencies:** [PB-071](#pb-071)
+- **Dependencies:** [PB-071](#pb-071), Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-102)
 - **Mandatory (required):** The embedded view holds saved Fabric sign-in cookies.
 - **Acceptance criteria:**
@@ -1221,7 +1289,7 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Copies of lakehouse data stay on PCs indefinitely.
 - **Proposed capability:** Built in PR #95 (FD-131b).
-- **Current-state evidence:** PR #95 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #95 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-05](FEATURE_INVENTORY.md#feat-adm-05)
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-131b)
@@ -1239,8 +1307,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Corrected security and network documentation that IT can rely on.
 - **Current-state evidence:** docs/security.md:41; ci.yml audit and SBOM jobs; docs/enterprise-install.md hosts table
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03), [FEAT-SHL-02](FEATURE_INVENTORY.md#feat-shl-02)
-- **Dependencies:** none
-- **Owner:** Master product (unassigned)
+- **Dependencies:** Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)
+- **Owner:** Codebase audit and hardening (HD-009)
 - **Mandatory (required):** Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.
 - **Implementation package:** [pr-ready/PB-010.md](pr-ready/PB-010.md)
 - **Acceptance criteria:**
@@ -1255,7 +1323,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Implement or remove each documented key.
 - **Current-state evidence:** app_settings.py key list; docs/enterprise-install.md
 - **Inventory features:** [FEAT-SHL-08](FEATURE_INVENTORY.md#feat-shl-08)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-105)
 - **Acceptance criteria:**
     - As defined in FD-105
@@ -1268,7 +1336,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A Narrator and keyboard audit on Windows with fixes.
 - **Current-state evidence:** app/tests/ui.test.cjs static checks
 - **Inventory features:** [FEAT-SHL-07](FEATURE_INVENTORY.md#feat-shl-07), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
-- **Dependencies:** none
+- **Dependencies:** Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102), Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-139)
 - **Mandatory (required):** Enterprise procurement often requires an accessibility conformance statement.
 - **Acceptance criteria:**
@@ -1283,10 +1351,26 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Compare Entra object ids.
 - **Current-state evidence:** duties.py
 - **Inventory features:** [FEAT-GOV-04](FEATURE_INVENTORY.md#feat-gov-04)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-130)
 - **Acceptance criteria:**
     - The same Entra user on two PCs is recognized as one person
+
+### PB-101
+
+**Codebase audit and hardening program** · P0 (score 1.75) · XL · confidence Medium · In progress
+
+- **Problem:** An enterprise audit of main at 1248ccd found data-safety, security and update defects: a table rewrite after commit, Delta profile checks after writes, unguarded OneLake paths, approvals that don't bind the code, redaction after JSON encoding, and updates without checksums.
+- **Proposed capability:** Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.
+- **Current-state evidence:** Audit of main at 1248ccd by the hardening thread, 2026-10-17; Backlog not yet pushed (push freeze)
+- **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
+- **Dependencies:** none
+- **Owner:** Codebase audit and hardening (HD-001..057)
+- **Mandatory (blocker):** HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.
+- **Merged duplicates:** Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)
+- **Acceptance criteria:**
+    - As defined in HD-001..057 by its owning thread
+    - Overlapping items here follow the owner named in that backlog
 
 ## Reliability, Testing, and Performance
 
@@ -1298,11 +1382,12 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-066](#pb-066) | Backup and restore of local state | P2 | Enterprise readiness | S | In review |
 | [PB-069](#pb-069) | Compare large tables in batches | P2 | Staged roadmap | M | Proposed |
 | [PB-070](#pb-070) | UI tests for the notebook editor and command bar | P2 | Master product (unassigned) | M | Proposed |
-| [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Master product (unassigned) | S | Proposed |
+| [PB-071](#pb-071) | Run the Rust tests in CI | P1 | Codebase audit and hardening | S | Proposed |
 | [PB-072](#pb-072) | Long engine calls stop blocking the app | P1 | Master product (unassigned) | L | Proposed |
 | [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | Proposed |
 | [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Proposed |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
+| [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
 
 ### PB-002
 
@@ -1312,7 +1397,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A scripted ten-flow smoke test on the maintainer's non-production workspace, plus one live-test harness run, with results recorded in the inventory.
 - **Current-state evidence:** livetest.py never run; docs/README.md lists features tried on the maintainer's tenant
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-AUTH-01](FEATURE_INVENTORY.md#feat-auth-01), [FEAT-AUTH-04](FEATURE_INVENTORY.md#feat-auth-04), [FEAT-FAB-01](FEATURE_INVENTORY.md#feat-fab-01), [FEAT-FAB-06](FEATURE_INVENTORY.md#feat-fab-06), [FEAT-FAB-07](FEATURE_INVENTORY.md#feat-fab-07), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05), [FEAT-META-14](FEATURE_INVENTORY.md#feat-meta-14), [FEAT-OPS-04](FEATURE_INVENTORY.md#feat-ops-04), [FEAT-PRV-01](FEATURE_INVENTORY.md#feat-prv-01)
-- **Dependencies:** Chris runs it on his non-production workspace
+- **Dependencies:** Chris runs it on his non-production workspace, Overlaps HD-029 live harness run (Chris); HD-053 OneLake contract tests; HD-054 T-SQL harness and live job (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned) (FD-101, FD-140)
 - **Mandatory (blocker):** Launch to about 5,000 people needs evidence the core flows work on a real tenant.
 - **Merged duplicates:** Ten-flow smoke test (honest review, 2026-10-16); Running the FD-101 harness once (enterprise readiness)
@@ -1330,7 +1415,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** The live test extended to leases, two writers and MERGE.
 - **Current-state evidence:** leases.py; livetest.py lacks lease and MERGE checks
 - **Inventory features:** [FEAT-ORC-03](FEATURE_INVENTORY.md#feat-orc-03), [FEAT-ONE-05](FEATURE_INVENTORY.md#feat-one-05)
-- **Dependencies:** [PB-002](#pb-002)
+- **Dependencies:** [PB-002](#pb-002), Overlaps HD-016 cross-process leases; HD-029 live harness run (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-101)
 - **Mandatory (required):** If OneLake ignores conditional requests, concurrent writers can overwrite data.
 - **Acceptance criteria:**
@@ -1345,7 +1430,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Keep each build's assets and let policy pin a version.
 - **Current-state evidence:** ci.yml release job replaces assets; promote.yml
 - **Inventory features:** [FEAT-REL-01](FEATURE_INVENTORY.md#feat-rel-01), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-104)
 - **Mandatory (required):** Enterprise update control needs rollback.
 - **Acceptance criteria:**
@@ -1358,9 +1443,9 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Settings, schedules, queue and receipts can't be backed up.
 - **Proposed capability:** Built in PR #91 (FD-126).
-- **Current-state evidence:** PR #91 merged after this assessment's commit; awaiting implementation review
+- **Current-state evidence:** PR #91 merged; awaiting implementation review
 - **Inventory features:** [FEAT-ADM-03](FEATURE_INVENTORY.md#feat-adm-03)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-126)
 - **Pull requests:** [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91)
 - **Acceptance criteria:**
@@ -1387,7 +1472,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Behavior tests for the editor, command mode and command bar.
 - **Current-state evidence:** app/tests/ui.test.cjs has 23 tests
 - **Inventory features:** [FEAT-NB-01](FEATURE_INVENTORY.md#feat-nb-01), [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
 - **Acceptance criteria:**
     - Editor, command mode and Ctrl+K have tests that fail on regressions
@@ -1400,8 +1485,8 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** A Windows cargo test job.
 - **Current-state evidence:** ci.yml has cargo audit and cargo build, no cargo test; cargo test failed to build on Linux (gdk-3.0)
 - **Inventory features:** [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03), [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09), [FEAT-FAB-05](FEATURE_INVENTORY.md#feat-fab-05), [FEAT-REL-01](FEATURE_INVENTORY.md#feat-rel-01)
-- **Dependencies:** none
-- **Owner:** Master product (unassigned)
+- **Dependencies:** Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)
+- **Owner:** Codebase audit and hardening (HD-011)
 - **Mandatory (required):** The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.
 - **Implementation package:** [pr-ready/PB-071.md](pr-ready/PB-071.md)
 - **Acceptance criteria:**
@@ -1416,7 +1501,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Concurrent or cancellable long calls with time limits.
 - **Current-state evidence:** main.rs rpc mutex; watchdog.rs QUICK list
 - **Inventory features:** [FEAT-SHL-01](FEATURE_INVENTORY.md#feat-shl-01), [FEAT-SHL-03](FEATURE_INVENTORY.md#feat-shl-03)
-- **Dependencies:** [PB-071](#pb-071)
+- **Dependencies:** [PB-071](#pb-071), Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102), Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Master product (unassigned)
 - **Mandatory (required):** A frozen app with no way out is the most visible reliability failure.
 - **Acceptance criteria:**
@@ -1431,7 +1516,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Process kernel default after a Windows trial, with time and memory limits.
 - **Current-state evidence:** kernel_proc.py; Settings > Preview
 - **Inventory features:** [FEAT-NB-03](FEATURE_INVENTORY.md#feat-nb-03)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Prove (FD-110)
 - **Acceptance criteria:**
     - As defined in FD-110
@@ -1444,7 +1529,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Release depends on audit; all actions SHA-pinned; tool versions pinned.
 - **Current-state evidence:** ci.yml; docs.yml; codex-review.yml
 - **Inventory features:** [FEAT-SEC-03](FEATURE_INVENTORY.md#feat-sec-03)
-- **Dependencies:** none
+- **Dependencies:** Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-103)
 - **Mandatory (required):** Supply-chain controls are only as strong as the weakest workflow.
 - **Acceptance criteria:**
@@ -1457,10 +1542,26 @@ review moves it to Accepted; a merge alone does neither.
 
 - **Problem:** Side by side writes real tables twice; Prove does the same check in sandboxes.
 - **Proposed capability:** Keep the benchmark, retire the correctness path.
-- **Current-state evidence:** side_by_side.py; PR #114 open
+- **Current-state evidence:** side_by_side.py; PR #114 merged
 - **Inventory features:** [FEAT-PRV-06](FEATURE_INVENTORY.md#feat-prv-06)
 - **Dependencies:** none
 - **Owner:** Prove (FD-112)
 - **Acceptance criteria:**
     - As defined in FD-112
+
+### PB-103
+
+**Engineering quality program** · P0 (score 1.85) · XL · confidence Medium · In progress
+
+- **Problem:** An independent quality review of main at 3bee0db found defects that lose or overwrite data while reporting success, fail-open checks, and services re-solved per feature: Spark writer options are ignored so replaceWhere replaces the whole table, a failed notebook save shows Saved and closing drops the edits.
+- **Proposed capability:** Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).
+- **Current-state evidence:** Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db; QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here
+- **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-06](FEATURE_INVENTORY.md#feat-nb-06)
+- **Dependencies:** none
+- **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
+- **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
+- **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
+- **Acceptance criteria:**
+    - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
+    - Routed items follow the owner named in docs/quality/remediation.md
 <!-- END GENERATED: items -->

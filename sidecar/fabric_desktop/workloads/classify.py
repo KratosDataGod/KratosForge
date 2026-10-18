@@ -10,6 +10,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from ..retrying import TRANSIENT_STATUS
+
+# The transient statuses other than 429 (which is "Throttled"), as a pattern: \b(408|500|...)\b
+_OTHER_TRANSIENT = r"\b(" + "|".join(str(s) for s in sorted(TRANSIENT_STATUS - {429})) + r")\b"
+
 # (category, label, retry_helps, hint, patterns)
 _RULES: list[tuple[str, str, bool, str, tuple[str, ...]]] = [
     ("access", "Access", False,
@@ -22,7 +27,7 @@ _RULES: list[tuple[str, str, bool, str, tuple[str, ...]]] = [
     ("network", "Network", True,
      "The run couldn't reach a service. A retry usually works once the network is back.",
      (r"timed? ?out", r"connectionerror", r"connection (reset|refused|aborted)", r"name resolution",
-      r"failed to establish", r"temporar(il)?y unavailable", r"\b50[234]\b")),
+      r"failed to establish", r"temporar(il)?y unavailable", _OTHER_TRANSIENT)),
     ("busy", "Table busy", True,
      "Another writer held the table. A retry runs once it is free.",
      (r"leasebusy", r"\blease\b", r"commit(failed|conflict)", r"concurrent (write|modification)")),

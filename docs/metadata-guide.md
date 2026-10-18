@@ -204,6 +204,8 @@ Checks run before every write. Each has an `on_fail`:
 3. **Promote:** Dev to Test and Test to Prod need a clean save gate, passing tests, and a green last run of every table's current logic.
 4. **After:** `meta.run_log`, `meta.dq_results`, `meta.watermarks`, `meta.schema_history` and `meta.deployments` in `LH_Meta`, plus `_run_id` and `_loaded_at` on every row and the run id and metadata version on every Delta commit.
 
+The table commit comes first and everything in step 4 follows it, together with the quarantined rows. Only the table commit is ever retried, so a failure after it can't put the rows in twice: the run reports the rows as written and says what it couldn't record. Each commit also carries its watermark, so if saving `meta.watermarks` failed, the next run goes by the commit and doesn't load the same rows again. A run whose table write fails quarantines nothing.
+
 **Exceptions.** When a rule genuinely doesn't fit, add an approved exception to `exceptions.toml` with the entity, the rule, a reason, an approver and an expiry date (or `permanent`). An expired exception fails the save gate again.
 
 ```toml
@@ -224,7 +226,7 @@ expires = "2026-11-01"
 | **History** (Preview) | Every Delta version: when, what happened, which run. **Restore** brings back an earlier version (as a new version, so it can be undone too), moves an incremental table's watermark back, and offers to run the tables that read it. |
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
-| **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected**: they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
+| **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected** (Preview): they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
 | **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. |
 
 ### Freshness promises
@@ -269,6 +271,8 @@ Criticality sets the rate when `success_rate` is left out: critical 99 %, high 9
 
 **Data mesh > Deploy > Environments and promote** has a card for Dev, Test and Prod.
 
+Promote to a Fabric workspace is in Preview: it is tested against local stores and has not yet been run on a tenant.
+
 | On the card | What it does |
 | --- | --- |
 | **Assign workspace** / **Change** | Picks the environment's workspace, or **Create a new workspace** on a capacity you choose. The layer lakehouses and `LH_Meta` live there. |
@@ -305,6 +309,18 @@ The record goes into the target's `meta.deployments` row:
 
 Rows written before this existed have these columns empty.
 
+### Released files and rollback
+
+*Preview.* A promote also keeps every file of the metadata version (configs, transforms, tests: the files the version is a hash of, without `environments.toml` and `.local`) in the target's `meta.release_files`. Test and Prod then run those files, wherever the run happens: on this PC, on an agent, or in Fabric. Editing your project folder changes what Dev runs, never what Test or Prod run, until you promote again. The first run after a release writes its files once to `.local/releases/<env>/<version>/` in the project folder and reuses them. An environment last promoted before releases kept their files runs your folder as before, and only while the folder is on that release.
+
+**Roll back...** on a Test or Prod **Last release** card puts that environment back on an earlier release it kept. It lists every release to the environment, shows what goes back entity by entity, and then:
+
+- puts the environment on the earlier release's files, exactly as that environment kept them. Nothing is read from Git, Dev or your folder, and files that don't match their recorded hashes are refused
+- records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
+- uploads the earlier files for Fabric runs when the environment runs in Fabric
+
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
 If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:
@@ -339,6 +355,8 @@ With **Fabric** (Preview), **Run all** (and running one entity, backfills and re
 
 Surrogate keys are issued in one place per environment: `LH_Keys`, in a dedicated Keys workspace (Dev keeps it on the PC). Each business key has its own key table, `sk.<name>`, with three columns: `<name>_sk` (INT), `<name>_bk` (the business key, unique) and `create_date`. Customer ABC gets one key, say 123, and every source that has Customer ABC maps to 123.
 
+**Sync to LH_Keys** is in Preview for Fabric environments: it has not yet been run on a tenant.
+
 **Data mesh > Design > Surrogate keys:**
 
 - **New key table** adds one, for example `customer`.
@@ -368,7 +386,7 @@ In an environment whose keys are in the platform, the project doesn't make its o
 
 **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection`, one row per source per environment, so notebooks and pipelines can look up connection values by code.
 
-**Variable library VL_Sources** (on the same tab) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
+**Variable library VL_Sources** (Preview, on the same tab; not yet run on a tenant) is one Fabric variable library per environment workspace, with that environment's values active. **Publish to Dev / Test / Prod** creates or updates it; promote updates it in the target. Notebooks read the same names in Fabric and on your PC:
 
 ```python
 lib = notebookutils.variableLibrary.getLibrary("VL_Sources")
@@ -383,6 +401,13 @@ lib.CRM_server_host
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
+- If a model with that name already exists (for example after a rename), Fabric Desktop by KratosBI asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+
+**When Fabric can't be read.** Fabric Desktop by KratosBI doesn't guess whether a model exists or what a table holds:
+
+- If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
+- A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
 

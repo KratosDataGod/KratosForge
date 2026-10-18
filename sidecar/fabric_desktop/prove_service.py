@@ -21,11 +21,11 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from . import depgraph, envprofile, proof, receipts, scorecard, verify, wizard
+from . import app_settings, depgraph, envprofile, proof, receipts, replay, scorecard, verify, wizard
 from .notebook import check_watches
 from .fabric_run import TERMINAL, fabric_ipynb
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, storage_options
+from .onelake import DFS_HOST, FileStore, TableRef, storage_options
 from .proof_runtime import PROOF_ROOT
 from .side_by_side import machine
 
@@ -126,6 +126,57 @@ class ProveMixin:
         path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
         path.write_text(out["text"], encoding="utf-8")
         return {"path": str(path), "format": out["format"], "hidden": hide or []}
+
+    # ---- failure replay bundles (replay.py): what someone needs to run a failed notebook again
+
+    def _replay_bundle(self, name: str, cells: list[dict[str, Any]], failed: int,
+                       lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
+        if self.proof_busy():
+            raise RuntimeError("A proof is using the kernel. Wait for it, or cancel it.")
+        kernel = self.kernel  # type: ignore[attr-defined]
+        if kernel.poll().get("status") == "running":
+            raise RuntimeError("A cell is running. Save the bundle when it has finished.")
+        where = {"process": hasattr(kernel, "limits")}
+        if hasattr(kernel, "limits"):
+            where["limits"] = kernel.limits()
+        return replay.build(name, cells, int(failed), kernel.reads(), lakehouse_ref, where)
+
+    def replay_bundle_preview(self, name: str, cells: list[dict[str, Any]], failed: int,
+                              lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """What Save replay bundle would save for cell ``failed`` (an index); ``cells`` is the
+        notebook screen's, with ``count`` (execution count) and the failed cell's ``outputs``."""
+        bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
+        return {"bundle": bundle, "samples_allowed": bool(app_settings.value("allow_replay_samples")),
+                "sample_tables": [t["table"] for t in replay.sample_tables(bundle)], "sample_rows": replay.SAMPLE_ROWS}
+
+    def replay_bundle_save(self, name: str, cells: list[dict[str, Any]], failed: int,
+                           lakehouse_ref: dict[str, str] | None = None, include_ids: bool = True,
+                           include_sample: bool = False) -> dict[str, Any]:
+        """Save a replay bundle to the Downloads folder, as a new file. With ``include_sample``,
+        up to replay.SAMPLE_ROWS rows of each table read, unless policy turns samples off."""
+        if include_sample and not app_settings.value("allow_replay_samples"):
+            raise PermissionError("Your organization doesn't allow data samples in replay bundles.")
+        bundle = self._replay_bundle(name, cells, failed, lakehouse_ref)
+        samples = replay.samples(bundle, self._replay_sample) if include_sample else None
+        if not include_ids:
+            bundle = replay.strip_ids(bundle)
+        folder = Path.home() / "Downloads"
+        stem = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name)[:60] or "notebook"
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for n in range(1, 100):
+            path = folder / f"replay-{stem}-{stamp}{'' if n == 1 else f'-{n}'}.zip"
+            if not path.exists():
+                return replay.write(path, bundle, samples) | {"ids_included": include_ids}
+        raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
+
+    def _replay_sample(self, row: dict[str, Any]) -> Any:
+        """Up to replay.SAMPLE_ROWS rows of a table the cells read, at the version they read."""
+        from deltalake import DeltaTable
+        schema, table = row["table"].split(".", 1)
+        flat = not self._schemas_enabled(row["workspace_id"], row["lakehouse_id"])  # type: ignore[attr-defined]
+        uri = TableRef(row["workspace_id"], row["lakehouse_id"], schema, table, flat=flat).uri
+        opened = DeltaTable(uri, version=row["version"], storage_options=storage_options(self.auth.storage_token()))  # type: ignore[attr-defined]
+        return opened.to_pyarrow_dataset().head(replay.SAMPLE_ROWS)
 
     # ---- the new notebook wizard and the proof contract
 

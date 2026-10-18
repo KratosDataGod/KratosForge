@@ -679,3 +679,228 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// The pure helpers at the top of replay.js.
+function replayHelpers() {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- the button and the dialog ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { replayCells, replayInputLines, replayEnvironmentLine });`, ctx);
+  return ctx;
+}
+
+test("a replay bundle sends the cells up to the failed one, with only that cell's output", () => {
+  const { replayCells } = replayHelpers();
+  const cells = [{ type: "code", source: "a = 1", meta: {}, count: 1, outputs: [{ type: "text", text: "data" }], id: "x" },
+    { type: "markdown", source: "# m", meta: {}, outputs: [] },
+    { type: "code", source: "1/0", meta: {}, count: 2, outputs: [{ type: "error", ename: "ZeroDivisionError" }] },
+    { type: "code", source: "later", meta: {}, count: 3, outputs: [] }];
+  const out = JSON.parse(JSON.stringify(replayCells(cells, 2)));
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out[0], { type: "code", source: "a = 1", meta: {}, count: 1 });
+  assert.strictEqual(out[1].count, null);
+  assert.deepStrictEqual(out[2].outputs, [{ type: "error", ename: "ZeroDivisionError" }]);
+});
+
+test("the replay dialog lists inputs and the environment plainly", () => {
+  const { replayInputLines, replayEnvironmentLine } = replayHelpers();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(replayInputLines({
+    tables: [{ table: "bronze.events", version: 41 }, { table: "dbo.out", version: null, created: true }],
+    files: [{ path: "Files/raw/fx.csv", sha256: "9f2c0a1b2c3d" }, { path: "Files/x.csv", sha256: null }] }))), [
+    "bronze.events at Delta version 41", "dbo.out: created by the notebook, so a replay starts without it",
+    "Files/raw/fx.csv (SHA-256 9f2c0a1b…)", "Files/x.csv (changed after it was read, so no SHA-256)"]);
+  assert.strictEqual(replayEnvironmentLine({ python: "3.11.9", packages: { polars: "1.9.0" },
+    kernel: { process: true, limits: { cell_seconds: 3600, memory_bytes: null } } }),
+  "Python 3.11.9, polars 1.9.0, kernel in its own process, 60 min cell limit");
+});
+
+test("Save replay bundle is a Preview feature, offered only under a cell that failed on this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /replay: "Failure replay bundles"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="debugging.js"><\/script>\s*<script src="replay.js"><\/script>/);
+  assert.match(src, /cell\.status !== "error" \|\| nbWhere\(nb\)\.fabric/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayOffer\(cell\)/);
+});
+
+test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX-003)", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const say = (raw) => ctx.friendlyError(raw).text;
+  assert.match(say("SignInError: AADSTS50076: Due to a configuration change made by your administrator"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
+  assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
+  assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
+  assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
+  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /!f\.text\.startsWith\(label\)/);  // never "Sign-in failed: Sign-in failed:"
+});
+
+// UX-001: the command bar's list held a null for every result that didn't start a group, and
+// replaceChildren prints a null as the text "null".
+test("the command bar lists group headers and results, never the text null", () => {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(), addEventListener() {}, focus() {},
+    setSelectionRange() {}, querySelector() { return null; }, value: attrs.value || "",
+    replaceChildren(...k) { this.kids = k; } });
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: {}, rpc: () => Promise.resolve([]),
+    document: { getElementById: () => null, body: { append() {} } }, console,
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [
+    { group: "Pages", label: "Home", icon: "home", run() {} },
+    { group: "Pages", label: "Create", icon: "create", run() {} },
+    { group: "Actions", label: "New notebook", icon: "notebook", run() {} },
+  ];
+  let list = null;
+  ctx.document.body.append = (box) => { list = box.kids[0].kids[1]; };
+  ctx.openPalette();
+  assert.ok(list, "the command bar's list was not drawn");
+  assert.ok(list.kids.every((k) => k && typeof k === "object"), `list holds ${JSON.stringify(list.kids.map((k) => k && k.tag))}`);
+  assert.deepStrictEqual(list.kids.map((k) => k.attrs.class.split(" ")[0]),
+    ["palette-group", "palette-item", "palette-item", "palette-group", "palette-item"]);
+});
+
+// UX-002: every help link the app opens lands on a page and heading that exist.
+test("every in-app help link opens an existing docs page and heading", () => {
+  const docs = path.join(__dirname, "..", "..", "docs");
+  // GitHub's heading anchors: lower case, punctuation dropped, spaces to hyphens, repeats numbered.
+  const anchors = (page) => {
+    const seen = new Map();
+    const out = new Set();
+    let fence = false;
+    for (const line of fs.readFileSync(path.join(docs, page), "utf8").split("\n")) {
+      if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
+      const m = !fence && /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
+      if (!m) continue;
+      const base = m[1].replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*]/g, "").trim().toLowerCase()
+        .replace(/[^\p{L}\p{N}_\- ]/gu, "").replace(/ /g, "-");
+      const n = seen.get(base) || 0;
+      seen.set(base, n + 1);
+      out.add(n ? `${base}-${n}` : base);
+    }
+    return out;
+  };
+  const links = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const [, a] of src.matchAll(/learnMore\("([^"]*)"/g)) links.push([name, `user-guide.md${a ? `#${a}` : ""}`]);
+    for (const [, p] of src.matchAll(/open_doc", \{ page: "([^"]+)"/g)) links.push([name, p]);
+  }
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8").match(/const XRAY_DOCS = \{([\s\S]*?)\};/)[1];
+  for (const [, a] of xray.matchAll(/:\s*"([^"]+)"/g)) links.push(["xray.js", `xray-fixes.md#${a}`]);
+  assert.ok(links.length > 20, `only ${links.length} help links found`);
+  const broken = links.filter(([, link]) => {
+    const [page, anchor] = link.split("#");
+    if (!fs.existsSync(path.join(docs, page))) return true;
+    return anchor && !anchors(page).has(anchor);
+  }).map(([file, link]) => `${file}: ${link}`);
+  assert.deepStrictEqual(broken, []);
+});
+
+// A notebook that can't be saved is never reported as saved, closed or replaced (QA-002).
+test("a failed save says so and keeps the notebook open and dirty", async () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const toasts = [];
+  const calls = [];
+  const ctx = {
+    toast: (text, error) => toasts.push([text, !!error]), friendlyError: (e) => ({ text: String(e.message) }),
+    rpc: async (method) => { calls.push(method); if (method === "save_notebook") throw new Error("disk full"); return { name: "other", cells: [] }; },
+    clearTimeout: () => {}, renderChrome: () => {}, setComputeCheck: () => {}, loadIntoState: () => { calls.push("load"); },
+    go: () => {}, closeDialog: () => {}, markDirty: () => {}, saveTimer: null,
+  };
+  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook"].map(fn).join("\n") +
+    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;", ctx);
+  const nb = { name: "nb", cells: [], dirty: true, lakehouse: null };
+  ctx.state = { notebook: nb };
+  assert.strictEqual(await ctx.saveNotebook(), false);
+  await ctx.openNotebook("other");
+  await ctx.newNotebook();
+  assert.strictEqual(ctx.state.notebook, nb);
+  assert.strictEqual(nb.dirty, true);
+  assert.deepStrictEqual(calls, ["save_notebook", "save_notebook", "save_notebook"]);
+  assert.ok(toasts.length === 3 && toasts.every(([t, err]) => err && t.includes("disk full")));
+  // Ctrl+S and closing the notebook use the result.
+  assert.match(src, /saveNotebook\(\)\.then\(\(ok\) => \{ if \(ok\) toast\("Saved"\); \}\)/);
+  assert.match(src, /state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return false;/);
+  assert.match(src, /if \(await onClose\(\) === false\) return;/);
+  // A save that works still clears dirty.
+  ctx.rpc = async () => ({});
+  assert.strictEqual(await ctx.saveNotebook(), true);
+  assert.strictEqual(nb.dirty, false);
+});
+
+// The Schedule dialog opens on Fabric when the current environment runs on Fabric (it once read
+// state.env, which is never set, so it always opened on This PC).
+test("Schedule follows the current environment's Runs on", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
+  const opened = [];
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
+  const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
+  for (const env of ["dev", "prod"]) {
+    ctx.state = { notebook: { name: "nb", lakehouse: { lakehouse_id: "l" } }, meta: { env, project: { environments } } };
+    ctx.scheduleNotebook();
+  }
+  ctx.state = { notebook: { name: "nb", compute: "local", lakehouse: { lakehouse_id: "l" } }, meta: { env: "prod", project: { environments } } };
+  ctx.scheduleNotebook();
+  assert.deepStrictEqual(opened, ["pc", "fabric", "pc"]);
+});
+
+test("with platform keys, no Keys button makes a project key table", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.strictEqual([...src.matchAll(/newKeyTableDialog\(/g)].length, 2, "newKeyTableDialog is reached only through addKeyTableButton");
+  const opened = [];
+  const ctx = { btn: (label, _icon, onClick) => ({ label, onClick }),
+    useKeyTableDialog: () => opened.push("use"), newKeyTableDialog: () => opened.push("new") };
+  vm.runInNewContext(`${src.match(/function addKeyTableButton\([\s\S]*?\n}\n/)[0]}; this.addKeyTableButton = addKeyTableButton;`, ctx);
+  const platform = ctx.addKeyTableButton({ central_key_tables: [{ name: "customer" }] }, () => {}, "x");
+  const local = ctx.addKeyTableButton({ central_key_tables: null }, () => {}, "x");
+  platform.onClick(); local.onClick();
+  assert.deepStrictEqual([platform.label, local.label, ...opened], ["Use a key table", "New key table", "use", "new"]);
+});
+
+test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const features = read("features.js");
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+    assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
+    assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
+  }
+  // A marked step stays, and keeps its tag, when someone hides preview features.
+  const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
+  vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
+  const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  ctx.shown = false;
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  // and Settings names them as staying
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay"]);
+  assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
+});
+
+// QA review of #173: only a cancelled sign-in is silent; an error with no message still says something.
+test("attempt() stays quiet only for a cancelled sign-in, never for an empty error", async () => {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const toasts = [];
+  const ctx = { toast: (text, isError) => toasts.push([text, isError]) };
+  vm.runInNewContext(`${activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}
+    ${app.match(/async function attempt\([\s\S]*?\n}\n/)[0]}; this.attempt = attempt;`, ctx);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(new Error("")), "Save"), undefined);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(""), "Save"), undefined);
+  assert.strictEqual(toasts.length, 2);
+  assert.match(toasts[0][0], /^Save: Something went wrong and no reason was given/);
+  assert.strictEqual(toasts[0][1], true);
+  await ctx.attempt(() => Promise.reject(new Error("SignInCancelled: cancelled: closed")), "Sign in");
+  assert.strictEqual(toasts.length, 2);
+  assert.strictEqual(await ctx.attempt(() => Promise.resolve(7), "Save"), 7);
+});

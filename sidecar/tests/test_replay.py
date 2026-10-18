@@ -475,3 +475,31 @@ def test_an_oversized_bundle_json_is_refused_before_it_is_read(tmp_path, monkeyp
         z.writestr("bundle.json", json.dumps({"format": replay.FORMAT, "version": 1, "pad": " " * 5000}))
     with pytest.raises(ValueError, match="too large"):
         replay.read(big)
+
+
+WS, LHID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0", "11112222-3333-4444-5555-666677778888"
+
+
+def test_a_bundle_without_ids_has_none_in_its_error_code_or_notes():
+    uri = f"abfss://{WS}@onelake.dfs.fabric.microsoft.com/{LHID}/Tables/dbo/sales"
+    cells = [{"type": "code", "source": f"df = spark.read.load('{uri}')", "count": 1,
+              "outputs": [{"type": "error", "ename": "OSError", "evalue": f"Not found: {uri}",
+                           "traceback": f"File x\n  open('https://onelake.dfs.fabric.microsoft.com/{WS}/{LHID}/Files/a.csv')"}]}]
+    reads = {"tables": {"t": {"table": "dbo.sales", "version": 1, "first": "read", "workspace_id": WS,
+                              "lakehouse_id": LHID, "lakehouse": "LH_Bronze"}}, "files": {}}
+    b = replay.build("events", cells, 0, reads, {"workspace_id": WS, "lakehouse_id": LHID, "name": "LH_Bronze"})
+    assert WS in json.dumps(b)  # with ids, they stay
+    shared = json.dumps(replay.strip_ids(b))
+    assert WS not in shared and LHID not in shared, shared
+    assert "abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>/Tables/dbo/sales" in shared
+    assert "IDs in the cells' code were replaced" in shared
+
+
+def test_a_replay_without_ids_still_recognises_the_same_error():
+    evalue = f"Not found: abfss://{WS}@onelake.dfs.fabric.microsoft.com/{LHID}/Tables/dbo/sales"
+    cells = [{"type": "code", "source": "x", "count": 1, "outputs": [{"type": "error", "ename": "OSError", "evalue": evalue}]}]
+    b = replay.strip_ids(replay.build("events", cells, 0, {"tables": {}, "files": {}}, None))
+    # The replay ran in the person's own lakehouse, so its error names their ids: still the same error.
+    got = replay.outcome(b, 1, "error", [{"type": "error", "ename": "OSError",
+                                         "evalue": evalue.replace(WS, "99999999-9999-9999-9999-999999999999")}])
+    assert got["verdict"] == "reproduced", got

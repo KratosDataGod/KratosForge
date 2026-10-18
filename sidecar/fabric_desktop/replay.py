@@ -118,16 +118,45 @@ def inputs(reads: dict[str, dict[str, dict[str, Any]]]) -> tuple[dict[str, list[
     return {"tables": tables, "files": files}, notes
 
 
+_GUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
+# OneLake addresses carry the workspace and lakehouse by id or by name.
+_ABFSS = re.compile(r"(abfss://)[^@/\s'\"]+(@onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\"]+", re.IGNORECASE)
+_HTTPS = re.compile(r"(https://onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\"]+/[^/\s'\"]+", re.IGNORECASE)
+
+
+def scrub_ids(text: str, known: tuple[str, ...] = ()) -> str:
+    """``text`` without workspace or lakehouse ids: the ``known`` ones, any OneLake address's
+    workspace and lakehouse, and any other GUID."""
+    for value in known:
+        text = text.replace(value, "<id>")
+    text = _ABFSS.sub(r"\1<workspace>\2<lakehouse>", text)
+    text = _HTTPS.sub(r"\1<workspace>/<lakehouse>", text)
+    return _GUID.sub("<id>", text)
+
+
 def strip_ids(bundle: dict[str, Any]) -> dict[str, Any]:
     """The bundle without workspace and lakehouse ids or the workspace name, to share outside the
-    organization; replay then asks which lakehouse to use."""
+    organization; replay then asks which lakehouse to use. Ids are taken out of the inputs and also
+    out of the error, the code and the notes, where OneLake addresses carry them."""
     out = json.loads(json.dumps(bundle))
+    lakehouse = out.get("lakehouse") or {}
+    # Names aren't replaced in text (a workspace called "Sales" would change every "Sales"); the
+    # OneLake address patterns take them out where they're part of an address.
+    known = {str(v) for v in (lakehouse.get("workspace_id"), lakehouse.get("lakehouse_id")) if v}
     for rows in out["inputs"].values():
         for row in rows:
+            known.update(str(row.pop(k)) for k in ("workspace_id", "lakehouse_id") if row.get(k))
             row.pop("workspace_id", None)
             row.pop("lakehouse_id", None)
-    out["lakehouse"] = {k: v for k, v in (out.get("lakehouse") or {}).items() if k == "name"}
+    out["lakehouse"] = {k: v for k, v in lakehouse.items() if k == "name"}
     out["ids_included"] = False
+    ids = tuple(sorted(known, key=len, reverse=True))
+    code = [c.get("source") for c in out.get("cells") or []]
+    out = json.loads(scrub_ids(json.dumps(out), ids))
+    if code != [c.get("source") for c in out.get("cells") or []]:
+        out.setdefault("limitations", []).append(
+            "IDs in the cells' code were replaced with <id>, <workspace> and <lakehouse>. Put your own back "
+            "before the replay reaches those cells.")
     return out
 
 
@@ -271,7 +300,11 @@ def outcome(bundle: dict[str, Any], stopped_at: int, status: str, outputs: list[
     said = f"{got.get('ename')}: {got.get('evalue')}"
     if stopped_at < failed:
         return {"verdict": "failed_earlier", "text": f"Failed earlier, at cell {stopped_at}: {said}", "error": got}
-    if got.get("ename") == expected.get("ename") and got.get("evalue") == expected.get("evalue"):
+    same = got.get("evalue") == expected.get("evalue")
+    if not same and bundle.get("ids_included") is False:
+        # The bundle's error had its ids taken out; this run's names the lakehouse it ran in.
+        same = scrub_ids(str(got.get("evalue"))) == expected.get("evalue")
+    if got.get("ename") == expected.get("ename") and same:
         return {"verdict": "reproduced", "text": "Failed the same way as in the bundle. Reproduced.", "error": got}
     if got.get("ename") == expected.get("ename"):
         return {"verdict": "same_kind", "text": f"Failed with the same kind of error, but a different message: {said}", "error": got}

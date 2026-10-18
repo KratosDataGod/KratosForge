@@ -54,7 +54,11 @@ def test_old_unknown_and_other_version_baselines_are_left_out():
     unknown = {"cu": ms.unknown("fabric_job_cu", ms.CU_SECONDS, "no time"), "at": NOW.isoformat()}
     assert calibration.calibrate(LOCAL, [unknown], now=NOW)["classification"] == ms.UNKNOWN
     other = calibration.calibrate(dict(LOCAL, version="v2"), [fabric(200, 1, version="v1")], now=NOW)
-    assert other["classification"] == ms.UNKNOWN and "different version" in other["reason"]
+    assert other["classification"] == ms.UNKNOWN and "unrecorded) version" in other["reason"]
+    unrecorded = calibration.calibrate(dict(LOCAL, version="v2"), [fabric(200, 1)], now=NOW)
+    assert unrecorded["classification"] == ms.UNKNOWN and "unrecorded) version" in unrecorded["reason"]
+    future = calibration.calibrate(LOCAL, [fabric(200, -1)], now=NOW)
+    assert future["classification"] == ms.UNKNOWN
 
 
 def test_scaled_by_rows_only_when_both_sides_have_them():

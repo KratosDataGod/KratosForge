@@ -186,10 +186,6 @@ class EstateMixin:
             usage = self._usage_reconcile(int(days), fabric, rows, caps)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - cost works without imported usage
             usage = {"error": str(exc)[:300]}
-        # Fabric runs an imported Capacity Metrics export matched count as measured in the savings estimate.
-        measured = {b["job_id"]: b["measured"] for b in usage.get("by_run") or [] if b.get("measured")}
-        if measured:
-            costs_mod.calibrate(rows, measured)
         return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities(caps)) | {
             "unavailable": meta.get("unavailable", {}), "capacities": caps, "usage": usage}
 

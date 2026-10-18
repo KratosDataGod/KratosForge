@@ -2,8 +2,7 @@
 
 Run time on this PC is never turned into CU: how long a run took here says nothing about what
 the same work uses in Fabric. The estimate comes only from Fabric runs of the same workload
-(its baseline): their measured CU when an imported Capacity Metrics export matched them,
-otherwise their estimated job CU. With no usable baseline the saving is unknown, never 0.
+(its baseline): their measured job CU when the caller has it, otherwise their estimated job CU. With no usable baseline the saving is unknown, never 0.
 
 Pure: no I/O and no Fabric calls. The caller gathers the baselines.
 """
@@ -26,7 +25,7 @@ def _usable(b: dict[str, Any], now: dt.datetime, max_age_days: float) -> bool:
     if cu.get("classification") not in (ms.MEASURED, ms.ESTIMATED) or cu.get("value") is None:
         return False
     at = ms.parse_time(b.get("at"))
-    return at is not None and (now - at).total_seconds() <= max_age_days * 86400
+    return at is not None and 0 <= (now - at).total_seconds() <= max_age_days * 86400  # not dated in the future
 
 
 def calibrate(local_run: dict[str, Any], baselines: list[dict[str, Any]], *, now: dt.datetime | None = None,
@@ -45,9 +44,9 @@ def calibrate(local_run: dict[str, Any], baselines: list[dict[str, Any]], *, now
     usable = [b for b in baselines if _usable(b, now, max_age_days)]
     version = local_run.get("version")
     if version is not None:
-        same = [b for b in usable if b.get("version") in (None, version)]
+        same = [b for b in usable if b.get("version") == version]  # an unrecorded definition doesn't match
         if usable and not same:
-            return ms.unknown(METRIC, ms.CU_SECONDS, "The Fabric runs of this workload ran a different version, "
+            return ms.unknown(METRIC, ms.CU_SECONDS, "The Fabric runs of this workload ran a different (or unrecorded) version, "
                               "so they don't show what this one would use.", **ids)
         usable = same
     if not usable:

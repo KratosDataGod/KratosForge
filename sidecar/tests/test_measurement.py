@@ -249,17 +249,7 @@ def test_rows_read_scale_the_estimate_and_a_changed_definition_is_unknown():
     assert local["avoided_cu"]["value"] == 200 and "rows read" in local["avoided_cu"]["method"]
     meta[1]["logic"] = "v1"
     local = next(r for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local")
-    assert local["avoided_cu"]["classification"] == "unknown" and "different version" in local["avoided_cu"]["reason"]
-
-
-def test_measured_cu_from_an_imported_export_is_preferred():
-    meta = [_meta("t", "dev", "local", "2026-10-14T10:00:00+00:00"),
-            _meta("t", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=100, run_id="f1")]
-    rows = costs.activities(meta, [], [], CFG, now=NOW)
-    measured = {"f1": ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 450, source="Capacity Metrics export",
-                              collected_at="2026-10-14T00:00:00+00:00", run_id="f1")}
-    local = next(r for r in costs.calibrate(rows, measured, now=NOW) if r["where"] == "local")
-    assert local["avoided_cu"]["value"] == 450 and "measured" in local["avoided_cu"]["method"]
+    assert local["avoided_cu"]["classification"] == "unknown" and "unrecorded) version" in local["avoided_cu"]["reason"]
 
 
 def test_a_run_here_without_a_time_can_still_be_estimated_and_mixed_totals_dont_fail():
@@ -277,3 +267,15 @@ def test_a_run_here_without_a_time_can_still_be_estimated_and_mixed_totals_dont_
     assert t["unknown_runs"] == 1 and t["uncalibrated_runs"] == 1
     json.dumps(out)
 
+
+
+def test_tables_of_one_fabric_engine_run_are_each_estimated_from_their_own_time():
+    # Real id shapes: every table of one engine run shares its run id (meta/engine.py), so nothing is keyed by it.
+    run = "r-20261013-100000-ab12"
+    meta = [_meta("a", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=600, run_id=run, logic="v1"),
+            _meta("b", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=1200, run_id=run, logic="v1"),
+            _meta("a", "dev", "local", "2026-10-14T10:00:00+00:00", run_id="r-20261014-100000-cd34", logic="v1"),
+            _meta("b", "dev", "local", "2026-10-14T10:00:00+00:00", run_id="r-20261014-100000-cd34", logic="v1")]
+    local = {r["name"]: r["avoided_cu"] for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local"}
+    assert (local["a"]["value"], local["b"]["value"]) == (600, 1200)
+    assert all("estimated" in m["method"] for m in local.values())

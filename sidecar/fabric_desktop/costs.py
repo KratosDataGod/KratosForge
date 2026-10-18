@@ -167,21 +167,18 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
 _NO_WORKLOAD = "A notebook write from this PC has no Fabric run of the same work to compare with."
 
 
-def calibrate(rows: list[dict[str, Any]], measured: dict[str, dict[str, Any]] | None = None, *,
-              now: dt.datetime | None = None) -> list[dict[str, Any]]:
+def calibrate(rows: list[dict[str, Any]], *, now: dt.datetime | None = None) -> list[dict[str, Any]]:
     """Set ``avoided_cu`` on each run on this PC from the Fabric runs of its workload (calibration.py).
 
-    ``measured`` maps a Fabric run id to its measured ``fabric_job_cu`` (an imported Capacity Metrics
-    export matched to the run); those runs are used as measured, the rest as estimated. Fabric runs of
-    the same environment are preferred; others are used, with a note, when the same environment has
-    none. Changes the rows in place and returns them."""
-    measured = measured or {}
+    The Fabric runs are a metadata table's own runs in Fabric, with their estimated job CU. Measured CU
+    from an imported Capacity Metrics export isn't used yet: it covers the whole runner job, and one
+    job runs many tables. Fabric runs of the same environment are preferred; others are used, with a
+    note, when the same environment has none. Changes the rows in place and returns them."""
     baselines: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
         if r["where"] == "fabric" and r.get("workload_id"):
-            cu = measured.get(r["fabric_job_cu"].get("run_id") or "") or r["fabric_job_cu"]
             baselines.setdefault(r["workload_id"], []).append(
-                {"cu": cu, "at": r["at"], "rows": r.get("rows_read"), "version": r.get("version"), "env": r["env"]})
+                {"cu": r["fabric_job_cu"], "at": r["at"], "rows": r.get("rows_read"), "version": r.get("version"), "env": r["env"]})
     for r in rows:
         if r["where"] != "local":
             continue

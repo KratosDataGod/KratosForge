@@ -144,7 +144,7 @@ External execution reuses the engine's own paths:
 
 | Capability | Runs through | Boundary |
 | --- | --- | --- |
-| `fabric_desktop_execute_sql` | `sql.run` | Read-only statements only; DuckDB with external access off (no local files, no extensions, no network) so only lakehouse tables can be read |
+| `fabric_desktop_execute_sql` | `sql.prepare_sandboxed`, `sql.execute_sandboxed` | Read-only statements only; DuckDB with external access off (no local files, no extensions, no network) so only lakehouse tables can be read; the SQL page's memory share and threads per run, locked; tables registered under the attach lock and the query run after it is released; a timeout or cancel interrupts DuckDB until it stops |
 | `fabric_desktop_execute_python` | `ProcessKernel` (`kernel_proc.py`) | Always in a process of its own; timeout, interrupt then stop; output capped; approval every call |
 | `fabric_desktop_run_notebook` | Same kernel, cell by cell, as **Run all** does | Same as above; the code cells are read before asking (`Capability.bind`), shown in the approval and bound to it by their SHA-256, and exactly those run; a notebook changed since is refused; `%run` and `notebookutils.notebook.run` are refused; Fabric runs are not offered yet |
 

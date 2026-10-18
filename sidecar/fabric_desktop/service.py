@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
@@ -592,10 +593,7 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         self._attach(lakehouse_ref)
         started = time.monotonic()
         result = sql.run(query, dialect, sandbox=sandbox)
-        columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
-        return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
-                "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
-                "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
+        return sql_result(result, limit, started)
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
                  dialect: str = "spark") -> dict[str, Any]:
@@ -692,6 +690,15 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
         return self._publish(name, cells, lakehouse_ref, compute, workspace)
+
+
+def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
+    """A query result as run_sql returns it: the first ``limit`` rows, and the seconds since ``started``
+    (time.monotonic)."""
+    columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
+    return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
 
 
 def _json_value(value: Any) -> Any:

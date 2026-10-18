@@ -86,29 +86,63 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
+def _connect() -> duckdb.DuckDBPyConnection:
+    # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
+    # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    return con
+
+
+def _arrow(result: duckdb.DuckDBPyConnection | None) -> pa.Table:
+    if result is None or not result.description:
+        return pa.table({})
+    return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+
+
+def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None = None,
+                      threads: int | None = None) -> tuple[duckdb.DuckDBPyConnection, str]:
+    """A connection with ``query``'s lakehouse tables registered and its configuration locked, and
+    the one read-only statement to run on it (``execute_sandboxed``).
+
+    The tables need the attached lakehouse only while they are registered here (each dataset keeps
+    its own storage token), so a caller can run the statement after letting the lakehouse go.
+    ``memory_mb`` and ``threads`` are set before the configuration is locked."""
+    statement = check_read_only(parse(query, dialect))
+    con = _connect()
+    try:
+        bind_tables(statement, con, {})
+        if memory_mb:
+            con.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
+        if threads:
+            con.execute(f"SET threads = {int(threads)}")
+        con.execute("SET enable_external_access = false")
+        con.execute("SET lock_configuration = true")
+    except BaseException:
+        con.close()
+        raise
+    return con, statement.sql("duckdb")
+
+
+def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Table:
+    """Run a statement from ``prepare_sandboxed``. ``con.interrupt()`` from another thread stops it
+    (duckdb.InterruptException); an interrupt sent before DuckDB starts the statement is lost."""
+    return _arrow(con.execute(statement))
+
+
 def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
     """Run every statement in ``query`` and return the last one's result.
 
     ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
     once the lakehouse tables are registered, so the query can't read local files, load
     extensions or reach the network (external AI tools, integrations/executions.py)."""
-    # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
-    # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
-    con = duckdb.connect()
-    con.execute("SET TimeZone = 'UTC'")
+    if sandbox:
+        con, statement = prepare_sandboxed(query, dialect)
+        return execute_sandboxed(con, statement)
+    con = _connect()
     views: dict[str, str] = {}
     result = None
-    statements = parse(query, dialect)
-    if sandbox:
-        statements = [check_read_only(statements)]
-        bind_tables(statements[0], con, views)
-        con.execute("SET enable_external_access = false")
-        con.execute("SET lock_configuration = true")
-        result = con.execute(statements[0].sql("duckdb"))
-        statements = []
-    for statement in statements:
+    for statement in parse(query, dialect):
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
-    if not result.description:
-        return pa.table({})
-    return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+    return _arrow(result)

@@ -3,7 +3,9 @@
     SQL        Service.run_sql with ``sandbox=True``: one read-only statement (SELECT, WITH ...
                SELECT, UNION), DuckDB with external access off and its configuration locked, so
                only the lakehouse tables the query names can be read: no local files, no
-               extensions, no network
+               extensions, no network. The SQL page's memory share and threads per run apply
+               (Settings > SQL). The tables are registered under the attach lock and the query
+               runs after it is released; a timeout or cancel interrupts DuckDB until it stops
     Python     a ProcessKernel (kernel_proc.py) of its own, started for the execution and ended
                after it: the same kernel the notebook screen uses, never the app's own kernel
     Notebook   the same, cell by cell in order as Run all does, stopping at the first error
@@ -86,6 +88,18 @@ def shape_outputs(outputs: list[dict[str, Any]], budget: list[int]) -> list[dict
         budget[0] -= size
         out.append(item)
     return out
+
+
+def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float = 30.0) -> None:
+    """Interrupt a DuckDB query until it has stopped: DuckDB drops an interrupt that lands just
+    before it starts a statement (localdata/engine.py's _interrupt_until_stopped does the same)."""
+    deadline = time.monotonic() + seconds
+    while not stopped.is_set() and time.monotonic() < deadline:
+        try:
+            con.interrupt()
+        except Exception:  # noqa: BLE001 - the connection closed as the query ended
+            return
+        stopped.wait(0.05)
 
 
 class Execution:
@@ -281,12 +295,50 @@ class ExecutionManager:
     # ---- the three kinds
 
     def run_sql(self, run: Execution, query: str, lakehouse_ref: dict[str, str], max_rows: int) -> dict[str, Any]:
+        """The query's tables are registered under the attach lock; the query itself runs after the
+        lock is released, so a long query never holds up the next run. A timeout or cancel
+        interrupts DuckDB (con.interrupt) until the query has stopped."""
+        import duckdb
+
+        from .. import app_settings, sql, sql_exec
+        from ..service import sql_result
+        limits = app_settings.sql_limits()  # the SQL page's memory share and threads per run (SQL-003)
         with self._attach_lock:
             if run.cancel_event.is_set():
-                raise IntegrationError("cancelled", "Cancelled before it started.")
-            out = self.service.run_sql(query, lakehouse_ref, limit=max_rows, sandbox=True)
+                raise self._stopped(run)
+            self.service._attach(lakehouse_ref)
+            con, statement = sql.prepare_sandboxed(
+                query, memory_mb=sql_exec.memory_mb(int(limits["sql_memory_limit_percent"])),
+                threads=sql_exec.run_threads(limits))
+        stopped = threading.Event()
+        run.on_cancel = lambda: threading.Thread(target=interrupt_until_stopped, args=(con, stopped), daemon=True,
+                                                 name=f"execution-stop-{run.id}").start()
+        started = time.monotonic()
+        try:
+            # _stop sets cancel_event before it reads on_cancel: a stop that came before on_cancel was
+            # set is seen here, and one after it interrupts the query.
+            if run.cancel_event.is_set():
+                raise self._stopped(run)
+            result = sql.execute_sandboxed(con, statement)
+        except duckdb.Error:
+            if run.cancel_event.is_set():
+                raise self._stopped(run) from None
+            raise
+        finally:
+            stopped.set()
+            run.on_cancel = None
+            con.close()
+        out = sql_result(result, max_rows, started)
         run.log(f"{out['row_count']} rows in {out['seconds']} s")
         return out | {"truncated": out["row_count"] > len(out["rows"])}
+
+    @staticmethod
+    def _stopped(run: Execution) -> IntegrationError:
+        if run.state == "timed_out":
+            return IntegrationError("timeout", f"The query was stopped after its time limit ({run.timeout:g} s).",
+                                    hint="Narrow the query (a filter, fewer rows or columns) or give it a longer "
+                                         "timeout_seconds.", retryable=True)
+        return IntegrationError("cancelled", "The query was cancelled.")
 
     def run_cells(self, run: Execution, cells: list[str], lakehouse_ref: dict[str, str] | None,
                   notebook: str = "") -> dict[str, Any]:

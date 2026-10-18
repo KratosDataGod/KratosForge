@@ -235,7 +235,7 @@ No Critical issue was confirmed. Twelve are High.
 | DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only |
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
-| SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`) |
+| SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`). Done in HD-041: the shell no longer holds the engine for a whole call; a reader thread hands each reply only to the call that sent its id (`replies.rs`) and drops a reply nobody waits for, rather than resetting the engine, since a call whose time ran out has already ended it. The sidecar runs the watchdog's quick calls in their own lane (`server.QUICK`, tested to match `watchdog::QUICK`), so a long call can't hold them up or make them time out; every other call still runs one at a time in order, so writes don't overlap. Long calls still queue behind each other. Tested on Linux, not on Windows |
 | SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
 | UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |

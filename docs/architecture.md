@@ -71,6 +71,8 @@ A metadata project is a folder you choose and keep in Git.
 
 Every other action follows the same path. Only the work in step 3 changes.
 
+Several calls can be on the pipe at once. Each request carries an id, and the shell hands each reply only to the call with that id; a late reply nobody waits for is dropped. The sidecar runs the quick calls (the ones the shell gives a 60-second limit, such as polling a cell, the SQL page's paging and saving a notebook) in their own lane, so a long run, publish or sign-in doesn't hold them up. Every other call runs one at a time in the order it arrives.
+
 ## Writing to OneLake
 
 `lakehouse.write_table`, **Save as table**, jobs and metadata runs all write the same way:

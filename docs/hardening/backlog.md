@@ -137,7 +137,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite | Hardening | S |
 | HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
-| HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
+| HD-041 | SH-11: reply ids checked; long calls off the shared pipe (done: replies matched by id; quick calls in their own lane) | Hardening | M |
 | HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |

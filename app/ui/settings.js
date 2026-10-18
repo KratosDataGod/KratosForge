@@ -551,10 +551,14 @@ function readinessCard() {
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
     const tester = btn(writeRow?.status === "ok" ? "Test again" : "Test a write", null, retest,
       "tool outline small", { disabled: capacityOk ? null : true });
-    box.replaceChildren(head,
-      h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
+    box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
-      h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
+      howItWorks("home.ready", {
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
+        results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
+        anchor: "ready-to-work",
+      })));
   };
   async function run() {
     box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));

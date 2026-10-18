@@ -39,3 +39,15 @@ test("a failed write test clears the saved pass and the card asks again", { skip
   assert.ok(await page.locator("button:has-text('Test a write')").count() > 0);
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("the card says how it works and names the one write", { skip }, async () => {
+  const page = app.page;
+  await page.evaluate(() => { localStorage.removeItem("fd.ready.write"); document.querySelectorAll(".ready").forEach((n) => n.remove());
+    document.body.append(readinessCard()); });
+  await page.waitForSelector(".ready .how-it-works");
+  const text = await page.textContent(".ready .how-it-works");
+  assert.match(text, /What it changes/);
+  assert.match(text, /Files\/_fabric_desktop_check\/write-test\.txt/);
+  assert.match(text, /asks you first/);
+  assert.deepStrictEqual(app.errors, []);
+});

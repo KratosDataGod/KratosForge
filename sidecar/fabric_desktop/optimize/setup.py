@@ -1,9 +1,11 @@
-"""Inspecting, initializing, upgrading and checking access to an optimization lakehouse.
+"""Inspecting, initializing, upgrading and checking access to the central lakehouse.
 
-``inspect`` reads only: which ``fdopt_`` tables exist, their columns, and the schema version. It
-never looks inside any other table. ``initialize`` creates what is missing and runs migrations;
-it never writes to a table that isn't Optimize's, never replaces a table, and refuses when an
-``fdopt_`` table has columns Optimize doesn't expect. ``check_access`` proves write access by
+Each call works on one table family (schema.Family; Optimize's ``fdopt_`` tables by default).
+``inspect`` reads only: which of the family's tables exist, their columns, and its schema version.
+It never looks inside any other table. ``initialize`` creates what is missing and runs the family's
+migrations; it never writes to a table outside the family (and Optimize's shared installations,
+audit and config tables), never replaces a table, and refuses when one of the family's tables has
+columns it doesn't expect. ``check_access`` proves write access by
 registering this installation (a row it would write anyway), so it needs no workspace admin
 rights to read role assignments.
 """
@@ -18,6 +20,9 @@ import polars as pl
 from .. import retrying
 from . import schema
 from .installation import Installation, now, os_family
+
+Family = schema.Family
+CORE = schema.OPTIMIZE  # holds the installations, audit and config every family shares
 
 # What a lakehouse holds, as inspect() reports it.
 READY = "ready"            # Optimize's tables at this app's schema version
@@ -49,20 +54,26 @@ def _type_ok(have: pl.DataType, want: pl.DataType) -> bool:
     return want == pl.String and have in (pl.String, pl.Utf8)
 
 
-def applied_versions(lake: Any) -> list[int]:
-    df = lake.rows(schema.table("schema_version"))
+def message(state: str, family: Family = CORE) -> str:
+    """MESSAGES[state], naming the family's owner instead of Optimize."""
+    text = MESSAGES[state]
+    return text if family is CORE else text.replace("Optimize", family.title).replace("fdopt_", family.prefix)
+
+
+def applied_versions(lake: Any, family: Family = CORE) -> list[int]:
+    df = lake.rows(family.table("schema_version"))
     if df is None or not len(df):
         return []
     return sorted({int(v) for v in df["version"].drop_nulls().to_list()})
 
 
-def inspect(lake: Any) -> dict[str, Any]:
+def inspect(lake: Any, family: Family = CORE) -> dict[str, Any]:
     names = set(lake.table_names())
-    ours = sorted(n for n in names if n.startswith(schema.PREFIX))
-    applied = applied_versions(lake) if schema.table("schema_version") in names else []
+    ours = sorted(n for n in names if n.startswith(family.prefix))
+    applied = applied_versions(lake, family) if family.table("schema_version") in names else []
     version = max(applied, default=0)
-    latest = schema.latest()
-    want = schema.expected(min(version, latest) or latest)
+    latest = family.latest()
+    want = family.expected(min(version, latest) or latest)
     conflicts = []
     for name in ours:
         if name not in want:
@@ -85,9 +96,11 @@ def inspect(lake: Any) -> dict[str, Any]:
     else:
         state = READY
     # What initializing or upgrading would create (nothing for a newer lakehouse: it is read-only).
-    adds = sorted(n for n in schema.expected() if n not in names) if version <= latest else []
-    return {"state": state, "message": MESSAGES[state], "schema_version": version or None, "app_schema_version": latest,
-            "missing": missing, "adds": adds, "conflicts": conflicts, "other_tables": len(names) - len(ours),
+    adds = sorted(n for n in family.expected() if n not in names) if version <= latest else []
+    # Tables of other registered families are the central lakehouse's own, not "other tables".
+    others = sum(1 for n in names if schema.family_of(n) is None)
+    return {"state": state, "message": message(state, family), "family": family.prefix, "schema_version": version or None, "app_schema_version": latest,
+            "missing": missing, "adds": adds, "conflicts": conflicts, "other_tables": others,
             "writable": state not in (NEWER, CONFLICT)}
 
 
@@ -103,22 +116,29 @@ def retry(fn: Callable[[], Any], attempts: int = 5, backoff: float = 0.5, sleep:
     return None
 
 
-def _rows(name: str, rows: list[dict[str, Any]]) -> pl.DataFrame:
-    cols = schema.expected()[schema.table(name)]
+def _rows(name: str, rows: list[dict[str, Any]], family: Family = CORE) -> pl.DataFrame:
+    cols = family.expected()[family.table(name)]
     return pl.DataFrame([{c: r.get(c) for c in cols} for r in rows], schema=cols)
 
 
-def write(lake: Any, installation: Installation, name: str, rows: list[dict[str, Any]], version: int | None = None) -> None:
-    """Insert rows into ``fdopt_<name>``, each with provenance; rows already there are skipped."""
-    base = installation.provenance(version or schema.latest())
-    df = _rows(name, [base | r for r in rows])
-    retry(lambda: lake.insert_new(schema.table(name), df))
+def write(lake: Any, installation: Installation, name: str, rows: list[dict[str, Any]], version: int | None = None,
+          family: Family = CORE) -> None:
+    """Insert rows into ``<prefix><name>``, each with provenance; rows already there are skipped."""
+    base = installation.provenance(version or family.latest())
+    df = _rows(name, [base | r for r in rows], family)
+    retry(lambda: lake.insert_new(family.table(name), df))
 
 
-def initialize(lake: Any, installation: Installation, approve: bool = False) -> dict[str, Any]:
-    """Create Optimize's missing tables, run every migration not yet recorded, and register this
-    installation. Safe to run again, and safe when two installations run it at once."""
-    before = inspect(lake)
+def initialize(lake: Any, installation: Installation, approve: bool = False, family: Family = CORE) -> dict[str, Any]:
+    """Create the family's missing tables, run every migration of it not yet recorded, and register
+    this installation. Another family first initializes Optimize's shared tables (installations,
+    audit, config), under the same approval. Safe to run again, and safe when two installations run
+    it at once."""
+    if family is not CORE:
+        core = inspect(lake)
+        if core["state"] != READY:
+            initialize(lake, installation, approve)
+    before = inspect(lake, family)
     if before["state"] == READY:
         register(lake, installation)
         return before
@@ -126,26 +146,30 @@ def initialize(lake: Any, installation: Installation, approve: bool = False) -> 
         raise PermissionError(before["message"])
     if not approve:
         raise PermissionError(f"{before['message']} Confirm to continue.")
-    done = set(applied_versions(lake)) if before["schema_version"] else set()
-    for m in schema.MIGRATIONS:
+    done = set(applied_versions(lake, family)) if before["schema_version"] else set()
+    for m in family.migrations:
         for name in m.tables:
-            cols = schema.expected(m.version)[schema.table(name)]
-            if not retry(lambda name=name, cols=cols: lake.create(schema.table(name), cols)):
-                retry(lambda name=name, cols=cols: lake.add_columns(schema.table(name), cols))
+            full, cols = family.table(name), family.expected(m.version)[family.table(name)]
+            if not retry(lambda full=full, cols=cols: lake.create(full, cols)):
+                retry(lambda full=full, cols=cols: lake.add_columns(full, cols))
         for step in m.steps:
             retry(lambda step=step: step(lake))
         if m.version not in done:
             write(lake, installation, "schema_version",
                   [{"record_id": f"v{m.version}", "version": m.version, "description": m.description,
-                    "applied_at": now()}], m.version)
-    write(lake, installation, "config", [{"record_id": f"default:{k}", "key": k, "value": v, "at": now()}
-                                         for k, v in schema.DEFAULT_CONFIG.items()])
+                    "applied_at": now()}], m.version, family)
+    if family.default_config:
+        # Another family's keys carry its prefix, so two families' settings never share a row.
+        keys = [(k if family is CORE else family.prefix + k, v) for k, v in family.default_config]
+        write(lake, installation, "config", [{"record_id": f"default:{k}", "key": k, "value": v, "at": now()}
+                                             for k, v in keys])
     action = "upgrade" if before["state"] == UPGRADE else "initialize"
-    write(lake, installation, "audit", [{"record_id": f"{installation.id}:{action}:{now()}", "at": now(),
-                                         "action": action, "target": f"schema {schema.latest()}", "outcome": "ok",
+    write(lake, installation, "audit", [{"record_id": f"{installation.id}:{action}:{family.prefix}:{now()}",
+                                         "at": now(), "action": action,
+                                         "target": f"{family.prefix} schema {family.latest()}", "outcome": "ok",
                                          "message": f"from {before['state']}"}])
     register(lake, installation)
-    return inspect(lake)
+    return inspect(lake, family)
 
 
 def register(lake: Any, installation: Installation) -> None:

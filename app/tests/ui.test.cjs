@@ -1297,3 +1297,17 @@ test("Estate X-ray's Optimize confirms with the risk check before starting a Fab
   assert.ok(dialog.indexOf('rpc("xray_optimize_check"') > -1 && !/optimize: \(\) => btn\("Optimize", "sync", async/.test(xray),
     "the line's button opens the dialog instead of starting the job");
 });
+
+// Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
+  for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
+  assert.match(how, /only when you confirm/);
+  assert.match(how, /each asks first/);
+  assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
+  assert.match(fabric, /withHowItWorks\(/);
+  assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
+});

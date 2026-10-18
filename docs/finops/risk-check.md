@@ -11,7 +11,7 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 - **Estate X-ray > Optimize.** Its confirm always shows the check, for the policy, your sign-in and the workspace's capacity (a table has no run history, so nothing about past runs or their CU). Going ahead past warnings there isn't recorded, because a table isn't a workload.
 - **Check again** reads the capacity again instead of using the last reading.
 - **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
-- **Warning** lets you go ahead. Going ahead is recorded (see below). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
+- **Warning** lets you go ahead. Going ahead is recorded (see below) (except Estate X-ray > Optimize, above). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
 
 A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 

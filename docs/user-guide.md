@@ -93,7 +93,7 @@ Home answers "what happened since I was last here". From the top:
 
 ### Ready to work
 
-A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window.
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel beside the list says what it reads, the one thing it can write and where results are kept.
 
 | Check | Ready when | If not |
 | --- | --- | --- |
@@ -120,6 +120,7 @@ The X-ray reads every lakehouse you can reach and lists what needs attention, wo
 - **Vacuum** on a table first says how many old files it would delete and how much storage they take, then deletes them in Fabric. It always keeps the history the table's layer promises, so Restore keeps working.
 - **Your lakehouses** lists every lakehouse it read. **Adopt** on a lakehouse turns its tables into metadata entities, so the framework manages them from then on.
 - Every finding and its fix is explained in [xray-fixes.md](xray-fixes.md).
+- **How this works**, beside the findings, says what the scan reads and which three buttons write: **Optimize**, **Vacuum** and **Adopt**, each of which asks first.
 
 ## Create
 
@@ -264,11 +265,13 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
+**How this works**, beside the portal, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
+
 The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
 
 ## Optimize (Preview)
 
-What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize and the central lakehouse](optimize/README.md).
 
 - **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.

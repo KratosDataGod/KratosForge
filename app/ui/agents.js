@@ -222,11 +222,12 @@ function agRuns(a, e) {
     h("div", {}, p.enabled ? `Pipeline jobs for ${(p.entities || []).join(", ") || "every entity"} · ${e.concurrency || 1} at a time · backfill ${p.allow_backfill ? "allowed" : "not allowed"}`
       : "Doesn't take pipeline jobs"),
     scheds.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Schedule", "Runs", "Next", ""].map((c) => h("th", {}, c)))),
-      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id),
+      h("tbody", {}, scheds.map((s) => h("tr", {}, h("td", {}, s.id, s.shared ? h("span", { class: "pill-s neu", title: "Shared with other agents through the mailbox: each due time runs once, on whichever claims it" }, "Shared") : null),
         h("td", { class: Array.isArray(s.entities) ? null : "muted-text" }, !Array.isArray(s.entities) ? "Doesn't say (an older version)"
           : s.entities.join(", ") || "Every table"),
         h("td", {}, s.next ? agAt(s.next) : "None"),
         h("td", { class: a.state === "live" ? "muted-text" : "reason" }, a.state === "live" ? ""
+          : s.shared ? "Runs on the other agents that share it, if any are up"
           : s.next && new Date(s.next) < new Date() ? "Missed; runs once when the agent is back" : "Won't run while it is down")))))
       : h("p", { class: "muted-text" }, "No schedules here."));
 }

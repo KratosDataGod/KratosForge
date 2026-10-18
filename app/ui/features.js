@@ -62,6 +62,8 @@ const PREVIEW_FEATURES = {
   workloads: "Workloads",
   incidents: "Incidents",
   agents: "Agents",
+  queue: "Queue",
+  runAs: "Run as",
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",

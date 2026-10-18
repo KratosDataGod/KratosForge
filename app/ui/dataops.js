@@ -147,7 +147,7 @@ function lastRelease(env) {
     const row = (label, ...value) => h("div", { class: "release-row" }, h("span", { class: "muted-text" }, label), h("span", {}, value));
     const record = r.receipt_id ? [h("span", { class: "mono" }, `${r.receipt_id.slice(0, 8)}…`),
       h("span", { class: `pill-s ${r.verified ? "pass" : "fail"}` }, r.verified ? "checks out" : "doesn't match its id"),
-      btn("Copy record", null, () => attempt(() => navigator.clipboard.writeText(r.receipt), "Could not copy").then(() => toast("Copied")), "tool link small")]
+      btn("Copy record", null, () => copyText(r.receipt, "Record"), "tool link small")]
       : h("span", { class: "muted-text" }, "none (promoted before release records)");
     box.replaceWith(h("div", { class: "release-card dataops" },
       preview("releases", h("b", {}, `Last release to ${ENV_LABEL[env]}`)),

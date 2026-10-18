@@ -299,7 +299,7 @@ def test_the_save_gate_checks_keys(proj):
     append_entity(p.root, "silver.customers", '[[keys]]\ntable = "vendor"\nbusiness_key = "nope"\n')
     p.reload()
     errors = validate(p, DAY2)
-    assert "silver.customers: key table vendor is not defined in Metadata > Surrogate keys" in errors
+    assert "silver.customers: key table vendor is not defined in Data mesh > Design > Surrogate keys" in errors
     assert "silver.customers: business key nope is not in the source" in errors
     edit_entity(p.root, "silver.customers", 'table = "vendor"\nbusiness_key = "nope"', 'table = "customer"\nbusiness_key = "name"')
     assert "silver.customers: key table customer is listed twice" in validate(p.reload() or p, DAY2)

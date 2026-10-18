@@ -87,3 +87,161 @@ async function replayDialog(nb, cell) {
   };
   showDialog("Save a replay bundle", body, [btn("Cancel", null, closeDialog, "tool outline"), btn("Save bundle", null, save, "tool primary")]);
 }
+
+// ---------- opening a bundle and replaying it ----------
+// Create > Open replay bundle makes a notebook of the bundle's cells ("<notebook> replay"). Its
+// banner replays it: the engine restarts the kernel's own process with the proof runtime bound
+// (tables at the bundle's versions, writes to a sandbox), then the cells up to the failed one run
+// as usual here, so their output, variables and watches are there to debug.
+
+function replayBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let text = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+async function replayOpenDialog() {
+  const rows = await attempt(() => rpc("replay_bundles_list"), "Could not list replay bundles");
+  if (!rows) return;
+  const open = async (params) => {
+    const nb = await attempt(() => rpc("replay_bundle_open", params), "Could not open the replay bundle");
+    if (!nb) return;
+    closeDialog();
+    if (state.notebook?.dirty) await saveNotebook();
+    loadIntoState(nb);
+    go("notebook");
+  };
+  const file = h("input", { type: "file", accept: ".zip", "aria-label": "Choose a replay bundle file" });
+  file.addEventListener("change", async () => {
+    const f = file.files?.[0];
+    if (f) await open({ content: replayBase64(await f.arrayBuffer()) });
+  });
+  const when = (iso) => { const d = iso ? new Date(iso) : null; return d && !isNaN(d) ? d.toLocaleString() : ""; };
+  showDialog("Open a replay bundle", h("div", { class: "replay-dialog" },
+    h("p", { class: "muted small" }, "Opens the bundle's cells as a new notebook. Replaying it runs that code on this PC with your sign-in, so read the cells first when someone else sent you the bundle."),
+    rows.length ? h("div", { class: "replay-list" }, rows.map((r) => h("div", { class: "replay-row" },
+      h("div", { class: "replay-what" }, h("b", {}, r.notebook || r.file),
+        h("span", { class: "muted small" }, [`Failed at cell ${r.failed_cell}`, when(r.saved_at), r.samples ? "with a data sample" : "", r.file].filter(Boolean).join(" · "))),
+      btn("Open", null, () => open({ path: r.path }), "tool outline small", { "aria-label": `Open ${r.file}` }))))
+      : h("p", { class: "muted small" }, "No replay bundles in your Downloads folder."),
+    h("label", { class: "field" }, "Or choose a bundle file", file)),
+  [btn("Cancel", null, closeDialog, "tool outline")]);
+}
+
+function replayView(nb) {
+  if (!nb.replayView) nb.replayView = { check: null, checkedFor: undefined, use: {}, result: null, busy: false, problem: "" };
+  return nb.replayView;
+}
+
+// The check depends on the attached lakehouse: fetched again when that changes.
+function replayLoad(nb, force = false) {
+  const v = replayView(nb);
+  const lh = nb.lakehouse?.lakehouse_id || null;
+  if (!force && v.checkedFor === lh) return;
+  v.checkedFor = lh;
+  rpc("replay_check", { name: nb.name, lakehouse_ref: nb.lakehouse || null })
+    .then((c) => { v.check = c; v.problem = ""; })
+    .catch((e) => { v.problem = String(e?.message || e); })
+    .finally(() => { if (state.notebook === nb) replayPaint(nb); });
+}
+
+function replayBanner(nb) {
+  if (!nb.replay || !replayOn()) return null;
+  replayLoad(nb);
+  return h("div", { class: "replay-banner", id: "replay-banner" }, ...replayBody(nb));
+}
+
+function replayPaint(nb) {
+  document.getElementById("replay-banner")?.replaceChildren(...replayBody(nb));
+}
+
+function replayBody(nb) {
+  const r = nb.replay;
+  const v = replayView(nb);
+  const c = v.check;
+  const when = r.saved_at && !isNaN(new Date(r.saved_at)) ? new Date(r.saved_at).toLocaleString() : "";
+  const out = [h("div", { class: "replay-title" }, h("b", {}, `Replay of ${r.notebook}, failed at cell ${r.failed_cell}${when ? ` on ${when}` : ""}`), previewTag())];
+  if (v.problem) out.push(h("span", { class: "error-text" }, v.problem));
+  if (!c) return [...out, h("span", { class: "muted small" }, "Checking the bundle's tables...")];
+  const pinned = c.tables.filter((t) => t.readable).map((t) => `${t.table} v${t.version}`);
+  out.push(h("span", {}, pinned.length ? `Tables are read at the versions in the bundle: ${pinned.join(", ")}. ` : "",
+    "Writes go to a sandbox in the lakehouse's Files, never its tables, as in a proof. The code runs on this PC with your sign-in."));
+  for (const t of c.tables.filter((x) => !x.readable)) {
+    const pick = h("select", { "aria-label": `What to read for ${t.table}` },
+      h("option", { value: "" }, "Choose..."),
+      t.has_sample ? h("option", { value: "sample" }, "Use the bundle's sample") : null,
+      t.latest != null ? h("option", { value: "latest" }, `Use the latest version (v${t.latest}), marked as not the same input`) : null);
+    pick.value = v.use[t.table] || "";
+    pick.addEventListener("change", () => { if (pick.value) v.use[t.table] = pick.value; else delete v.use[t.table]; replayPaint(nb); });
+    out.push(h("div", { class: "replay-choice" }, h("span", {}, `${t.table}: ${t.why}.`), pick));
+  }
+  if (c.environment.length) {
+    out.push(h("span", { class: "muted small" }, `Environment differs: ${c.environment.map((d) => `${d.what} ${d["This PC"] ?? "missing"} here, ${d.Bundle ?? "missing"} in the bundle`).join("; ")}.`));
+  }
+  c.notes.forEach((t) => out.push(h("span", { class: "muted small" }, t)));
+  c.blockers.forEach((t) => out.push(h("span", { class: "error-text" }, t)));
+  if (v.result) {
+    out.push(h("div", { class: `replay-result ${v.result.verdict === "reproduced" ? "ok" : ""}` }, h("b", {}, v.result.text),
+      ...(v.result.inputs || []).map((t) => h("span", { class: "muted small" }, t)),
+      h("span", { class: "muted small" }, `Writes are in ${v.result.sandbox}.`)));
+  }
+  const unresolved = c.tables.some((t) => !t.readable && !v.use[t.table]);
+  const busy = v.busy || state.kernel === "busy";
+  out.push(h("div", { class: "replay-actions" },
+    c.live ? btn("End replay", null, () => replayEnd(nb, false), "tool outline", { disabled: busy })
+      : btn(`Replay to cell ${r.failed_cell}`, "play", () => replayRun(nb), "tool primary",
+        { disabled: busy || !!c.blockers.length || unresolved, title: unresolved ? "Choose what to read for each table above first." : "" }),
+    btn("Keep as a normal notebook", null, () => replayEnd(nb, true), "tool outline", { disabled: busy })));
+  return out;
+}
+
+async function replayRun(nb) {
+  const v = replayView(nb);
+  v.busy = true;
+  v.result = null;
+  replayPaint(nb);
+  const started = await attempt(() => rpc("replay_start", { name: nb.name, lakehouse_ref: nb.lakehouse || null, use: v.use }),
+    "Could not start the replay");
+  if (!started) { v.busy = false; replayPaint(nb); return; }
+  nb.cells.forEach((c) => { c.count = null; });
+  depsRestarted();  // a fresh kernel process: variables are gone
+  const upto = nb.cells.slice(0, nb.replay.failed_cell);
+  upto.forEach((c) => { if (c.type === "code") { c.status = null; c.outputs = []; updateResults(c); } });
+  let stoppedAt = 0, last = null;
+  for (const [i, cell] of upto.entries()) {
+    if (cell.type !== "code" || !cell.source.trim() || cell.meta?.frozen) continue;
+    stoppedAt = i + 1;
+    last = cell;
+    if (!(await runCell(cell))) break;
+  }
+  const result = await attempt(() => rpc("replay_result", { name: nb.name, stopped_at: stoppedAt,
+    status: last?.status === "ok" ? "ok" : "error", outputs: last?.outputs || [] }), "Could not compare the replay");
+  v.busy = false;
+  v.result = result || null;
+  replayLoad(nb, true);
+}
+
+async function replayEnd(nb, keep) {
+  const v = replayView(nb);
+  const done = await attempt(() => rpc("replay_end", { name: nb.name, keep }), keep ? "Could not keep the notebook" : "Could not end the replay");
+  if (!done) return;
+  if (v.check?.live) {
+    nb.cells.forEach((c) => { c.count = null; });
+    depsRestarted();
+  }
+  if (keep) {
+    nb.replay = null;
+    renderNotebook();
+    toast(`${nb.name} is now a normal notebook. Its cells read and write the lakehouse's tables when they run.`);
+    return;
+  }
+  v.result = null;
+  replayLoad(nb, true);
+}
+
+// The kernel restarted (Restart, Stop, a crash): a running replay ended with it.
+function replayRestarted() {
+  const nb = state.notebook;
+  if (nb?.replay && nb.replayView) replayLoad(nb, true);
+}

@@ -51,7 +51,7 @@ meta_versions notebook_dependencies notebook_environment notebook_schedules open
 pc_schedules_for platform_admins platform_audit platform_domains platform_glossary platform_key_tables
 platform_landing platform_landing_files platform_overview platform_products platform_requests platform_sources
 platform_status platform_whoami poll_cell preview_file preview_job preview_notebook preview_table prove_check
-prove_list prove_rules_get prove_status queue_list receipt_get receipt_redactions receipts_list replay_bundle_preview run_as_list shortcut_access
+prove_list prove_rules_get prove_status queue_list receipt_get receipt_redactions receipts_list replay_bundle_preview replay_bundles_list replay_check run_as_list shortcut_access
 shortcut_center shortcut_changes shortcut_check shortcut_connections shortcut_preflight shortcut_readers
 shortcut_rules side_by_side_list side_by_side_status table_columns wizard_preview wizard_templates
 workload_actions workload_detail workload_preflight workloads_list workspace_marks xray xray_adopt_plan
@@ -61,11 +61,12 @@ git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log
 local_delta_history local_query_status
 pipeline_export pipeline_import pipeline_inspect pipeline_validate
 optimize_discover optimize_findings optimize_inspect optimize_recommendations optimize_status
+platform_notify_settings platform_notify_open
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
-                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes"})
+                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes"})
 _MAX = 200
 
 

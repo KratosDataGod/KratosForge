@@ -106,6 +106,7 @@ function depsRan(cell, ok) {
 function depsRestarted() {
   depsEpoch += 1;
   dbgRestarted();  // debugging.js
+  replayRestarted();  // replay.js
   depsChanged();
 }
 

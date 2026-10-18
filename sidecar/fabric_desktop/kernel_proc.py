@@ -358,6 +358,13 @@ class ProcessKernel:
     def finish_proof(self, modules: list[str]) -> dict[str, Any]:
         return self._request("finish_proof", modules=modules)
 
+    def proof_log(self) -> dict[str, Any]:
+        """The bound proof runtime's log so far (a replay checks what the cells read)."""
+        return self._request("proof_log")
+
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
+
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()

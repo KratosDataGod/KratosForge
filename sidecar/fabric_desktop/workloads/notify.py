@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from .. import redact
 from .evaluate import describe
 
 DIGEST_OVER = 5
@@ -90,6 +91,11 @@ class Routing:
             return named
         default = self.by_name(DEFAULT_ROUTE)
         return [default] if default and default.url else []
+
+
+def failure(exc: Exception) -> str:
+    """A failed post as text, without the webhook's signature: requests puts the URL in its errors."""
+    return redact.secrets(f"{type(exc).__name__}: {exc}")
 
 
 def single(url: str) -> Routing:
@@ -192,7 +198,7 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
         try:
             post(route.url, title, [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it
-            down[route.name] = f"{type(exc).__name__}: {exc}"
+            down[route.name] = failure(exc)
             outbox.failed(item["id"], down[route.name])
             continue
         outbox.done(item["id"])
@@ -223,7 +229,7 @@ def send(changes: list[dict[str, Any]], routing: Routing, outbox: Outbox, source
                 post(route.url, title, lines)
                 sent += 1
             except Exception as exc:  # noqa: BLE001
-                down[name] = error = f"{type(exc).__name__}: {exc}"
+                down[name] = error = failure(exc)
                 outbox.add(title, lines, error, route=name)
                 queued += 1
     return {"sent": sent, "queued": queued, "held": held, "error": error or next(iter(down.values()), None)}

@@ -117,7 +117,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 

@@ -73,7 +73,7 @@ Smaller findings kept for later (P2-P3): policy check calls valid integration ke
 
 - **Workflow:** W4. The product's core promise.
 - **Now:** the engine works (`docs/local-data.md`) but has no UI; the SQL page opens only on a Fabric lakehouse.
-- **Proposed:** Create gets a Local data section (projects, Add folder with a picker, tables found); the SQL page gets a "This PC" target; every local screen says "Runs on this PC · no capacity used" and where behavior differs from Fabric.
+- **Proposed:** Create gets a Local data section (projects, Add folder with a picker, tables found); the SQL page gets a "This PC" target; every local screen says "Runs on this PC · no Fabric job" and where behavior differs from Fabric.
 - **Scope:** owned by the local data engine program (FD-LDE), mockup first (Chris's rule).
 - **Dependencies:** FD-LDE local SQL target (in progress); UX-015 folder picker.
 - **Acceptance:** a person with no sign-in can add a folder and query a CSV in four steps.

@@ -101,4 +101,4 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
-| #205 | Platform notices to Teams (engine) | CONDITIONAL PASS | 8.4 | When Teams can't be reached, the error text holds the webhook address with its `sig=` secret, and `platform_notify` returns it and stores it in the outbox (`workloads/platform_notify.py`, both `down[...]` assignments), although `platform.md` says the address is never shown again. Pass it through `redact.secrets` and test it before merging. The same leak is on `main` in `workloads/notify.py:195,226` (QA-031) |
+| #205 | Platform notices to Teams (engine) | CONDITIONAL PASS, then PASS (9.0) at 521bfef | 8.4 | The error text from an unreachable Teams held the webhook's `sig=` secret, which was returned and stored in the outbox. Fixed with `notify.failure`, which redacts it, for incident notices too. Still open on `main` (QA-031): `dataops_service.py:312` (freshness alerts) and `agent.py:286` (agent log) |

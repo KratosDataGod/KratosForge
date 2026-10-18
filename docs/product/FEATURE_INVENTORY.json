@@ -3973,7 +3973,7 @@
     {
       "id": "FEAT-OPS-02",
       "name": "Incidents",
-      "description": "Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox.",
+      "description": "Incident engine shared by app and agents: run failed, late, objective, agent offline; acknowledge, assign, resolve, escalate; Teams routing with digest, quiet hours and outbox. Numbers per environment, priority P1-P4, SLA targets from policy (incident_sla), a timeline and reported incidents (engine only, no screens yet).",
       "pillar": "Enterprise services",
       "category": "Enterprise Administration and FinOps",
       "status": "Implemented",
@@ -3996,19 +3996,28 @@
         {
           "kind": "code",
           "ref": "app/ui/incidents.js"
+        },
+        {
+          "kind": "test",
+          "ref": "sidecar/tests/test_incident_desk.py",
+          "note": "19 tests, Fabric faked; incidents stage 1"
         }
       ],
       "source": [
         "sidecar/fabric_desktop/workloads/incidents.py",
         "sidecar/fabric_desktop/workloads/notify.py",
         "sidecar/fabric_desktop/incident_service.py",
-        "app/ui/incidents.js"
+        "app/ui/incidents.js",
+        "sidecar/fabric_desktop/workloads/sla.py",
+        "sidecar/fabric_desktop/incident_desk.py"
       ],
       "tests": [
-        "sidecar/tests/test_incidents.py"
+        "sidecar/tests/test_incidents.py",
+        "sidecar/tests/test_incident_desk.py"
       ],
       "docs": [
-        "docs/agent.md"
+        "docs/agent.md",
+        "docs/incidents.md"
       ],
       "ui": {
         "surface": "Monitor > Incidents (Chris used it in unit testing, 2026-10-18)",
@@ -4017,7 +4026,8 @@
       "limitations": [
         "Metadata tables only",
         "workloads/plan.md describes a Delta table; code uses a JSON document",
-        "Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream"
+        "Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream",
+        "Numbers, priority and SLAs are in the engine only; the list doesn't show them yet"
       ],
       "prs": [
         74,

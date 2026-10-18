@@ -41,6 +41,7 @@ from .git_service import GitMixin
 from .pipeline_service import PipelineMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
+from .optimize_service import OptimizeMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore, check_watches
 from .onelake import FileStore, TableCatalog
@@ -55,7 +56,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin):
+class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, OptimizeMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -621,13 +622,15 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
                 for f in lakehouse.open_table(table).schema().fields]
 
     def _schemas_enabled(self, workspace_id: str, lakehouse_id: str) -> bool:
-        """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse."""
+        """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse.
+        A failed lookup raises: guessing wrong puts a table in Tables/dbo/x or Tables/x, the wrong folder."""
         if lakehouse_id not in self._schema_cache:
             try:
                 props = self.fabric.get_lakehouse(workspace_id, lakehouse_id).get("properties") or {}
-                self._schema_cache[lakehouse_id] = bool(props.get("defaultSchema"))
-            except Exception:  # offline or no access: keep the schema layout this app creates
-                return True
+            except Exception as exc:
+                raise RuntimeError(f"Couldn't ask Fabric whether this lakehouse uses schemas ({type(exc).__name__}: {exc}), "
+                                   "so its table folders aren't known. Nothing was read or written; try again.") from exc
+            self._schema_cache[lakehouse_id] = bool(props.get("defaultSchema"))
         return self._schema_cache[lakehouse_id]
 
     def restart_kernel(self) -> dict[str, Any]:

@@ -34,6 +34,8 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
+                     shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
                      (replay.py), so a bundle never holds lakehouse data (default true)
     allowed_tenants  IT only: Microsoft Entra tenant ids people may sign in to; any other account is
@@ -74,14 +76,16 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "platform": {}, "kernel_process": False, "auto_update": True, "allow_fabric_runs": True,
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
-                            "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0}
+                            "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
+                            "allow_optimize_lakehouse": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
                                             "allowed_tenants": list,
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
-                                            "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float)}
+                                            "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
+                                            "allow_optimize_lakehouse": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts

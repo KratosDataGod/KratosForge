@@ -402,6 +402,7 @@ def test_benchmark_notebooks_run_end_to_end(svc, tables, schemas):
 
 
 def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
+    svc._schema_cache[LAKEHOUSE["lakehouse_id"]] = True  # Fabric's answer; a failed lookup stops the cell first
     svc._attach(LAKEHOUSE)
     svc.kernel.restart()
     cells = [c for c in benchmark.notebooks()[benchmark.BENCHMARK_NOTEBOOK] if c["type"] == "code"]

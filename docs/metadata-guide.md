@@ -385,6 +385,13 @@ lib.CRM_server_host
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
+- If a model with that name already exists (for example after a rename), Fabric Desktop by KratosBI asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+
+**When Fabric can't be read.** Fabric Desktop by KratosBI doesn't guess whether a model exists or what a table holds:
+
+- If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
+- A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.
 

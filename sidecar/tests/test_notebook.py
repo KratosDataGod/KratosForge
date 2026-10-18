@@ -88,6 +88,7 @@ def test_notebook_reads_local_files_and_writes_tables(tmp_path, monkeypatch):
     monkeypatch.setattr(lakehouse, "publish", local_publish)
     service = Service(client_id="x", root=tmp_path)
     service._auth = type("Auth", (), {"storage_token": lambda self: "tok"})()
+    service._schema_cache = {LH["lakehouse_id"]: True}  # Fabric's answer; a failed lookup refuses the write
     code = (
         "import polars as pl\nfrom fabric_desktop import lakehouse\n"
         f"sales = lakehouse.read_csv({str(EXAMPLES / 'data' / 'sales.csv')!r})\n"

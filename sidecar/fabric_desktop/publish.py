@@ -75,7 +75,13 @@ def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema
 
 
 def run_job(job: Job, fabric: FabricClient, storage_token: Callable[[], str],
-            work_dir: Path, history_file: Path | None = None) -> RunRecord:
+            work_dir: Path, history_file: Path | None = None,
+            guard: Callable[[str, str, str, str], str | None] | None = None) -> RunRecord:
+    """Run the job here and write its table. ``guard`` (workspace id, lakehouse, schema, table)
+    says why the target may not be written; then nothing runs or is written."""
+    t = job.target
+    if guard and (reason := guard(t.workspace_id, t.lakehouse, t.schema, t.table)):
+        raise PermissionError(reason)
     started = time.monotonic()
     data = run_local(job)
     stage_locally(data, work_dir / "staging" / job.name)

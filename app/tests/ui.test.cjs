@@ -646,3 +646,21 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// The Schedule dialog opens on Fabric when the current environment runs on Fabric (it once read
+// state.env, which is never set, so it always opened on This PC).
+test("Schedule follows the current environment's Runs on", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
+  const opened = [];
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
+  const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
+  for (const env of ["dev", "prod"]) {
+    ctx.state = { notebook: { name: "nb", lakehouse: { lakehouse_id: "l" } }, meta: { env, project: { environments } } };
+    ctx.scheduleNotebook();
+  }
+  ctx.state = { notebook: { name: "nb", compute: "local", lakehouse: { lakehouse_id: "l" } }, meta: { env: "prod", project: { environments } } };
+  ctx.scheduleNotebook();
+  assert.deepStrictEqual(opened, ["pc", "fabric", "pc"]);
+});

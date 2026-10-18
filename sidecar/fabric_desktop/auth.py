@@ -173,9 +173,11 @@ class Authenticator:
                 # sign-in the broker keeps its own cache and may still return the same token.
                 fresh = self.app.acquire_token_silent(scopes, account=accounts[0], force_refresh=True)
                 if fresh and "access_token" in fresh:
+                    # A new token that is still short: the tenant's tokens live shorter than that, so
+                    # don't refresh on every call. The same token back (the broker's cache) says nothing.
+                    self._short_lived = (fresh["access_token"] != result["access_token"]
+                                         and int(fresh.get("expires_in") or min_seconds) < min_seconds)
                     result = fresh
-                    # A tenant whose tokens live shorter than that: don't refresh on every call.
-                    self._short_lived = int(fresh.get("expires_in") or min_seconds) < min_seconds
         if not result and not self.interactive:
             raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop by KratosBI and sign in, "
                                "and scheduled runs will work again.")

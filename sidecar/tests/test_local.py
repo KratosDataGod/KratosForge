@@ -139,12 +139,12 @@ def test_microsofts_sign_in_asks_for_default_scopes_and_an_own_app_for_narrow_on
 def test_storage_token_has_half_an_hour_left_for_long_onelake_writes(tmp_path):
     """HD-034: a OneLake write keeps its token until it commits, so a storage token with less than
     STORAGE_MIN_SECONDS left is refreshed first; Fabric tokens aren't, and a tenant whose tokens
-    live shorter than that isn't asked again on every call."""
+    live shorter than that isn't asked again on every call, unless the refresh returned the same token."""
     from fabric_desktop.auth import STORAGE_MIN_SECONDS, Authenticator
 
     class App:
-        def __init__(self, cached, fresh):
-            self.cached, self.fresh, self.forced = cached, fresh, 0
+        def __init__(self, cached, fresh, same=False):
+            self.cached, self.fresh, self.same, self.forced = cached, fresh, same, 0
 
         def get_accounts(self):
             return [{"username": "chris@contoso.com"}]
@@ -152,7 +152,7 @@ def test_storage_token_has_half_an_hour_left_for_long_onelake_writes(tmp_path):
         def acquire_token_silent(self, scopes, account, force_refresh=False):
             if force_refresh:
                 self.forced += 1
-                return {"access_token": "new", "expires_in": self.fresh}
+                return {"access_token": "old" if self.same else "new", "expires_in": self.fresh}
             return {"access_token": "old", "expires_in": self.cached}
 
     auth = Authenticator(cache_path=tmp_path / "cache.bin")
@@ -165,6 +165,13 @@ def test_storage_token_has_half_an_hour_left_for_long_onelake_writes(tmp_path):
     auth.app = App(cached=600, fresh=600)  # tokens that only ever live 10 minutes
     assert auth.storage_token() == "new" and auth.app.forced == 1
     assert auth.storage_token() == "old" and auth.app.forced == 1
+
+    # Windows sign-in's broker can answer a forced refresh from its own cache: the same token back
+    # doesn't stop the next call asking again.
+    auth = Authenticator(cache_path=tmp_path / "cache.bin")
+    auth.app = App(cached=600, fresh=600, same=True)
+    assert auth.storage_token() == "old" and auth.app.forced == 1
+    assert auth.storage_token() == "old" and auth.app.forced == 2
 
 
 def test_token_cache_survives_damage_and_is_swapped_in_whole(tmp_path):

@@ -43,6 +43,10 @@ When it has been tried on a tenant, remove it from `PREVIEW_FEATURES`. The tag g
 - Every page header ends with `learnMore("<anchor>")`, linking to its section of [user-guide.md](user-guide.md). Add the section in the same pull request.
 - Errors go through `friendlyError` (`activity.js`), which turns known causes into a sentence and says what to do.
 
+## UX review
+
+A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
+
 ## Releases
 
 Merges to `main` go to the **Preview** channel (the `latest` release) straight away. People on **Stable**, the default, only get a build when someone runs the **Promote to stable** workflow, whose notes become What's new. Promote after a build has been tried on Preview.

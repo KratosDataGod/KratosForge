@@ -10,6 +10,8 @@ readers never see another environment's work.
 Record, contract 1::
 
     {"contract": 1, "kind": "agent_status", "agent": "etl-01", "host": "srv-etl-01", "version": "0.21.0",
+     "owner": "Sales data team" | null,                    # agent.owner in agent.toml, as written
+     "identity": "service_principal" | "managed_identity" | "user",  # auth.type; no ids or secrets
      "state": "running" | "stopping" | "stopped", "env": "prod", "environments": ["test", "prod"],
      "started_at": "...Z", "heartbeat_at": "...Z", "stale_after": "...Z", "status_seconds": 60,
      "concurrency": 1, "pipeline": {"enabled": true, "entities": [...], "allow_backfill": false},
@@ -18,12 +20,16 @@ Record, contract 1::
                    "routes": [{"name", "teams", "owners", "criticality", "kinds", "envs"}]},  # no webhooks
      "counts": {"queued": 0, "running": 1, ...},           # this environment's jobs
      "running": [{"job_id", "source", "attempts", "entities", "started_at"}],
-     "schedules": [{"id", "next"}],                         # this environment's schedules
+     "schedules": [{"id", "next", "entities", "when"}],     # this environment's schedules; entities [] = all,
+                                                            # when = {"kind": "cron", "every_minutes"} | {"kind":
+                                                            # "daily", "times"} | {"kind": "weekly", "times", "weekdays"}
      "recent": [{"job_id", "state", "source", "finished_at", "error"}]}  # the last 10 finished
 
 A reader treats an agent whose ``stale_after`` has passed as offline: it stopped without saying
 so (a crash, a power cut, a lost network). ``stopped`` means it shut down cleanly. Fields may be
-added within contract 1; readers should ignore fields they don't know.
+added within contract 1; readers should ignore fields they don't know, and read a field an older
+agent leaves out as unknown (``owner``, ``identity``, and a schedule's ``entities`` and ``when``
+arrived after the first agents shipped). A schedule's empty ``entities`` means every entity.
 """
 
 from __future__ import annotations
@@ -56,7 +62,8 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
     pipeline = cfg.pipeline
     return {
         "contract": CONTRACT, "kind": "agent_status", "agent": cfg.name, "host": socket.gethostname(),
-        "pid": os.getpid(), "version": __version__, "state": state, "env": env,
+        "pid": os.getpid(), "version": __version__, "owner": cfg.owner or None,
+        "identity": cfg.auth.get("type"), "state": state, "env": env,
         "environments": list(cfg.environments), "started_at": _iso(agent.started_at),
         "heartbeat_at": _iso(now), "stale_after": _iso(now + 3 * cfg.status_seconds),
         "status_seconds": cfg.status_seconds, "concurrency": cfg.concurrency,
@@ -67,7 +74,8 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
         "running": [{"job_id": j["id"], "source": j["source"], "attempts": j["attempts"],
                      "entities": j["payload"].get("entities") or [], "started_at": _iso(j["started_at"])}
                     for j in running],
-        "schedules": [{"id": s.id, "next": _iso(queue.schedule_next(s.id))} for s in cfg.schedules if s.env == env],
+        "schedules": [{"id": s.id, "next": _iso(queue.schedule_next(s.id)), "entities": list(s.entities),
+                       "when": dict(s.when)} for s in cfg.schedules if s.env == env],
         "recent": [{"job_id": j["id"], "state": j["state"], "source": j["source"],
                     "finished_at": _iso(j["finished_at"]), "error": (j["error"] or "")[:300] or None}
                    for j in finished[:RECENT]],

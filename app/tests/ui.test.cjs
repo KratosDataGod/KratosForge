@@ -660,9 +660,8 @@ test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX
   assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
   assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
   assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
-  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "" });
+  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /if \(!f\.text\) return undefined;/);  // no toast for nothing
   assert.match(app, /!f\.text\.startsWith\(label\)/);  // never "Sign-in failed: Sign-in failed:"
 });
 
@@ -807,4 +806,22 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   ctx.shown = false;
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
+});
+
+// QA review of #173: only a cancelled sign-in is silent; an error with no message still says something.
+test("attempt() stays quiet only for a cancelled sign-in, never for an empty error", async () => {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const toasts = [];
+  const ctx = { toast: (text, isError) => toasts.push([text, isError]) };
+  vm.runInNewContext(`${activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}
+    ${app.match(/async function attempt\([\s\S]*?\n}\n/)[0]}; this.attempt = attempt;`, ctx);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(new Error("")), "Save"), undefined);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(""), "Save"), undefined);
+  assert.strictEqual(toasts.length, 2);
+  assert.match(toasts[0][0], /^Save: Something went wrong and no reason was given/);
+  assert.strictEqual(toasts[0][1], true);
+  await ctx.attempt(() => Promise.reject(new Error("SignInCancelled: cancelled: closed")), "Sign in");
+  assert.strictEqual(toasts.length, 2);
+  assert.strictEqual(await ctx.attempt(() => Promise.resolve(7), "Save"), 7);
 });

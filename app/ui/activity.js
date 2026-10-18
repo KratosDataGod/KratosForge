@@ -41,7 +41,7 @@ function runReason(r) {
 // Sidecar errors arrive as "ExceptionName: message". Known causes become a sentence; the raw
 // text stays available under Details.
 function friendlyError(err) {
-  const raw = String(err?.message || err || "").trim();
+  const raw = String((err && typeof err === "object" ? err.message : err) || "").trim();  // new Error("") has no reason, not "Error"
   const known = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
@@ -63,7 +63,8 @@ function friendlyError(err) {
     [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
   ];
-  if (/^SignInCancelled: /.test(raw)) return { text: "", details: "" };  // closed the sign-in window: not a failure
+  if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
+  if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
   const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);

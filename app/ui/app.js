@@ -76,7 +76,7 @@ async function attempt(fn, label) {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    if (!f.text) return undefined;  // nothing to say, for example a cancelled sign-in
+    if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
     toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
     return undefined;
   }

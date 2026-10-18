@@ -143,7 +143,7 @@ class ProcessKernel:
                 self.limit_hit = "time"
                 self._interrupted_at = now
                 try:
-                    self._request("interrupt", timeout=ANSWER_SECONDS)
+                    self._request("interrupt", timeout=ANSWER_SECONDS, spawn=False)
                 except (KernelGone, RuntimeError):
                     pass
             elif self._interrupted_at is not None and now - self._interrupted_at > TIME_GRACE_SECONDS:
@@ -202,8 +202,12 @@ class ProcessKernel:
             except (OSError, ValueError) as exc:
                 raise KernelGone("The notebook's Python process stopped.") from exc
 
-    def _request(self, op: str, timeout: float = ANSWER_SECONDS, **args: Any) -> Any:
-        proc = self._ensure()
+    def _request(self, op: str, timeout: float = ANSWER_SECONDS, spawn: bool = True, **args: Any) -> Any:
+        """Send ``op`` and wait for its answer. ``spawn`` False asks only a process that is running:
+        a poll or interrupt that starts a fresh one would report its idle state as the ended cell's."""
+        proc = self._ensure() if spawn else self._proc
+        if proc is None or proc.poll() is not None:
+            raise KernelGone("The notebook's Python process stopped.")
         rid = f"p{next(self._ids)}"
         slot: dict[str, Any] = {"done": threading.Event()}
         self._waiting[rid] = slot
@@ -274,7 +278,8 @@ class ProcessKernel:
                 last["outputs"] = None
             return last
         try:
-            snap = self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, version=known_version, wait=wait)
+            snap = self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, spawn=False, version=known_version,
+                                 wait=wait)
         except KernelGone:
             return self.poll(known_version, 0.0) if self._proc is None else self._stuck(known_version)
         if snap.get("outputs") is not None:
@@ -298,7 +303,7 @@ class ProcessKernel:
         if self._proc is None or self._proc.poll() is not None:
             return {"interrupted": False}
         try:
-            return self._request("interrupt", timeout=ANSWER_SECONDS)
+            return self._request("interrupt", timeout=ANSWER_SECONDS, spawn=False)
         except KernelGone:
             return {"interrupted": True, "stopped": False}
 

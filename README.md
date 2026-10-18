@@ -67,6 +67,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
+| [docs/quality/README.md](docs/quality/README.md) | Engineering quality baseline: scorecard, [findings](docs/quality/findings.md) (QA-nnn), [remediation plan](docs/quality/remediation.md) and the [PR quality gate](docs/quality/pr-review.md) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |
 

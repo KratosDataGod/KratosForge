@@ -90,6 +90,13 @@ nav = [
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },
+    { "Engineering quality" = [
+      { "Baseline and scorecard" = "quality/README.md" },
+      { "Architecture and standards" = "quality/architecture.md" },
+      { "Findings register" = "quality/findings.md" },
+      { "Remediation plan" = "quality/remediation.md" },
+      { "PR quality gate" = "quality/pr-review.md" },
+    ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },
       { "Backlog" = "product/ai-integration-backlog.md" },

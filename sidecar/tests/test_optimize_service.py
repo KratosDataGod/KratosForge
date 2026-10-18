@@ -216,12 +216,14 @@ def test_central_restrict_keeps_a_family_from_default_reader_after_asking(svc, m
         svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])
     assert asked.value.changes[1] == "New role AccessCacheReaders reads /Tables/access"
     assert puts == []  # asking changes nothing
+    with pytest.raises(ValueError, match="shown="):  # approving needs what the person was shown
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
     with pytest.raises(PermissionError, match="changed since you looked"):  # not what the person was shown
         svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=["something else"])
     store["etag"], stale = '"v0"', store["etag"]
     api.list_data_access_roles_tagged = lambda ws, lh: (list(store["roles"]), stale)  # changed after this read
     with pytest.raises(PermissionError, match="changed since you looked"):
-        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=asked.value.changes)
     del api.list_data_access_roles_tagged
     assert puts == []
     out = svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=asked.value.changes)

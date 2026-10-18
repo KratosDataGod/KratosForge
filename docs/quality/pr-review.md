@@ -101,6 +101,8 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #219 | Monitor drops Cost; old links open Optimize > Cost and savings | PASS at 13bc7a1 | 9.2 | None. Removes the "what running on this PC saved" overclaim (QA-008). Note: five user-doc lines still send people to Monitor > Cost: `side-by-side.md:67`, `prove/how-proofs-work.md:57,60`, `xray-fixes.md:85,89` (line 89 describes the See cost button this PR changes) |
+| #199 | Agents guide beside Monitor > Operations > Agents | PASS at cf08228 | 9.2 | None. Every guide link resolves to an `agent.md` heading (tested), and the text matches `agent.md` |
 | #218 | Run Fabric pipelines on this PC (ORCH-003, draft) | PASS at fdcd5cf | 9.1 | None. Notes: expression functions have no size cap, so `@range(0, 500000000)` holds gigabytes in the shared engine before it fails (`evaluate.py:471`; cap near Fabric's 100,000 ForEach items); `finish()` waits 5 s and failed once on a cold first run here (`test_pipeline_runs.py:485`), worth 30 s for Windows CI |
 | #185 | FinOps: risk check in the run dialogs (FINOPS-004 part 2) | CONDITIONAL PASS, then PASS (9.0) at e0ca2c8 | 8.5 | The risk panel and dialogs carry no Preview tag (`risk` isn't in `PREVIEW_FEATURES`) although `risk-check.md` calls it Preview and it reads capacity from Fabric. Tag it before merging |
 | #146 | Workload operations: queue, shared schedules, takeover, Run as, Monitor tabs (folded stack, with #208) | PASS | 9.0 | None. Takeover and shared schedules are off by default, Preview, and decided by If-Match / If-None-Match writes |

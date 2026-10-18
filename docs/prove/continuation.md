@@ -21,7 +21,7 @@ Last updated: 2026-10-16.
 | FD-110 Notebook cell time and memory limits | `claude/prove-kernel-limits` | #115 | Merged |
 | 5 Variable history, watches, hidden state (45, 46, 48) | `claude/prove-variable-history` | #129 | Merged |
 | 5 Failure replay bundles: save (47) | `claude/prove-replay-bundles` | #142 | Ready for review (Chris approved board 9) |
-| 5 Failure replay bundles: open and replay (47) | `claude/prove-replay-open` | see GitHub | Open for review (stacked on #142) |
+| 5 Failure replay bundles: open and replay (47) | `claude/prove-replay-open` | #148 | Open for review (stacked on #142) |
 
 Merge order: stages merge in number order. Each stage's PR lists any PR it is stacked on.
 

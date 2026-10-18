@@ -5,6 +5,7 @@ import json
 import types
 
 from fabric_desktop import __version__
+from fabric_desktop.local_schedules import local_configuration
 from fabric_desktop.service import Service
 from fabric_desktop.workloads.agents import agent_state, compare_version, fleet
 
@@ -65,3 +66,25 @@ def test_the_app_lists_agents_and_says_which_environments_it_could_not_read(tmp_
     [a] = out["agents"]
     assert a["agent"] == "etl-01" and a["state"] == "live" and a["version_compare"] == "same"
     assert out["app_version"] == __version__
+
+
+def test_the_agents_list_warns_when_this_pc_and_an_agent_schedule_the_same_table(tmp_path):
+    svc = Service(root=tmp_path / "app")
+    svc._auth = types.SimpleNamespace(signed_in_user=lambda: "chris@contoso.com", silent_token=lambda s: None,
+                                      fabric_token=lambda: None, storage_token=lambda: None)
+    svc.meta_init(str(tmp_path / "proj"), "3")
+    fresh = (dt.datetime.now(UTC) + dt.timedelta(minutes=3)).isoformat()
+    when = {"kind": "cron", "every_minutes": 60}
+    svc._incident_log("dev").backend.create("agents/etl-01.json", json.dumps(
+        {**rec("etl-01", "now", fresh), "schedules": [{"id": "hourly", "entities": [], "when": when},
+                                                       {"id": "old"}]}).encode())
+    svc.pc_schedules._save({"schedules": [{"id": "pc1", "enabled": True,
+                                           "config": local_configuration({"kind": "daily", "times": ["06:00"]}),
+                                           "target": {"kind": "meta", "env": "dev", "entities": ["bronze_x"]}}]})
+    out = svc.agents_list()
+    assert out["pc_schedules_read"] is True
+    [o] = out["overlaps"]
+    assert o["env"] == "dev" and o["entities"] == ["bronze_x"]
+    assert [s["schedule"] for s in o["schedules"]] == ["hourly", "pc1"]
+    assert "06:00" in o["schedules"][1]["text"]
+    assert [u["schedule"] for u in out["unknown"]] == ["old"]

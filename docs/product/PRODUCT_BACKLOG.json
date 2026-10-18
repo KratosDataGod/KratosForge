@@ -1238,7 +1238,8 @@
         "FEAT-MESH-03"
       ],
       "external_dependencies": [
-        "Product-owner decision D2: who lands data and creates Copy jobs"
+        "Product-owner decision D2: who lands data and creates Copy jobs",
+        "Direction change (Chris's unit testing, 2026-10-18, item 24): one landing workspace shared by Dev, Test and Prod, split by domain with secure zones; who writes to it is still D2"
       ],
       "acceptance": [
         "D2 answered by the product owner",
@@ -1767,6 +1768,9 @@
       "prs": [
         125
       ],
+      "external_dependencies": [
+        "Simplified incident management (PB-105, Chris's unit testing, 2026-10-18, item 33) extends these screens"
+      ],
       "computed": {
         "benefit": 3.25,
         "cost": 2.5,
@@ -1896,7 +1900,8 @@
       "confidence": "High",
       "state": "In review",
       "external_dependencies": [
-        "Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104)"
+        "Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104)",
+        "Monitor > Cost moves to Optimize > Cost and savings (Chris's unit testing, 2026-10-18, item 36; PB-104)"
       ],
       "prs": [
         117
@@ -1992,6 +1997,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Central business keys are shared data; a defect would corrupt keys across every domain.",
+      "external_dependencies": [
+        "Direction changes (Chris's unit testing, 2026-10-18, item 24 and 25): shared landing workspace and a keys database in a dedicated workspace change what the tenant check sets up"
+      ],
       "computed": {
         "benefit": 3.0,
         "cost": 3.0,
@@ -2239,6 +2247,9 @@
       "effort": "L",
       "confidence": "Low",
       "state": "Proposed",
+      "external_dependencies": [
+        "Direction (Chris's unit testing, 2026-10-18, item 27): integrate with Purview, Collibra and other catalogs rather than build catalog features"
+      ],
       "computed": {
         "benefit": 3.0,
         "cost": 3.0,
@@ -2587,7 +2598,8 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
+        "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)",
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to a Fabric SQL database in a dedicated workspace; per environment or shared is Chris's open decision"
       ],
       "computed": {
         "benefit": 3.45,
@@ -2935,7 +2947,8 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)"
+        "Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)",
+        "Theme (Chris's unit testing, 2026-10-18, items 9, 14, 18, 28, 34): a docs page per area, linked from each page's in-app guidance"
       ],
       "package": "docs/product/pr-ready/PB-077.md",
       "computed": {
@@ -3969,6 +3982,9 @@
       "effort": "XL",
       "confidence": "Medium",
       "state": "In progress",
+      "external_dependencies": [
+        "Theme (Chris's unit testing, 2026-10-18, items 9, 12, 13, 17, 18, 20): best-practice actions and in-app guidance on every page (item 18 routed to this thread)"
+      ],
       "computed": {
         "benefit": 3.8,
         "cost": 2.5,
@@ -4029,7 +4045,7 @@
       "title": "Optimize central lakehouse program",
       "category": "Enterprise Administration and FinOps",
       "problem": "Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.",
-      "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting.",
+      "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting. Its Cost and savings tab replaces Monitor > Cost, without Fabric's Monitoring hub (Chris's unit testing, 2026-10-18, item 36).",
       "evidence": [
         "Chris's Optimize brief, 2026-10-18 08:55Z",
         "No code or plan merged yet"
@@ -4072,6 +4088,46 @@
         "cost": 4.5,
         "score": 1.27,
         "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-105",
+      "title": "Simplified incident management",
+      "category": "Enterprise Shared Services",
+      "problem": "Incidents open automatically from workload health, but there is no simple way to triage them across teams or hand them to the service desk an organization already uses; ServiceNow-style tools are complex.",
+      "capability": "Owned and specified by the Simplified incident management thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off, either stored in a central lakehouse or handed to ServiceNow or Jira. Not restated here.",
+      "evidence": [
+        "Chris's unit testing, 2026-10-18, item 33",
+        "Incidents today: sidecar/fabric_desktop/workloads/incidents.py (PRs #74, #79, #125, #127)"
+      ],
+      "features": [
+        "FEAT-OPS-02"
+      ],
+      "acceptance": [
+        "As defined by its owning thread"
+      ],
+      "scores": {
+        "developer_value": 2,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 3,
+        "strategic_alignment": 3,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "none",
+      "owner": "Simplified incident management",
+      "duplicates": [
+        "Builds on PB-047 incident screens (Workload management)"
+      ],
+      "effort": "L",
+      "confidence": "Low",
+      "state": "In progress",
+      "computed": {
+        "benefit": 2.85,
+        "cost": 3.5,
+        "score": 1.43,
+        "priority": "P3"
       }
     }
   ]

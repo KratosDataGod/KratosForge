@@ -76,7 +76,8 @@ async function attempt(fn, label) {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    toast(label ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
     return undefined;
   }
 }
@@ -559,6 +560,7 @@ function renderCreate() {
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
+      preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
 }
 
@@ -1945,7 +1947,7 @@ function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
   state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null };
+    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
   if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
   state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
   state.selected = state.notebook.cells[0].id;
@@ -2231,7 +2233,7 @@ function scheduleForm() {
 async function scheduleNotebook() {
   const nb = state.notebook;
   // Where it runs by default: the notebook's own choice, else the environment's compute.
-  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.env]?.compute === "fabric");
+  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
     title: `Schedule ${nb.name}`,
     mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",

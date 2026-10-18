@@ -750,6 +750,17 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
+test("Settings says plainly when sign-in isn't Microsoft's own, and how to go back", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function clientIdNote\([\s\S]*?\n}\n/)[0]}; this.f = clientIdNote;`, ctx);
+  assert.strictEqual(ctx.f("default"), null);
+  for (const source of ["policy", "environment", "user", "built_in"]) assert.match(ctx.f(source), /isn't using Microsoft's Fabric sign-in/);
+  assert.match(ctx.f("environment"), /setx FABRIC_DESKTOP_CLIENT_ID ""/);
+  assert.match(ctx.f("policy"), /only they can change it/);
+  assert.match(src, /btn\("Use Microsoft's sign-in"/);
+});
+
 // FINOPS-004: what the risk panel shows up front, and when "Run on this PC" is offered.
 test("the risk panel shows what matters, folds the rest and never offers this PC for a Fabric-only notebook", () => {
   const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");

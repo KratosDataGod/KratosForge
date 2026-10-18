@@ -43,6 +43,7 @@
     allow_backfill = false                # full rebuilds and cascades from a pipeline
     poll_seconds = 30
     claim = "always"                      # or "when_free": take a request only with a worker free (Preview)
+    take_over = false                     # true: take over requests from an agent that stopped reporting (Preview)
 
     [[schedule]]
     id = "prod-nightly"
@@ -118,6 +119,7 @@ class PipelineConfig:
     poll_seconds: float = 30.0
     retention_days: float = 14.0
     claim: str = "always"  # or "when_free": only claim a request while a worker is free
+    take_over: bool = False  # take over requests held by an agent that stopped reporting (mailbox.py)
 
 
 @dataclass(frozen=True)
@@ -300,7 +302,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     errors += [f"schedule {s.id}: {s.env} isn't in agent.environments" for s in schedules if s.env not in envs]
     pipe_envs = [str(e) for e in pipe.get("environments") or envs]
     errors += [f"pipeline.environments: {e} isn't in agent.environments" for e in pipe_envs if e not in envs]
-    for key in ("enabled", "allow_backfill"):
+    for key in ("enabled", "allow_backfill", "take_over"):
         if not isinstance(pipe.get(key, False), bool):
             errors.append(f"pipeline.{key}: true or false")
     pipeline = PipelineConfig(enabled=pipe.get("enabled") is True, environments=pipe_envs,
@@ -308,7 +310,7 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
                               allow_backfill=pipe.get("allow_backfill") is True,
                               poll_seconds=number(pipe, "poll_seconds", 30, 1, "pipeline"),
                               retention_days=number(pipe, "retention_days", 14, 1, "pipeline"),
-                              claim=str(pipe.get("claim", "always")))
+                              claim=str(pipe.get("claim", "always")), take_over=pipe.get("take_over") is True)
     if pipeline.claim not in ("always", "when_free"):
         errors.append('pipeline.claim: "always" or "when_free"')
     for s in schedules:

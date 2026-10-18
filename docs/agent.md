@@ -91,6 +91,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | `pipeline.poll_seconds` | 30 | How often to look for new requests |
 | `pipeline.retention_days` | 14 | When finished requests are removed |
 | `pipeline.claim` | `"always"` | `"when_free"` (Preview): take a new request only while a worker is free, so a busy agent leaves it for one that isn't. See [Shared schedules](#shared-schedules-preview) |
+| `pipeline.take_over` | false | (Preview) Take over requests held by an agent that stopped reporting. See [Taking over from a lost agent](#taking-over-from-a-lost-agent-preview) |
 | `schedule.shared` | false | (Preview) Share this schedule with other agents through the mailbox, so each due time runs once. See [Shared schedules](#shared-schedules-preview) |
 | `incidents.enabled` | false | Keep each environment's [incidents](#incidents-preview) (Preview) |
 | `incidents.seconds` | 300 | How often to evaluate (at least 30) |
@@ -330,7 +331,17 @@ shared = true
 - **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
 - **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
 - **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
-- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, as today. Moving it to another agent is the next step in [Multiple workers](workloads/multi-worker.md). Monitor > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+
+### Taking over from a lost agent (Preview)
+
+With `[pipeline] take_over = true`, an agent takes over a pipeline request (a shared schedule's, or any other) that another agent accepted and then stopped reporting on. That agent counts as lost once its status record in `agents/<name>.json` is past its `stale_after`, plus a minute for clock differences.
+
+- **One agent takes it.** The takeover replaces the request's status file only if it hasn't changed since it was read (`If-Match`), so when several agents try at once, one wins. The status then names the new agent, `taken_over_from`, `taken_over_at`, and `agents`, every agent that has held it.
+- **The whole request runs again.** Tables the lost agent finished are run again. A request whose `deadline` has passed ends `expired` instead of starting again. Before it writes each table, the new agent takes that table's write lease, so it waits for a lease the lost agent still holds to run out.
+- **The lost agent stands down.** An agent that comes back after its request was taken over (it was paused, or its network was down) cancels its own copy. A run it is still in stops before its next table, without writing or recording it, and its audit log says `handed_over`. A table write already under way when it comes back can't be stopped; the table lease is what keeps the two writers apart then.
+- **Not forever.** A request that `retry.max_attempts` agents have held ends `failed`, with each of them named, so a request that crashes every agent doesn't go round them all for ever.
+- **What isn't taken over.** An agent without a status record, or with one that can't be read, keeps its requests, because nothing shows it is lost. An agent doesn't take over a request it would refuse as new (its `pipeline.entities`, `allow_backfill` or environments). With `claim = "when_free"`, it takes one over only while a worker is free.
 
 ## Verify on your tenant
 
@@ -345,6 +356,7 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 
 7. Incidents: with `[incidents] enabled = true` and a table that fails in Dev, `LH_Meta/Files/_fabric_desktop/incidents/incidents.json` appears within `incidents.seconds` with one open incident, Teams gets one message, and a second agent (or the app) evaluating at the same time doesn't add another. After a good run the incident is resolved as recovered. Turn the network off for one evaluation and check Teams gets the messages marked Delayed afterwards. Stop a second agent with Task Manager (not cleanly) and check the first opens "Agent … stopped reporting" after its `stale_after`, and recovers it when the second is back. With a route and `quiet_hours` covering now, check a non-critical failure waits and a critical one doesn't.
 8. Shared schedules (Preview): give two agents the same `shared = true` schedule every 15 minutes. Over an hour, `requests/` gets one `sched-…` file per quarter hour, and each runs once, on one agent. Stop one agent and check the other runs every slot.
+9. Takeover (Preview): with `take_over = true` on two agents, end one agent's process with Task Manager or `kill -9` while it runs a pipeline request. After its `stale_after` and one poll, the other agent's name is in `status/<id>.json`, `agents` lists both, and the run ends `succeeded`. Start the first agent again and check its log says the request was taken over and it writes nothing for it. This is the first time `If-Match` replace on OneLake is used for takeover.
 
 ## Limits in this version
 

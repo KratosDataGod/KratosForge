@@ -63,6 +63,7 @@ local_query_status
 pipeline_export pipeline_import pipeline_inspect pipeline_validate
 usage_imports usage_preview usage_reconciliation
 risk_acknowledgements risk_check risk_settings
+optimize_discover optimize_inspect optimize_status
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

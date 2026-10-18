@@ -113,11 +113,12 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
-Three more keys are for control rather than convenience:
+Four more keys are for control rather than convenience:
 
 | Key | Effect |
 | --- | --- |
 | `allow_fabric_runs: false` | The app doesn't start jobs on Fabric capacity (Run in Fabric, Fabric schedules, Optimize, the Fabric side of a proof). People can still turn Fabric schedules off. It doesn't change what a person's own Fabric roles allow in the browser |
+| `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to shared optimization lakehouses ([Optimize](optimize/README.md)) |
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 
@@ -145,7 +146,7 @@ Schedules on a PC (Windows Task Scheduler) are different: they run as the person
 
 ## External AI tools
 
-People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool never receives a token and works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. Integrations are off until the person switches them on, and IT can keep them off.
+People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. The app never hands a tool a token. But Python a tool runs (after the person approves it) runs as the person, like any notebook, and today can read the person's token cache on the PC; treat approving it like running a script you were sent (see [Security model](security.md)). Integrations are off until the person switches them on, and IT can keep them off.
 
 Each connected tool gets some of these categories, in alphabetical order:
 

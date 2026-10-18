@@ -33,6 +33,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/permissions.md](docs/permissions.md) | How sign-in works (no app registration), what each feature uses, an optional own app registration with its permissions in alphabetical order, and what the agent needs |
 | [docs/telemetry.md](docs/telemetry.md) | Opt-in usage data: every field sent, what is never sent, and how IT turns it off |
 | [docs/security.md](docs/security.md) | The security model: what is protected, trust boundaries, how downloads and updates are checked, and what is still open |
+| [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
@@ -42,6 +43,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
 | [docs/finops/usage-import.md](docs/finops/usage-import.md) | Measured CU from an imported Capacity Metrics app export, matched to this app's runs beside their estimates, and billed CU hours and cost per capacity from an Azure Cost Management export |
+| [docs/optimize/README.md](docs/optimize/README.md) | Optimize's shared optimization lakehouse (Preview): one lakehouse for every installation, permissions, what is written and who can see it |
 | [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Monitor > Cost comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
@@ -65,6 +67,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/scale-and-operations-plan.md](docs/scale-and-operations-plan.md) | The staged plan for large tables, ingestion, Git releases, pipeline hand-off, lineage and monitoring: what exists, what's missing, PRs in order, and what each needs verified |
 | [docs/product/enterprise-gap-analysis.md](docs/product/enterprise-gap-analysis.md) | The enterprise product program: gap analysis for FD-101 to FD-140, the [backlog](docs/product/enterprise-backlog.md), [decisions](docs/product/implementation-decisions.md) and [release readiness](docs/product/release-readiness.md) |
 | [docs/product/PRODUCT_MANAGEMENT_PROCESS.md](docs/product/PRODUCT_MANAGEMENT_PROCESS.md) | How work is chosen, ranked, built and accepted: the [feature inventory](docs/product/FEATURE_INVENTORY.md), [backlog](docs/product/PRODUCT_BACKLOG.md), [prioritized roadmap](docs/product/PRIORITIZED_ROADMAP.md), [PR-ready specs](docs/product/pr-ready/README.md), [implementation review](docs/product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](docs/product/COMPETITIVE_CAPABILITY_MATRIX.md) |
+| [docs/optimize/plan.md](docs/optimize/plan.md) | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
 | [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |

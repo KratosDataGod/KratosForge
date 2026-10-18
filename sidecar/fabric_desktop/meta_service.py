@@ -46,6 +46,10 @@ def _days(value: Any) -> Any:
         return value
 
 
+class NoMetadataProject(LookupError):
+    """No metadata project is open: not set up, as opposed to a project that couldn't be read."""
+
+
 class MetaMixin:
     root: Path
 
@@ -72,7 +76,7 @@ class MetaMixin:
     def _project(self) -> Project:
         path = self._settings().get("meta_project")
         if not path or not (Path(path) / "layers.toml").exists():
-            raise LookupError("No metadata project is open. Create one or open its folder.")
+            raise NoMetadataProject("No metadata project is open. Create one or open its folder.")
         project = getattr(self, "_meta_project", None)
         if project is None or str(project.root) != path:
             project = Project(path)

@@ -35,6 +35,8 @@ function h(tag, attrs = {}, ...children) {
     else if (k === "style") node.style.cssText = v;
     else node.setAttribute(k, v === true ? "" : v);
   }
+  // A clickable row or card ("click" class) is reached with Tab like a button; Enter or Space opens it (UX-012).
+  if (attrs?.onclick && node.classList.contains("click") && !node.hasAttribute("tabindex")) node.tabIndex = 0;
   for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false) continue;
     node.append(c instanceof Node ? c : document.createTextNode(String(c)));
@@ -172,24 +174,74 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
 function showMenu(anchor, items) {
   closeMenu();
   const rect = anchor.getBoundingClientRect();
-  const menu = h("div", { class: "menu", id: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
-    items.map((it) => it.info ? h("div", { class: "info" }, it.info)
-      : btn(it.label, it.icon, () => { closeMenu(); it.action(); })));
+  const menu = h("div", { class: "menu", id: "menu", role: "menu", style: `left:${rect.left}px;top:${rect.bottom + 4}px` },
+    items.map((it) => it.info ? h("div", { class: "info", role: "presentation" }, it.info)
+      : btn(it.label, it.icon, () => { closeMenu(); it.action(); }, "tool", { role: "menuitem", tabindex: "-1" })));
+  menuOpener = anchor;
+  anchor.setAttribute?.("aria-expanded", "true");
   document.body.append(menu);
   // A button near the right edge (Publish options): keep the menu on screen.
   const overflow = menu.getBoundingClientRect().right - (window.innerWidth - 8);
   if (overflow > 0) menu.style.left = `${Math.max(8, rect.left - overflow)}px`;
+  menu.querySelector("[role=menuitem]")?.focus();
   setTimeout(() => document.addEventListener("mousedown", closeMenuOutside), 0);
 }
+
+let menuOpener = null;
 
 function closeMenuOutside(e) {
   if (!document.getElementById("menu")?.contains(e.target)) closeMenu();
 }
 
-function closeMenu() {
-  document.getElementById("menu")?.remove();
+function closeMenu(refocus = false) {
+  const menu = document.getElementById("menu");
+  menu?.remove();
   document.removeEventListener("mousedown", closeMenuOutside);
+  menuOpener?.setAttribute?.("aria-expanded", "false");
+  if (menu && refocus && menuOpener?.isConnected) menuOpener.focus();
+  menuOpener = null;
 }
+
+// The open menu: arrows, Home and End move, Escape closes it and returns to its button, Tab leaves it.
+// Capture phase, so Escape closes the menu before a dialog behind it sees the key.
+document.addEventListener("keydown", (e) => {
+  const menu = document.getElementById("menu");
+  if (!menu) return;
+  const items = [...menu.querySelectorAll("[role=menuitem]")];
+  const at = items.indexOf(document.activeElement);
+  const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
+  if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
+  else if (e.key === "Tab") closeMenu(true);  // back on its button, so Tab goes on to the next control
+  else if (move !== undefined && items.length) {
+    e.preventDefault();
+    items[(move + items.length) % items.length].focus();
+  }
+}, true);
+
+// Rows and cards with the "click" class (focusable, see h()): Enter or Space opens them.
+// Tabs (role="tab" in a role="tablist"): Left, Right, Home and End move to the next tab and select it.
+document.addEventListener("keydown", (e) => {
+  const el = e.target;
+  if (!(el instanceof Element) || e.altKey || e.ctrlKey || e.metaKey) return;
+  if ((e.key === "Enter" || e.key === " ") && el.classList.contains("click") && el === document.activeElement
+      && !["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) {
+    e.preventDefault();
+    el.click();
+    return;
+  }
+  if (el.getAttribute("role") !== "tab") return;
+  const tabs = [...(el.closest("[role=tablist]")?.querySelectorAll("[role=tab]") || [])];
+  const at = tabs.indexOf(el);
+  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  if (next === undefined || at < 0) return;
+  e.preventDefault();
+  const tab = tabs[(next + tabs.length) % tabs.length];
+  const label = tab.textContent;
+  tab.click();
+  // Selecting a tab often re-renders the tab list: focus the new copy of the same tab.
+  const now = [...(document.querySelectorAll("[role=tab]"))].find((t) => t.textContent === label && t.getAttribute("aria-selected") === "true");
+  (now || (tab.isConnected ? tab : null))?.focus();
+});
 
 // ---------- account and data ----------
 
@@ -243,7 +295,8 @@ function renderChrome() {
   // Items opened recently, each with a close button.
   const open = [];
   const recent = (view, iconName, label, onOpen, onClose) => h("div", { class: "rail-open-item" },
-    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, onclick: onOpen }, icon(iconName, 22), label),
+    h("button", { class: `rail-item${state.view === view ? " active" : ""}`, "aria-current": state.view === view ? "page" : null,
+      onclick: onOpen }, icon(iconName, 22), label),
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();

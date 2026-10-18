@@ -74,3 +74,25 @@ def test_entity_previews_read_only_the_rows_they_show(svc, monkeypatch):
     preview = svc.meta_entity(name)["preview"]
     assert preview["total"] == full.height and len(preview["rows"]) == min(50, full.height)
     assert e.table not in reads  # the table itself is scanned for the first rows, never read whole
+
+
+def test_the_total_counts_files_written_without_statistics(tmp_path):
+    """Some writers (CONVERT TO DELTA, older tools) leave numRecords out of the log; their rows still count."""
+    import json
+
+    import pyarrow as pa
+    from deltalake import write_deltalake
+
+    from fabric_desktop.meta.store import LocalStore
+    store = LocalStore(tmp_path, "dev")
+    uri = store.uri("LH_Bronze", "dbo", "t")
+    write_deltalake(uri, pa.table({"n": list(range(10))}))
+    write_deltalake(uri, pa.table({"n": list(range(5))}), mode="append")
+    assert store.count("LH_Bronze", "dbo", "t") == 15  # from the log's statistics
+    log = Path(uri) / "_delta_log" / "00000000000000000001.json"
+    actions = [json.loads(x) for x in log.read_text().splitlines()]
+    for a in actions:
+        a.get("add", {}).pop("stats", None)
+    log.write_text("\n".join(json.dumps(a) for a in actions) + "\n")
+    assert store.count("LH_Bronze", "dbo", "t") == 15
+    assert store.count("LH_Bronze", "dbo", "missing") == 0

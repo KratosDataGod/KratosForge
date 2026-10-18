@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import polars as pl
+import pyarrow as pa
 from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
@@ -174,11 +175,18 @@ class Store:
             return None
 
     def count(self, lakehouse: str, schema: str, table: str) -> int:
-        """Rows in the table, from the Delta log's file statistics: no data is read."""
+        """Rows in the table, from the Delta log's file statistics: no data is read. A file written
+        without them (CONVERT TO DELTA, some other writers) would be left out of that sum, so then
+        the rows are counted from the files themselves."""
+        uri = self.uri(lakehouse, schema, table)
         try:
-            return DeltaTable(self.uri(lakehouse, schema, table), storage_options=self.options()).count()
+            dt_ = DeltaTable(uri, storage_options=self.options())
         except TableNotFoundError:
             return 0
+        actions = pa.table(dt_.get_add_actions(flatten=True))
+        if "num_records" in actions.column_names and actions.column("num_records").null_count == 0:
+            return dt_.count()
+        return int(lazy(dt_, uri, self.options()).select(pl.len()).collect().item())
 
     def write(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, mode: str = "overwrite",
               metadata: dict[str, str] | None = None, read_version: int | None | bool = False) -> int:

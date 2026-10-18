@@ -2200,6 +2200,10 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
+  // not yet linked to its Fabric item can't be checked and runs as before.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
+    runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
   const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
   if (!run) return;

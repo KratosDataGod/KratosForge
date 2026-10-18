@@ -409,8 +409,9 @@ class WorkloadMixin:
                             "env": d.get("env"), "where": d["location"]["label"]})
         return out
 
-    def workload_preflight(self, id: str, action: str, env: str | None = None) -> dict[str, Any]:
-        """What an action will do before it does it: environment, identity, target, consequence."""
+    def workload_preflight(self, id: str, action: str, env: str | None = None, assess: bool = True) -> dict[str, Any]:
+        """What an action will do before it does it: environment, identity, target, consequence, and
+        the risk check's findings (FINOPS-004) unless ``assess`` is false."""
         w = self._wl_record(id)
         allowed = [a for a in self._wl_available(w) if a["action"] == action and (a.get("env") or None) == (env or None)]
         if not allowed:
@@ -461,12 +462,13 @@ class WorkloadMixin:
         return {"allowed": True, "action": action, "label": _ACTION_LABELS.get(action, action), "workload": w["name"],
                 "env": env, "env_label": dep.get("env_label") or "", "where": where, "identity": identity,
                 "target": target, "consequence": consequence, "warnings": warnings,
-                "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes."}
+                "recorded": "Recorded on this workload as submitted, then as succeeded or failed when the run finishes.",
+                "risk": self._risk_for_preflight(w, action, env) if assess else None}  # type: ignore[attr-defined]
 
     def workload_act(self, id: str, action: str, env: str | None = None, schedule_id: str = "",
                      job_id: str = "") -> dict[str, Any]:
         """Do a supported action through the service that already does it, and record the outcome."""
-        pre = self.workload_preflight(id, action, env)
+        pre = self.workload_preflight(id, action, env, assess=False)
         if not pre.get("allowed"):
             raise PermissionError(pre.get("reason") or "Not allowed")
         w = self._wl_record(id)

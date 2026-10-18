@@ -31,6 +31,13 @@ class Layout:
     timed: bool
     # Columns that must not be the CU column, with why (shown when they are the only CU column).
     refuse: dict[str, str] = field(default_factory=dict)
+    # Fields holding numbers (their decimal mark is worked out together) and times (their date order).
+    numbers: tuple[str, ...] = ("cu", "duration")
+    times: tuple[str, ...] = ("start", "end")
+    # What a row describes: "operation", "item" or "capacity" (a whole capacity, as billed).
+    level: str = "operation"
+    # What the person enters when the file has no times of its own.
+    period_hint: str = ""
 
 
 @dataclass

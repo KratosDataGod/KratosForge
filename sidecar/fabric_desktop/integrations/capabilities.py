@@ -145,6 +145,20 @@ def register_core(reg: Registry) -> None:
                     "dependencies": {"type": "object"}}, ["ok", "this_pc", "fabric"], extra=True),
             "READ_METADATA", services.validate_notebook, artifact_types=("Notebook",), timeout=60,
             resource="fabric-desktop://notebooks/{name}/validation"),
+        Capability(
+            "fabric_desktop_check_run_risk", "Check a run's risk",
+            "Before a workload runs: whether anything would stop it (policy, sign-in, a paused capacity, definition "
+            "problems, the memory guard) or should be looked at first (recent failures, a run already going, a "
+            "schedule due soon, a CU threshold), as pass, warning, blocked or unknown, each with evidence. "
+            "Starts nothing; unknown CU stays unknown. Reports only: it doesn't block runs, so a blocked result "
+            "doesn't stop a run started another way.",
+            schema({"workload_id": {"type": "string", "minLength": 1, "maxLength": 400},
+                    "action": {"enum": ["run", "run_in_fabric", "run_item", "run_schedule"]},
+                    "env": {"type": "string", "maxLength": 10, "default": ""}}, ["workload_id", "action"]),
+            schema({"result": STR, "summary": STR, "findings": {"type": "array"}, "can_proceed": {"type": "boolean"}},
+                   ["result", "findings"], extra=True),
+            "READ_METADATA", services.check_run_risk, status="preview", limitations=FABRIC_LIMIT + (
+                "Reads the capacity's state; how busy a capacity is isn't available to developers.",), timeout=60),
     ]
     caps += _prove() + _pipelines() + _executions() + _prove_actions()
     for cap in caps:

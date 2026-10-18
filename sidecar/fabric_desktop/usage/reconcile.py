@@ -59,11 +59,12 @@ def _window(run: dict[str, Any], now: dt.datetime) -> tuple[dt.datetime, dt.date
 
 def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimates: dict[str, dict[str, Any]],
               since: dt.datetime, until: dt.datetime, ws_names: dict[str, str] | None = None,
-              now: dt.datetime | None = None) -> dict[str, Any]:
+              now: dt.datetime | None = None, capacity_envs: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """Reconcile imported rows in ``[since, until)`` with this app's Fabric runs started then.
 
     ``estimates`` maps a job id to its estimated ``fabric_job_cu`` (costs.activities);
-    ``ws_names`` maps workspace ids to names for runs that didn't record one."""
+    ``ws_names`` maps workspace ids to names for runs that didn't record one. Rows of a whole
+    capacity (cost exports) aren't matched to runs; they are summed per capacity in ``billed``."""
     now = now or dt.datetime.now(dt.timezone.utc)
     ws_names = ws_names or {}
     tol = dt.timedelta(seconds=TOLERANCE_S)
@@ -72,16 +73,21 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
     sources: dict[str, str] = {}
     for imp in imports:
         for r in imp.get("rows", []):
-            p = r["cu"]["period"]
+            p = (r.get("cu") or r["cost"])["period"]
             start, end = ms.parse_time(p["start"]), ms.parse_time(p["end"])
             if r.get("start"):
                 if start and since <= start < until:
-                    rows.append(r | {"_import": imp["id"], "_start": start, "_end": end or start})
+                    rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                     "_start": start, "_end": end or start})
             elif start and end and since <= start and end <= until:
-                rows.append(r | {"_import": imp["id"], "_start": start, "_end": end})
+                rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                 "_start": start, "_end": end})
             elif start and end and start < until and since < end:
                 outside += 1  # a period total that only partly falls in the period can't be split
         sources[imp["id"]] = imp.get("imported_at") or ""
+
+    billed_rows = _latest(r for r in rows if r.get("level") == "capacity")
+    rows = [r for r in rows if r.get("level") != "capacity"]
 
     app_runs = []
     for run in runs:
@@ -107,7 +113,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
     # What the imports cover: a workspace name, over the time span of that import's timed rows.
     cover: list[tuple[str, dt.datetime, dt.datetime]] = []
     for imp in imports:
-        timed = [r for r in imp.get("rows", []) if r.get("start")]
+        timed = [r for r in imp.get("rows", []) if r.get("start") and r.get("level") != "capacity"]
         if timed:
             first = min(ms.parse_time(r["start"]) for r in timed)
             last = max(ms.parse_time(r.get("end") or r["start"]) for r in timed)
@@ -160,7 +166,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
         ratio = round(measured_total["value"] / estimated_total["value"], 3)
     return {
         "period": {"start": since.isoformat(timespec="seconds"), "end": until.isoformat(timespec="seconds")},
-        "imports": len({r["_import"] for r in rows}), "rows": len(rows), "rows_outside_period": outside,
+        "imports": len({r["_import"] for r in rows + billed_rows}), "rows": len(rows), "rows_outside_period": outside,
         "imported": tot([r["cu"] for r in rows], "fabric_capacity_cu"),
         "matched": {"rows": sum(len(a["rows"]) for a in app_runs), "runs": counts["matched"],
                     "measured": measured_total, "estimated": estimated_total, "measured_to_estimate": ratio},
@@ -169,4 +175,42 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
         "runs": counts,
         "by_run": sorted(by_run, key=lambda b: b["started_at"], reverse=True)[:_MAX_RUNS],
         "tolerance_s": TOLERANCE_S,
+        "billed": billed(billed_rows, capacity_envs or {}),
     }
+
+
+def _latest(rows: Any) -> list[dict[str, Any]]:
+    """Cost rows with one row per capacity, meter, day and charge: when several imports have the
+    same one (month-to-date exports repeat earlier days), the one imported last counts. Imports
+    come newest first (Store.all), so on a tie in import time the first one seen is kept."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        slot = r.get("slot") or r["key"]
+        if slot not in out or (r.get("_imported_at") or "") > (out[slot].get("_imported_at") or ""):
+            out[slot] = r
+    return list(out.values())
+
+
+def billed(rows: list[dict[str, Any]], capacity_envs: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """What each capacity was billed over the period, from imported cost exports: CU hours of its
+    compute meters and its cost per currency, both measured. ``capacity_envs`` maps a capacity
+    name (lower case) to the environments whose workspaces are on it."""
+    from . import cost_totals
+
+    caps: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        caps.setdefault(r["capacity_id"], []).append(r)
+    out = []
+    for cap_id, rs in sorted(caps.items(), key=lambda kv: kv[1][0]["capacity"].lower()):
+        name = rs[0]["capacity"]
+        cu = [r["cu"] for r in rs if r.get("cu")]
+        days = sorted({r["start"][:10] for r in rs})
+        meters: dict[str, int] = {}
+        for r in rs:
+            meters[r.get("meter") or "?"] = meters.get(r.get("meter") or "?", 0) + 1
+        out.append({"capacity_id": cap_id, "capacity": name, "environments": capacity_envs.get(name.lower(), []),
+                    "rows": len(rs), "days": len(days), "first_day": days[0], "last_day": days[-1],
+                    "cu": ms.total(cu, "billed_capacity_cu", ms.CU_HOURS) if cu else None,
+                    "cost": cost_totals([r["cost"] for r in rs]),
+                    "meters": dict(sorted(meters.items(), key=lambda kv: -kv[1])[:8])})
+    return out

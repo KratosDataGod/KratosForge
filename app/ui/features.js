@@ -46,6 +46,7 @@ const PREVIEW_FEATURES = {
   replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",
+  usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",

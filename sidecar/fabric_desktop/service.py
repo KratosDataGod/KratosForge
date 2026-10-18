@@ -42,6 +42,7 @@ from .git_service import GitMixin
 from .pipeline_service import PipelineMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
+from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore, check_watches
@@ -57,7 +58,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, GitMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, OptimizeMixin):
+class Service(PipelineMixin, GitMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, OptimizeMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings

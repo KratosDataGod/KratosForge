@@ -398,6 +398,13 @@ h2.flush { margin: 0; }
 .capacity-strip { margin-bottom: 12px; }
 .capacity-strip .row { gap: 12px; align-items: center; }
 .capacity-strip td { vertical-align: top; }
+.usage-card { margin-bottom: 12px; }
+.usage-card > .row { gap: 8px; align-items: center; }
+.usage-card .cmp-stats { margin: 10px 0; }
+.usage-card td { vertical-align: top; }
+.usage-imports summary { cursor: pointer; margin-top: 8px; }
+.usage-preview { margin-top: 10px; }
+.usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .info p { margin: 0; }

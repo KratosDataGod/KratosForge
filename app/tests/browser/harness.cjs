@@ -4,7 +4,7 @@
 // every other call is answered by `mocks` (a method name -> function(params) map) or fails, as
 // it does when the engine can't reach Fabric.
 //
-// Needs Playwright and a Chromium: NODE_PATH="$(npm root -g)" node --test app/tests/browser
+// Needs Playwright and a Chromium: NODE_PATH="$(npm root -g)" node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");

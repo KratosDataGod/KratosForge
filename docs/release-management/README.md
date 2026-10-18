@@ -53,6 +53,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 4. **Order the batch.** Smallest blast radius first: docs-only, then single-module fixes, then features; stacked PRs in stack order; PRs whose CI hasn't finished or is unproven last. Nearly every UI PR appends to `app/tests/ui.test.cjs`, so two UI PRs always conflict after the first merges: chain them (each branch merges the previous) so one CI round proves the whole chain.
 5. **Validate the integrated result**, not just each PR. On the trial branch, run what CI runs that can run on Linux:
    - `node --test app/tests/ui.test.cjs`
+   - `node --test --test-concurrency=1 "app/tests/browser/*.test.cjs"` with Playwright 1.56.1 on `NODE_PATH` and the sidecar installed (the `ui-browser` job)
    - `cd sidecar && python -m pip install -e ".[dev]" -c constraints.txt && python -m pytest -q`
    Windows-only jobs (engine build, shell build, Windows pytest) are taken from each PR's own CI and are re-proven by the post-merge CI run on `main`.
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.

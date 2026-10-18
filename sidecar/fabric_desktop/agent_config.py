@@ -2,6 +2,7 @@
 
     [agent]
     name = "etl-01"                       # this worker's name in run logs; the host name if left out
+    owner = "Sales data team"             # optional: who looks after this agent, shown in the app
     project = "/srv/fabric/sales-metadata" # the metadata project folder (a Git checkout)
     environments = ["test", "prod"]       # the environments this agent may run
     concurrency = 1                       # jobs at once
@@ -100,6 +101,7 @@ class Schedule:
     entities: list[str]
     config: dict[str, Any]  # the same shape local_schedules.next_run reads
     backfill: str = ""
+    when: dict[str, Any] = field(default_factory=dict)  # as written: {"kind": "cron"|"daily"|"weekly", ...}
 
 
 @dataclass(frozen=True)
@@ -134,6 +136,7 @@ class AgentConfig:
     project: Path
     environments: list[str]
     auth: dict[str, Any]
+    owner: str = ""
     concurrency: int = 1
     poll_seconds: float = 5.0
     job_lease_seconds: float = 300.0
@@ -230,7 +233,7 @@ def _schedule(raw: dict[str, Any], i: int, errors: list[str]) -> Schedule | None
         return None
     del fabric_cfg  # validated; the agent keeps local time, as Task Scheduler does
     entities = [str(e) for e in raw.get("entities") or []]
-    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")))
+    return Schedule(sid, env, entities, local_configuration(schedule), str(raw.get("backfill", "")), schedule)
 
 
 def load(path: Path | str | None = None) -> AgentConfig:
@@ -309,7 +312,8 @@ def parse(raw: dict[str, Any], path: Path | str = "agent.toml") -> AgentConfig:
     cfg = AgentConfig(
         path=Path(path), name=str(agent.get("name") or socket.gethostname()),
         home=Path(agent["home"]) if agent.get("home") else default_home(),
-        project=Path(project), environments=envs, auth=dict(auth), concurrency=concurrency,
+        project=Path(project), environments=envs, auth=dict(auth), owner=str(agent.get("owner") or "").strip(),
+        concurrency=concurrency,
         poll_seconds=number(agent, "poll_seconds", 5, 0.1, "agent"),
         job_lease_seconds=number(agent, "job_lease_seconds", 300, 30, "agent"),
         table_lease_seconds=number(agent, "table_lease_seconds", 120, 15, "agent"),

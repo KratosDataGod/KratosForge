@@ -83,7 +83,16 @@ A policy file that sets everything an organization usually wants:
 | `integrations_max_permissions` | A list, for example `["READ_METADATA", "READ_DATA"]` | The most an external AI tool can be given |
 | `integrations_extensions` | A list of extension ids, for example `["notebook-outline"]`; `[]` for none | Which extensions people can turn on in Settings > Integrations |
 
-A key that is misspelled or has the wrong kind of value (`"false"` in quotes instead of `false`) is ignored, and **Settings > Help and about** lists what was ignored and why. Check there after you push a new file.
+A key that is misspelled is ignored. An invalid file or key fails closed for anything the file can restrict, so a mistake never opens up what you meant to lock down:
+
+- **The file is there but can't be read** (a stray comma, not one JSON object, no permission to open it): each PC keeps using the last copy of the file it could read, as Group Policy keeps its last applied settings, until you fix it. Each PC saves that copy whenever it reads a valid file, and deletes it when the file is removed. The copy is `%LOCALAPPDATA%\FabricDesktop\policy-last-good.json`. It sits in the person's own profile, so someone could edit it, but it only counts while the real file is broken, and **Settings > Help and about** says when it is in use.
+- **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. No runs in Fabric, no account can sign in, Preview features and telemetry are off, external AI tools are off with no permissions, no HTTP API and no extensions, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
+- **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `integrations` and `integrations_http` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions` and `integrations_extensions` allow none; `receipt_redactions` leaves out every part.
+- **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
+
+With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what Fabric Desktop by KratosBI did about it. Check there after you push a new file.
+
+`auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 
 Every key is optional. More detail is in [permissions.md: Rolling out to your organization](permissions.md#rolling-out-to-your-organization).
 

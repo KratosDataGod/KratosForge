@@ -132,7 +132,7 @@ function renderNotebook() {
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
-        : `Compute: Python ${state.python || "3"} on this PC, no Fabric capacity used`),
+        : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
   document.querySelector(".cells").scrollTop = scrollTop;
   editors.forEach((v) => v.requestMeasure());

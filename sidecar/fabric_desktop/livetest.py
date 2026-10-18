@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import redact
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
 
@@ -39,7 +40,6 @@ MARKER = "fabric-desktop-live-test"
 PREFIX = "fdlt_"
 SCHEMA = "live-test-result@1"
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
-_TOKEN_LIKE = re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]*|(?i:bearer)\s+\S+|sig=[^&\s]+")
 
 
 class Refused(Exception):
@@ -72,7 +72,7 @@ def policy_workspace_ids() -> set[str]:
 
 def scrub(text: str) -> str:
     """Remove anything token-shaped from text that goes into a result."""
-    return _TOKEN_LIKE.sub("[removed]", text)[:2000]
+    return redact.secrets(text)[:2000]
 
 
 @dataclass

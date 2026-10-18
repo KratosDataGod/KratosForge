@@ -35,7 +35,7 @@ def _expr_columns(expr: str) -> list[str] | None:
     try:
         return list(dict.fromkeys(pl.sql_expr(expr).meta.root_names()))
     except Exception as exc:  # noqa: BLE001 - an expression the save gate would refuse anyway
-        _log.debug("Couldn't parse an expression's columns: %s", describe(exc))
+        _log.info("Couldn't parse an expression's columns: %s", describe(exc))
         return None
 
 

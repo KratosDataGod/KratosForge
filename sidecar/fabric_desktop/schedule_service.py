@@ -175,7 +175,7 @@ class ScheduleMixin:
             project = self._project()  # type: ignore[attr-defined]
             wanted |= {c.get("workspace_id") for c in project.environments.values() if c.get("workspace_id")}
         except Exception as exc:
-            _log.debug("No metadata project; its workspaces aren't added: %s", describe(exc))
+            _log.info("No metadata project; its workspaces aren't added: %s", describe(exc))
         for n in self.notebooks.list():  # type: ignore[attr-defined]
             try:
                 nb = self.notebooks.load(n["name"])  # type: ignore[attr-defined]
@@ -216,12 +216,14 @@ class ScheduleMixin:
                                           "error": f"{type(exc).__name__}: {exc}"}
             return
 
+        missed: list[str] = []  # one log line per scan, not one per item (a large tenant could flood the log)
+
         def items(ws: dict[str, str]) -> list[dict[str, Any]]:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in SCHEDULED_TYPES]
             except Exception as exc:
-                _log.warning("Couldn't list items in workspace %s: %s", ws["id"], describe(exc))
+                missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
                 return []
 
         def schedules(it: dict[str, Any]) -> list[dict[str, Any]]:
@@ -229,7 +231,7 @@ class ScheduleMixin:
             try:
                 found = client.list_schedules(it["workspace_id"], it["id"], job)
             except Exception as exc:
-                _log.warning("Couldn't list schedules for item %s: %s", it["id"], describe(exc))
+                missed.append(f"schedules of item {it['id']}: {describe(exc)}")
                 return []
             if not found:
                 return []
@@ -238,7 +240,7 @@ class ScheduleMixin:
                 runs = client.list_job_instances(it["workspace_id"], it["id"])
                 last = runs[0] if runs else None
             except Exception as exc:
-                _log.warning("Couldn't read the last run of item %s: %s", it["id"], describe(exc))
+                missed.append(f"last run of item {it['id']}: {describe(exc)}")
             return [{"id": s["id"], "enabled": s.get("enabled", False), "text": describe_schedule(s),
                      "owner": s.get("owner") if isinstance(s.get("owner"), dict) else None,  # Fabric runs it as its owner
                      "configuration": s.get("configuration") or {}, "job_type": job,
@@ -252,6 +254,8 @@ class ScheduleMixin:
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [it for chunk in pool.map(items, workspaces) for it in chunk]
             rows = [r for chunk in pool.map(schedules, found) for r in chunk]
+        if missed:
+            _log.warning("Fabric schedules: %d reads failed; the first was %s", len(missed), missed[0])
         rows.sort(key=lambda r: (r["workspace_name"].lower(), str(r["name"]).lower()))
         with self._fabric_schedules_lock:
             self._fabric_schedules = {"pending": False, "items": rows, "all_workspaces": all_workspaces,

@@ -382,7 +382,7 @@ def _safe(fn: Callable[[], Any]) -> str:
     try:
         return str(fn() or "")
     except Exception as exc:
-        _log.debug("Couldn't read a live-test detail: %s", redact.describe(exc))
+        _log.info("Couldn't read a live-test detail: %s", redact.describe(exc))
         return ""
 
 

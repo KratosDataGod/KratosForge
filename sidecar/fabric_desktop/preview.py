@@ -65,7 +65,7 @@ def row_count(dt: DeltaTable) -> int | None:
         actions = pa.table(actions) if not isinstance(actions, pa.Table) else actions
         counts = actions.column("num_records").to_pylist()
     except Exception as exc:  # an older writer without stats, or a log this reader can't flatten
-        _log.debug("No row count from the Delta log's file stats: %s", describe(exc))
+        _log.info("No row count from the Delta log's file stats: %s", describe(exc))
         return None
     return None if any(c is None for c in counts) else int(sum(counts))
 

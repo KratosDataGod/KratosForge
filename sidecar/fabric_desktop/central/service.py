@@ -50,7 +50,7 @@ class PlatformMixin:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - offline: changes are recorded without a name
-            _log.debug("Signed-in user unknown; recording the change without a name: %s", describe(exc))
+            _log.info("Signed-in user unknown; recording the change without a name: %s", describe(exc))
             return ""
 
     def _platform(self, env: str) -> LocalPlatform | FabricPlatform:

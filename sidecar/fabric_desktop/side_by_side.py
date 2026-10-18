@@ -291,5 +291,5 @@ def _memory_gb() -> float | None:
             total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         return round(total / 1024 ** 3, 1)
     except Exception as exc:  # noqa: BLE001 - only shown as context
-        _log.debug("Couldn't read this PC's memory: %s", describe(exc))
+        _log.info("Couldn't read this PC's memory: %s", describe(exc))
         return None

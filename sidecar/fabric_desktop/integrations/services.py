@@ -53,7 +53,7 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
     try:
         user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
     except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
-        _log.debug("Not signed in: %s", describe(exc))
+        _log.info("Not signed in: %s", describe(exc))
     return {"product": "Fabric Desktop by KratosBI", "version": __version__, "python": platform.python_version(),
             "signed_in": bool(user), "user": user, "tenant": tenant, "compute": "this PC",
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}

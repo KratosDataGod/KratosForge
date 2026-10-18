@@ -134,7 +134,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
         except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
-            _log.debug("Not signed in: %s", describe(exc))
+            _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:

@@ -68,5 +68,5 @@ def current_user() -> str | None:
     try:
         return getpass.getuser()
     except Exception as exc:  # noqa: BLE001 - no login name (a service account without one)
-        _log.debug("No login name for this process: %s", describe(exc))
+        _log.info("No login name for this process: %s", describe(exc))
         return None

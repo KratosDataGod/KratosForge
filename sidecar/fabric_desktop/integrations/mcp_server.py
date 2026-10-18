@@ -170,7 +170,7 @@ def _client_name(ctx: Any) -> str:
         if info is not None:
             return f"{info.name} {info.version or ''}".strip()
     except Exception as exc:  # not known on this protocol version
-        _log.debug("MCP client name unknown: %s", describe(exc))
+        _log.info("MCP client name unknown: %s", describe(exc))
     return ""
 
 

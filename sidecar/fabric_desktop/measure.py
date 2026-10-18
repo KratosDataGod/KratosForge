@@ -41,7 +41,7 @@ def rss_bytes() -> int | None:
         with open("/proc/self/statm", encoding="ascii") as f:
             return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
     except Exception as exc:  # noqa: BLE001 - shown as "not measured"
-        _log.debug("Couldn't read this process's memory: %s", describe(exc))
+        _log.info("Couldn't read this process's memory: %s", describe(exc))
         return None
 
 

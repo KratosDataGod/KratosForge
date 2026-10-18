@@ -100,5 +100,5 @@ def _matches(project: Project, folder: Path, version: str) -> bool:
     try:
         return Project(folder, local_data=project.local_data).version == version
     except Exception as exc:  # noqa: BLE001 - a folder that doesn't load isn't the release
-        _log.debug("The folder doesn't load as a release: %s", describe(exc))
+        _log.info("The folder doesn't load as a release: %s", describe(exc))
         return False

@@ -200,7 +200,7 @@ class EstateMixin:
         try:
             project = self._project()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            _log.debug("No metadata project for managed tables: %s", describe(exc))
+            _log.info("No metadata project for managed tables: %s", describe(exc))
             return []
         if not any(project.environments.get(env, {}).get("workspace_id") == workspace_id for env in ENVIRONMENTS):
             return []
@@ -294,7 +294,7 @@ class EstateMixin:
         try:
             store = self._store(project, env)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            _log.debug("No store for this environment's files: %s", describe(exc))
+            _log.info("No store for this environment's files: %s", describe(exc))
             return []
         if not isinstance(store, OneLakeStore):
             return []
@@ -546,7 +546,7 @@ class EstateMixin:
         try:
             project = self._project()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            _log.debug("No metadata project for notebook variables: %s", describe(exc))
+            _log.info("No metadata project for notebook variables: %s", describe(exc))
             return None
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None

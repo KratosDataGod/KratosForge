@@ -93,7 +93,7 @@ def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
     try:
         reads[kind][key] = entry()
     except Exception as exc:  # noqa: BLE001 - a replay record never fails the cell's own read
-        _log.debug("Couldn't record a read for replay: %s", describe(exc))
+        _log.info("Couldn't record a read for replay: %s", describe(exc))
 
 
 def _record_table(ref: TableRef, version: int | None, first: str) -> None:

@@ -41,13 +41,13 @@ class ShortcutMixin:
                     if isinstance(ws, dict) and ws.get("id"):
                         known[ws["id"]] = env
         except Exception as exc:  # noqa: BLE001 - no metadata project: names decide
-            _log.debug("No metadata project; workspace names decide the environment: %s", describe(exc))
+            _log.info("No metadata project; workspace names decide the environment: %s", describe(exc))
         try:
             for env, cfg in self._platform_config().items():  # type: ignore[attr-defined]
                 if cfg.get("workspace_id") and env in ENVIRONMENTS:
                     known.setdefault(cfg["workspace_id"], env)
         except Exception as exc:  # noqa: BLE001
-            _log.debug("No platform configuration; workspace names decide the environment: %s", describe(exc))
+            _log.info("No platform configuration; workspace names decide the environment: %s", describe(exc))
         return known
 
     def _sc_call(self, op: str, problems: list[str], default: Any, **kwargs: Any) -> Any:
@@ -230,7 +230,7 @@ class ShortcutMixin:
         try:
             return bool(self._catalog().call("whoami").get("admin"))  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            _log.debug("Couldn't ask the shortcut catalog whether this user is an admin: %s", describe(exc))
+            _log.info("Couldn't ask the shortcut catalog whether this user is an admin: %s", describe(exc))
             return False
 
     def shortcut_rules(self) -> dict[str, Any]:

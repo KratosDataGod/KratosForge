@@ -78,7 +78,7 @@ class _AppCredential:
         try:
             return self._token(scopes)
         except Exception as exc:
-            _log.debug("No token for the agent's credential: %s", describe(exc))
+            _log.info("No token for the agent's credential: %s", describe(exc))
             return None
 
     def signed_in_user(self) -> str | None:

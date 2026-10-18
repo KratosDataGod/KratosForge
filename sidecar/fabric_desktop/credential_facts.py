@@ -67,7 +67,7 @@ def _read_expiry(path: Path, password: str | None) -> str | None:
             cert = x509.load_pem_x509_certificate(data)
         return _iso(cert.not_valid_after_utc) if cert is not None else None
     except Exception as exc:  # noqa: BLE001 - unreadable here: unknown, and the agent's sign-in says why
-        _log.debug("Couldn't read the certificate's expiry: %s", describe(exc))
+        _log.info("Couldn't read the certificate's expiry: %s", describe(exc))
         return None
 
 

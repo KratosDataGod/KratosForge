@@ -113,3 +113,28 @@ def test_check_allows_handled_or_marked(handler):
 def test_marker_needs_a_reason(comment):
     source = f"try:\n    g()\nexcept Exception:  {comment}\n    pass\n"
     assert silent_handlers(source) == [(3, "'# silent-ok:' needs a reason")]
+
+
+def test_engine_log_lines_reach_stderr_without_secrets(monkeypatch, capsys):
+    import logging
+
+    from fabric_desktop import server
+    logger = logging.getLogger("fabric_desktop")
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(logger, "level", logging.NOTSET)
+    server._log_to_stderr()
+    server._log_to_stderr()  # a second call adds no second handler
+    assert len(logger.handlers) == 1
+    logging.getLogger("fabric_desktop.schedule_service").info("read failed: Bearer eyJhbGciOiJIUzI1NiJ9.e30.abc")
+    err = capsys.readouterr().err
+    assert "INFO fabric_desktop.schedule_service: read failed" in err and "eyJhbGciOiJIUzI1NiJ9" not in err
+
+
+def test_describe_survives_an_unreadable_message():
+    from fabric_desktop.redact import describe
+
+    class Odd(Exception):
+        def __str__(self):
+            raise RuntimeError("no")
+
+    assert describe(Odd()) == "Odd: (message unreadable)"

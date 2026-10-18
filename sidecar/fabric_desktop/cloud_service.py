@@ -92,7 +92,7 @@ class CloudMixin:
         try:
             token = self.auth.silent_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
         except Exception as exc:  # no client ID configured
-            _log.debug("No silent Fabric token for Monitor: %s", describe(exc))
+            _log.info("No silent Fabric token for Monitor: %s", describe(exc))
             return None
         return FabricClient(lambda: token) if token else None
 

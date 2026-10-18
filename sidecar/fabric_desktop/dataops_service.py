@@ -159,7 +159,7 @@ class DataOpsMixin:
             h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
             history = _rows(h, 10)
         except Exception as exc:
-            _log.debug("No schema history for this entity: %s", describe(exc))
+            _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
     def meta_drift_apply(self, name: str, add: dict[str, str] | None = None, retype: dict[str, str] | None = None,

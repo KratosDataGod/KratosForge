@@ -154,7 +154,7 @@ class XRayMixin:
                 local = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
                 result["findings"] = xray.rank(result["findings"] + xray.cost_findings(report | {"days": 30}, local))
             except Exception as exc:  # cost needs the run logs; the rest stands without it
-                _log.debug("No cost findings for X-ray: %s", describe(exc))
+                _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
@@ -173,7 +173,7 @@ class XRayMixin:
             managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
         except Exception as exc:
-            _log.debug("No metadata project for X-ray: %s", describe(exc))
+            _log.info("No metadata project for X-ray: %s", describe(exc))
         fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
         for r in result.get("lakehouse_rows", []):

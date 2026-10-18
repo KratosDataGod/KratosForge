@@ -142,7 +142,7 @@ class IncidentMixin:
                 if cfg.get("workspace_id"):
                     env_of[str(cfg["workspace_id"])] = env
         except Exception as exc:  # noqa: BLE001  # no project open: Fabric rows show no environment
-            _log.debug("No metadata project; Fabric rows show no environment: %s", describe(exc))
+            _log.info("No metadata project; Fabric rows show no environment: %s", describe(exc))
         return env_of
 
     @staticmethod

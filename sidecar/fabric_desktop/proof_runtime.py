@@ -171,7 +171,7 @@ class ProofRuntime:
             import numpy as np
             np.random.seed(self.seed)
             seeded.append("numpy")
-        except Exception:  # noqa: BLE001  # silent-ok: NumPy is optional; without it there is nothing to seed
+        except ImportError:  # NumPy is optional; without it there is nothing to seed
             pass
         self.log["seeded"] = seeded
         tz = "not changed"

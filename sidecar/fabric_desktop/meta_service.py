@@ -125,7 +125,7 @@ class MetaMixin:
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
         except Exception as exc:  # not signed in: the owner can be filled in later
-            _log.debug("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
+            _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
         init_project(Path(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -765,7 +765,7 @@ class MetaMixin:
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
         except Exception as exc:
-            _log.debug("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
+            _log.info("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
         keys_mod.write_key_table(project.root, name, owner, description)
         return self.meta_keys(env)
 

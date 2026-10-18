@@ -55,14 +55,14 @@ class WorkloadMixin:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - no client id yet
-            _log.debug("Signed-in user unknown: %s", describe(exc))
+            _log.info("Signed-in user unknown: %s", describe(exc))
             return ""
 
     def _wl_token(self, scopes: list[str]) -> str | None:
         try:
             return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            _log.debug("No silent token: %s", describe(exc))
+            _log.info("No silent token: %s", describe(exc))
             return None
 
     # ---- sources
@@ -347,7 +347,7 @@ class WorkloadMixin:
         try:
             products = self.platform_products()  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001 - no platform: the products are still listed, without consumers
-            _log.debug("No platform catalog; products are listed without consumers: %s", describe(exc))
+            _log.info("No platform catalog; products are listed without consumers: %s", describe(exc))
             return []
         pname = w["definition"].get("project")
         wanted = {f"{pname}.{f['product']}" for f in feeds} | {f["product"] for f in feeds}

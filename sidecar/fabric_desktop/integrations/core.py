@@ -250,7 +250,7 @@ class CallContext:
             try:
                 self.progress(done, total, message)
             except Exception as exc:  # noqa: BLE001 - a progress message must never fail the work
-                _log.debug("Progress callback failed: %s", describe(exc))
+                _log.info("Progress callback failed: %s", describe(exc))
 
 
 def run_call(handler: Callable[[], Any], ctx: CallContext) -> Any:

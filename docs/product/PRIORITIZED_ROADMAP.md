@@ -92,6 +92,7 @@ trade-off is recorded, and the decision is stored in the item's `priority_overri
 | Id | Item | Computed score | Priority | Decided by | Reason |
 | --- | --- | ---: | --- | --- | --- |
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 2.3 | P0 | Chris (product owner), 2026-10-17 | Local execution without Fabric capacity is the product's core mission; build FD-LDE-001..020 as P0 despite its size |
+| [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 1.27 | P1 | Chris (product owner), 2026-10-18 | Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3 |
 <!-- END GENERATED: overrides -->
 
 ## Sequencing by dependency
@@ -147,7 +148,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | 4 | 2 | 5 | 2 | 5 | 4 | 3 | 3.7 | 3.5 | 1.85 | blocker | XL | Medium | none | Engineering quality review |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 
-### P1 (29 items)
+### P1 (30 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -180,6 +181,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-064](PRODUCT_BACKLOG.md#pb-064) | Per-build release assets, pinning and rollback | 1 | 1 | 5 | 1 | 4 | 3 | 2 | 2.45 | 2.5 | 1.72 | required | M | Medium | none | Enterprise readiness |
 | [PB-072](PRODUCT_BACKLOG.md#pb-072) | Long engine calls stop blocking the app | 4 | 1 | 4 | 1 | 4 | 4 | 3 | 2.95 | 3.5 | 1.48 | required | L | Medium | PB-071 | Master product (unassigned) |
 | [PB-006](PRODUCT_BACKLOG.md#pb-006) | Content Security Policy for the main window | 1 | 1 | 5 | 1 | 4 | 3 | 3 | 2.45 | 3.0 | 1.47 | required | M | Medium | none | Enterprise readiness |
+| [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 
 ### P2 (47 items)
 
@@ -233,7 +235,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 
-### P3 (11 items)
+### P3 (10 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -243,7 +245,6 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | SQL development sprint |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
-| [PB-104](PRODUCT_BACKLOG.md#pb-104) | Optimize central lakehouse program | 3 | 5 | 4 | 5 | 5 | 5 | 4 | 4.25 | 4.5 | 1.27 | none | XL | Low | none | Optimize central lakehouse |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
 | [PB-097](PRODUCT_BACKLOG.md#pb-097) | Extensions | 3 | 1 | 4 | 4 | 3 | 4 | 4 | 3.0 | 4.0 | 1.2 | none | XL | Low | none | Git-native development |
 | [PB-093](PRODUCT_BACKLOG.md#pb-093) | Telemetry decision | 1 | 1 | 3 | 1 | 2 | 2 | 3 | 1.65 | 2.5 | 1.15 | none | M | Low | none | Enterprise readiness |
@@ -258,4 +259,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-17 | PB-099 local data engine set to P0 by the product owner | Chris |
 | 2026-10-17 | PB-101 Codebase audit and hardening added as a blocker (P0); it takes over PB-010, PB-051 and PB-071 | Master product thread |
 | 2026-10-18 | PB-103 Engineering quality program (QA-001..030, PR-QA-01..14) added as a blocker (P0) for the data-loss defects QA-001 and QA-002 | Master product thread |
-| 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; priority from its score | Master product thread |
+| 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; P1 by Chris's override (its score alone gives P3) | Chris |

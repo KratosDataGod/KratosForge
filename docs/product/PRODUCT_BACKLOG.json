@@ -4061,11 +4061,17 @@
       "effort": "XL",
       "confidence": "Low",
       "state": "In progress",
+      "priority_override": {
+        "priority": "P1",
+        "by": "Chris (product owner)",
+        "date": "2026-10-18",
+        "reason": "Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3"
+      },
       "computed": {
         "benefit": 4.25,
         "cost": 4.5,
         "score": 1.27,
-        "priority": "P3"
+        "priority": "P1"
       }
     }
   ]

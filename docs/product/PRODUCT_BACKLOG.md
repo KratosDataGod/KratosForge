@@ -71,11 +71,11 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Enterprise Shared Services](#enterprise-shared-services) | 0 | 1 | 2 | 0 | 3 |
 | [Data Governance and Quality](#data-governance-and-quality) | 0 | 2 | 6 | 0 | 8 |
 | [Developer Experience and Productivity](#developer-experience-and-productivity) | 0 | 3 | 5 | 1 | 9 |
-| [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 3 | 5 | 3 | 11 |
+| [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 4 | 5 | 2 | 11 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
 | [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
-| **Total** | **5** | **29** | **47** | **11** | **92** |
+| **Total** | **5** | **30** | **47** | **10** | **92** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -958,7 +958,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-092](#pb-092) | Shared workload ownership | P3 | Workload management | M | Proposed |
 | [PB-093](#pb-093) | Telemetry decision | P3 | Enterprise readiness | M | In review |
 | [PB-094](#pb-094) | Measure the process kernel, not the engine | P2 | Prove | S | Proposed |
-| [PB-104](#pb-104) | Optimize central lakehouse program | P3 | Optimize central lakehouse | XL | In progress |
+| [PB-104](#pb-104) | Optimize central lakehouse program | P1 | Optimize central lakehouse | XL | In progress |
 
 ### PB-017
 
@@ -1097,7 +1097,7 @@ review moves it to Accepted; a merge alone does neither.
 
 ### PB-104
 
-**Optimize central lakehouse program** · P3 (score 1.27) · XL · confidence Low · In progress
+**Optimize central lakehouse program** · P1 (score 1.27) · XL · confidence Low · In progress
 
 - **Problem:** Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.
 - **Proposed capability:** Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting.
@@ -1105,6 +1105,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ADM-01](FEATURE_INVENTORY.md#feat-adm-01)
 - **Dependencies:** none
 - **Owner:** Optimize central lakehouse (PR-OPT-001..009)
+- **Priority set by the product owner:** P1 (Chris (product owner), 2026-10-18): Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3
 - **Merged duplicates:** Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item
 - **Acceptance criteria:**
     - As defined in PR-OPT-001..009 by its owning thread

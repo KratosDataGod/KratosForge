@@ -515,7 +515,20 @@ function renderCreate() {
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs" };
+const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads" };
+// Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
+const MONITOR_OPS = [
+  { panel: "workloads", feature: "workloads", label: "Workloads", anchor: "workloads-preview",
+    text: "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner" },
+  { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
+    text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
+  { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
+    text: "Fabric Desktop by KratosBI on your own servers, from the status they report" },
+  { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
+    text: "Which identity runs your workloads in each place, and with what credential" },
+  { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
+    text: "One record per problem, shared by everyone who can read the environment" },
+];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
@@ -532,32 +545,33 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
-  const wide = ["workloads", "incidents", "agents", "queue", "runas"].includes(monitorPage.panel);
+  const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
+  const op = ops.find((o) => o.panel === monitorPage.panel);
+  if (op) monitorPage.opsView = op.panel;
+  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
+  const show = (panel) => () => { monitorPage.panel = panel; render(); };
+  // Operations takes the whole page; Fabric's hub comes back with the other panels.
+  const wide = !!op;
   const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "From Fabric Desktop by KratosBI"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
-          preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
-          preview("incidents", h("button", { class: monitorPage.panel === "incidents" ? "on" : null, onclick: () => { monitorPage.panel = "incidents"; render(); } }, "Incidents")),
-          preview("agents", h("button", { class: monitorPage.panel === "agents" ? "on" : null, onclick: () => { monitorPage.panel = "agents"; render(); } }, "Agents")),
-          preview("queue", h("button", { class: monitorPage.panel === "queue" ? "on" : null, onclick: () => { monitorPage.panel = "queue"; render(); } }, "Queue")),
-          preview("runAs", h("button", { class: monitorPage.panel === "runas" ? "on" : null, onclick: () => { monitorPage.panel = "runas"; render(); } }, "Run as")),
-          preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
-          preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
-        h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
-          : monitorPage.panel === "incidents" ? "One record per problem, shared by everyone who can read the environment"
-          : monitorPage.panel === "agents" ? "Fabric Desktop by KratosBI on your own servers, from the status they report"
-          : monitorPage.panel === "queue" ? "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it"
-          : monitorPage.panel === "runas" ? "Which identity runs your workloads in each place, and with what credential"
+          segment(monitorPage.panel === "runs", "Runs", show("runs")),
+          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
+          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null,
+          preview("cost", segment(monitorPage.panel === "cost", "Cost", show("cost")))),
+        h("span", { class: "muted-text" }, op ? op.text
           : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : monitorPage.panel === "queue" ? "queue-preview" : monitorPage.panel === "runas" ? "run-as-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
         wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
+        h("span", { class: "muted-text small" }, "Show"),
+        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),

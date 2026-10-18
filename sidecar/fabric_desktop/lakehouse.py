@@ -71,6 +71,34 @@ proof: Any = None
 proof_exempt_thread: threading.Thread | None = threading.main_thread()
 
 
+# What the notebook's cells have read since the kernel started, for replay bundles (replay.py):
+# each table's Delta version when the notebook first read it (or the version before its first
+# write), and each Files/ file's local copy, hashed only when a bundle is saved. Reads from the
+# exempt thread (the Explorer) and during a proof (which keeps its own log) aren't the cells' own.
+reads: dict[str, dict[str, dict[str, Any]]] = {"tables": {}, "files": {}}
+
+
+def reads_reset() -> None:
+    reads["tables"].clear()
+    reads["files"].clear()
+
+
+def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
+    if proof is not None or threading.current_thread() is proof_exempt_thread or key in reads[kind]:
+        return
+    try:
+        reads[kind][key] = entry()
+    except Exception:  # noqa: BLE001 - a replay record never fails the cell's own read
+        pass
+
+
+def _record_table(ref: TableRef, version: int | None, first: str) -> None:
+    lh = _current()
+    _record("tables", f"{ref.lakehouse_id}/{ref.schema}.{ref.table}".lower(), lambda: {
+        "table": f"{ref.schema}.{ref.table}", "version": version, "first": first,
+        "workspace_id": ref.workspace_id, "lakehouse_id": ref.lakehouse_id, "lakehouse": lh.name})
+
+
 def _proof() -> Any:
     if proof is None or threading.current_thread() is proof_exempt_thread:
         return None
@@ -157,6 +185,12 @@ def local_path(path: str) -> Path:
     got = FileStore(lh.storage_token).download(lh.workspace_id, lh.lakehouse_id, rel, dest)
     if (p := _proof()) is not None:
         p.file_read(rel, got)
+
+    def entry() -> dict[str, Any]:
+        st = got.stat()
+        return {"path": rel, "local": str(got), "bytes": st.st_size, "mtime_ns": st.st_mtime_ns,
+                "workspace_id": lh.workspace_id, "lakehouse_id": lh.lakehouse_id, "lakehouse": lh.name}
+    _record("files", f"{lh.lakehouse_id}/{rel}".lower(), entry)
     return got
 
 
@@ -183,7 +217,9 @@ def open_table(table: str) -> DeltaTable:
             raise TableNotFoundError(str(e)) from None
     opts = storage_options(_current().storage_token())
     try:
-        return DeltaTable(ref.uri, storage_options=opts)
+        opened = DeltaTable(ref.uri, storage_options=opts)
+        _record_table(ref, opened.version(), "read")
+        return opened
     except TableNotFoundError as e:
         folder = ref.uri.split("/Tables/", 1)[1]
         raise TableNotFoundError(f"No Delta table at Tables/{folder} in {_current().name}. "
@@ -250,6 +286,8 @@ def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str
     token = lh.storage_token()
     delta = publish(arrow, ref, mode, token) if schema_mode == "auto" else publish(arrow, ref, mode, token, schema_mode=schema_mode)
     result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
+    # A table the notebook writes before reading starts, for a replay, at the version before that write.
+    _record_table(ref, result.delta_version - 1 if result.delta_version > 0 else None, "write")
     if lh.history_file:
         record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
                   "rows": result.rows, "delta_version": result.delta_version,

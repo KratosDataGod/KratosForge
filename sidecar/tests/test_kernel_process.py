@@ -165,7 +165,9 @@ def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_l
     kernel.run("kept = 1")
     kernel.time_limit = 0.5
     pid = kernel.pid
-    kernel.start("import time\ntime.sleep(600)")  # one long call: the interrupt waits for it
+    # Catch the interrupt and carry on. A bare time.sleep(600) isn't enough: on Windows the
+    # interrupt wakes it, so the cell stops politely and the process is never ended.
+    kernel.start("import time\nwhile True:\n    try:\n        time.sleep(600)\n    except KeyboardInterrupt:\n        pass")
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
     out = kernel.run("'kept' in dir()")

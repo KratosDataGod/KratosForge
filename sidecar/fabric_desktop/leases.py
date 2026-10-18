@@ -37,6 +37,7 @@ import requests
 
 from .onelake import DFS_HOST
 from .redact import describe
+from .retrying import send_with_retry
 
 _log = logging.getLogger(__name__)
 
@@ -173,10 +174,11 @@ class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
-                 session: requests.Session | None = None):
+                 session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep):
         self.workspace_id, self.lakehouse_id = workspace_id, lakehouse_id
         self._token = token
         self._http = session or requests.Session()
+        self._sleep = sleep
 
     def _url(self, key: str) -> str:
         return f"https://{DFS_HOST}/{self.workspace_id}/{self.lakehouse_id}/{LEASE_DIR}/{key}.json"
@@ -205,7 +207,9 @@ class OneLakeBackend:
         return self._write(key, data, {"If-None-Match": "*"})
 
     def read(self, key: str) -> Stored | None:
-        resp = self._http.get(self._url(key), headers=self._headers(), timeout=60)
+        # Only the read is retried on 429/5xx: the conditional writes report a lost race as None.
+        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=60),
+                               "GET", sleep=self._sleep)
         if resp.status_code == 404:
             return None
         resp.raise_for_status()

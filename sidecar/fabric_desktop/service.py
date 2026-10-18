@@ -403,7 +403,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:

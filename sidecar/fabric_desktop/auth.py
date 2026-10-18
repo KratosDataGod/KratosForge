@@ -38,6 +38,9 @@ STORAGE_SCOPES = ["https://storage.azure.com/user_impersonation"]
 # Asked for the first time a feature needs them (one extra consent prompt, as you):
 # OneLake shortcuts and data access roles, cloud connections, and finding a person by email.
 ONELAKE_SCOPES = ["https://api.fabric.microsoft.com/OneLake.ReadWrite.All"]
+# A OneLake write keeps the token it started with until it commits, so a storage token is handed
+# out only with at least this long left (HD-034): one that has less is refreshed first.
+STORAGE_MIN_SECONDS = 30 * 60
 CONNECTION_SCOPES = ["https://api.fabric.microsoft.com/Connection.Read.All"]
 GRAPH_USER_SCOPES = ["https://graph.microsoft.com/User.ReadBasic.All"]
 # Listing capacities (creating a workspace, the cost view's capacity size).
@@ -121,6 +124,7 @@ class Authenticator:
         self.microsoft = self.client_id == MICROSOFT_CLIENT_ID  # no app registration
         self.cache_path = cache_path or default_cache_path()
         self.interactive = interactive  # False for scheduled runs: nobody is there to sign in
+        self._short_lived = False  # the tenant issues tokens with less than STORAGE_MIN_SECONDS to live
         self.cache = msal.SerializableTokenCache()
         if self.cache_path.exists():
             try:
@@ -157,12 +161,21 @@ class Authenticator:
                 tmp.chmod(0o600)  # refresh tokens: this user only
             os.replace(tmp, self.cache_path)
 
-    def _token(self, scopes: list[str]) -> str:
+    def _token(self, scopes: list[str], min_seconds: int = 0) -> str:
         scopes = self.scopes_for(scopes)
         result = None
         accounts = self.app.get_accounts()
         if accounts:
             result = self.app.acquire_token_silent(scopes, account=accounts[0])
+            if (result and "access_token" in result and not self._short_lived
+                    and int(result.get("expires_in") or min_seconds) < min_seconds):
+                # MSAL hands out a cached token until 5 minutes before it expires. Through Windows
+                # sign-in the broker keeps its own cache and may still return the same token.
+                fresh = self.app.acquire_token_silent(scopes, account=accounts[0], force_refresh=True)
+                if fresh and "access_token" in fresh:
+                    result = fresh
+                    # A tenant whose tokens live shorter than that: don't refresh on every call.
+                    self._short_lived = int(fresh.get("expires_in") or min_seconds) < min_seconds
         if not result and not self.interactive:
             raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop by KratosBI and sign in, "
                                "and scheduled runs will work again.")
@@ -207,7 +220,7 @@ class Authenticator:
         return self._token(FABRIC_SCOPES)
 
     def storage_token(self) -> str:
-        return self._token(STORAGE_SCOPES)
+        return self._token(STORAGE_SCOPES, STORAGE_MIN_SECONDS)
 
     def sign_out(self) -> None:
         for account in self.app.get_accounts():

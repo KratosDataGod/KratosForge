@@ -1164,6 +1164,17 @@ test("Monitor has four tabs, and Operations holds the workload views in the mock
     ["Runs", "Schedules", "Operations", "Cost"]);
 });
 
+test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...doc.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(linked.length >= 6);
+  for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
+  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
+});
+
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const dataops = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");

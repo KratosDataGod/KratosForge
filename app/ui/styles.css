@@ -1329,6 +1329,11 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
 
+/* Monitor > Agents: the list with How agents work beside it */
+.ag-two { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
+.ag-two > .inc-panel { min-width: 0; }
+.ag-steps { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }
+
 /* Optimize (optimize.js) */
 .optimize-band { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; font-size: 13px; }
 .card.pad.optimize-setup { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }

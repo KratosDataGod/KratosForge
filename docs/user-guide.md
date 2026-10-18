@@ -350,6 +350,8 @@ An incident is one record per problem in an environment: a table whose last run 
 
 An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
+The panel beside the list explains what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), what the page shows, and what is coming: shared schedules and takeover (Preview, off by default) and Run as.
+
 **The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
 
 - the agent and its server;

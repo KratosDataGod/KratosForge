@@ -25,6 +25,7 @@ back to the client that asked.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 import threading
 import weakref
@@ -40,9 +41,12 @@ from mcp.shared.exceptions import MCPError
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 
 from .. import __version__
+from ..redact import describe
 from . import prompts
 from .core import CallContext, Caller, IntegrationError
 from .registry import Capability, Registry, default_registry
+
+_log = logging.getLogger(__name__)
 
 # The most a single tool result may carry, as JSON. Bigger results are refused with a hint to page.
 MAX_RESULT_BYTES = 1_000_000
@@ -165,8 +169,8 @@ def _client_name(ctx: Any) -> str:
         info = getattr(params, "client_info", None)
         if info is not None:
             return f"{info.name} {info.version or ''}".strip()
-    except Exception:  # not known on this protocol version
-        pass
+    except Exception as exc:  # not known on this protocol version
+        _log.debug("MCP client name unknown: %s", describe(exc))
     return ""
 
 

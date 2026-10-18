@@ -8,10 +8,15 @@ labeled as such; nothing here is estimated.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
 from typing import Any
+
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 def rss_bytes() -> int | None:
@@ -35,7 +40,8 @@ def rss_bytes() -> int | None:
             return None
         with open("/proc/self/statm", encoding="ascii") as f:
             return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
-    except Exception:  # noqa: BLE001 - shown as "not measured"
+    except Exception as exc:  # noqa: BLE001 - shown as "not measured"
+        _log.debug("Couldn't read this process's memory: %s", describe(exc))
         return None
 
 

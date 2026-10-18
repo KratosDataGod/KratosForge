@@ -17,12 +17,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import platform
 from typing import Any
 
 from .. import __version__
 from ..fabric_run import compute_check
+from ..redact import describe
 from .core import CallContext, IntegrationError, redact_secrets
+
+_log = logging.getLogger(__name__)
 
 MAX_PAGE = 500
 ALL = 100_000  # services that take a limit: ask for everything, then page here so total is right
@@ -48,8 +52,8 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
     user = tenant = None
     try:
         user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
-    except Exception:  # no sign-in yet, or no client ID: reported as not signed in
-        pass
+    except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
+        _log.debug("Not signed in: %s", describe(exc))
     return {"product": "Fabric Desktop by KratosBI", "version": __version__, "python": platform.python_version(),
             "signed_in": bool(user), "user": user, "tenant": tenant, "compute": "this PC",
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}

@@ -11,9 +11,13 @@ Fabric refuses a write the person's role doesn't allow whatever this module says
 from __future__ import annotations
 
 import getpass
+import logging
 from typing import Any
 
 from .access import WRITE_ROLES, principal
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 def role_problems(workspace: str, assignments: list[dict[str, Any]] | None, me: set[str],
@@ -63,5 +67,6 @@ def current_user() -> str | None:
     """The login name a release record's ``by`` holds (meta/release.py records the same)."""
     try:
         return getpass.getuser()
-    except Exception:  # noqa: BLE001 - no login name (a service account without one)
+    except Exception as exc:  # noqa: BLE001 - no login name (a service account without one)
+        _log.debug("No login name for this process: %s", describe(exc))
         return None

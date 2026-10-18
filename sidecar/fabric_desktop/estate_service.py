@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import re
 import threading
@@ -34,6 +35,9 @@ from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -195,7 +199,8 @@ class EstateMixin:
         """Managed tables that live in this lakehouse of an environment's workspace."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("No metadata project for managed tables: %s", describe(exc))
             return []
         if not any(project.environments.get(env, {}).get("workspace_id") == workspace_id for env in ENVIRONMENTS):
             return []
@@ -288,7 +293,8 @@ class EstateMixin:
             return []
         try:
             store = self._store(project, env)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("No store for this environment's files: %s", describe(exc))
             return []
         if not isinstance(store, OneLakeStore):
             return []
@@ -424,8 +430,8 @@ class EstateMixin:
         try:
             people = [access_mod.principal(a.get("principal") or {}) | {"role": a.get("role")}
                       for a in self.fabric.list_role_assignments(workspace_id)]  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - roles still show; names fall back to IDs
-            pass
+        except Exception as exc:  # noqa: BLE001 - roles still show; names fall back to IDs
+            _log.warning("Couldn't list the workspace's role assignments; showing IDs: %s", describe(exc))
         try:
             schemas, tables = self._lakehouse_paths(workspace_id, item_id)
         except Exception:  # noqa: BLE001
@@ -539,7 +545,8 @@ class EstateMixin:
             return None
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("No metadata project for notebook variables: %s", describe(exc))
             return None
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None

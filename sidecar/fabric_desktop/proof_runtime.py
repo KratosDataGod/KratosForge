@@ -171,7 +171,7 @@ class ProofRuntime:
             import numpy as np
             np.random.seed(self.seed)
             seeded.append("numpy")
-        except Exception:  # noqa: BLE001 - no NumPy: nothing to seed
+        except Exception:  # noqa: BLE001  # silent-ok: NumPy is optional; without it there is nothing to seed
             pass
         self.log["seeded"] = seeded
         tz = "not changed"
@@ -209,7 +209,7 @@ class ProofRuntime:
         for n in names:
             try:
                 packages[n.lower()] = md.version(n)
-            except Exception:  # noqa: BLE001 - not a distribution
+            except Exception:  # noqa: BLE001  # silent-ok: a module name that isn't an installed distribution has no version
                 pass
         return {"python": platform.python_version(), "implementation": platform.python_implementation(),
                 "platform": platform.system(), "packages": dict(sorted(packages.items()))}

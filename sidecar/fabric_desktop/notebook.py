@@ -666,7 +666,7 @@ def _preview(value: Any) -> str:
             return ", ".join(map(str, names[:6])) + (", ..." if len(names) > 6 else "")
     try:
         text = repr(value)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # silent-ok: repr() of a user's object failed; the preview shows ? instead
         return "?"
     return text if len(text) <= 80 else text[:77] + "..."
 

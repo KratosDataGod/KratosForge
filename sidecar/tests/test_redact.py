@@ -103,3 +103,8 @@ def test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out(
     assert about["settings"]["client_id"]["value"] == "Microsoft's Fabric sign-in"
     assert about["settings"]["channel"] == {"value": "stable", "source": "default"}
     assert "agent.log" not in contents
+
+
+def test_describe_is_log_safe():
+    assert redact.describe(ValueError(f"refused Bearer {JWT}")) == "ValueError: refused Bearer [removed]"
+    assert redact.describe(KeyError()) == "KeyError"

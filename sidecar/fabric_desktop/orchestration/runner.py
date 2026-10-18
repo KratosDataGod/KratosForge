@@ -20,6 +20,7 @@ never resumed automatically.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
@@ -27,12 +28,15 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable
 
+from ..redact import describe
 from .activities import default_registry
 from .adapters import ActivityFailed, child_key, timespan
 from .definition import DEFINITION_VERSION, Activity, DefinitionError, ImportedPipeline, loads
 from .evaluate import Scope
 from .registry import ActivityRegistry, CheckContext
 from .validate import validate
+
+_log = logging.getLogger(__name__)
 
 MAX_DEPTH = 8            # child pipelines inside child pipelines
 FINAL = ("succeeded", "failed", "skipped", "cancelled")
@@ -271,8 +275,8 @@ class PipelineRun:
         if self.on_change is not None:
             try:
                 self.on_change(self)
-            except Exception:  # noqa: BLE001 - a failed save must not stop the run
-                pass
+            except Exception as exc:  # noqa: BLE001 - a failed save must not stop the run
+                _log.warning("Couldn't save the run's progress; the run goes on: %s", describe(exc))
 
     def _run_list(self, acts: list[Activity], scope: Scope, label: str, parent: str | None) -> str:
         """Run one list of sibling activities; returns succeeded, failed or cancelled."""

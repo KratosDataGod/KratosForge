@@ -15,6 +15,7 @@ then the app asks for the narrow scopes below, each the first time a feature nee
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import re
 import sys
@@ -22,6 +23,10 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import msal
+
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 AUTHORITY = "https://login.microsoftonline.com/organizations"
 # Microsoft's Fabric sign-in app (Fabric CLI's AUTH_DEFAULT_CLIENT_ID): no app registration needed.
@@ -140,8 +145,8 @@ class Authenticator:
                 self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache,
                                                         enable_broker_on_windows=True)
                 self.broker = True
-            except Exception:  # noqa: BLE001  # the broker's runtime failed to load: sign in with the browser
-                pass
+            except Exception as exc:  # noqa: BLE001  # the broker's runtime failed to load: sign in with the browser
+                _log.warning("Windows sign-in broker didn't start; using the browser: %s", describe(exc))
         if not self.broker:
             self.app = msal.PublicClientApplication(self.client_id, authority=AUTHORITY, token_cache=self.cache)
 

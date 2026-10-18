@@ -9,6 +9,7 @@ entry of the shortcut's folder through OneLake.
 
 from __future__ import annotations
 
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -20,6 +21,9 @@ from .auth import ONELAKE_SCOPES
 from .fabric_api import FabricClient
 from .meta.project import ENVIRONMENTS
 from .onelake import FileStore
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 class ShortcutMixin:
@@ -36,14 +40,14 @@ class ShortcutMixin:
                 for ws in (cfg.get("workspaces") or {}).values():
                     if isinstance(ws, dict) and ws.get("id"):
                         known[ws["id"]] = env
-        except Exception:  # noqa: BLE001 - no metadata project: names decide
-            pass
+        except Exception as exc:  # noqa: BLE001 - no metadata project: names decide
+            _log.debug("No metadata project; workspace names decide the environment: %s", describe(exc))
         try:
             for env, cfg in self._platform_config().items():  # type: ignore[attr-defined]
                 if cfg.get("workspace_id") and env in ENVIRONMENTS:
                     known.setdefault(cfg["workspace_id"], env)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("No platform configuration; workspace names decide the environment: %s", describe(exc))
         return known
 
     def _sc_call(self, op: str, problems: list[str], default: Any, **kwargs: Any) -> Any:
@@ -225,7 +229,8 @@ class ShortcutMixin:
     def _sc_admin(self) -> bool:
         try:
             return bool(self._catalog().call("whoami").get("admin"))  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("Couldn't ask the shortcut catalog whether this user is an admin: %s", describe(exc))
             return False
 
     def shortcut_rules(self) -> dict[str, Any]:

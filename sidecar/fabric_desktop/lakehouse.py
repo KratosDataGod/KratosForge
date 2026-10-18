@@ -15,6 +15,7 @@ locally; only the input file download and the Delta write touch OneLake.
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -28,6 +29,9 @@ from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
 from .publish import publish, resolve_schema_mode, stage_locally
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 MODES = ("overwrite", "append")
 
@@ -88,8 +92,8 @@ def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
         return
     try:
         reads[kind][key] = entry()
-    except Exception:  # noqa: BLE001 - a replay record never fails the cell's own read
-        pass
+    except Exception as exc:  # noqa: BLE001 - a replay record never fails the cell's own read
+        _log.debug("Couldn't record a read for replay: %s", describe(exc))
 
 
 def _record_table(ref: TableRef, version: int | None, first: str) -> None:

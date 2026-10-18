@@ -22,6 +22,7 @@ Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -35,6 +36,8 @@ import requests
 from . import redact
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
+
+_log = logging.getLogger(__name__)
 
 MARKER = "fabric-desktop-live-test"
 PREFIX = "fdlt_"
@@ -378,7 +381,8 @@ _AFTER_LAKEHOUSE = [("fabric.get_lakehouse", "Read the lakehouse's properties"),
 def _safe(fn: Callable[[], Any]) -> str:
     try:
         return str(fn() or "")
-    except Exception:
+    except Exception as exc:
+        _log.debug("Couldn't read a live-test detail: %s", redact.describe(exc))
         return ""
 
 

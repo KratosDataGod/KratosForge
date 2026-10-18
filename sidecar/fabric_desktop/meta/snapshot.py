@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
 import shutil
 import tempfile
@@ -21,8 +22,11 @@ from pathlib import Path
 
 import polars as pl
 
+from ..redact import describe
 from .project import _IGNORED, _UNVERSIONED, Project
 from .store import Store
+
+_log = logging.getLogger(__name__)
 
 
 def files(project: Project) -> dict[str, bytes]:
@@ -95,5 +99,6 @@ def _matches(project: Project, folder: Path, version: str) -> bool:
         shutil.copyfile(env_file, folder / "environments.toml")
     try:
         return Project(folder, local_data=project.local_data).version == version
-    except Exception:  # noqa: BLE001 - a folder that doesn't load isn't the release
+    except Exception as exc:  # noqa: BLE001 - a folder that doesn't load isn't the release
+        _log.debug("The folder doesn't load as a release: %s", describe(exc))
         return False

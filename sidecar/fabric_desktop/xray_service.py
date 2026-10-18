@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import threading
 from typing import Any
@@ -19,6 +20,9 @@ from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
 from .onelake import FileStore, TableRef, storage_options
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 def _entity_name(text: str) -> str:
@@ -149,8 +153,8 @@ class XRayMixin:
                 report = self.cost_report(30)  # type: ignore[attr-defined]
                 local = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
                 result["findings"] = xray.rank(result["findings"] + xray.cost_findings(report | {"days": 30}, local))
-            except Exception:  # cost needs the run logs; the rest stands without it
-                pass
+            except Exception as exc:  # cost needs the run logs; the rest stands without it
+                _log.debug("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
@@ -168,8 +172,8 @@ class XRayMixin:
             project = self._project()  # type: ignore[attr-defined]
             managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.debug("No metadata project for X-ray: %s", describe(exc))
         fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
         for r in result.get("lakehouse_rows", []):
@@ -292,8 +296,8 @@ class XRayMixin:
             listed = FileStore(self.auth.storage_token).list(workspace_id, lakehouse_id, folder, recursive=True)  # type: ignore[attr-defined]
             sizes = {e["path"][len(folder) + 1:]: e["size"] for e in listed if not e["is_dir"]}
             size = sum(sizes.get(f, 0) for f in doomed)
-        except Exception:  # the count still stands without the sizes
-            pass
+        except Exception as exc:  # the count still stands without the sizes
+            _log.warning("Couldn't size the files a vacuum would delete: %s", describe(exc))
         return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why}
 
     def xray_vacuum(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,

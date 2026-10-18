@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 import subprocess
 import sys
@@ -15,6 +16,9 @@ from typing import Any
 from .fabric_api import FabricClient
 from .fabric_run import describe_schedule
 from .local_schedules import LocalSchedules, target_label
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 # Fabric item types that have schedules, and the job type each one runs.
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
@@ -154,8 +158,9 @@ class ScheduleMixin:
         from .dataops_service import post_teams
         try:
             post_teams(url, f"Scheduled run failed on this PC: {row['label']}", [row.get("message") or "See Monitor > Schedules"])
-        except Exception:
-            pass  # Monitor still shows it
+        except Exception as exc:
+            _log.warning("Couldn't post the failed-schedule alert to Teams; Monitor still shows it: %s",
+                         describe(exc))
 
     # ---- every schedule, in one list
 
@@ -169,12 +174,13 @@ class ScheduleMixin:
         try:
             project = self._project()  # type: ignore[attr-defined]
             wanted |= {c.get("workspace_id") for c in project.environments.values() if c.get("workspace_id")}
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.debug("No metadata project; its workspaces aren't added: %s", describe(exc))
         for n in self.notebooks.list():  # type: ignore[attr-defined]
             try:
                 nb = self.notebooks.load(n["name"])  # type: ignore[attr-defined]
-            except Exception:
+            except Exception as exc:
+                _log.warning("Couldn't load notebook %r to find its workspace: %s", n["name"], describe(exc))
                 continue
             ws = (nb.get("workspace") or {}).get("workspace_id") or (nb.get("lakehouse") or {}).get("workspace_id")
             if ws:
@@ -214,14 +220,16 @@ class ScheduleMixin:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in SCHEDULED_TYPES]
-            except Exception:
+            except Exception as exc:
+                _log.warning("Couldn't list items in workspace %s: %s", ws["id"], describe(exc))
                 return []
 
         def schedules(it: dict[str, Any]) -> list[dict[str, Any]]:
             job = SCHEDULED_TYPES[it["type"]]
             try:
                 found = client.list_schedules(it["workspace_id"], it["id"], job)
-            except Exception:
+            except Exception as exc:
+                _log.warning("Couldn't list schedules for item %s: %s", it["id"], describe(exc))
                 return []
             if not found:
                 return []
@@ -229,8 +237,8 @@ class ScheduleMixin:
             try:
                 runs = client.list_job_instances(it["workspace_id"], it["id"])
                 last = runs[0] if runs else None
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("Couldn't read the last run of item %s: %s", it["id"], describe(exc))
             return [{"id": s["id"], "enabled": s.get("enabled", False), "text": describe_schedule(s),
                      "owner": s.get("owner") if isinstance(s.get("owner"), dict) else None,  # Fabric runs it as its owner
                      "configuration": s.get("configuration") or {}, "job_type": job,

@@ -19,6 +19,7 @@ import getpass
 import hashlib
 import importlib.metadata as md
 import json
+import logging
 import platform
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,10 @@ from .. import __version__, receipts
 from ..git import cli
 from ..git.cli import GitError
 from ..git.repo import Repository
+from ..redact import describe
 from .project import _IGNORED, _UNVERSIONED, Project
+
+_log = logging.getLogger(__name__)
 
 # The packages the engine's results depend on; their versions make up the lock hash.
 ENGINE_PACKAGES = ("deltalake", "duckdb", "polars", "pyarrow")
@@ -145,7 +149,8 @@ def record(project: Project, source_env: str, target_env: str, git: dict[str, An
 def _user() -> str | None:
     try:
         return getpass.getuser()
-    except Exception:  # noqa: BLE001 - no login name (a service account without one)
+    except Exception as exc:  # noqa: BLE001 - no login name (a service account without one)
+        _log.debug("No login name for this process: %s", describe(exc))
         return None
 
 

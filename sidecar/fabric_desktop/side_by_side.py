@@ -17,12 +17,17 @@ run only appended to a table, the rows that run added are compared instead of th
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import pyarrow as pa
+
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 TIMING_DIR = "Files/_fabric_desktop/side_by_side"
 _MOD = 1 << 64
@@ -285,5 +290,6 @@ def _memory_gb() -> float | None:
         else:
             total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         return round(total / 1024 ** 3, 1)
-    except Exception:  # noqa: BLE001 - only shown as context
+    except Exception as exc:  # noqa: BLE001 - only shown as context
+        _log.debug("Couldn't read this PC's memory: %s", describe(exc))
         return None

@@ -16,12 +16,15 @@ environment's LH_Meta can read the record. The path, thumbprint, key and passwor
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 import re
 from pathlib import Path
 from typing import Any
 
-from .redact import for_support
+from .redact import describe, for_support
+
+_log = logging.getLogger(__name__)
 
 _cache: dict[tuple[str, float], str | None] = {}
 _URL = re.compile(r"\b(?:https?|wss?)://\S+", re.I)
@@ -63,7 +66,8 @@ def _read_expiry(path: Path, password: str | None) -> str | None:
         else:
             cert = x509.load_pem_x509_certificate(data)
         return _iso(cert.not_valid_after_utc) if cert is not None else None
-    except Exception:  # noqa: BLE001 - unreadable here: unknown, and the agent's sign-in says why
+    except Exception as exc:  # noqa: BLE001 - unreadable here: unknown, and the agent's sign-in says why
+        _log.debug("Couldn't read the certificate's expiry: %s", describe(exc))
         return None
 
 

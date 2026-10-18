@@ -1046,6 +1046,11 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .inc-what { display: flex; flex-direction: column; gap: 10px; }
 .inc-likely { gap: 8px; align-items: center; flex-wrap: wrap; }
 .inc-card .wl-finding.click { cursor: pointer; }
+/* Agents (agents.js) */
+.ag-overlap { background: #fff8e6; border: 1px solid #f3dca5; border-radius: 6px; padding: 10px 16px; margin: 8px 0; color: #242424; }
+.ag-overlap b { color: #6b4100; }
+.ag-overlap ul { margin: 4px 0; padding-left: 18px; }
+.ag-overlap p { margin: 4px 0 0; }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }
@@ -1253,6 +1258,25 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .dbg-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .dbg-watch .warn { color: #8a5300; overflow-wrap: anywhere; }
 .dbg-hidden-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Failure replay bundles (replay.js): the offer under a failed cell and the Save dialog. */
+.replay-offer { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.replay-dialog { display: flex; flex-direction: column; max-width: 560px; font-size: 13px; }
+.replay-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.replay-row input { margin-top: 3px; }
+.replay-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.replay-what > span { overflow-wrap: anywhere; }
+.replay-limits { padding: 8px 0 0; border-top: 1px solid var(--border); }
+.replay-limits ul { margin: 4px 0 0; padding-left: 18px; }
+.replay-banner { background: #e9eef7; border: 1px solid #c7d3ea; border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.replay-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.replay-choice select { width: auto; max-width: 100%; }
+.replay-result { display: flex; flex-direction: column; gap: 2px; padding: 6px 10px; border-left: 3px solid var(--danger); background: var(--surface, #fff); }
+.replay-result.ok { border-left-color: #1b3664; }
+.replay-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.replay-list { display: flex; flex-direction: column; }
+.replay-list .replay-row { align-items: center; justify-content: space-between; }
 
 /* Release records on the promote card, and the column lineage dialog. */
 .release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }

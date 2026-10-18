@@ -73,6 +73,11 @@ def fleet(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime, app_version
             if row["_beat"] is None or (beat is not None and beat > row["_beat"]):
                 row.update({k: r.get(k) for k in ("host", "version", "started_at", "heartbeat_at", "stale_after",
                                                   "status_seconds", "environments")})
+                for k in ("owner", "identity"):  # left out by older agents: unknown, so not set
+                    if k in r:
+                        row[k] = r[k]
+                    else:
+                        row.pop(k, None)
                 row["state"], row["_beat"] = agent_state(r, now), beat
             row["envs"][env] = {"state": agent_state(r, now), "heartbeat_at": r.get("heartbeat_at"),
                                 **{k: r.get(k) for k in ENV_FIELDS}}

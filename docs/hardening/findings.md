@@ -175,6 +175,7 @@ No Critical issue was confirmed. Twelve are High.
 - **Where:** `.github/workflows/ci.yml:169-208` builds the shell but there is no `cargo test` anywhere.
 - **What:** `integrity_tests` (`main.rs:988`), `policy_tests` (`main.rs:49`), the sign-in cookie tests and the watchdog tests exist but don't run, so the update checksum logic can regress silently. The audit ran the watchdog tests by hand (5 pass).
 - **Fix:** `cargo test --release --locked` in the Windows shell job.
+- **Status:** HD-011 adds that step to the `shell` job in `ci.yml`, after the build and before signing, so a failing test stops the exe from being signed or published. All 13 tests (policy 1, sign-in cookies 1, integrity 6, watchdog 5) pass on Linux in debug and release; the first Windows run is in CI.
 
 ### EN-2 and EN-10 Medium: tokens reachable from external-tool code
 

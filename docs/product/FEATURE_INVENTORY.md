@@ -821,7 +821,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook_parity.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** MERGE INTO, UPDATE and DELETE raise. partitionBy and reader schema() are ignored. insertInto defaults to errorifexists, unlike Spark's append (inference). No RDD, UDF, streaming; Scala/R refused.
-- **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-015](PRODUCT_BACKLOG.md#pb-015)
+- **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-015](PRODUCT_BACKLOG.md#pb-015), [PB-103](PRODUCT_BACKLOG.md#pb-103)
 - **Recommended next action:** Publish a supported-API matrix generated from tests (PB-012); fix insertInto default mode.
 
 ### FEAT-NB-05
@@ -836,7 +836,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook_parity.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** session, lakehouse, warehouse, udf, connections are absent (plain AttributeError, contrary to the module docstring). mount/unmount raise. runMultiple is sequential. notebook.run timeout ignored.
-- **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013)
+- **Backlog:** [PB-012](PRODUCT_BACKLOG.md#pb-012), [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-103](PRODUCT_BACKLOG.md#pb-103)
 - **Recommended next action:** Add session, lakehouse and connections stubs that explain themselves; stop compute_check flagging variableLibrary as Fabric-only (PB-013).
 
 ### FEAT-NB-06
@@ -851,7 +851,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook_parity.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** %pip is skipped, so a missing package fails later. !pip and %%time would be syntax errors (inference). %%spark/%%sparkr/%%csharp refused.
-- **Backlog:** [PB-028](PRODUCT_BACKLOG.md#pb-028)
+- **Backlog:** [PB-028](PRODUCT_BACKLOG.md#pb-028), [PB-103](PRODUCT_BACKLOG.md#pb-103)
 - **Recommended next action:** Handle !pip and %%time explicitly.
 
 ### FEAT-NB-07

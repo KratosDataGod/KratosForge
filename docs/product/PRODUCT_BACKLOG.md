@@ -34,8 +34,8 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
 | Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
 | Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
-| UX and simplicity oversight | UX-001..020 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management |
-| Engineering quality review | none yet | Its project thread (docs/quality/): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; ids recorded when it sends them |
+| UX and simplicity oversight | UX-001..021 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management. UX-021 (Preview tags on untested Fabric writes, absorbs QA-020): Prove for Publish and Run all in Fabric, Staged roadmap for Promote, Sync keys, variable library and quarantine replay, Codebase audit and hardening for Create workspace; UX-018 (absorbs QA-019) stays with this thread |
+| Engineering quality review | QA-001..030, PR-QA-01..14 | Its project thread ([docs/quality/](https://github.com/KratosDataGod/fabric-desktop/pull/176)): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; tracked here as PB-103, a blocker because QA-001 and QA-002 lose data. Routed to other owners: QA-001, QA-002 and QA-009 Prove; QA-003, QA-004, QA-006, QA-007 and QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012 and QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,
@@ -73,8 +73,8 @@ from, and keep the stricter acceptance criteria. In this first pass:
 | [Enterprise Administration and FinOps](#enterprise-administration-and-finops) | 0 | 3 | 5 | 2 | 10 |
 | [Extensibility, APIs, CLI, and MCP](#extensibility-apis-cli-and-mcp) | 0 | 2 | 1 | 1 | 4 |
 | [Security and Enterprise Readiness](#security-and-enterprise-readiness) | 2 | 7 | 2 | 0 | 11 |
-| [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 1 | 5 | 5 | 0 | 11 |
-| **Total** | **4** | **29** | **47** | **10** | **90** |
+| [Reliability, Testing, and Performance](#reliability-testing-and-performance) | 2 | 5 | 5 | 0 | 12 |
+| **Total** | **5** | **29** | **47** | **10** | **91** |
 <!-- END GENERATED: summary -->
 
 States: Proposed (not yet approved), Approved (the product owner said go), In progress, In review
@@ -933,14 +933,14 @@ review moves it to Accepted; a merge alone does neither.
 **UX and simplicity program** · P1 (score 2.66) · XL · confidence Medium · In progress
 
 - **Problem:** Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.
-- **Proposed capability:** Owned and specified by the UX and simplicity oversight thread (UX-001..020, specs in docs/ux/backlog.md, PR #166); not restated here. Items it routes to other programs are built by those owners.
+- **Proposed capability:** Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.
 - **Current-state evidence:** UX audit by the oversight thread, 2026-10-18 (PR #166)
 - **Inventory features:** [FEAT-SHL-04](FEATURE_INVENTORY.md#feat-shl-04), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
 - **Dependencies:** none
-- **Owner:** UX and simplicity oversight (UX-001..020)
+- **Owner:** UX and simplicity oversight (UX-001..021, PR-UX-13)
 - **Merged duplicates:** Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)
 - **Acceptance criteria:**
-    - As defined in UX-001..020 by its owning thread
+    - As defined in UX-001..021 by its owning thread
     - Routed items follow the owner named in docs/ux/backlog.md
 
 ## Enterprise Administration and FinOps
@@ -1353,6 +1353,7 @@ review moves it to Accepted; a merge alone does neither.
 | [PB-073](#pb-073) | Process kernel by default with limits | P2 | Prove | M | Proposed |
 | [PB-074](#pb-074) | Release pipeline hardening | P1 | Enterprise readiness | S | Proposed |
 | [PB-076](#pb-076) | Retire side by side into Prove | P2 | Prove | S | Proposed |
+| [PB-103](#pb-103) | Engineering quality program | P0 | Engineering quality review | XL | In progress |
 
 ### PB-002
 
@@ -1513,4 +1514,20 @@ review moves it to Accepted; a merge alone does neither.
 - **Owner:** Prove (FD-112)
 - **Acceptance criteria:**
     - As defined in FD-112
+
+### PB-103
+
+**Engineering quality program** · P0 (score 1.85) · XL · confidence Medium · In progress
+
+- **Problem:** An independent quality review of main at 3bee0db found defects that lose or overwrite data while reporting success, fail-open checks, and services re-solved per feature: Spark writer options are ignored so replaceWhere replaces the whole table, a failed notebook save shows Saved and closing drops the edits.
+- **Proposed capability:** Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).
+- **Current-state evidence:** Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db; QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here
+- **Inventory features:** [FEAT-NB-04](FEATURE_INVENTORY.md#feat-nb-04), [FEAT-NB-05](FEATURE_INVENTORY.md#feat-nb-05), [FEAT-NB-06](FEATURE_INVENTORY.md#feat-nb-06)
+- **Dependencies:** none
+- **Owner:** Engineering quality review (QA-001..030, PR-QA-01..14)
+- **Mandatory (blocker):** QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.
+- **Merged duplicates:** Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them
+- **Acceptance criteria:**
+    - As defined in QA-001..030 and PR-QA-01..14 by its owning thread
+    - Routed items follow the owner named in docs/quality/remediation.md
 <!-- END GENERATED: items -->

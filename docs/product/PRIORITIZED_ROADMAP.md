@@ -63,6 +63,7 @@ required items are never below P1, whatever their score. Each states why.
 | --- | --- | --- | ---: | --- | --- |
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | blocker | 2.76 | P0 | Launch to about 5,000 people needs evidence the core flows work on a real tenant. |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | blocker | 2.48 | P0 | Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people. |
+| [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | blocker | 1.85 | P0 | QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001. |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | blocker | 1.75 | P0 | HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance. |
 | [PB-013](PRODUCT_BACKLOG.md#pb-013) | Fix local-parity defects that give wrong answers | required | 2.56 | P1 | Wrong-answer defects in local execution undermine the core promise and the rule that local results are never claimed equivalent without proof. |
 | [PB-071](PRODUCT_BACKLOG.md#pb-071) | Run the Rust tests in CI | required | 2.45 | P1 | The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI. |
@@ -136,13 +137,14 @@ are sequenced by those programs; the order here is what the master product view 
 ## Ranking
 
 <!-- BEGIN GENERATED: ranking -->
-### P0 (4 items)
+### P0 (5 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
 | [PB-002](PRODUCT_BACKLOG.md#pb-002) | Tenant smoke test of ten core flows | 3 | 2 | 5 | 2 | 5 | 2 | 2 | 3.45 | 2.0 | 2.76 | blocker | M | High | none | Master product (unassigned) |
 | [PB-001](PRODUCT_BACKLOG.md#pb-001) | Sign the app and engine | 3 | 1 | 5 | 1 | 5 | 2 | 2 | 3.1 | 2.0 | 2.48 | blocker | S | High | none | Enterprise readiness |
 | [PB-099](PRODUCT_BACKLOG.md#pb-099) | Local data engine and OneLake publishing program | 5 | 5 | 4 | 4 | 5 | 4 | 3 | 4.6 | 3.5 | 2.3 | none | XL | Low | none | Local data engine and OneLake publishing |
+| [PB-103](PRODUCT_BACKLOG.md#pb-103) | Engineering quality program | 4 | 2 | 5 | 2 | 5 | 4 | 3 | 3.7 | 3.5 | 1.85 | blocker | XL | Medium | none | Engineering quality review |
 | [PB-101](PRODUCT_BACKLOG.md#pb-101) | Codebase audit and hardening program | 4 | 1 | 5 | 2 | 5 | 4 | 3 | 3.5 | 3.5 | 1.75 | blocker | XL | Medium | none | Codebase audit and hardening |
 
 ### P1 (29 items)
@@ -254,3 +256,4 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-17 | First ranking: weights 0.25/0.20/0.25/0.15/0.15, costs 0.5/0.5, P1 at 2.6, P2 at 1.8 | Master product thread |
 | 2026-10-17 | PB-099 local data engine set to P0 by the product owner | Chris |
 | 2026-10-17 | PB-101 Codebase audit and hardening added as a blocker (P0); it takes over PB-010, PB-051 and PB-071 | Master product thread |
+| 2026-10-18 | PB-103 Engineering quality program (QA-001..030, PR-QA-01..14) added as a blocker (P0) for the data-loss defects QA-001 and QA-002 | Master product thread |

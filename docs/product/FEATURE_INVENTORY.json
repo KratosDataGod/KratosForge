@@ -1634,7 +1634,8 @@
       "backlog": [
         "PB-012",
         "PB-013",
-        "PB-015"
+        "PB-015",
+        "PB-103"
       ]
     },
     {
@@ -1682,7 +1683,8 @@
       "next_action": "Add session, lakehouse and connections stubs that explain themselves; stop compute_check flagging variableLibrary as Fabric-only (PB-013).",
       "backlog": [
         "PB-012",
-        "PB-013"
+        "PB-013",
+        "PB-103"
       ]
     },
     {
@@ -1720,7 +1722,8 @@
       ],
       "next_action": "Handle !pip and %%time explicitly.",
       "backlog": [
-        "PB-028"
+        "PB-028",
+        "PB-103"
       ]
     },
     {

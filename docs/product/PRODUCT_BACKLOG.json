@@ -3930,7 +3930,7 @@
       "title": "UX and simplicity program",
       "category": "Developer Experience and Productivity",
       "problem": "Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.",
-      "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..020, specs in docs/ux/backlog.md, PR #166); not restated here. Items it routes to other programs are built by those owners.",
+      "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.",
       "evidence": [
         "UX audit by the oversight thread, 2026-10-18 (PR #166)"
       ],
@@ -3939,7 +3939,7 @@
         "FEAT-SHL-06"
       ],
       "acceptance": [
-        "As defined in UX-001..020 by its owning thread",
+        "As defined in UX-001..021 by its owning thread",
         "Routed items follow the owner named in docs/ux/backlog.md"
       ],
       "scores": {
@@ -3954,7 +3954,8 @@
       "mandatory": "none",
       "owner": "UX and simplicity oversight",
       "source_refs": [
-        "UX-001..020"
+        "UX-001..021",
+        "PR-UX-13"
       ],
       "duplicates": [
         "Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)"
@@ -3967,6 +3968,54 @@
         "cost": 2.5,
         "score": 2.66,
         "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-103",
+      "title": "Engineering quality program",
+      "category": "Reliability, Testing, and Performance",
+      "problem": "An independent quality review of main at 3bee0db found defects that lose or overwrite data while reporting success, fail-open checks, and services re-solved per feature: Spark writer options are ignored so replaceWhere replaces the whole table, a failed notebook save shows Saved and closing drops the edits.",
+      "capability": "Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).",
+      "evidence": [
+        "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
+        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here"
+      ],
+      "features": [
+        "FEAT-NB-04",
+        "FEAT-NB-05",
+        "FEAT-NB-06"
+      ],
+      "acceptance": [
+        "As defined in QA-001..030 and PR-QA-01..14 by its owning thread",
+        "Routed items follow the owner named in docs/quality/remediation.md"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Engineering quality review",
+      "source_refs": [
+        "QA-001..030",
+        "PR-QA-01..14"
+      ],
+      "duplicates": [
+        "Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.",
+      "computed": {
+        "benefit": 3.7,
+        "cost": 3.5,
+        "score": 1.85,
+        "priority": "P0"
       }
     }
   ]

@@ -118,7 +118,7 @@ async function platformOverviewTab(body) {
         auditList(o.recent, true)))].filter(Boolean),
   howItWorks("platform.overview", {
     reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
-    changes: "Nothing. Domains, key tables, sources and requests change on their own tabs, and only platform admins can change them.",
+    changes: "Requests waiting for you can be approved or declined here; approving a shortcut request creates it in OneLake. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
     results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
     anchor: "platform",
   })));

@@ -1198,3 +1198,29 @@ test("Runs > Env says why a row has no environment, for this PC and for Fabric (
   assert.match(fabric.attrs.title, /Fabric workspace/);
   assert.doesNotMatch(fabric.attrs.title, /this PC/);
 });
+
+// #193: messages from the engine that send people to a screen name one that exists.
+test("engine messages point to Data mesh and Platform tabs that exist", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const groups = vm.runInNewContext(`${/const META_TAB_GROUPS = \[[\s\S]*?\n\];/.exec(read("meta.js"))[0].replace("const ", "")}; META_TAB_GROUPS`);
+  const platform = vm.runInNewContext(`${/const PLATFORM_TABS = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TABS`);
+  const mesh = new Set();
+  for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
+  const plat = new Set(platform.map(([, label]) => label));
+  const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (e.isDirectory()) walk(path.join(d, e.name)); else if (e.name.endsWith(".py")) files.push(path.join(d, e.name)); } };
+  walk(engine);
+  const bad = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, "utf8");
+    if (/\bMetadata > /.test(src)) bad.push(`${path.basename(f)}: "Metadata >" is now Data mesh`);
+    for (const m of src.matchAll(/Data mesh > ([A-Z][\w ]*?) > ([A-Z][\w ]*?)(?=[).,"'\n]| first| and promote\b)/g)) {
+      const where = `${m[1]} > ${m[2]}`;
+      if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
+    }
+    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+  }
+  assert.deepStrictEqual(bad, []);
+});

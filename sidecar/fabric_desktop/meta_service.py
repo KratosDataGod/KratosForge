@@ -29,6 +29,26 @@ def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
 
 
+def _env_workspaces(cfg: dict[str, Any]) -> set[str]:
+    """The workspaces an environment's lakehouses live in: its own and each designation's."""
+    ids = {cfg.get("workspace_id") or ""} | {(w or {}).get("id") or "" for w in (cfg.get("workspaces") or {}).values()}
+    return ids - {""}
+
+
+def shared_workspaces(envs: dict[str, dict[str, Any]]) -> list[str]:
+    """Why these environments can't be saved or used: two of them name the same workspace, so a run
+    in one would write the other's tables (LH_Meta, LH_Bronze, ... have the same names in each)."""
+    errors, seen = [], {}
+    for env in ENVIRONMENTS:
+        for ws in sorted(_env_workspaces(envs.get(env, {}))):
+            if ws in seen:
+                errors.append(f"{seen[ws].title()} and {env.title()} both use workspace {ws}. Each environment "
+                              "needs its own workspace, or a run in one writes the other's tables.")
+            else:
+                seen[ws] = env
+    return errors
+
+
 def _toml(v: Any) -> str:
     """A TOML value; tables are written inline: { ingest = { id = "...", name = "..." } }."""
     if isinstance(v, dict):
@@ -98,6 +118,19 @@ class MetaMixin:
             return None
         lakehouse.write_guard = guard
 
+    def _job_guard(self, workspace_id: str, lakehouse_name: str, schema: str, table: str) -> str | None:
+        """Why a job may not write this table: the metadata project manages it, or the workspace is
+        Test's or Prod's, which change only by promote. None when no project is open or it may."""
+        try:
+            project = self._project()
+        except LookupError:
+            return None
+        for env in ("test", "prod"):
+            if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                return (f"This workspace is {env.title()}'s, which changes only by promote. "
+                        "Point the job at a Dev or scratch workspace.")
+        return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
+
     def meta_project(self) -> dict[str, Any]:
         try:
             project = self._project()
@@ -133,6 +166,9 @@ class MetaMixin:
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
+        # environments.toml can be edited by hand: never read or write one environment's tables as another's.
+        if clash := [e for e in shared_workspaces(project.environments) if env.title() in e]:
+            raise ValueError(clash[0])
         fabric = self.fabric  # type: ignore[attr-defined]
         # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
         spaces = cfg.get("workspaces") or {}
@@ -198,6 +234,8 @@ class MetaMixin:
         return any(keys_mod.entity_keys(e) for n, e in project.entities.items() if names is None or n in names)
 
     def _write_environments(self, project: Project, envs: dict[str, dict[str, Any]]) -> None:
+        if errors := shared_workspaces(envs):
+            raise ValueError(errors[0])
         lines = ["# Each environment's workspace, and where its tables live: target = \"onelake\" (the workspace's",
                  "# lakehouses, LH_<Layer>, created when first needed) or \"local\" (offline, in .local).",
                  "# compute = \"local\" runs on this PC, \"fabric\" on the workspace's capacity.",

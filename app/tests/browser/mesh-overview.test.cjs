@@ -50,6 +50,8 @@ test("a domain lists its projects, their layers, products and readers", { skip }
   assert.match(row, /Orders/);
   assert.match(row, /Month-end close \(Orders\)/);
   assert.deepStrictEqual(await page().$$eval(".mf-layers .layer-chip", (c) => c.map((x) => x.firstChild.textContent)), ["bronze", "silver", "gold"]);
+  assert.ok(await page().$('.mf button:has-text("Manage in Platform")'));
+  assert.ok(await page().$('.mf button:has-text("Glossary")'));
   await page().click('.seg button:has-text("Reseller")');
   assert.ok(await page().$('.mf-projects:has-text("Orders")'));
 });

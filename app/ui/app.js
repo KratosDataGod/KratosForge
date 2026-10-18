@@ -916,7 +916,7 @@ function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
-  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"),
+  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
@@ -927,7 +927,16 @@ function renderFabric() {
         btn("Monitoring hub", "monitor", () => openInFabric("monitor"), "tool outline"),
         btn("Reload", "restart", () => action("reload"), "tool outline"),
         btn("Open in browser", "publish", () => action("browser"), "tool outline")),
-      slot)));
+      slot),
+    howItWorks("workspaces.fabric", {
+      reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
+        + "Fabric Desktop doesn't read anything from it.",
+      changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
+        + "with Fabric's own prompts; this app adds no confirmation of its own there.",
+      results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
+        + "account; delete fabric-view-signin.bin to make it forget.",
+      anchor: "fabric",
+    }))));
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }

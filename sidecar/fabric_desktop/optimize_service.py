@@ -10,7 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 from . import app_settings, redact
-from .optimize import schema, setup
+from .auth import ONELAKE_SCOPES
+from .optimize import roles, schema, setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
@@ -175,6 +176,49 @@ class OptimizeMixin:
                 raise PermissionError(f"{state['message']} Confirm to continue.")
             setup.initialize(lake, self.optimize_installation, approve=True, family=fam)
         return lake, self.optimize_installation
+
+    def central_restrict(self, family: schema.Family, role_name: str, members: list[str],
+                         approve: bool = False) -> dict[str, Any]:
+        """Keep ``family``'s tables from everyone who reads the central lakehouse through DefaultReader,
+        and let ``members`` (Entra object ids) read them through ``role_name`` (roles.restrict_plan).
+        Without ``approve`` it changes nothing and raises with what it would change. With it, the
+        roles are read again, the change is made and fdopt_audit records it. Needs a lakehouse with
+        schemas, OneLake security turned on, and the family's tables set up (central_family)."""
+        conn = self.optimize_registry.active()
+        if conn and not conn.get("schemas", True):
+            raise ValueError("The central lakehouse has no schemas, so its tables can't be kept from DefaultReader "
+                             "without listing every other table, which would hide tables added later. Use a central "
+                             "lakehouse with schemas for tables only some people may read.")
+        lake, installation = self.central_family(family)
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        ws, item = conn["workspace_id"], conn["lakehouse_id"]
+        tenant = self.auth.signed_in_tenant() or ""
+
+        def plan() -> dict[str, Any]:
+            try:
+                current = api.list_data_access_roles(ws, item)
+            except Exception as exc:  # noqa: BLE001 - OneLake security off, or no rights to its roles
+                raise PermissionError("Couldn't read the central lakehouse's OneLake security roles. Turn on OneLake "
+                                      "security for it, or ask its workspace Admin. " + redact.secrets(str(exc))[:200]) from exc
+            return roles.restrict_plan(current, family, role_name, members, tenant, lake.schema_names())
+
+        found = plan()
+        summary = {"family": family.prefix, "role": role_name, "changes": found["changes"],
+                   "default_reader_paths": found["default_reader_paths"], "family_path": found["family_path"]}
+        if not found["changes"]:
+            return summary | {"changed": False}
+        if not approve:
+            raise PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+        found = plan()  # read again just before writing: the roles may have changed since the person looked
+        if not found["changes"]:
+            return summary | {"changes": [], "changed": False}
+        api.put_data_access_roles(ws, item, found["roles"])
+        setup.write(lake, installation, "audit", [{
+            "record_id": f"{installation.id}:restrict:{family.prefix}:{now()}", "at": now(), "action": "restrict",
+            "target": f"{found['family_path']} role {role_name}", "outcome": "ok",
+            "message": "; ".join(found["changes"])}])
+        return summary | {"changes": found["changes"], "default_reader_paths": found["default_reader_paths"],
+                          "changed": True}
 
     def _optimize_workspaces(self) -> set[str]:
         """The workspaces the signed-in person can open in Fabric: results about items anywhere

@@ -181,3 +181,37 @@ def test_other_features_reach_the_central_lakehouse_for_their_own_tables(svc, mo
     svc.optimize_registry.add(dict(conn, access="read"))
     with pytest.raises(PermissionError, match="read"):
         svc.central_family(fam)
+
+
+def test_central_restrict_keeps_a_family_from_default_reader_after_asking(svc, monkeypatch):
+    import polars as pl
+
+    from fabric_desktop.optimize import schema
+    fam = schema.Family("fdtst_", "Access cache", [schema.Migration(1, "Create", {
+        "who": {"name": pl.String}, "schema_version": schema.TABLES_V1["schema_version"]})], schema="access")
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    everyone = {"name": "DefaultReader", "decisionRules": [{"effect": "Permit", "permission": [
+        {"attributeName": "Path", "attributeValueIncludedIn": ["*"]},
+        {"attributeName": "Action", "attributeValueIncludedIn": ["Read"]}]}],
+        "members": {"fabricItemMembers": [{"itemAccess": ["ReadAll"]}]}}
+    store = {"roles": [everyone]}
+    puts = []
+    api = type("Api", (), {"list_data_access_roles": lambda self, ws, lh: list(store["roles"]),
+                           "put_data_access_roles": lambda self, ws, lh, r: puts.append(r) or store.update(roles=r)})()
+    monkeypatch.setattr(Service, "_scoped", lambda self, scopes: api, raising=False)
+    monkeypatch.setattr(svc.auth, "signed_in_tenant", lambda: "tenant", raising=False)
+    svc.optimize_create("w1", workspace_name="Platform")
+    lake, _me = svc.central_family(fam, approve=True)
+    with pytest.raises(PermissionError, match="DefaultReader no longer reads /Tables/access.*Confirm"):
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])
+    assert puts == []  # asking changes nothing
+    out = svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
+    assert out["changed"] and out["default_reader_paths"] == ["/Tables/dbo", "/Files"]
+    assert [r["name"] for r in puts[0]] == ["DefaultReader", "AccessCacheReaders"]
+    audit = lake.rows("fdopt_audit").filter(pl.col("action") == "restrict")
+    assert audit["target"].to_list() == ["/Tables/access role AccessCacheReaders"]
+    assert svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])["changed"] is False  # nothing left to do
+    conn = svc.central_lakehouse()
+    svc.optimize_registry.add(dict(conn, schemas=False))
+    with pytest.raises(ValueError, match="no schemas"):
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)

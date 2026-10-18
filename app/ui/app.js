@@ -392,9 +392,9 @@ async function renderHome() {
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
   const projectCall = rpc("meta_project").catch(() => null);
-  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => []);
+  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
-  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {} }));
+  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {}, failed: true }));
 
   // Coming up: this PC's schedules straight away, Fabric's added once read (only when signed in).
   const upcomingDone = (async () => {
@@ -446,13 +446,18 @@ async function renderHome() {
     const cloudFailed = (cloud || []).filter((r) => r.status === "Failed" && Date.now() - new Date(r.started_at) < 86400000);
 
     const problems = failing.length + cloudFailed.length;
+    // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
+    const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
       const late = (fresh.items || []).filter((x) => x.status === "late").length;
       const total = problems + late;
       summary.textContent = [
-        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention` : "Nothing needs your attention",
+        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
+        unread.length ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();

@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Callable, Protocol
 
 from .definition import Activity
-from .evaluate import ExpressionError, Scope, evaluate
+from .evaluate import MAX_ITEMS, ExpressionError, Scope, evaluate
 from .registry import StaticAdapter
 
 FOREACH_DEFAULT_BATCH = 20     # Data Factory's default when batchCount is left out
@@ -139,6 +139,9 @@ class ForEach(LocalAdapter):
         items = _eval(tp.get("items"), ctx.scope, "items")
         if not isinstance(items, list):
             raise ActivityFailed(f"items returned {type(items).__name__}, not an array.", "LocalExpressionError")
+        if len(items) > MAX_ITEMS:
+            raise ActivityFailed(f"items has {len(items):,} entries; ForEach takes at most {MAX_ITEMS:,}.",
+                                 "LocalForEachTooManyItems")
         batch = 1 if tp.get("isSequential") is True else tp.get("batchCount") or FOREACH_DEFAULT_BATCH
         batch = batch if isinstance(batch, int) and not isinstance(batch, bool) else FOREACH_DEFAULT_BATCH
         inner = activity.children.get("activities", [])

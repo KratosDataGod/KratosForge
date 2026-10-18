@@ -31,7 +31,7 @@ A mock stands in for one activity, by name:
 ## How a run behaves
 
 - An activity starts when every activity it depends on has finished and each one's status matches the dependency's conditions: `Succeeded`, `Failed`, `Skipped`, or `Completed` (succeeded or failed). Otherwise it is skipped.
-- Activities that don't depend on each other run in parallel, up to `max_parallel` at once (4 by default; containers don't count). ForEach runs iterations in parallel up to `batchCount` (20 when it is left out), or one at a time when `isSequential` is true. Each iteration's activities have results of their own.
+- Activities that don't depend on each other run in parallel, up to `max_parallel` at once (4 by default; containers don't count). ForEach runs iterations in parallel up to `batchCount` (20 when it is left out), or one at a time when `isSequential` is true, over at most 100,000 items. Each iteration's activities have results of their own.
 - A run succeeds when every leaf activity succeeds; a skipped leaf is judged by the activities it depends on. This is Data Factory's documented rule, so a failure handled by an "on failure" path succeeds, and an if-else made of success and failure paths fails.
 - Activity policy applies: `retry` and `retryIntervalInSeconds`, `timeout`, and `secureOutput` (the output is shown as `(hidden)`). Deactivated activities aren't run and take the status in `onInactiveMarkAs`.
 - `wait_scale` multiplies every wait (Wait activities, mock `seconds`, retry intervals), so `0` runs a pipeline with long waits at once. Timeouts stay in real time.
@@ -46,7 +46,7 @@ The states are pending, running, succeeded, failed, skipped and cancelled. Each 
 Expressions are evaluated by a fixed list of functions written for this purpose, never by a general-purpose evaluator. An expression that uses anything else fails that activity with `LocalExpressionError` and the function's name. The functions are:
 
 - Logic: `equals`, `not`, `and`, `or`, `if`, `greater`, `greaterOrEquals`, `less`, `lessOrEquals`.
-- Math: `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `range`.
+- Math: `add`, `sub`, `mul`, `div`, `mod`, `min`, `max`, `range` (at most 100,000 numbers, ForEach's limit in Fabric).
 - Text: `concat`, `substring`, `replace`, `toLower`, `toUpper`, `trim`, `indexOf`, `lastIndexOf`, `startsWith`, `endsWith`, `split`, `guid`.
 - Collections: `length`, `empty`, `contains`, `first`, `last`, `take`, `skip`, `union`, `intersection`, `createArray`, `join`, `coalesce`.
 - Conversion: `string`, `int`, `float`, `bool`, `json`, `array`.

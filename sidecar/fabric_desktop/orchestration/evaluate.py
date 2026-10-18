@@ -448,6 +448,18 @@ def _pipeline(scope: Scope) -> dict[str, Any]:
     return {**scope.system, "parameters": scope.parameters}
 
 
+# Fabric's ForEach takes at most 100,000 items; nothing a local run builds needs a bigger array.
+MAX_ITEMS = 100_000
+
+
+def _range(start: Any, count: Any) -> list[int]:
+    n = _int(count)
+    if not 0 <= n <= MAX_ITEMS:
+        raise ExpressionError(f"range() count must be between 0 and {MAX_ITEMS:,}, not {n}")
+    first = _int(start)
+    return list(range(first, first + n))
+
+
 def _if(c: Any, a: Any, b: Any) -> Any:
     if not isinstance(c, bool):
         raise ExpressionError(f"if() needs true or false as its first argument, not {c!r}")
@@ -468,7 +480,7 @@ _PURE: dict[str, Callable[..., Any]] = {
     "mul": lambda a, b: _num(a, "mul") * _num(b, "mul"), "div": _div, "mod": _mod,
     "min": lambda *a: min(_num(x, "min") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
     "max": lambda *a: max(_num(x, "max") for x in (a[0] if len(a) == 1 and isinstance(a[0], list) else a)),
-    "range": lambda start, count: list(range(_int(start), _int(start) + _int(count))),
+    "range": _range,
     # strings
     "concat": lambda *a: "".join(_text(x) for x in a),
     "substring": _substring, "replace": lambda s, a, b: _text(s).replace(_text(a), _text(b)),

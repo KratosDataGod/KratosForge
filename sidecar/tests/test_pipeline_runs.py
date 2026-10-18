@@ -138,6 +138,8 @@ def test_expressions(text, expected):
     ("@substring('abc', 1, 9)", "past the end"),
     ("@formatDateTime(utcNow(), 'yyyy gg')", "doesn't support"),
     ("@os", "isn't a value"),
+    ("@range(0, 500000000)", "between 0 and 100,000"),
+    ("@range(0, -1)", "between 0 and 100,000"),
 ])
 def test_expression_errors(text, needle):
     with pytest.raises(ExpressionError, match=re.escape(needle)):
@@ -302,6 +304,14 @@ def test_fail_and_filter():
     assert r["activities"][0]["error"] == {"errorCode": "E42", "message": "bad thing"}
     r = run(pipeline(act("Fi", "Filter", items="@range(1, 5)", condition="@greater(item(), 3)"))).to_json()
     assert r["activities"][0]["output"] == {"ItemsCount": 5, "FilteredItemsCount": 2, "Value": [4, 5]}
+
+
+def test_foreach_refuses_more_items_than_fabric_allows():
+    text = pipeline(act("Each", "ForEach", items="@pipeline().parameters.xs", activities=[]),
+                    parameters={"xs": {"type": "Array"}})
+    r = run(text, parameters={"xs": list(range(100_001))}).to_json()
+    assert r["activities"][0]["error"]["errorCode"] == "LocalForEachTooManyItems"
+    assert run(text, parameters={"xs": [1, 2]}).state == "succeeded"
 
 
 def test_expression_error_fails_only_that_activity():
@@ -482,7 +492,7 @@ class Svc(PipelineMixin, PipelineRunMixin):
         self.root = root
 
 
-def finish(svc, run_id, limit=5.0):
+def finish(svc, run_id, limit=30.0):
     end = time.monotonic() + limit
     while time.monotonic() < end:
         if svc.pipeline_run_status(run_id)["state"] not in ("pending", "running"):

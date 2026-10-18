@@ -50,3 +50,12 @@ test("only Landing zone and Business keys show the environment picker", { skip }
   await open("landing");
   assert.ok(await headPicker());
 });
+
+test("Overview says how it works, beside its content", { skip }, async () => {
+  await open("overview");
+  await page().waitForSelector(".how-it-works");
+  const text = await page().textContent(".how-it-works");
+  for (const part of ["What it reads", "What it changes", "Where results go", "Learn more"]) assert.ok(text.includes(part), part);
+  const fits = await page().$eval(".with-how-main", (m) => m.scrollWidth <= m.clientWidth);
+  assert.ok(fits);
+});

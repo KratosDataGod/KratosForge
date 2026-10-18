@@ -82,14 +82,14 @@ async function platformOverviewTab(body) {
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
   const late = (o.landing.sources || []).filter((s) => s.late);
-  const health = h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["", ...MESH_ENVS.map((e) => ENV_LABEL[e])].map((x) => h("th", {}, x)))),
-    h("tbody", {}, h("tr", {}, h("td", {}, h("b", {}, "Platform")), ...MESH_ENVS.map((env) => {
-      const e = o.status.environments[env];
-      return h("td", {}, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC"),
-        e.kind === "fabric" ? null : adminOnly(btn("Set up in Fabric", null, () => goPlatform("settings"), "tool link small")));
-    }))));
-  body.replaceChildren(...[
+  // One row per environment, so the card stays narrow enough to sit beside the landing zone.
+  const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {
+    const e = o.status.environments[env];
+    return h("tr", {}, h("td", {}, h("b", {}, ENV_LABEL[env])),
+      h("td", { class: "grow" }, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC")),
+      h("td", {}, e.kind === "fabric" ? null : adminOnly(btn("Set up in Fabric", null, () => goPlatform("settings"), "tool link small"))));
+  })));
+  body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
       platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
@@ -115,7 +115,13 @@ async function platformOverviewTab(body) {
             h("td", {}, s.readers.length ? `${s.readers.length} project${s.readers.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
           : h("p", { class: "muted-text" }, "No sources in the landing zone yet."),
         h("b", {}, "Recent changes"),
-        auditList(o.recent, true)))].filter(Boolean));
+        auditList(o.recent, true)))].filter(Boolean),
+  howItWorks("platform.overview", {
+    reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
+    changes: "Nothing. Domains, key tables, sources and requests change on their own tabs, and only platform admins can change them.",
+    results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
 // compact: two lines per change, for a narrow card (Overview); the Audit tab keeps the table.

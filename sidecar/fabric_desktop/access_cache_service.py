@@ -104,10 +104,13 @@ class AccessCacheMixin:
         members = [m.strip() for m in members or [] if m and m.strip()]
         if not members:
             raise ValueError("Pick at least one person or group who may read the access cache.")
+        changes = None
         if approve and shown is not None:
             try:
                 return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members)  # type: ignore[attr-defined]
             except PermissionError as exc:  # the plan, as it would be shown now
                 if str(exc) != shown:
                     raise PermissionError(CHANGED_SINCE) from None
-        return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, approve)  # type: ignore[attr-defined]
+                # When central_restrict carries the list, it checks it again just before writing.
+                changes = getattr(exc, "changes", None)
+        return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, approve, changes)  # type: ignore[attr-defined]

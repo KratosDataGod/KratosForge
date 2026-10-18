@@ -64,7 +64,7 @@ Write outputs with `mode="overwrite"` (the default of `lakehouse.write_table`) f
 
 The time on this PC runs from the start of the first cell to the end of the last. The Fabric time runs from Run all to the end of the job, so it includes publishing, queueing and starting a session: what someone waiting for the result sees. The session-start and run split comes from the timing cells; if they couldn't save their file, only the job time is shown.
 
-Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python notebook (or a Spark notebook, for a notebook that uses Spark) and the price per CU hour. Change those numbers in **Monitor > Cost**. The Capacity Metrics app in Fabric has the billed numbers.
+Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python notebook (or a Spark notebook, for a notebook that uses Spark) and the price per CU hour. Change those numbers in **Optimize > Cost and savings**. The Capacity Metrics app in Fabric has the billed numbers.
 
 ## The TPC-H benchmark
 

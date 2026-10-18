@@ -111,7 +111,7 @@ Things to know:
 
 - **Dev can stay on the PC.** A new project's Dev keeps its tables in a `.local` folder on the developer's PC. It needs no workspace until someone assigns one in **Data mesh > Environments and promote**.
 - **Test and Prod lakehouses are created by the app** on the first promote. You don't create them by hand.
-- **Capacity.** Lakehouses need a workspace on a Fabric capacity (F SKU, or a trial). Runs on a PC use none of it. Features that deliberately run in Fabric do: Run in Fabric, Fabric schedules, environments set to **Runs on: Fabric**, Optimize (Fabric's table maintenance job), and semantic models. The Monitor **Cost** panel estimates how much.
+- **Capacity.** Lakehouses need a workspace on a Fabric capacity (F SKU, or a trial). Runs on a PC start no Fabric job, though their OneLake reads and writes still use some of it. Features that deliberately run in Fabric do: Run in Fabric, Fabric schedules, environments set to **Runs on: Fabric**, Optimize (Fabric's table maintenance job), and semantic models. **Optimize > Cost and savings** estimates how much.
 - **Workspaces can be created from the app** (**Data mesh > Environments and promote > Assign workspace > Create a new workspace**) if people are allowed to create workspaces.
 
 ## 6. Give people access

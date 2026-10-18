@@ -8,7 +8,7 @@ import requests
 from fabric_desktop.fabric_api import FabricClient, FabricError
 from fabric_desktop.leases import OneLakeBackend
 from fabric_desktop.onelake import FileStore, TableCatalog
-from fabric_desktop.retrying import RETRY_AFTER_CAP, retry_after, send_with_retry, should_retry
+from fabric_desktop.retrying import RETRY_AFTER_CAP, RETRY_AFTER_FLOOR, retry_after, send_with_retry, should_retry
 
 NOW = dt.datetime(2026, 10, 18, 12, 0, 0, tzinfo=dt.timezone.utc)
 
@@ -22,15 +22,15 @@ def http_date(t: dt.datetime) -> str:
 
 def test_delta_seconds():
     assert retry_after({"Retry-After": "7"}, default=5, now=NOW) == 7
-    assert retry_after({"Retry-After": " 0 "}, default=5, now=NOW) == 0
+    assert retry_after({"Retry-After": " 0 "}, default=5, now=NOW) == RETRY_AFTER_FLOOR
 
 
 def test_http_date_in_the_future():
     assert retry_after({"Retry-After": http_date(NOW + dt.timedelta(seconds=30))}, default=5, now=NOW) == 30
 
 
-def test_http_date_in_the_past_means_now():
-    assert retry_after({"Retry-After": http_date(NOW - dt.timedelta(hours=1))}, default=5, now=NOW) == 0
+def test_http_date_in_the_past_means_now_after_the_floor():
+    assert retry_after({"Retry-After": http_date(NOW - dt.timedelta(hours=1))}, default=5, now=NOW) == RETRY_AFTER_FLOOR
 
 
 def test_huge_values_are_capped():

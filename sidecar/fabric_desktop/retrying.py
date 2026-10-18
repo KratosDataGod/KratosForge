@@ -21,6 +21,8 @@ TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
 # The longest a server's Retry-After can make a client wait before one retry. A larger value (or an
 # HTTP date hours away) is cut to this, so a misbehaving server can't stall the engine.
 RETRY_AFTER_CAP = 60.0
+# The shortest wait between tries, so "retry now" (0, or a date already past) never retries back to back.
+RETRY_AFTER_FLOOR = 0.5
 
 # Methods that are safe to send again after a 5xx or a dropped connection: they read and change nothing.
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -33,8 +35,13 @@ def retry_after(headers: Mapping[str, Any] | None, default: float, cap: float = 
     """How long to wait before another try, from a response's ``Retry-After`` header.
 
     The header is either delta-seconds ("120") or an HTTP date ("Wed, 21 Oct 2026 07:28:00 GMT",
-    RFC 9110 10.2.3). A date already past means retry now (0). A missing, negative or unreadable
-    value gives ``default``. The result is never more than ``cap``."""
+    RFC 9110 10.2.3). A date already past means retry now. A missing, negative or unreadable
+    value gives ``default``. The result is never less than RETRY_AFTER_FLOOR or more than ``cap``."""
+    return max(RETRY_AFTER_FLOOR, _retry_after(headers, default, cap, now))
+
+
+def _retry_after(headers: Mapping[str, Any] | None, default: float, cap: float,
+                 now: dt.datetime | None) -> float:
     raw = headers.get("Retry-After") if headers is not None else None
     if raw is None:
         return min(default, cap)

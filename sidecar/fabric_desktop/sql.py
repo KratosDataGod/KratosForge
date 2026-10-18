@@ -9,7 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable, Iterator
 
 import duckdb
 import pyarrow as pa
@@ -86,8 +86,8 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
-def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
-    """Run every statement in ``query`` and return the last one's result.
+def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
+    """Run every statement in ``query``; the connection and the last one's result (None for none).
 
     ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
     once the lakehouse tables are registered, so the query can't read local files, load
@@ -109,6 +109,54 @@ def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
     for statement in statements:
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
-    if not result.description:
+    return con, result
+
+
+def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
+    """Run every statement in ``query`` and return the last one's whole result (see _execute)."""
+    _con, result = _execute(query, dialect, sandbox)
+    if result is None or not result.description:
         return pa.table({})
     return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+
+
+BATCH_ROWS = 50_000  # rows held in memory at a time when a result is streamed
+
+
+class Stream:
+    """The last statement's result, read in batches of at most ``batch_rows`` rows so a large
+    result is never held whole on this side (see _execute). ``schema`` is None when the last
+    statement returns no result set. Use it as a context manager so the connection is closed."""
+
+    def __init__(self, query: str, dialect: str = "spark", sandbox: bool = False, batch_rows: int = BATCH_ROWS):
+        self._con, result = _execute(query, dialect, sandbox)
+        reader = None
+        if result is not None and result.description:
+            reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)
+        self._reader = reader
+        self.schema: pa.Schema | None = self._reader.schema if self._reader is not None else None
+
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
+        return iter(self._reader) if self._reader is not None else iter(())
+
+    def __enter__(self) -> "Stream":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._con.close()
+
+
+def head(query: str, dialect: str = "spark", sandbox: bool = False, limit: int = 1000) -> tuple[pa.Table, int]:
+    """The first ``limit`` rows and the result's full row count. Later rows are counted as they
+    stream past and dropped, so memory holds the first rows and one batch."""
+    with Stream(query, dialect, sandbox) as result:
+        if result.schema is None:
+            return pa.table({}), 0
+        kept: list[pa.RecordBatch] = []
+        have = total = 0
+        for batch in result:
+            total += batch.num_rows
+            if have < limit:
+                kept.append(batch.slice(0, limit - have))
+                have += kept[-1].num_rows
+        return pa.Table.from_batches(kept, schema=result.schema), total

@@ -12,7 +12,8 @@ import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import maintenance, xray
+from . import app_settings, maintenance, risk, xray
+from .auth import FABRIC_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
@@ -253,6 +254,30 @@ class XRayMixin:
         return self._log_fabric_run({"kind": "Table maintenance", "name": f"{lakehouse_name} {label}".strip(),  # type: ignore[attr-defined]
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                      "item_id": lakehouse_id, "job_id": job_id})
+
+    def xray_optimize_check(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
+                            lakehouse_name: str = "", workspace_name: str = "", refresh: bool = False) -> dict[str, Any]:
+        """What Optimize on one table would do, and the risk check (FINOPS-004) for starting it in
+        Fabric: the policy, the sign-in and the workspace's capacity. Read only."""
+        uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
+        days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        label = f"{schema}.{table}" if schema else table
+        reads: list[str] = []
+        facts: dict[str, Any] = {
+            "workload_id": f"xray:{workspace_id}/{lakehouse_id}/{label}", "workload": f"{lakehouse_name} {label}".strip(),
+            "action": "run_in_fabric", "label": "Optimize", "env": None, "env_label": "", "where": "fabric",
+            "needs_sign_in": True, "policy": {"allow_fabric_runs": bool(app_settings.value("allow_fabric_runs"))},
+            "signed_in": bool(self._wl_token(FABRIC_SCOPES)),  # type: ignore[attr-defined]
+            "definition_errors": [], "version": None, "schedules": [], "runs": [], "measured": [], "estimated": [],
+            "reads": reads,
+        }
+        try:
+            facts["capacity"] = self._risk_capacity(workspace_id, workspace_name, refresh, reads)  # type: ignore[attr-defined]
+            assessed = risk.analyze(facts, self._risk_settings())  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the check is advice; the confirm still shows
+            assessed = {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
+                        "needs_acknowledgement": False, "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
+        return {"keep_days": days, "why": why, "risk": assessed}
 
     def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                             lakehouse_name: str = "") -> dict[str, Any]:

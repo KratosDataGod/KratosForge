@@ -63,6 +63,7 @@ import requests
 from .leases import LocalBackend, OneLakeBackend, Stored
 from .logs import fields
 from .onelake import DFS_HOST
+from .retrying import send_with_retry
 
 CONTRACT = 1
 CONTROL_DIR = "Files/_fabric_desktop"
@@ -101,7 +102,8 @@ class OneLakeControl(OneLakeBackend):
                   "directory": f"{self.lakehouse_id}/{CONTROL_DIR}/{folder}"}
         names: list[str] = []
         while True:
-            resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
+            resp = send_with_retry(lambda: self._http.get(url, params=dict(params), headers=self._headers(),
+                                                          timeout=60), "GET", sleep=self._sleep)
             if resp.status_code == 404:
                 return []  # no request has been written yet
             resp.raise_for_status()

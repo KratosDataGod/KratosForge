@@ -34,6 +34,7 @@ from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
+from .retrying import send_with_retry
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -393,14 +394,16 @@ class EstateMixin:
             raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop by KratosBI can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
-        r = requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
-                         params={"$select": "id,displayName,userPrincipalName,mail"},
-                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        headers = {"Authorization": f"Bearer {token}"}
+        r = send_with_retry(lambda: requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+                                                 params={"$select": "id,displayName,userPrincipalName,mail"},
+                                                 headers=headers, timeout=30), "GET")
         if r.status_code == 404:
-            r = requests.get("https://graph.microsoft.com/v1.0/users",
-                             params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
-                                     "$select": "id,displayName,userPrincipalName,mail"},
-                             headers={"Authorization": f"Bearer {token}"}, timeout=30)
+            r = send_with_retry(lambda: requests.get(
+                "https://graph.microsoft.com/v1.0/users",
+                params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
+                        "$select": "id,displayName,userPrincipalName,mail"},
+                headers=headers, timeout=30), "GET")
             found = (r.json().get("value") or []) if r.ok else []
             if not found:
                 raise LookupError(f"No one with the email {text} in your organization.")
@@ -458,13 +461,15 @@ class EstateMixin:
         api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
         return self.access_lakehouse(workspace_id, item_id)
 
-    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> list[dict[str, Any]]:
+    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:
+        """Who can read one table: {readers, partial, problem}. When the data access roles can't be
+        read (other than OneLake security being off), the list is marked partial, never passed off
+        as complete."""
         assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
-        try:
-            roles = self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id)
-        except Exception:  # noqa: BLE001 - without OneLake security, the workspace roles decide
-            roles = None
-        return access_mod.who_can_read(table, assignments, roles)
+        roles, problem = access_mod.read_roles(
+            lambda: self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id))
+        return {"readers": access_mod.who_can_read(table, assignments, roles), "partial": problem is not None,
+                "problem": problem}
 
     # ---- tests that gate a promote
 

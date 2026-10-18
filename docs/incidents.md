@@ -14,7 +14,9 @@ Fabric Desktop by KratosBI finds problems by itself: a failed run, a late table,
 | **Owner, team, criticality** | From the workload's assignment when it opened; the owner can be changed. |
 | **Evidence** | The run, table or agent it's about, and a likely cause for failed runs. |
 
-Each environment keeps its incidents in one file, `incidents/incidents.json`, in its `LH_Meta` (open ones plus the last 200 resolved). Every change is a conditional write, so two agents or PCs that see the same failure at the same moment open one incident, and two people can't both take the same number. Moving this file, and a full history, to the central Fabric Desktop lakehouse is the next stage (see [What's coming](#whats-coming)).
+Each environment keeps its incidents in one file, `incidents/incidents.json`, in its `LH_Meta` (open ones plus the last 200 resolved). Every change is a conditional write, so two agents or PCs that see the same failure at the same moment open one incident, and two people can't both take the same number. Agents and the app keep working on this file as they always have.
+
+**History in the central lakehouse.** Every incident and every timeline entry is also copied to the central Fabric Desktop lakehouse (`FabricDesktop_Central`), where it's kept for good, including the incidents and entries the live list drops. Two tables hold it: `fdinc_incident_event`, one row per timeline entry, and `fdinc_incident_snapshot`, one row per state of an incident (state, priority, owner, and when it opened, was acknowledged and was resolved). Rows are only ever added, and the same change copied from two PCs is stored once. Passwords, keys and tokens in titles and notes are removed before copying. A copy needs the PC to be connected to the central lakehouse with write access (**Settings > Optimize lakehouses**), and IT can turn the central lakehouse off with `allow_optimize_lakehouse`. Nothing starts a copy yet: the incident screens (stage 2) will copy changes when they open and show history. Until a copy runs, they wait in the live list until the next copy, and only the latest state of an incident at that moment becomes a snapshot.
 
 ## Priorities
 
@@ -72,8 +74,8 @@ Fabric Desktop doesn't try to be a full service desk: change management, problem
 
 | Stage | What it adds | State |
 | --- | --- | --- |
-| 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | This release (no screens yet) |
-| 1b | Incidents kept in the central Fabric Desktop lakehouse | Next |
+| 1 | Numbers, priorities, SLA targets, the timeline and reported incidents, in the engine | Released (no screens yet) |
+| 1b | Every incident change copied to the central Fabric Desktop lakehouse, kept for good | This release |
 | 2 | Screens: the list with number, priority and SLA, the incident page with its timeline and what to do, **Report an incident** | Planned |
 | 3 | Incidents and requests that need you in the bell; Teams or email delivery | Planned |
 | 4 | Full history and reports: time to acknowledge, time to resolve, SLAs met | Planned |
@@ -83,7 +85,7 @@ Each stage is tested without Fabric or a service desk. Nothing here has run agai
 
 ## For developers
 
-The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and its conditional writes) and `workloads/sla.py` (targets and clocks). The app's calls are in `incident_service.py` and `incident_desk.py`:
+The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and its conditional writes), `workloads/sla.py` (targets and clocks) and `workloads/incident_history.py` (the `fdinc_` tables in the central lakehouse). The app's calls are in `incident_service.py` and `incident_desk.py`:
 
 | Call | What it does |
 | --- | --- |
@@ -91,3 +93,5 @@ The engine is `sidecar/fabric_desktop/workloads/incidents.py` (the document and 
 | `incident_report(env, title, text, priority, workload, name)` | Reports a problem |
 | `incident_set_priority(env, id, priority, note)` | Sets the priority; the note is required |
 | `incident_sla_policy()` | The targets in effect, where they come from, and what in the policy was ignored |
+| `incidents_history_sync(approve)` | Copies every environment's incidents and timelines to the central lakehouse, only what this PC hasn't copied before. When the incident tables need setting up it returns `needs_confirm` with what it would do, and sets them up only when called again with `approve` after the person confirms |
+| `incidents_history(env, limit)` | Each incident's latest state as the central lakehouse has it, newest first, including ones the live list no longer keeps |

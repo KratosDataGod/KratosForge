@@ -35,6 +35,7 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
 | Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
 | UX and simplicity oversight | UX-001..020 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management |
+| Engineering quality review | none yet | Its project thread (docs/quality/): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; ids recorded when it sends them |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
 
 Git functionality appears only as tracking rows owned by the Git-native program (PB-040, PB-041,

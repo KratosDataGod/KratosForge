@@ -37,6 +37,8 @@ Merged in this order onto `3bee0db` with `.github/scripts/integration_trial.py`:
 
 Smallest blast radius first, stacks in order, CI still running last. Chris's go is needed for the round.
 
+Added since the snapshot: #169 (staged roadmap) adds the shared UI helper `previewMarked()` for UX-021 Preview tags. Merge it before any PR that calls `previewMarked()` (Prove and hardening PRs will).
+
 1. Docs and records: #137 (hardening audit; the fixes below cite it), #140 (product records)
 2. Small single-area fixes: #147, #141, #138, #152, #154, #155, #156, #157, #159
 3. Update path: #158 (engine download refuses a missing checksum and never falls back to Preview on a network error). Both current releases carry `engine_sha256`, so no existing PC is affected. Its Rust tests don't run in CI.

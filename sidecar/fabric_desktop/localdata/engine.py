@@ -157,6 +157,8 @@ class LocalEngine:
         self._lock = threading.Lock()
         self._meta_lock = threading.Lock()    # project.json and the catalog
         self._running: dict[str, dict[str, Any]] = {}
+        # Cancelled before they started (a background query whose thread hadn't reached DuckDB yet).
+        self._cancel_first: set[str] = set()
         self._last_check = 0.0
         self.opened_at = 0.0
 
@@ -431,6 +433,10 @@ class LocalEngine:
             started = time.monotonic()
             state = {"cancelled": False, "timed_out": False, "started": started}
             self._running[query_id] = state
+            if query_id in self._cancel_first:
+                self._cancel_first.discard(query_id)
+                self._running.pop(query_id, None)
+                raise QueryCancelled("The query was cancelled.")
             timer = None
             if timeout and timeout > 0:
                 def expire():
@@ -444,6 +450,8 @@ class LocalEngine:
                 statements = _split(con, sql, dialect)
                 result = None
                 for i, statement in enumerate(statements):
+                    if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
+                        raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
                     result = con.execute(statement)
                     steps.append({"statement": i + 1, "type": _kind(statement),
@@ -458,16 +466,35 @@ class LocalEngine:
                     timer.cancel()
                 self._running.pop(query_id, None)
 
-    def cancel(self, query_id: str | None = None) -> bool:
-        """Stop the running query (``query_id``'s, or any). True when one was running."""
-        if not self._running or (query_id and query_id not in self._running):
+    def cancel(self, query_id: str | None = None, not_started: bool = False) -> bool:
+        """Stop the running query (``query_id``'s, or any). True when one was running.
+
+        ``not_started``: ``query_id`` is about to run (its thread hasn't reached the engine yet);
+        it is stopped as soon as it starts."""
+        if query_id and query_id not in self._running:
+            if not_started:
+                self._cancel_first.add(query_id)
+                return True
             return False
-        for qid, state in self._running.items():
+        if not self._running:
+            return False
+        for qid, state in list(self._running.items()):
             if query_id in (None, qid):
                 state["cancelled"] = True
-        if self._con is not None:
-            self._con.interrupt()
+        threading.Thread(target=self._interrupt_until_stopped, args=(query_id,), daemon=True,
+                         name="local query cancel").start()
         return True
+
+    def _interrupt_until_stopped(self, query_id: str | None, seconds: float = 10.0) -> None:
+        """Interrupt until the query has stopped: an interrupt that lands just before DuckDB starts a
+        statement is otherwise lost."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            running = [q for q, st in list(self._running.items()) if st["cancelled"] and query_id in (None, q)]
+            if not running or self._con is None:
+                return
+            self._con.interrupt()
+            time.sleep(0.05)
 
     @property
     def running(self) -> list[str]:

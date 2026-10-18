@@ -51,10 +51,11 @@ def resolve_target(job: Job, fabric: FabricClient) -> TableRef:
 
 def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str) -> DeltaTable:
     opts = storage_options(storage_token)
+    delta_profile.check_target(ref.uri, opts)
     write_deltalake(ref.uri, data, mode=mode, storage_options=opts,
                     schema_mode="overwrite" if mode == "overwrite" else None)
     table = DeltaTable(ref.uri, storage_options=opts)
-    delta_profile.check_table(table)
+    delta_profile.note_after_write(table)
     return table
 
 

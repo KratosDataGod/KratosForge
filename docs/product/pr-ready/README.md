@@ -26,6 +26,10 @@ specified by their programs (see [the backlog's ownership table](../PRODUCT_BACK
 Packages 2 to 10 touch different files and can run in parallel threads, except that PB-010 and
 PB-077 both edit docs and should merge one after the other.
 
+On 2026-10-17 the Codebase audit and hardening thread took over three of these: PB-071 (as HD-011),
+PB-010 (as HD-009, a P0 there) and PB-051 (as HD-039 and HD-051). Their packages stay here as input
+for that thread and are not built separately.
+
 ## Package template
 
 Every package has these sections:

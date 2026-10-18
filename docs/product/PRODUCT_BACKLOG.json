@@ -34,7 +34,8 @@
         "FEAT-SHL-09"
       ],
       "external_dependencies": [
-        "Chris creates the Azure Trusted Signing account (D-C3)"
+        "Chris creates the Azure Trusted Signing account (D-C3)",
+        "Overlaps HD-021 enforce signing (waits on Chris, D-C3) (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "Released exe and engine DLLs carry a valid signature",
@@ -92,7 +93,8 @@
         "FEAT-PRV-01"
       ],
       "external_dependencies": [
-        "Chris runs it on his non-production workspace"
+        "Chris runs it on his non-production workspace",
+        "Overlaps HD-029 live harness run (Chris); HD-053 OneLake contract tests; HD-054 T-SQL harness and live job (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "Ten flows pass or have recorded defects",
@@ -169,6 +171,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "If OneLake ignores conditional requests, concurrent writers can overwrite data.",
+      "external_dependencies": [
+        "Overlaps HD-016 cross-process leases; HD-029 live harness run (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.6,
         "cost": 2.0,
@@ -189,7 +194,8 @@
         "FEAT-AUTH-03"
       ],
       "external_dependencies": [
-        "Decision D-C2"
+        "Decision D-C2",
+        "Overlaps HD-013 DPAPI token cache (waits on Chris, D-C2) (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "The cache is unreadable to another Windows user",
@@ -254,6 +260,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Defense in depth for a webview that renders user and notebook content.",
+      "external_dependencies": [
+        "Overlaps HD-020 Content Security Policy (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 3.0,
@@ -268,7 +277,7 @@
       "problem": "Nothing records who ran or changed what in a tamper-evident way.",
       "capability": "Hash-chained audit lines, built in PR #89.",
       "evidence": [
-        "PR #89 merged after this assessment's commit; awaiting implementation review"
+        "PR #89 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-02",
@@ -299,6 +308,9 @@
         89
       ],
       "mandatory_reason": "Enterprise compliance needs an audit record of changes to shared data.",
+      "external_dependencies": [
+        "Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.6,
         "cost": 2.0,
@@ -343,6 +355,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "The embedded view holds saved Fabric sign-in cookies.",
+      "external_dependencies": [
+        "Overlaps HD-027 Fabric view navigation filter (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.5,
@@ -357,7 +372,7 @@
       "problem": "Copies of lakehouse data stay on PCs indefinitely.",
       "capability": "Built in PR #95 (FD-131b).",
       "evidence": [
-        "PR #95 merged after this assessment's commit; awaiting implementation review"
+        "PR #95 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-05"
@@ -423,11 +438,17 @@
         "risk": 1
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Security reviewers and firewall teams act on these documents; wrong docs block or mislead deployment.",
+      "external_dependencies": [
+        "Overlaps HD-009 correct false statements in the security docs (P0) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-009"
+      ],
       "package": "docs/product/pr-ready/PB-010.md",
       "computed": {
         "benefit": 2.2,
@@ -854,7 +875,8 @@
       "problem": "The SQL page is a plain textarea with no completion or formatting.",
       "capability": "Owned and specified by the SQL development sprint (SQL-001).",
       "evidence": [
-        "app/ui/app.js SQL page uses a textarea"
+        "app/ui/app.js SQL page uses a textarea",
+        "PR #118 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -878,9 +900,12 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+      ],
+      "prs": [
+        118
       ],
       "computed": {
         "benefit": 3.45,
@@ -896,7 +921,8 @@
       "problem": "Spark SQL translated to DuckDB can succeed locally and still fail in Fabric (or the reverse), and nothing says so.",
       "capability": "Owned and specified by the SQL development sprint (SQL-002).",
       "evidence": [
-        "sql.py translates with sqlglot without a compatibility report"
+        "sql.py translates with sqlglot without a compatibility report",
+        "PR #120 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01",
@@ -921,9 +947,12 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
         "Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+      ],
+      "prs": [
+        120
       ],
       "computed": {
         "benefit": 3.9,
@@ -940,7 +969,8 @@
       "capability": "Owned and specified by the SQL development sprint (SQL-003).",
       "evidence": [
         "service.py run_sql returns a fixed page",
-        "No cancel RPC for SQL"
+        "No cancel RPC for SQL",
+        "PR #134 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SQL-01"
@@ -964,9 +994,13 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
       "external_dependencies": [
-        "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+        "Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126)",
+        "Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "prs": [
+        134
       ],
       "computed": {
         "benefit": 3.25,
@@ -1321,7 +1355,8 @@
       "problem": "Fabric Data pipeline definitions can't be read, validated or run outside Fabric.",
       "capability": "Owned and specified by the Local Fabric pipeline execution thread (ORCH-001).",
       "evidence": [
-        "No pipeline definition parsing in the repo"
+        "No pipeline definition parsing in the repo",
+        "PR #130 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-FAB-10"
@@ -1345,7 +1380,10 @@
       ],
       "effort": "L",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
+      "prs": [
+        130
+      ],
       "computed": {
         "benefit": 4.3,
         "cost": 3.5,
@@ -1533,7 +1571,8 @@
         "FEAT-META-10"
       ],
       "external_dependencies": [
-        "Product-owner decision D1"
+        "Product-owner decision D1",
+        "Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)"
       ],
       "acceptance": [
         "D1 answered",
@@ -1696,7 +1735,8 @@
       "problem": "The incident engine runs only in the agent; the app has six incident methods and no screen.",
       "capability": "Incident list and detail with acknowledge, assign, resolve, after a mockup.",
       "evidence": [
-        "incident_service.py RPCs have no caller in app/ui"
+        "incident_service.py RPCs have no caller in app/ui",
+        "PR #125 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-OPS-02",
@@ -1723,7 +1763,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        125
+      ],
       "computed": {
         "benefit": 3.25,
         "cost": 2.5,
@@ -1822,7 +1865,8 @@
       "problem": "Cost panel figures are estimates from fixed defaults and aren't calibrated against the Capacity Metrics app.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-001).",
       "evidence": [
-        "costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU"
+        "costs.py defaults: $0.18/CU-hour, Python 1 CU, Spark 8 CU",
+        "PR #117 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-01",
@@ -1850,7 +1894,13 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "In progress",
+      "state": "In review",
+      "external_dependencies": [
+        "Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104)"
+      ],
+      "prs": [
+        117
+      ],
       "computed": {
         "benefit": 4.35,
         "cost": 2.0,
@@ -1885,11 +1935,17 @@
         "risk": 2
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Unsafe or missing retries are a reliability defect on every Fabric call; AGENTS.md asks reviewers to flag unsafe retries.",
+      "external_dependencies": [
+        "Overlaps HD-039 honour Retry-After; HD-051 shared HTTP retry; HD-035 bounded status polling (Prove) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-039/HD-051"
+      ],
       "package": "docs/product/pr-ready/PB-051.md",
       "computed": {
         "benefit": 2.7,
@@ -2023,7 +2079,8 @@
       "problem": "Policies (naming, schema, quality, classification, ownership) live in project files with no central, versioned source.",
       "capability": "Owned and specified by the Enterprise governance foundation thread (GOV-001).",
       "evidence": [
-        "No policy registry in the repo"
+        "No policy registry in the repo",
+        "PR #119 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-GOV-05"
@@ -2047,7 +2104,13 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
+      "external_dependencies": [
+        "Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "prs": [
+        119
+      ],
       "computed": {
         "benefit": 3.4,
         "cost": 2.5,
@@ -2216,6 +2279,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-010 policy fails closed; HD-057 ADMX policy (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 2.0,
@@ -2299,6 +2365,10 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Enterprise procurement often requires an accessibility conformance statement.",
+      "external_dependencies": [
+        "Overlaps UX-012 keyboard access for rows, menus and tabs (Enterprise readiness) (UX and simplicity backlog, PB-102)",
+        "Overlaps HD-042..044 UI dialog, test and accessibility fixes (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 1.5,
@@ -2342,6 +2412,9 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "Enterprise update control needs rollback.",
+      "external_dependencies": [
+        "Overlaps HD-022 no downgrade, keep the previous exe; HD-028 per-build releases for pinning and rollback (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.45,
         "cost": 2.5,
@@ -2381,6 +2454,9 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-030 separation of duties by Entra id (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.0,
@@ -2395,7 +2471,7 @@
       "problem": "Settings, schedules, queue and receipts can't be backed up.",
       "capability": "Built in PR #91 (FD-126).",
       "evidence": [
-        "PR #91 merged after this assessment's commit; awaiting implementation review"
+        "PR #91 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-03"
@@ -2422,6 +2498,9 @@
       "state": "In review",
       "prs": [
         91
+      ],
+      "external_dependencies": [
+        "Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 2.3,
@@ -2465,7 +2544,8 @@
       "confidence": "High",
       "state": "Proposed",
       "external_dependencies": [
-        "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)"
+        "Overlaps FD-LDE-019 large datasets: the LDE thread with the SQL thread (SQL-003) (owners per docs/local-data-engine-plan.md section 3, PR #126)",
+        "Overlaps HD-033 bounded previews (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 3.6,
@@ -2506,6 +2586,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.45,
         "cost": 2.5,
@@ -2582,6 +2665,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-052 browser tests in CI (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.3,
         "cost": 1.5,
@@ -2619,11 +2705,17 @@
         "risk": 1
       },
       "mandatory": "required",
-      "owner": "Master product (unassigned)",
+      "owner": "Codebase audit and hardening",
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "The watchdog, sign-in and update integrity code is security- and reliability-critical and untested in CI.",
+      "external_dependencies": [
+        "Overlaps HD-011 cargo test runs in CI (Codebase audit and hardening backlog, PB-101)"
+      ],
+      "source_refs": [
+        "HD-011"
+      ],
       "package": "docs/product/pr-ready/PB-071.md",
       "computed": {
         "benefit": 2.45,
@@ -2668,6 +2760,10 @@
       "confidence": "Medium",
       "state": "Proposed",
       "mandatory_reason": "A frozen app with no way out is the most visible reliability failure.",
+      "external_dependencies": [
+        "Overlaps UX-013 show when the engine is busy and let people stop it (Codebase audit and hardening) (UX and simplicity backlog, PB-102)",
+        "Overlaps HD-041 RPC reply ids (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.95,
         "cost": 3.5,
@@ -2708,6 +2804,9 @@
       "effort": "M",
       "confidence": "Medium",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps HD-012 kernel environment allowlist; HD-037 stop kills the whole process tree (Prove) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 3.1,
         "cost": 3.0,
@@ -2751,6 +2850,9 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "Supply-chain controls are only as strong as the weakest workflow.",
+      "external_dependencies": [
+        "Overlaps HD-008 update checksums, no Stable-to-Preview fallback (P0); HD-024 pin actions; HD-025 agent installer constraints and ACL; HD-026 no bare python fallback (Codebase audit and hardening backlog, PB-101)"
+      ],
       "computed": {
         "benefit": 2.2,
         "cost": 1.0,
@@ -2766,7 +2868,7 @@
       "capability": "Keep the benchmark, retire the correctness path.",
       "evidence": [
         "side_by_side.py",
-        "PR #114 open"
+        "PR #114 merged"
       ],
       "features": [
         "FEAT-PRV-06"
@@ -2832,6 +2934,9 @@
       "effort": "S",
       "confidence": "High",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps UX-002 broken help links and a test for every link; UX-019 help on every screen (UX and simplicity backlog, PB-102)"
+      ],
       "package": "docs/product/pr-ready/PB-077.md",
       "computed": {
         "benefit": 2.45,
@@ -2872,6 +2977,9 @@
       "confidence": "High",
       "state": "Proposed",
       "mandatory_reason": "AGENTS.md requires untested Fabric integrations to keep Preview labels; enterprises rely on hiding Preview by policy.",
+      "external_dependencies": [
+        "Overlaps UX-019 one generated Preview list (UX and simplicity backlog, PB-102)"
+      ],
       "package": "docs/product/pr-ready/PB-078.md",
       "computed": {
         "benefit": 2.45,
@@ -2927,7 +3035,8 @@
       "problem": "Column lineage is computed but no screen shows it.",
       "capability": "A lineage view after a mockup, as the staged roadmap plans.",
       "evidence": [
-        "meta_lineage has no caller in app/ui"
+        "meta_lineage has no caller in app/ui",
+        "PR #124 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-META-17"
@@ -2951,7 +3060,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        124
+      ],
       "computed": {
         "benefit": 3.4,
         "cost": 1.5,
@@ -3043,7 +3155,8 @@
       "capability": "Freshness evaluated as incidents with one routing path.",
       "evidence": [
         "docs/agent.md notes duplicates",
-        "meta/freshness.py and workloads/incidents.py"
+        "meta/freshness.py and workloads/incidents.py",
+        "PR #127 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-GOV-01",
@@ -3068,7 +3181,10 @@
       ],
       "effort": "S",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        127
+      ],
       "computed": {
         "benefit": 2.05,
         "cost": 1.5,
@@ -3121,7 +3237,7 @@
       "problem": "First-run failures (no capacity, no workspace access) appear as errors later.",
       "capability": "Built by the enterprise program as FD-136 (PR #94).",
       "evidence": [
-        "PR #94 merged after this assessment's commit"
+        "PR #94 merged; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-04"
@@ -3148,6 +3264,9 @@
       "state": "In review",
       "prs": [
         94
+      ],
+      "external_dependencies": [
+        "Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)"
       ],
       "computed": {
         "benefit": 3.05,
@@ -3200,7 +3319,8 @@
       "problem": "Admins can't see their capacities' size, state and load from the app.",
       "capability": "Owned and specified by the Administration and FinOps sprint (FINOPS-002).",
       "evidence": [
-        "fabric_api.py lists capacities only"
+        "fabric_api.py lists capacities only",
+        "PR #123 merged 2026-10-17; awaiting implementation review"
       ],
       "depends_on": [
         "PB-050"
@@ -3224,7 +3344,10 @@
       ],
       "effort": "M",
       "confidence": "Medium",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        123
+      ],
       "computed": {
         "benefit": 3.6,
         "cost": 2.5,
@@ -3264,6 +3387,9 @@
       "effort": "L",
       "confidence": "Low",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)"
+      ],
       "computed": {
         "benefit": 4.1,
         "cost": 3.5,
@@ -3320,7 +3446,8 @@
       "problem": "Agent status records are written but nothing shows them.",
       "capability": "Agent list, queue and availability view.",
       "evidence": [
-        "agent_status.py; workloads/agents.py read only by incidents"
+        "agent_status.py; workloads/agents.py read only by incidents",
+        "PR #133 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ORC-05"
@@ -3344,7 +3471,10 @@
       ],
       "effort": "M",
       "confidence": "High",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        133
+      ],
       "computed": {
         "benefit": 3.0,
         "cost": 2.0,
@@ -3398,7 +3528,8 @@
       "problem": "There is no usage data, and whether to collect any is undecided.",
       "capability": "Decision D-C1, then build only what it allows.",
       "evidence": [
-        "No telemetry code"
+        "No telemetry code",
+        "PR #121 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-ADM-06"
@@ -3426,7 +3557,10 @@
       ],
       "effort": "M",
       "confidence": "Low",
-      "state": "Proposed",
+      "state": "In review",
+      "prs": [
+        121
+      ],
       "computed": {
         "benefit": 1.65,
         "cost": 2.5,
@@ -3480,7 +3614,7 @@
       "problem": "External AI tools can't see or drive the app's capabilities.",
       "capability": "The bring-your-own-AI stack PR-AI-001..012, built and specified by its program.",
       "evidence": [
-        "PRs #99-#108, #110, #112 open; #98 plan merged"
+        "PRs #98-#108, #110, #112 merged (PR-AI-001..012); awaiting implementation review"
       ],
       "features": [
         "FEAT-EXT-02"
@@ -3519,6 +3653,9 @@
         108,
         110,
         112
+      ],
+      "external_dependencies": [
+        "Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)"
       ],
       "computed": {
         "benefit": 3.9,
@@ -3691,6 +3828,10 @@
       "effort": "XL",
       "confidence": "Low",
       "state": "In progress",
+      "external_dependencies": [
+        "Overlaps UX-004 screens for local data projects (Local data engine) (UX and simplicity backlog, PB-102)",
+        "Overlaps HD-034 fresh token before long writes (local data engine); HD-001..004 Delta commit, profile and OneLake path guards (P0, hardening thread) (Codebase audit and hardening backlog, PB-101)"
+      ],
       "priority_override": {
         "priority": "P0",
         "by": "Chris (product owner)",
@@ -3711,7 +3852,8 @@
       "problem": "The What's new dialog shows only the current build, so people who skip updates miss what changed.",
       "capability": "Owned and specified by the Fuller What's new dialog thread: list the last 30 days of builds, show the 10 newest, and link to the repository. Not restated here.",
       "evidence": [
-        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)"
+        "app/ui/settings.js showWhatsNew (What's new menu item and Settings link)",
+        "PR #132 merged 2026-10-17; awaiting implementation review"
       ],
       "features": [
         "FEAT-SHL-09"
@@ -3732,12 +3874,204 @@
       "owner": "Fuller What's new dialog",
       "effort": "S",
       "confidence": "Medium",
-      "state": "In progress",
+      "state": "In review",
+      "prs": [
+        132
+      ],
       "computed": {
         "benefit": 1.65,
         "cost": 1.0,
         "score": 1.65,
         "priority": "P3"
+      }
+    },
+    {
+      "id": "PB-101",
+      "title": "Codebase audit and hardening program",
+      "category": "Security and Enterprise Readiness",
+      "problem": "An enterprise audit of main at 1248ccd found data-safety, security and update defects: a table rewrite after commit, Delta profile checks after writes, unguarded OneLake paths, approvals that don't bind the code, redaction after JSON encoding, and updates without checksums.",
+      "capability": "Owned and specified by the Codebase audit and hardening thread (HD-001..057, backlog in docs/hardening/backlog.md on its branch); not restated here. Its P0s are HD-001..009; P1 HD-010..035; P2 HD-036..054; P3 HD-050, 055..057.",
+      "evidence": [
+        "Audit of main at 1248ccd by the hardening thread, 2026-10-17",
+        "Backlog not yet pushed (push freeze)"
+      ],
+      "features": [
+        "FEAT-SHL-09",
+        "FEAT-ONE-05"
+      ],
+      "acceptance": [
+        "As defined in HD-001..057 by its owning thread",
+        "Overlapping items here follow the owner named in that backlog"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 1,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Codebase audit and hardening",
+      "source_refs": [
+        "HD-001..057"
+      ],
+      "duplicates": [
+        "Overlaps PB-001, PB-002, PB-003, PB-005..PB-008, PB-010, PB-042, PB-051, PB-064..PB-066, PB-068, PB-071, PB-073, PB-074 and others (noted on each item)"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "HD-001..009 fix data-loss, security and update-integrity defects; AGENTS.md requires protecting OneLake data and update provenance.",
+      "computed": {
+        "benefit": 3.5,
+        "cost": 3.5,
+        "score": 1.75,
+        "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-102",
+      "title": "UX and simplicity program",
+      "category": "Developer Experience and Productivity",
+      "problem": "Features built by separate programs don't yet share navigation, errors, first-run, help or confirmation patterns, and some screens ask for typed ids or claim all is well when they couldn't check.",
+      "capability": "Owned and specified by the UX and simplicity oversight thread (UX-001..021, specs in docs/ux/backlog.md, PR #166); not restated here. UX-021 (PR-UX-13, P1) adds Preview tags to untested Fabric writes and absorbs QA-020; UX-018 absorbs QA-019. Items it routes to other programs are built by those owners.",
+      "evidence": [
+        "UX audit by the oversight thread, 2026-10-18 (PR #166)"
+      ],
+      "features": [
+        "FEAT-SHL-04",
+        "FEAT-SHL-06"
+      ],
+      "acceptance": [
+        "As defined in UX-001..021 by its owning thread",
+        "Routed items follow the owner named in docs/ux/backlog.md"
+      ],
+      "scores": {
+        "developer_value": 5,
+        "cu_reduction": 1,
+        "enterprise_value": 4,
+        "differentiation": 4,
+        "strategic_alignment": 5,
+        "complexity": 3,
+        "risk": 2
+      },
+      "mandatory": "none",
+      "owner": "UX and simplicity oversight",
+      "source_refs": [
+        "UX-001..021",
+        "PR-UX-13"
+      ],
+      "duplicates": [
+        "Overlaps PB-063, PB-072, PB-077, PB-078, PB-086 and PB-099 (noted on each item)"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "computed": {
+        "benefit": 3.8,
+        "cost": 2.5,
+        "score": 2.66,
+        "priority": "P1"
+      }
+    },
+    {
+      "id": "PB-103",
+      "title": "Engineering quality program",
+      "category": "Reliability, Testing, and Performance",
+      "problem": "An independent quality review of main at 3bee0db found defects that lose or overwrite data while reporting success, fail-open checks, and services re-solved per feature: Spark writer options are ignored so replaceWhere replaces the whole table, a failed notebook save shows Saved and closing drops the edits.",
+      "capability": "Owned and specified by the Engineering quality review thread (findings QA-001..030 and remediation PR-QA-01..14 in docs/quality/, PR #176); not restated here. Its P0s are PR-QA-01 and PR-QA-02. Routed owners: QA-001, QA-002, QA-009 Prove; QA-003, QA-004, QA-006, QA-007, QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012, QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 (PB-102).",
+      "evidence": [
+        "Quality review by the oversight thread, 2026-10-18 (PR #176): release decision FAIL for main at 3bee0db",
+        "QA-001, QA-006 and QA-016 reproduced against the engine code by that thread; not re-run here"
+      ],
+      "features": [
+        "FEAT-NB-04",
+        "FEAT-NB-05",
+        "FEAT-NB-06"
+      ],
+      "acceptance": [
+        "As defined in QA-001..030 and PR-QA-01..14 by its owning thread",
+        "Routed items follow the owner named in docs/quality/remediation.md"
+      ],
+      "scores": {
+        "developer_value": 4,
+        "cu_reduction": 2,
+        "enterprise_value": 5,
+        "differentiation": 2,
+        "strategic_alignment": 5,
+        "complexity": 4,
+        "risk": 3
+      },
+      "mandatory": "blocker",
+      "owner": "Engineering quality review",
+      "source_refs": [
+        "QA-001..030",
+        "PR-QA-01..14"
+      ],
+      "duplicates": [
+        "Overlaps the hardening and UX backlogs where docs/quality/ cites HD- or UX- ids; those owners keep them"
+      ],
+      "effort": "XL",
+      "confidence": "Medium",
+      "state": "In progress",
+      "mandatory_reason": "QA-001 (Critical) and QA-002 lose data while reporting success; AGENTS.md requires protecting OneLake data. The quality review's release decision for main is FAIL on QA-001.",
+      "computed": {
+        "benefit": 3.7,
+        "cost": 3.5,
+        "score": 1.85,
+        "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-104",
+      "title": "Optimize central lakehouse program",
+      "category": "Enterprise Administration and FinOps",
+      "problem": "Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.",
+      "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting.",
+      "evidence": [
+        "Chris's Optimize brief, 2026-10-18 08:55Z",
+        "No code or plan merged yet"
+      ],
+      "features": [
+        "FEAT-ADM-01"
+      ],
+      "acceptance": [
+        "As defined in PR-OPT-001..009 by its owning thread",
+        "Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 5,
+        "enterprise_value": 4,
+        "differentiation": 5,
+        "strategic_alignment": 5,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "owner": "Optimize central lakehouse",
+      "source_refs": [
+        "PR-OPT-001..009"
+      ],
+      "duplicates": [
+        "Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item"
+      ],
+      "effort": "XL",
+      "confidence": "Low",
+      "state": "In progress",
+      "priority_override": {
+        "priority": "P1",
+        "by": "Chris (product owner)",
+        "date": "2026-10-18",
+        "reason": "Local execution savings tracking is a flagship feature; its score (1.27) alone would put it at P3"
+      },
+      "computed": {
+        "benefit": 4.25,
+        "cost": 4.5,
+        "score": 1.27,
+        "priority": "P1"
       }
     }
   ]

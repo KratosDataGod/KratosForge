@@ -19,6 +19,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
 | `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
 | `claude/workload-multi-worker-4su03b` | FD-124 part 1 | Shared schedules through the mailbox and `claim = "when_free"`, off by default, untested on a tenant | Draft, on 5C |
+| `claude/workload-run-as-ui-4su03b` | 9A screen | Monitor > Run as (board 10), read only | Draft, on 9A engine |
 | `claude/workload-run-as-4su03b` | 9A engine | Agents publish `credential` facts (certificate expiry, last token request); `run_as_list` (items 71, 78, 79), read only | Draft, on step 4 |
 | `claude/workload-shared-labels-4su03b` | FD-124 step 4 | Queue shows a shared schedule as one row naming its agents; agent page tags it Shared | Draft, on part 2 |
 | `claude/workload-takeover-4su03b` | FD-124 part 2 | `take_over = true`: take over requests from an agent past `stale_after`, with `If-Match`; a returning agent stands down before its next table | Draft, on part 1 |

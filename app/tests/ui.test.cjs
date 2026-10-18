@@ -586,6 +586,21 @@ test("Queue is a Preview feature on Monitor that only reads and labels who owns 
   assert.match(fs.readFileSync(path.join(ui, "agents.js"), "utf8"), /s\.shared \? h\("span", \{ class: "pill-s neu"/);
 });
 
+test("Run as is a Preview Monitor segment that only reads who runs what", () => {
+  const src = fs.readFileSync(path.join(ui, "runas.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /runAs: "Run as"/);
+  assert.match(src, /id: "runAs", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="queue.js"><\/script>\s*<script src="runas.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("runAs", h\("button"/);
+  assert.deepStrictEqual([...src.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["run_as_list"]);
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/const RA_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function raDaysLeft\([\s\S]*?\n}\n/)[0]}${src.match(/function raPill\([\s\S]*?\n}\n/)[0]}; this.pill = raPill;`, ctx);
+  assert.strictEqual(ctx.pill({ state: "something new" }).text, "Unknown");
+  const soon = new Date(Date.now() + 25.5 * 86400000).toISOString();
+  assert.strictEqual(ctx.pill({ state: "expiring", expires_at: soon }).text, "Expires in 25 days");
+  assert.strictEqual(ctx.pill({ state: "failed" }).attrs.class, "pill-s fail");
+});
+
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
   const src = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
   const ctx = {};

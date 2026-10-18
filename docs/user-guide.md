@@ -93,7 +93,7 @@ Home answers "what happened since I was last here". From the top:
 
 ### Ready to work
 
-A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window.
+A short list that says whether this PC can do real work yet. Each check only reads, and none opens a sign-in window. The **How this works** panel beside the list says what it reads, the one thing it can write and where results are kept.
 
 | Check | Ready when | If not |
 | --- | --- | --- |
@@ -119,6 +119,7 @@ The X-ray reads every lakehouse you can reach and lists what needs attention, wo
 - **Vacuum** on a table first says how many old files it would delete and how much storage they take, then deletes them in Fabric. It always keeps the history the table's layer promises, so Restore keeps working.
 - **Your lakehouses** lists every lakehouse it read. **Adopt** on a lakehouse turns its tables into metadata entities, so the framework manages them from then on.
 - Every finding and its fix is explained in [xray-fixes.md](xray-fixes.md).
+- **How this works**, beside the findings, says what the scan reads and which three buttons write: **Optimize** (starts at once), **Vacuum** and **Adopt** (both ask first).
 
 ## Create
 
@@ -226,7 +227,7 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
-| Domains (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
+| Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
@@ -242,7 +243,7 @@ The Platform page (Preview) is the central data team's home, and where every oth
 | Tab | What's there |
 | --- | --- |
 | **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
-| **Landing zone** | Every source in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source** |
+| **Landing zone** | The one list of source systems for every project, each with its id, and what landed in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source**. Projects pick theirs on Data mesh > Source systems ([One list of source systems](platform.md#one-list-of-source-systems-preview)) |
 | **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
 | **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
@@ -263,11 +264,13 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
 
+**How this works**, beside the portal, says that the app reads nothing from it and that changes you make there go to Fabric with Fabric's own prompts.
+
 The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
 
 ## Optimize (Preview)
 
-What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize and the central lakehouse](optimize/README.md).
 
 - **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
@@ -415,7 +418,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
-| **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
@@ -425,7 +428,7 @@ Anything your organization has set shows "Set by your organization" and can't be
 
 ### Platform settings
 
-Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
+On **Platform > Settings**. Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
 
 ### External AI tools
 

@@ -1014,6 +1014,40 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
+// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
+test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
+  assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
+  for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
+    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+  }
+  assert.match(domainsTab, /goPlatform\("domains"\)/);
+  assert.match(domainsTab, /goPlatform\("glossary"\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /importFabricDomains\(rerender\)/);
+  assert.match(platform, /platformSection\(\)/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
+  assert.match(settings, /goPlatform\("settings"\)/);
+});
+
+// UX-009: a project's source systems come from the platform's one list when Preview is on.
+test("a project reads source systems from the platform's list and can move its own there", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const tab = meta.match(/async function renderSourcesTab\([\s\S]*?\n}\n/)[0];
+  assert.match(tab, /meta_keys", \{ env: m\.env, platform: previewShown\(\) \}/);
+  assert.match(tab, /"Add a source this project reads"/);
+  assert.match(tab, /"Move sources to the platform"/);
+  assert.match(tab, /"New source system"/, "without the platform the project keeps its own list");
+  assert.match(meta, /metaCall\("meta_source_read"/);
+  assert.match(meta, /metaCall\("meta_sources_move"/);
+  const server = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "server.py"), "utf8");
+  for (const m of ["meta_source_read", "meta_sources_move"]) assert.ok(server.includes(`"${m}"`), `${m} isn't allowed by the engine`);
+});
+
 // The template gallery filters by group and search, and the review step names every table's contract.
 test("the template gallery filters templates and the review states each contract", () => {
   const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
@@ -1312,4 +1346,17 @@ test("Monitor > Workloads and Agents carry the shared How this works panel, each
   }
   assert.match(seen["monitor.agents"].changes, /^Nothing\./);
   assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
+});
+
+// Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
+  for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
+  assert.match(how, /only when you confirm/);
+  assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
+  assert.match(fabric, /withHowItWorks\(/);
+  assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
 });

@@ -1,6 +1,6 @@
 # The platform
 
-The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop by KratosBI creates it for you, in Fabric, from **Platform > Settings** (also in **Settings > Platform**), and the **Platform** page is where the central team runs it and every other team asks for what it needs.
+The platform is what a central data team runs once so every other team can build on it: **one business key system** for every team, **one landing zone** where raw data from every source arrives, one catalog of domains and data products, and one record of runs. Each team then builds its own Bronze from the landing zone, and everything after it. Fabric Desktop by KratosBI creates it for you, in Fabric, from **Platform > Settings**, and the **Platform** page is where the central team runs it and every other team asks for what it needs.
 
 !!! note "Preview"
     The platform is built to Fabric's documented APIs but hasn't been tried on a live tenant yet. Create it in a test tenant or a non-production capacity first. See [What isn't proven yet](#what-isnt-proven-yet).
@@ -77,7 +77,7 @@ The rail's **Platform** page is the central team's home, and the same screens sh
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
-- **Domains** and **Glossary:** your organization's domains and shared terms. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
+- **Domains** and **Glossary:** your organization's domains and shared terms. This is the only place they're created and edited; Data mesh > Domains lists the domains and links here. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
 - **Governance:** the organization's governance policies, their versions, where each applies and why. See [Governance policies](governance.md).
 - **Requests:** what domain teams asked for, and what was decided.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).
@@ -115,6 +115,14 @@ landing = "erp/customers/*.csv"
 ```
 
 In Test and Prod that reads `LH_Landing` in the environment's Platform workspace. In Dev on a PC it reads `%LOCALAPPDATA%\FabricDesktop\platform\landing-dev\Files`, one folder shared by every project on that PC. Give teams **Viewer** on the Platform workspace, or a OneLake data access role on the landing folders they may read; only the central team gets Contributor or above, so only it can write. When a project joins the mesh, the catalog records which sources it reads, so the Landing zone tab shows each source's readers and a source still read can't be removed.
+
+## One list of source systems (Preview)
+
+The source systems on **Platform > Landing zone** are the one list for every project. Each has an **id** (a whole number that never changes, used by business keys and loaded rows), a **code** (its folder name in any case, like `SAP` for `Files/sap/`), a name, owner and system type. A project doesn't define its own sources: on **Data mesh > Design > Source systems** it chooses **Add a source this project reads**, picks one from the platform's list, and gives only its own connection in Dev, Test and Prod. The name, id, owner and type stay read only there, with **Edit in Platform**.
+
+**Projects made before this keep their sources.** They show under "Only in this project" and work as before. **Move sources to the platform** copies them into the platform's list with the **same ids**, like Move keys; their connections stay in the project. Only platform admins move sources. A code or id the platform already uses for another source is reported and left alone, because rows already loaded keep the project's id: nothing is renumbered. The tab lists any source whose id differs from the platform's, so a platform admin can decide which stays.
+
+A platform made before this update gets ids for its sources the first time it's read: in name order, after the highest id it has. In Fabric, a platform admin runs **Platform > Settings > Finish or repair** once after updating, so `UDF_Platform` has the new functions (the `catalog.source` table gains the columns `source_id`, `code`, `system_type` and `active`; schema version 5).
 
 ## One business key system
 

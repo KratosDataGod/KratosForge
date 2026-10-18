@@ -331,17 +331,19 @@ async function renderSettings() {
       h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
+  // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
+  const platform = previewShown() ? h("section", { class: "card pad platform-link" },
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
+      h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
+    btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
-  // The platform's status comes from the engine; it fills in after the page shows.
-  const platform = await platformSection();
-  if (state.view === "settings" && previewShown()) notify.before(platform);
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
   if (state.view === "settings" && optimize) notify.before(optimize);
 }
@@ -551,10 +553,14 @@ function readinessCard() {
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
     const tester = btn(writeRow?.status === "ok" ? "Test again" : "Test a write", null, retest,
       "tool outline small", { disabled: capacityOk ? null : true });
-    box.replaceChildren(head,
-      h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),
+    box.replaceChildren(head, withHowItWorks(
       h("ol", {}, rows.map((r) => readinessRow(r, run)), readinessRow(write, run, tester)),
-      h("p", { class: "muted-text small" }, learnMore("ready-to-work", "What each check means")));
+      howItWorks("home.ready", {
+        reads: "Your saved sign-in, the workspaces and capacities Fabric lists for you, and your organization's policy file on this PC. It reads when Home opens and when you press Check again, and no check opens a sign-in window.",
+        changes: "Nothing, unless you choose Test a write. That asks you first, then writes one small file, Files/_fabric_desktop_check/write-test.txt, to the lakehouse you pick, reads it back and deletes the folder. Workspaces named Prod are refused, and no table is touched.",
+        results: "Only on this PC. A passed write test is remembered here for 7 days for the same account and lakehouse, and is forgotten when a test fails or you sign out. Nothing is sent anywhere.",
+        anchor: "ready-to-work",
+      })));
   };
   async function run() {
     box.replaceChildren(h("h2", { id: "ready-title" }, "Ready to work"), h("div", { class: "muted-text" }, "Checking..."));

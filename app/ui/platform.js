@@ -148,17 +148,19 @@ async function platformLandingTab(body) {
   const sel = l.sources.find((s) => s.name === p.source);
   const rerender = () => platformLandingTab(body);
   const list = h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, "Sources landed by the central team"),
-      adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender), "tool primary small")),
+    h("div", { class: "row" }, h("b", { class: "grow" }, "Source systems"),
+      adminOnly(btn("Add source", "add", () => sourceDialog(null, rerender, l.system_types), "tool primary small")),
       platformPage.me?.admin ? null : btn("Request a source", "add", () => requestDialog("source", "", rerender), "tool outline small")),
     h("p", { class: "muted-text small" }, "Each source lands once, in ", h("span", { class: "mono" }, "Files/<source>/<entity>/"), " of LH_Landing ",
       l.kind === "fabric" ? `in ${l.where}` : h("span", {}, "on this PC (", h("span", { class: "mono" }, l.where), ")"),
-      ". Domain teams read it in their own Bronze; only the central team writes here."),
+      ". Domain teams read it in their own Bronze; only the central team writes here. ",
+      "This is the one list of source systems for every project: each keeps its id here, and projects pick theirs in Data mesh > Source systems."),
     l.problem ? h("p", { class: "fail-text small" }, l.problem) : null,
     l.sources.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Source", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
+      h("thead", {}, h("tr", {}, ["Source", "Id", "Entities", "Last arrival", "Expected", "Read by"].map((x) => h("th", {}, x)))),
       h("tbody", {}, l.sources.map((s) => h("tr", { class: `click${s.name === p.source ? " picked" : ""}`, onclick: () => { p.source = s.name; rerender(); } },
-        h("td", {}, h("b", {}, s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+        h("td", {}, h("b", {}, s.registered ? s.code : s.name), s.registered ? null : h("span", { class: "pill-s wrn" }, "not registered")),
+        h("td", { class: "mono" }, s.source_id ?? ""),
         h("td", {}, s.entities.length),
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
@@ -178,11 +180,12 @@ function sourceDetail(s, l, rerender) {
   });
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush" }, s.title || s.name), h("span", { class: "spacer" }),
-      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender), "tool outline small")),
+      adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender, l.system_types), "tool outline small")),
       adminOnly(s.registered ? btn("Remove", "delete", async () => {
         if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_delete_source", { name: s.name }, "Not removed")) rerender();
       }, "tool outline small") : null)),
+    s.registered ? h("p", { class: "muted-text small" }, `${s.code} · id ${s.source_id ?? "not given yet"}${s.system_type ? ` · ${s.system_type}` : ""}`) : null,
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
     h("b", {}, "Entities"),
     s.entities.length ? h("table", { class: "mini" }, h("thead", {}, h("tr", {}, ["Entity", "Files", "Size", "Newest"].map((x) => h("th", {}, x)))),
@@ -197,16 +200,19 @@ function sourceDetail(s, l, rerender) {
     h("p", { class: "muted-text small" }, "Or Data mesh > New entity > From the landing zone."));
 }
 
-function sourceDialog(s, done) {
+function sourceDialog(s, done, systemTypes = []) {
   const name = h("input", { value: s?.name || "", placeholder: "sap", disabled: s?.registered ? true : null });
   const title = h("input", { value: s?.title || "", placeholder: "SAP ERP" });
   const description = h("input", { value: s?.description || "" });
   const owner = h("input", { value: s?.owner || "", placeholder: "Who lands it" });
   const hours = h("input", { type: "number", min: "1", value: s?.expected_hours || "", placeholder: "24" });
+  const type = h("select", {}, ["", ...systemTypes, ...(s?.system_type && !systemTypes.includes(s.system_type) ? [s.system_type] : [])]
+    .map((t) => h("option", { value: t, selected: t === (s?.system_type || "") ? true : null }, t || "Not set")));
   const secrets = MESH_ENVS.map((env) => [env, h("input", { value: s?.connections?.[env]?.secret_name || "", placeholder: "Key Vault secret name" })]);
   showDialog(s?.registered ? `Edit ${s.name}` : "Add a source", h("div", { class: "scroll" },
     h("div", { class: "form-grid" }, h("label", { class: "field" }, "Folder name", name), h("label", { class: "field" }, "Title", title),
-      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Expected every (hours)", hours)),
+      h("label", { class: "field" }, "Owner", owner), h("label", { class: "field" }, "Expected every (hours)", hours),
+      h("label", { class: "field" }, "System type", type)),
     h("label", { class: "field" }, "Description", description),
     h("b", {}, "Connection secret per environment"),
     h("p", { class: "muted-text small" }, "The name of the Key Vault secret its pipeline uses. Secrets themselves never go here."),
@@ -216,7 +222,8 @@ function sourceDialog(s, done) {
       if (!name.value.trim()) { name.focus(); return; }
       const connections = Object.fromEntries(secrets.filter(([, i]) => i.value.trim()).map(([env, i]) => [env, { secret_name: i.value.trim() }]));
       const res = await platformCall("platform_save_source", { source: { name: name.value.trim().toLowerCase(), title: title.value.trim(),
-        description: description.value.trim(), owner: owner.value.trim(), expected_hours: hours.value.trim(), connections } }, "Not saved");
+        description: description.value.trim(), owner: owner.value.trim(), expected_hours: hours.value.trim(), connections,
+        system_type: type.value, ...(s?.registered ? { code: s.code, active: s.active !== false } : {}) } }, "Not saved");
       if (res) { closeDialog(); platformPage.source = name.value.trim().toLowerCase(); done(); }
     }, "tool primary")]);
 }

@@ -64,7 +64,8 @@ How the import works:
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in Fabric Desktop by KratosBI. Owners and description are the platform's and stay as you set them.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
-- **New domain** still works for organizations that don't use Fabric domains; those show as "Only here".
+- **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
+- Domains are created, imported and edited only on **Platform > Domains**. **Data mesh > Domains** lists them, read only, with **Manage in Platform**.
 
 ## Workspaces by designation
 
@@ -155,7 +156,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (Data mesh > Domains > Glossary) holds shared terms like *Active customer*. It also shows recent changes in the catalog and who made them.
+**Glossary** (**Platform > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Audit**.
 
 ## At scale
 

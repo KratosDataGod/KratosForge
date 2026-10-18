@@ -120,8 +120,8 @@ def inputs(reads: dict[str, dict[str, dict[str, Any]]]) -> tuple[dict[str, list[
 
 _GUID = re.compile(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b")
 # OneLake addresses carry the workspace and lakehouse by id or by name.
-_ABFSS = re.compile(r"(abfss://)[^@/\s'\"]+(@onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\"]+", re.IGNORECASE)
-_HTTPS = re.compile(r"(https://onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\"]+/[^/\s'\"]+", re.IGNORECASE)
+_ABFSS = re.compile(r"(abfss://)[^@/\s'\"]+(@onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\",;)]+", re.IGNORECASE)
+_HTTPS = re.compile(r"(https://onelake\.[a-z.]*fabric\.microsoft\.com/)[^/\s'\"]+/[^/\s'\",;)]+", re.IGNORECASE)
 
 
 def scrub_ids(text: str, known: tuple[str, ...] = ()) -> str:

@@ -44,6 +44,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
 | [side-by-side.md](side-by-side.md) | Engineers, analysts | Running a notebook on this PC and in Fabric side by side, how results are checked, and the TPC-H benchmark |
 | [finops/capacity.md](finops/capacity.md) | Engineers, platform owners | The capacity each environment is on, whether it is running, and what to do when it can't be read |
+| [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The shared optimization lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
@@ -115,6 +116,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Cost | Monitor |
 | Capacity status | Monitor > Cost, Data mesh > Environments |
+| Measured usage import | Monitor > Cost |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |
 | Table history and restore | Entity page |

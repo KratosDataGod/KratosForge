@@ -179,8 +179,12 @@ class EstateMixin:
             caps = self.capacity_health()
         except Exception:  # noqa: BLE001 - cost works without it
             caps = {"observed_at": None, "environments": [], "partial": True}
+        try:
+            usage = self._usage_reconcile(int(days), fabric, rows)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - cost works without imported usage
+            usage = {"error": str(exc)[:300]}
         return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities(caps)) | {
-            "unavailable": meta.get("unavailable", {}), "capacities": caps}
+            "unavailable": meta.get("unavailable", {}), "capacities": caps, "usage": usage}
 
     # ---- OneLake shortcuts
 

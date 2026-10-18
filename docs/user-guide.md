@@ -11,7 +11,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 
 New here? Install first ([install.md](install.md)). Setting it up for others? Start with [Configure Azure and Fabric](azure-setup.md).
 
-**Where things run.** Unless a button says Fabric, work runs on your PC and uses no Fabric capacity: notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
+**Where things run.** Unless a button says Fabric, work runs on your PC and starts no Fabric job (its OneLake reads and writes still use capacity): notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
 
 ## The window
 
@@ -445,7 +445,7 @@ Each line says:
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
-| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before. The app, scheduled runs and the agent take turns writing (through `audit\.lock`), so they never break the chain by writing at the same moment |
 
 Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
 

@@ -90,6 +90,12 @@ function redactReport(text, level = "support") {
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
+    .replace(/https:\/\/[A-Za-z0-9.\-]+\.webhook\.office\.com\/[^\s"'<>]+/g, "[removed]")
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
+    .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
     .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
@@ -295,8 +301,10 @@ async function renderSettings() {
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
-        h("dd", {}, "Only your organization's own work accounts")] : null,
-      s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
+        // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
+        h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
+          ? "No account, until the problems below are fixed" : "Only your organization's own work accounts")] : null,
+      s.policy_problems?.length ? [h("dt", {}, "Problems in that file"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.

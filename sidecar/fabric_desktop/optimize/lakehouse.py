@@ -43,7 +43,7 @@ class _Tables:
     def add_columns(self, name: str, columns: dict[str, pl.DataType]) -> list[str]:
         """Add the ``columns`` the table doesn't have yet, as nullable columns: one schema-merge
         commit of no rows. Existing rows read the new columns as null."""
-        have = self.columns_of(name)
+        have = _Tables.columns_of(self, name)  # not LocalLakehouse's: the caller already retries
         new = {c: t for c, t in columns.items() if c not in have}
         if new:
             self.write(NAME, schema.SCHEMA, name, pl.DataFrame(schema=have | new), mode="append")  # type: ignore[attr-defined]

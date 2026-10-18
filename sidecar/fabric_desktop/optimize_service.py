@@ -10,13 +10,13 @@ from __future__ import annotations
 from typing import Any
 
 from . import app_settings, redact
-from .optimize import setup
+from .optimize import schema, setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
 from .optimize.shared import Shared
 
-DEFAULT_NAME = "FabricDesktop_Optimization"
+DEFAULT_NAME = "FabricDesktop_Central"
 METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
            "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
            "optimize_findings", "optimize_recommendations", "optimize_set_recommendation"}
@@ -61,7 +61,7 @@ class OptimizeMixin:
             try:
                 names = self._optimize_lake(workspace_id, lh["id"]).table_names()
                 entry["optimize"] = "fdopt_schema_version" in names
-                entry["other_tables"] = sum(1 for n in names if not n.startswith("fdopt_"))
+                entry["other_tables"] = sum(1 for n in names if schema.family_of(n) is None)
             except Exception as exc:
                 entry["error"] = "No access" if setup.denied(exc) else "Couldn't be read"
             out.append(entry)
@@ -137,6 +137,44 @@ class OptimizeMixin:
             raise ValueError("Connect this PC to an optimization lakehouse first (Settings > Optimize lakehouses).")
         lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
         return Shared(lake, self.optimize_installation, access=conn.get("access") or "none")
+
+    # ---------- the central lakehouse, for other features ----------
+
+    def central_lakehouse(self) -> dict[str, Any] | None:
+        """The central lakehouse this PC uses (workspace_id, lakehouse_id, lakehouse_name, schemas,
+        access), for features that keep their own table family or files there. None when the
+        organization's policy turns it off or this PC isn't connected to one."""
+        if not app_settings.value("allow_optimize_lakehouse"):
+            return None
+        conn = self.optimize_registry.active()
+        return dict(conn) if conn else None
+
+    def central_family(self, family: schema.Family, approve: bool = False) -> tuple[Any, Installation]:
+        """The central lakehouse and this installation, ready for ``family``'s tables: write with
+        setup.write(lake, installation, name, rows, family=family), read with
+        lake.rows(family.table(name)). When the family's tables (or Optimize's shared ones) are missing,
+        unfinished or older, it sets them up only with ``approve``, which the caller passes after the
+        person confirmed; without it, it raises with what setting up would do. Raises when there's no
+        central lakehouse, this person can only read it, or the tables there are newer or not the
+        family's."""
+        self._optimize_allowed()
+        conn = self.optimize_registry.active()
+        if not conn:
+            raise ValueError("Connect this PC to a central lakehouse first (Settings > Optimize lakehouses).")
+        if conn.get("access") != "write":
+            raise PermissionError("You can read the central lakehouse but not write to it. "
+                                  "Ask for Contributor on its workspace.")
+        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
+        for fam in (setup.CORE, family):
+            state = setup.inspect(lake, fam)
+            if state["state"] == setup.READY:
+                continue
+            if state["state"] not in setup.CAN_INITIALIZE:
+                raise PermissionError(state["message"])
+            if not approve:
+                raise PermissionError(f"{state['message']} Confirm to continue.")
+            setup.initialize(lake, self.optimize_installation, approve=True, family=fam)
+        return lake, self.optimize_installation
 
     def _optimize_workspaces(self) -> set[str]:
         """The workspaces the signed-in person can open in Fabric: results about items anywhere

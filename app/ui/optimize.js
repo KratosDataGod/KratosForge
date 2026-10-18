@@ -155,7 +155,7 @@ async function optimizeCreateFlow() {
   const ws = await pickWorkspace(workspaces, { title: "Create an optimization lakehouse",
     note: "Pick a workspace everyone who shares results can reach, such as your platform workspace. Readers need Read all data on the lakehouse; writers need Contributor on the workspace." });
   if (!ws) return;
-  const status = await rpc("optimize_status").catch(() => ({ default_name: "FabricDesktop_Optimization" }));
+  const status = await rpc("optimize_status").catch(() => ({ default_name: "FabricDesktop_Central" }));
   const name = await new Promise((resolve) => {
     const input = h("input", { value: status.default_name, spellcheck: "false" });
     showDialog("Create an optimization lakehouse", h("div", {},

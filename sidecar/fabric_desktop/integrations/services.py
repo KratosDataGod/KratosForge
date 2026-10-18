@@ -222,6 +222,11 @@ def export_pipeline(svc: Any, ctx: CallContext, definition: str, format: str = "
     return svc.pipeline_export(text=definition, format=format or None)
 
 
+def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, env: str = "") -> dict[str, Any]:
+    """The predeployment risk check (FINOPS-004) for one action on one workload."""
+    return svc.risk_check(workload_id, action, env or None)
+
+
 def check_pipeline_compatibility(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
     return svc.pipeline_compatibility(text=definition)
 

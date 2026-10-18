@@ -49,7 +49,9 @@ OPERATIONS = Layout(
 ITEMS = Layout(
     id="items", label="Items (Compute page)", timed=False,
     columns=_COMMON | {"cu": ("CU (s)",)},
-    required=("workspace", "item", "cu"))
+    required=("workspace", "item", "cu"), level="item",
+    period_hint="This file has totals per item, without times. Enter the period it covers (the Compute page shows the "
+                "dates it was filtered to).")
 
 
 def _billable(text: str) -> bool | None:
@@ -103,8 +105,8 @@ class MetricsApp(Provider):
                     method=f"{layout.columns['cu'][0]} column of the {layout.label} export",
                     collected_at=ctx.imported_at, period_start=p_start, period_end=p_end,
                     uncertainty=SAMPLED, reconciliation="unreconciled")
-        return {"key": key, "provider": self.id, "layout": layout.id, "workspace": workspace, "item": item,
+        return {"key": key, "provider": self.id, "layout": layout.id, "level": layout.level, "workspace": workspace, "item": item,
                 "item_kind": kind or None, "operation": cells.get("operation") or None, "operation_id": op_id or None,
                 "status": cells.get("status") or None, "billable": _billable(cells.get("billing", "")),
                 "duration_s": reader.number(cells.get("duration", ""), ctx.decimal),
-                "start": reader.iso(start), "end": reader.iso(end), "cu": m}
+                "start": reader.iso(start), "end": reader.iso(end), "cu": m, "cost": None}

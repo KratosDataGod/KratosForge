@@ -61,6 +61,7 @@ git_branches git_commit_detail git_compare git_diff git_file_at git_info git_log
 local_delta_history local_query_status
 pipeline_activity_registry pipeline_compatibility pipeline_export pipeline_import pipeline_inspect pipeline_validate
 usage_imports usage_preview usage_reconciliation
+risk_acknowledgements risk_check risk_settings
 optimize_discover optimize_findings optimize_inspect optimize_recommendations optimize_status
 platform_notify_settings platform_notify_open
 """.split())

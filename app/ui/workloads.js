@@ -406,9 +406,11 @@ function actionsTable(w) {
 // ---------- actions: say what will happen, then do it ----------
 
 // verb is how the button that led here put it ("Retry"); otherwise the action's own name.
-async function confirmWorkloadAction(w, a, verb = "") {
+// recheck reads the capacity again for the risk check (FINOPS-004) instead of using the last reading.
+async function confirmWorkloadAction(w, a, verb = "", recheck = false) {
   const pre = await attempt(() => rpc("workload_preflight", { id: w.id, action: a.action, env: a.env || null }), "Couldn't check that action");
   if (!pre) return;
+  if (recheck && pre.risk) pre.risk = await rpc("risk_check", { id: w.id, action: a.action, env: a.env || null, refresh: true }).catch(() => pre.risk);
   if (!pre.allowed) {
     showDialog(`${a.label}?`, h("p", { class: "text" }, pre.reason), [
       /sign in/i.test(pre.reason) ? btn("Sign in", null, async () => { closeDialog(); if (await signIn()) confirmWorkloadAction(w, a); }, "tool primary")
@@ -418,7 +420,10 @@ async function confirmWorkloadAction(w, a, verb = "") {
   verb = verb || pre.label;
   const inEnv = pre.env_label ? ` in ${pre.env_label}` : "";
   const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
+  const target = { id: w.id, action: a.action, env: a.env || null };
+  const box = riskAckBox(pre.risk);
   const go_ = async () => {
+    if (!(await riskProceed(target, pre.risk, box))) return;
     closeDialog();
     const res = await attempt(() => rpc("workload_act", { id: w.id, action: a.action, env: a.env || null,
       schedule_id: a.schedule_id || "", job_id: a.job_id || "" }), `${verb} didn't start`);
@@ -437,9 +442,13 @@ async function confirmWorkloadAction(w, a, verb = "") {
       row("Target", pre.target),
       row("What happens", pre.consequence))),
     (pre.warnings || []).map((t) => h("div", { class: "callout wl-warning" }, icon("warning", 18), h("span", {}, t))),
-    h("p", { class: "muted-text small" }, pre.recorded)),
-  [btn("Cancel", null, closeDialog, "tool outline"),
-    btn(`${verb}${inEnv}`, null, go_, "tool primary")]);
+    riskPanel(pre.risk, { box, onRecheck: () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); } }),
+    h("p", { class: "muted-text small" }, pre.risk?.note ? `${pre.risk.note} ` : "", pre.recorded)),
+  pre.risk?.result === "blocked"
+    ? [btn("Check again", null, () => { closeDialog(); confirmWorkloadAction(w, a, verb, true); }, "tool outline"),
+      btn("Close", null, closeDialog, "tool primary")]
+    : [btn("Cancel", null, closeDialog, "tool outline"),
+      btn(`${verb}${inEnv}`, null, go_, "tool primary")]);
 }
 
 // A notebook matched to its Fabric item by name: say which item, then keep it by id.

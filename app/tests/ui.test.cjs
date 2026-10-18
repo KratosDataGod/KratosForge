@@ -403,6 +403,30 @@ test("a usage file that reads two ways asks before importing, and a ready one sa
   assert.match(ready, /No CU value: 1 \(line 5\)/);
 });
 
+test("billed capacity totals show each currency on its own and say which environments use the capacity", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const flat = (kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = {
+    h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
+  };
+  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  assert.strictEqual(ctx.usageBilled([], "USD"), null);
+  const out = text(ctx.usageBilled([
+    { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
+      cu: { value: 96, unit: "cu_hours", classification: "measured" },
+      cost: [{ value: 17.28, currency: "EUR", classification: "measured" }, { value: 20, currency: "USD", classification: "measured" }] },
+    { capacity: "other", environments: [], days: 1, first_day: "2026-10-01", last_day: "2026-10-01", cu: null, cost: [] },
+  ], "USD"));
+  assert.match(out, /Used by Prod/);
+  assert.match(out, /96 cu_hours measured/);
+  assert.match(out, /17.28 EUR measured/);
+  assert.match(out, /20 USD measured/);
+  assert.match(out, /Not one of your environments' capacities/);
+  assert.match(out, /None/);
+});
+
 // The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
 function sqlEditorHelpers() {
   const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");
@@ -727,6 +751,83 @@ test("a watch keeps its last few values and marks a change", () => {
 });
 
 test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Operations get the whole page (#190)", () => {
+});
+
+// FINOPS-004: what the risk panel shows up front, and when "Run on this PC" is offered.
+test("the risk panel shows what matters, folds the rest and never offers this PC for a Fabric-only notebook", () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids }), icon: () => null,
+    measureBadge: (m) => ({ tag: "badge", kids: [m.classification] }),
+    previewMarked: (id, node) => { node.kids.push(`Preview:${id}`); return node; } };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskPanel, riskLocalAlternative });`, ctx);
+  const f = (check, outcome, title, measurement = null) => ({ check, outcome, title, detail: "", evidence: [], remedy: "", measurement });
+  const blocked = { result: "blocked", label: "Blocked", summary: "This run can't start: paused", findings: [
+    f("capacity", "blocked", "fabcapdev is paused"), f("local_alternative", "pass", "This PC could run it too"),
+    f("history", "pass", "Usually takes about 4 min")] };
+  const out = text(ctx.riskPanel(blocked));
+  assert.match(out, /fabcapdev is paused/);
+  assert.match(out, /This PC could run it too/);
+  assert.match(out, /1 other check passed or isn't known/);
+  assert.match(out, /Preview:risk/);
+  assert.strictEqual(ctx.riskLocalAlternative(blocked), true);
+  assert.strictEqual(ctx.riskLocalAlternative({ findings: [f("local_alternative", "pass", "Needs Fabric")] }), false);
+  const pass = ctx.riskPanel({ result: "pass", label: "Pass", summary: "Nothing found", findings: [
+    f("consumption", "pass", "The last run used about 0.42 CU hours", { classification: "measured" })] });
+  assert.strictEqual(pass.tag, "details");
+  assert.match(text(pass), /0.42 CU hours\s+measured/);
+  assert.match(text(pass), /Preview:risk/);
+  assert.strictEqual(ctx.riskPanel(null), null);
+});
+
+// FINOPS-004: the run gate stays quiet on a pass, offers no run on a block, and waits for the tick.
+test("the risk gate passes quietly, never runs a blocked item and needs the tick when asked", async () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const node = (tag, attrs, ...kids) => ({ tag, attrs, kids, querySelector: () => node.box });
+  let dialog = null;
+  const acks = [];
+  const toasts = [];
+  const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
+    btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
+    showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
+    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
+  const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
+  ctx.ran = [];
+  const settle = () => new Promise((r) => setImmediate(r));
+  const press = (label) => dialog.actions.find((a) => a.label === label).onClick();
+
+  for (const result of ["pass", "unknown"]) {
+    ctx.result = { result, findings: [] };
+    assert.strictEqual(await ctx.riskGate(target), true);
+    assert.strictEqual(dialog, null, `${result} shows no dialog`);
+  }
+
+  ctx.result = { id: "r1", result: "blocked", summary: "paused", findings: [{ check: "local_alternative", outcome: "pass", title: "This PC could run it too" }] };
+  let gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Check again", "Run on this PC", "Close"]);
+  press("Run on this PC");
+  assert.strictEqual(await gate, false);
+  assert.deepStrictEqual(ctx.ran, ["pc"]);
+
+  ctx.result = { id: "r2", result: "warning", summary: "check", needs_acknowledgement: true, findings: [] };
+  node.box = { checked: false };
+  gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Run anyway"]);
+  await press("Run anyway");
+  assert.ok(dialog, "ran without the tick");
+  assert.strictEqual(acks.length, 0);
+  assert.match(toasts[0], /Tick/);
+  node.box.checked = true;
+  await press("Run anyway");
+  assert.strictEqual(await gate, true);
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+});
+
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
 });
@@ -984,7 +1085,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1064,6 +1165,17 @@ test("Monitor has three tabs, and Operations holds the workload views in the moc
   const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
   assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
     ["Runs", "Schedules", "Operations"]);
+});
+
+test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...doc.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(linked.length >= 6);
+  for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
+  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {

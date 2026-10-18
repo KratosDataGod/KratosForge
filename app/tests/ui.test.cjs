@@ -647,6 +647,25 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
+test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX-003)", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const say = (raw) => ctx.friendlyError(raw).text;
+  assert.match(say("SignInError: AADSTS50076: Due to a configuration change made by your administrator"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
+  assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
+  assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
+  assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
+  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "" });
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /if \(!f\.text\) return undefined;/);  // no toast for nothing
+  assert.match(app, /!f\.text\.startsWith\(label\)/);  // never "Sign-in failed: Sign-in failed:"
+});
+
 // UX-001: the command bar's list held a null for every result that didn't start a group, and
 // replaceChildren prints a null as the text "null".
 test("the command bar lists group headers and results, never the text null", () => {

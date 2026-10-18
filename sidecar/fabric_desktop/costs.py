@@ -7,8 +7,10 @@ are settings (defaults: a 2-vCore Python notebook is 1 CU, a Spark job on a star
 medium nodes is 8 CU, and pay-as-you-go is about $0.18 per CU hour). These are estimates; the
 Capacity Metrics app in Fabric has the billed numbers.
 
-Runs on this PC cost no capacity. What they would have cost is estimated as the same time
-on a Python notebook, which is what Fabric Desktop's runner uses in Fabric.
+Runs on this PC start no Fabric job, so their Fabric job CU is 0. That isn't zero capacity: their
+OneLake reads and writes still use the capacity of the workspace they read and write, and
+aren't counted here. What the job would have cost is estimated as the same time on a Python
+notebook, which is what Fabric Desktop's runner uses in Fabric.
 
 Every figure is also a classified measurement (``measurement.py``): Fabric use worked out from
 run time is **estimated**, what a run on this PC would have used in Fabric is a **scenario**,
@@ -103,7 +105,8 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
 
     def local_cu(ids: dict[str, Any], at: Any) -> dict[str, Any]:
         return ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 0.0, source="Fabric Desktop run log",
-                       method="ran on this PC; no Fabric job was started", collected_at=at, period_start=at, **ids)
+                       method="ran on this PC; no Fabric job was started (its OneLake reads and writes still use "
+                              "capacity and aren't counted)", collected_at=at, period_start=at, **ids)
 
     for r in meta_runs:
         fabric = r.get("compute") == "fabric"

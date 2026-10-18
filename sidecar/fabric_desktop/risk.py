@@ -112,7 +112,9 @@ def check_capacity(f: dict[str, Any], now: dt.datetime) -> dict[str, Any] | None
     """The capacity the run would use, from the last reading. Paused is blocked only on a reading
     from the last hour; an older reading says when it was seen."""
     if f["where"] != "fabric":
-        return finding("capacity", PASS, "Runs on this PC", "No Fabric capacity is used.", source="The workload's location")
+        return finding("capacity", PASS, "Runs on this PC", "No Fabric job is started, so the capacity's state doesn't "
+                       "matter. Reading or writing OneLake from this PC still uses some of its capacity.",
+                       source="The workload's location")
     obs = f.get("capacity")
     if not obs:
         return finding("capacity", UNKNOWN, "The capacity hasn't been read",
@@ -205,8 +207,8 @@ def check_compatibility(f: dict[str, Any]) -> list[dict[str, Any]]:
                                source=src))
         else:
             out.append(finding("local_alternative", PASS, "This PC could run it too",
-                               "Nothing in the notebook needs Fabric, so you could try it on this PC first and "
-                               "use no capacity. That doesn't promise the same results: compare with Prove or Side by side.",
+                               "Nothing in the notebook needs Fabric, so you could try it on this PC first without "
+                               "a Fabric job (its OneLake reads and writes still use some capacity). That doesn't promise the same results: compare with Prove or Side by side.",
                                source=src))
     return out
 

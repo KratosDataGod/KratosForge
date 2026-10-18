@@ -51,6 +51,7 @@ nav = [
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
+    { "Running pipelines on your PC" = "orchestration/local-runs.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },

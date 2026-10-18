@@ -1,5 +1,6 @@
 // Data mesh screens: this project's domain and workspaces, its data products, links to other
-// teams' products, the glossary, and an entity's catalog text (About). Domains, glossary and
+// teams' products, and an entity's catalog text (About). Domains and the glossary are edited on
+// Platform > Domains and Platform > Glossary (platform.js). Domains, glossary and
 // published products live in the platform (SQL_Platform, or a SQLite file on this PC until a
 // platform is set up in Platform > Settings); products and links are files in the project.
 
@@ -122,24 +123,20 @@ async function renderMeshDomainsTab(body) {
       h("div", { class: "muted-text small mono" }, d.id)),
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
     h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
-    h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length),
-    h("td", {}, h("span", { class: "row tight" },
-      btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
-      btn("Delete", null, async () => {
-        if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete"))) return;
-        if (await metaCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
-      }, "tool small danger")))));
+    h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
+  // Domains are edited in one place, Platform > Domains (UX-009); this list is for reading.
   const domainsCard = h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, "Your organization's domains"),
-      btn("Import from Fabric", "sync", () => importFabricDomains(rerender), "tool outline small",
-        { title: "Bring in Fabric's domains and subdomains. Needs a Fabric administrator who is also a platform admin." }),
-      btn("New domain", "add", () => domainDialog(o, null, rerender), "tool outline small")),
+      btn("Glossary", null, () => goPlatform("glossary"), "tool link small",
+        { title: "The business glossary is kept on Platform > Glossary; tag tables with its terms on their About tab" }),
+      btn("Manage in Platform", "building", () => goPlatform("domains"), "tool outline small",
+        { title: "Platform admins create, import and edit domains on Platform > Domains" })),
     platformNote(o),
     o.domains.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects", ""].map((c) => h("th", {}, c)))),
+      h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
       h("tbody", {}, domainRows))
       : h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-        h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. The central team usually creates them; subdomains go one level deep.")));
+        h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains.")));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
 }
 
@@ -371,39 +368,6 @@ function linkDialog(o, preset, done) {
     }, "tool primary")]);
 }
 
-// ---------- glossary ----------
-
-async function renderMeshGlossaryTab(body) {
-  const [terms, audit] = await Promise.all([metaCall("platform_glossary", {}), attempt(() => rpc("platform_audit", { limit: 30 }))]);
-  if (!terms || state.view !== "metadata" || state.meta.tab !== "glossary") return;
-  const rerender = () => renderMeshGlossaryTab(body);
-  const edit = (t) => {
-    const term = h("input", { value: t?.term || "", disabled: t ? true : null });
-    const definition = h("textarea", { rows: 4 }, t?.definition || "");
-    const owner = h("input", { value: t?.owner || state.user || "" });
-    showDialog(t ? t.term : "New glossary term", h("div", {}, h("label", { class: "field" }, "Term", term),
-      h("label", { class: "field" }, "Definition", definition), h("label", { class: "field" }, "Owner", owner)), [
-      btn("Cancel", null, closeDialog, "tool outline"),
-      btn("Save", "save", async () => {
-        if (await metaCall("platform_save_term", { term: { term: term.value.trim(), definition: definition.value.trim(), owner: owner.value.trim() } }, "Not saved")) {
-          closeDialog(); rerender();
-        }
-      }, "tool primary")]);
-  };
-  body.replaceChildren(...[
-    h("div", { class: "card pad" },
-      h("div", { class: "row" }, h("b", { class: "grow" }, "Business glossary"), btn("New term", "add", () => edit(null), "tool primary small")),
-      h("p", { class: "muted-text small" }, "Shared words with one meaning, like Active customer. Tables and columns point at them from their About tab."),
-      terms.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Term", "Definition", "Owner"].map((c) => h("th", {}, c)))),
-        h("tbody", {}, terms.filter((t) => matches(`${t.term} ${t.definition}`)).map((t) => h("tr", { class: "click", onclick: () => edit(t) },
-          h("td", {}, h("b", {}, t.term)), h("td", {}, t.definition), h("td", {}, t.owner)))))
-        : h("p", { class: "muted-text" }, "No terms yet.")),
-    audit?.length ? h("div", { class: "card pad" }, h("b", {}, "Recent changes in the catalog"),
-      h("table", { class: "list" }, h("tbody", {}, audit.map((a) => h("tr", {},
-        h("td", { class: "muted-text small" }, when(a.at)), h("td", {}, a.by_user || h("span", { class: "muted-text" }, "someone")),
-        h("td", {}, a.action), h("td", { class: "mono small" }, a.target)))))) : null].filter(Boolean));
-}
-
 // ---------- an entity's About card ----------
 
 function aboutCard(e) {
@@ -450,7 +414,7 @@ function fillAbout(card, e, a) {
         h("td", { class: "mono" }, c.name), h("td", { class: "mono muted-text" }, c.type), h("td", { class: "grow" }, input), h("td", {}, cls)))))].filter(Boolean));
 }
 
-// ---------- Settings > Platform ----------
+// ---------- Platform > Settings ----------
 
 async function platformSection() {
   const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "Loading..."));

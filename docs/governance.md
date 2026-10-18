@@ -112,7 +112,7 @@ Policies are four tables in the platform's catalog, next to domains and the glos
 
 The platform's schema version goes from 3 to 4. The tables are created by **Finish setup** (as every platform table is), and also on the first policy call to a platform that doesn't have them yet, so existing platforms and projects keep working without a migration step. A policy's definition is stored as JSON, so new fields can be added later without changing the tables.
 
-For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Settings > Platform > Finish setup** to update the function app.
+For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Platform > Settings > Finish or repair** to update the function app.
 
 ## For developers
 

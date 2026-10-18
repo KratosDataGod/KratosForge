@@ -224,7 +224,7 @@ The **Data mesh** page (it was called Metadata) is where your metadata project l
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
-| Domains (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
+| Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
@@ -369,7 +369,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide every feature tagged Preview. |
-| **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
@@ -378,7 +378,7 @@ Anything your organization has set shows "Set by your organization" and can't be
 
 ### Platform settings
 
-Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
+On **Platform > Settings**. Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
 
 ### External AI tools
 

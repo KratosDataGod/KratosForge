@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links | glossary
+  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -74,8 +74,7 @@ const META_TAB_GROUPS = [
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
-  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"],
-    ["glossary", "Glossary", "mesh"]]],
+  ["mesh", "Domains", [["domains", "Domain and workspaces", "mesh"], ["products", "Data products", "mesh"], ["links", "Links", "mesh"]]],
   ["deploy", "Deploy", [["environments", "Environments and promote"], ["model", "Semantic model", "model"]]],
 ];
 
@@ -126,7 +125,7 @@ async function renderMetadata() {
     body));
   const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
-    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab, glossary: renderMeshGlossaryTab }[m.tab];
+    domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab }[m.tab];
   await render(body, p);
 }
 

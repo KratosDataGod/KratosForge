@@ -54,6 +54,7 @@ Smallest blast radius first, stacks in order, CI still running last. Chris's go 
 | RM-006 | Promote copies whatever Preview is at that moment, doesn't re-check checksums, and doesn't copy the SBOMs to Stable | Hardening (HD-023) | Tracked there; checked by hand in [promoting to Stable](README.md#promoting-to-stable) until it lands |
 | RM-007 | No rollback: one build per channel, engine always from the channel's current release | Hardening (HD-028) | Tracked there; manual procedure in [rollback today](README.md#rollback-today) |
 | RM-008 | Unsigned builds; Smart App Control blocks the engine on many PCs | Chris (Trusted Signing account, D-C3) | Tracked as readiness gate 4 |
+| RM-009 | Learn more links open docs from `main` (`open_doc` in `app/src-tauri/src/main.rs`), so a Stable PC can read about Preview-only features (UX-007 in the UX audit) | Shell owner, as UX-007 | Open `blob/<FABRIC_RELEASE_COMMIT>/docs/...` when the build carries its commit, `main` otherwise |
 
 ## Held PRs and what they wait on
 

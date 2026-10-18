@@ -18,6 +18,9 @@ class FakeFabric:
         self.lakehouses: dict[str, list[dict]] = {"w1": [{"id": "lh-sales", "displayName": "Sales"}]}
         self.created: list[str] = []
 
+    def list_workspaces(self):
+        return [{"id": "w1", "displayName": "Platform"}]
+
     def list_lakehouses(self, workspace_id):
         return self.lakehouses.get(workspace_id, [])
 
@@ -51,6 +54,8 @@ def test_calls_are_registered_and_audited_as_they_should_be():
     assert METHODS <= server.METHODS
     assert not audit.audited("optimize_status") and not audit.audited("optimize_inspect")
     assert not audit.audited("optimize_discover")
+    assert not audit.audited("optimize_findings") and not audit.audited("optimize_recommendations")
+    assert audit.audited("optimize_set_recommendation")
     assert audit.audited("optimize_create") and audit.audited("optimize_connect") and audit.audited("optimize_disconnect")
 
 
@@ -124,3 +129,32 @@ def test_installation_id_reset_and_label(svc):
     first = svc.optimize_status()["installation_id"]
     assert svc.optimize_new_installation_id()["installation_id"] != first
     assert svc.optimize_set_label("  Build server ")["label"] == "Build server"
+
+
+def test_shared_results_are_scoped_to_workspaces_the_person_can_open(svc):
+    from fabric_desktop.optimize.shared import Shared
+    with pytest.raises(ValueError, match="Connect this PC"):
+        svc.optimize_findings()
+    conn = svc.optimize_create("w1")["connection"]
+    me = Shared(LocalLakehouse(svc.lakes / "w1" / conn["lakehouse_id"]), svc.optimize_installation)
+    rec = {"rule_id": "small_files", "target": "dbo.t", "kind": "optimize"}
+    me.record_analysis({"run_id": "r1"}, [], [
+        {"workspace_id": "w1", "item_id": "i1", "rule_id": "small_files", "target": "dbo.t", "severity": "high"},
+        {"workspace_id": "w9", "item_id": "i9", "rule_id": "small_files", "target": "dbo.t", "severity": "high"}],
+        [rec | {"workspace_id": "w1", "item_id": "i1"}, rec | {"workspace_id": "w9", "item_id": "i9"}])
+    assert [f["artifact_key"] for f in svc.optimize_findings()] == ["w1/i1"]
+    recs = svc.optimize_recommendations()
+    assert len(recs) == 1
+    out = svc.optimize_set_recommendation(recs[0]["recommendation_id"], "dismissed", "Not ours")
+    assert out["state"] == "dismissed"
+    assert svc.optimize_recommendations() == [] and len(svc.optimize_recommendations(include_closed=True)) == 1
+
+
+def test_read_only_connection_can_read_but_not_change_results(svc):
+    svc.optimize_create("w1")
+    reg = svc.optimize_registry
+    conn = reg.active() | {"access": "read"}
+    reg.add(conn)
+    assert svc.optimize_findings() == []
+    with pytest.raises(PermissionError, match="read-only"):
+        svc.optimize_set_recommendation("nope", "dismissed")

@@ -40,11 +40,13 @@ Nothing is guessed. When the numbers or dates can be read two ways (is `1,234` o
 
 ## How rows are matched to runs
 
-A row is matched to one of this app's Fabric runs only when it can't belong to anything else:
+A row is matched to one of this app's Fabric runs by name and time:
 
 - same workspace name and same item name (the notebook; the runner notebook for metadata runs; the lakehouse for table maintenance),
-- its time overlaps the run's, give or take five minutes,
+- the row started inside the run, between when this app started it and when it ended,
 - and no other run of this app fits.
+
+An export has only names and times, so a match is likely, not proven. If someone else ran the same item while this app's run was going, their use would be counted with it. A row that started before the run, such as a schedule of the same notebook that ended just before, isn't matched.
 
 A job can show as more than one operation; all its rows are added to the run. Everything else stays unmatched and is shown as **Other use in the imports**: use on the capacity by other people, schedules or items this app didn't start. Totals per item are never tied to single runs.
 
@@ -74,6 +76,8 @@ Only rows of a Fabric capacity are kept (a ResourceId of type `Microsoft.Fabric/
 
 - its **cost**, in its own billing currency, before credits and taxes. Amounts in different currencies are never added together;
 - its **CU hours**, only for a compute meter (Microsoft names them "... Capacity Usage CU") billed in hours. Storage meters and a reservation's own meter carry cost only.
+
+Month-to-date exports repeat the earlier days of the month, and their last day may still be growing. A row for a capacity, meter, day and charge type that an earlier import already has replaces it: the export imported last counts, and the preview says how many rows it replaces. An identical row is skipped as already imported. Import the newest export last.
 
 The card's **Billed per capacity** table shows each capacity, the days covered, the compute CU hours billed and the cost per currency, and which of your environments use that capacity (from the last capacity reading on this PC; see [Capacity of each environment](capacity.md)). These figures are for the whole capacity, so they are never matched to single runs or added to the Capacity Metrics figures.
 

@@ -230,8 +230,9 @@ def write_layers_file(root: Path, layers: list[Layer], rules: dict[str, Any]) ->
 
 
 class Project:
-    def __init__(self, root: Path | str):
+    def __init__(self, root: Path | str, local_data: Path | None = None):
         self.root = Path(root)
+        self._local_data = local_data  # a released copy keeps its environments' local tables with the project's
         self.reload()
 
     @property
@@ -240,7 +241,7 @@ class Project:
 
     @property
     def local_data(self) -> Path:
-        return self.root / ".local"
+        return self._local_data or self.root / ".local"
 
     def reload(self) -> None:
         cfg = tomllib.loads((self.root / "layers.toml").read_text(encoding="utf-8"))

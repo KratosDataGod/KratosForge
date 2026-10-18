@@ -54,7 +54,7 @@ def test_spark_reads_and_writes_lakehouse_tables(tmp_path, monkeypatch):
     service, opened = _sql_service(tmp_path, monkeypatch)
     written = {}
 
-    def write_table(data, table, mode="overwrite"):
+    def write_table(data, table, mode="overwrite", schema_mode="auto"):
         written[table] = (data.num_rows, mode)
         return f"Wrote {data.num_rows} rows to {table}"
 
@@ -67,6 +67,8 @@ def test_spark_reads_and_writes_lakehouse_tables(tmp_path, monkeypatch):
     assert written["dbo.us_sales"] == (2, "overwrite")
     assert out["outputs"][0] == {"type": "stream", "text": "Wrote 2 rows to dbo.us_sales\n"}
     assert out["outputs"][1]["rows"][0] == ["US", 2]
+    # INSERT needs the table to exist (the write above was only recorded).
+    write_deltalake(str(tmp_path / "tables" / "us_sales"), DeltaTable(str(tmp_path / "tables" / "sales")).to_pyarrow_table())
     out = service.run_cell("%%sql\nINSERT INTO dbo.us_sales SELECT * FROM sales WHERE Country = 'UK'", LH)
     assert out["status"] == "ok", out
     assert written["dbo.us_sales"] == (1, "append")
@@ -227,3 +229,55 @@ def test_a_failed_existence_check_is_not_a_missing_table(tmp_path, monkeypatch):
     monkeypatch.setattr(lakehouse, "write_table", lambda *a, **k: pytest.fail("must not write"))
     out = service.run_cell("spark.createDataFrame([(1,)], ['x']).write.saveAsTable('dbo.sales')", LH)
     assert out["status"] == "error" and "429" in str(out["outputs"]), out
+
+
+def _children(tmp_path):
+    store = NotebookStore(tmp_path)
+    store.save("load", [{"type": "code", "source": "region = 'all'", "meta": {"tags": ["parameters"]}},
+                        {"type": "code", "source": "import builtins\nbuiltins.order = getattr(builtins, 'order', []) + ['load:' + region]\n"
+                                                   "notebookutils.notebook.exit(region)"}])
+    store.save("report", [{"type": "code", "source": "import builtins\nbuiltins.order = builtins.order + ['report']\n"
+                                                     "notebookutils.notebook.exit('done')"}])
+    store.save("broken", [{"type": "code", "source": "1 / 0"}])
+    return Kernel(load_notebook=lambda name: store.load(name)["cells"])
+
+
+def test_run_multiple_passes_args_and_runs_dependencies_first(tmp_path):
+    k = _children(tmp_path)
+    out = k.run("import builtins\nbuiltins.order = []\n"
+                "r = notebookutils.notebook.runMultiple({'activities': ["
+                "{'name': 'report', 'path': 'report', 'dependencies': ['load']},"
+                "{'name': 'load', 'path': 'load', 'args': {'region': 'West'}, 'timeoutPerCellInSeconds': 90}],"
+                " 'concurrency': 5})\n"
+                "(builtins.order, r['load']['exitVal'], r['report']['exitVal'])")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1]["text"] == "(['load:West', 'report'], 'West', 'done')"
+    assert "isn't enforced on this PC" in out["outputs"][0]["text"]
+
+
+def test_run_multiple_records_failures_and_skips_dependents(tmp_path):
+    k = _children(tmp_path)
+    out = k.run("import builtins\nbuiltins.order = []\n"
+                "try:\n"
+                "    notebookutils.notebook.runMultiple({'activities': ["
+                "{'name': 'b', 'path': 'broken'}, {'name': 'r', 'path': 'report', 'dependencies': ['b']},"
+                "{'name': 'l', 'path': 'load'}]})\n"
+                "except RuntimeError as e:\n"
+                "    res = e.results\n"
+                "(sorted(res), res['r']['exception'], res['l']['exitVal'], 'broken' in res['b']['exception'])")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1]["text"] == "(['b', 'l', 'r'], 'Skipped: b failed.', 'all', True)"
+
+
+@pytest.mark.parametrize("dag, why", [
+    ({"activities": [{"name": "a", "path": "load", "dependencies": ["zzz"]}]}, "unknown dependency"),
+    ({"activities": [{"name": "a", "path": "load", "dependencies": ["b"]},
+                     {"name": "b", "path": "load", "dependencies": ["a"]}]}, "cycle"),
+    ({"activities": [{"name": "a", "path": "load", "workspace": "x"}]}, "workspace"),
+])
+def test_run_multiple_refuses_what_it_cant_honor_before_running(tmp_path, dag, why):
+    k = _children(tmp_path)
+    out = k.run("import builtins\nbuiltins.order = []\n"
+                f"notebookutils.notebook.runMultiple({dag!r})")
+    assert out["status"] == "error" and why in str(out["outputs"])
+    assert k.run("builtins.order")["outputs"][-1]["text"] == "[]"

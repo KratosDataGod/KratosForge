@@ -525,7 +525,7 @@ function showScorecard(r) {
     box("Fabric capacity", fab.kind, fab.cu_seconds !== undefined ? `about ${Math.round(fab.cu_seconds).toLocaleString()} CU-s` : "Not known",
       fab.amount !== undefined ? `About ${fab.amount} ${fab.currency} at pay-as-you-go prices.` : fab.text,
       fab.assumptions ? h("ul", { class: "small" }, fab.assumptions.map((a) => h("li", {}, a))) : null),
-    box("Fabric capacity of this PC's run", cost.pc?.kind, "0 CU-s", cost.pc?.text));
+    box("Fabric capacity of this PC's run", cost.pc?.kind, "No Fabric job", cost.pc?.text));
   const notes = (c.notes || []).map((n) => h("li", {}, n));
   const overlay = showDialog("Scorecard", h("div", {}, body, notes.length ? h("ul", { class: "small muted" }, notes) : null),
     [btn("Close", null, closeDialog, "tool outline")]);

@@ -68,7 +68,7 @@ A receipt is a JSON document whose id is the SHA-256 of its content (keys sorted
 - the environment on each side: Python and the versions of the packages the notebook imports;
 - who ran it (your user and tenant) and where (workspace and lakehouse);
 - each run's status and measurements, each table's verification with its level and rules, the scorecard, and the limitations found;
-- the cost of each side with its classification and Fabric job CU measurement.
+- the cost of each side: its Fabric job CU as a classified measurement.
 
 Receipts are kept in `%LOCALAPPDATA%\FabricDesktop\receipts`, written once and never replaced. A receipt can be exported as an HTML or Markdown report, leaving out your identity, workspace and lakehouse names, example row values, or this PC's details.
 

@@ -14,15 +14,16 @@ Shape::
               "faster": text},
      "resources": {"pc": {"cpu_seconds", "peak_memory_mb", "cores", "memory_gb", "kind": "measured"},
                    "fabric": {"text", "kind": "not available"}},
-     "cost": {"pc": {"text", "kind": "not available", "classification", "measurement"},
+     "cost": {"pc": {"text", "kind": "not available", "measurement"},
               "fabric": {"cu_seconds", "amount", "currency", "kind": "estimated", "assumptions": [...],
                          "classification", "measurement"},
               "text"},
      "notes": [...]}
 
 Each cost side also carries ``measurement``, a FinOps measurement of the Fabric *job* CU it used
-(measurement.make), and that measurement's ``classification`` (measured, estimated, scenario or
-unknown, as in Monitor > Cost). A side whose job CU isn't known is ``unknown`` with value None,
+(measurement.make), with its own ``classification`` (measured, estimated, scenario or unknown, as
+in Monitor > Cost). Fabric's side repeats it as ``classification``; this PC's side doesn't, so it
+can't be read as its total. A side whose job CU isn't known is ``unknown`` with value None,
 never 0. Neither side counts OneLake reads and writes, which use capacity wherever the notebook
 runs, so this PC's total capacity use is ``not available``: only its job CU (0, no job started)
 is known.
@@ -78,12 +79,12 @@ def fabric_cost(job_seconds: float | None, engine: str, cfg: dict[str, Any], *, 
 def _pc_cost(record: dict[str, Any]) -> dict[str, Any]:
     """This PC's side: no Fabric job was started, so its Fabric job CU is 0 (measured). Its OneLake
     reads and writes still use capacity and aren't measured, so its total is not available."""
-    out = {"kind": "not available", "classification": ms.MEASURED, "text": PC_CAPACITY}
+    out = {"kind": "not available", "text": PC_CAPACITY}
     at = record.get("finished_at") or record.get("started_at")
     ids = {"run_id": record.get("id")} if record.get("id") else {}
     if not at:
         why = "The proof record has no run time."
-        return out | {"classification": ms.UNKNOWN, "measurement": ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids)}
+        return out | {"measurement": ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids)}
     return out | {"measurement": ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 0.0, source="Fabric Desktop proof record",
                                          method="ran on this PC; no Fabric job was started (its OneLake reads and writes still use capacity)", collected_at=at,
                                          period_start=record.get("started_at"), **ids)}

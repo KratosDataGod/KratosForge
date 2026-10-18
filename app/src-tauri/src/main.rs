@@ -977,6 +977,40 @@ fn open_doc(page: String) -> Result<(), String> {
     open_in_browser(&url)
 }
 
+/// Notebook HTML output (pandas, Plotly, a %%html cell) is untrusted: anyone can write a notebook.
+/// The UI shows it in a sandboxed frame loaded from this scheme (notebook.js, htmlFrame), an origin
+/// that isn't the app's, so the app's policy and the Tauri API don't apply to it. The frame gets the
+/// HTML from the page by postMessage and writes it into itself, keeping this page's policy: inline
+/// scripts and styles (some charting libraries need eval), images and fonts only as data: or blob:, no network.
+const OUTPUT_SCHEME: &str = "nbout";
+const OUTPUT_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; \
+    img-src data: blob:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'; \
+    frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost";
+const OUTPUT_FRAME: &str = r#"<!doctype html><meta charset="utf-8"><script>
+addEventListener("message", function take(e) {
+  if (e.source !== parent || !e.data || typeof e.data.fdHtml !== "string") return;
+  removeEventListener("message", take);
+  document.open();
+  document.write(e.data.fdHtml + "<script>(function(){function s(){parent.postMessage({fdFrameHeight:document.documentElement.scrollHeight},'*')}" +
+    "addEventListener('load',s);new ResizeObserver(s).observe(document.documentElement);})();<\/script>");
+  document.close();
+});
+</script>"#;
+
+/// The frame page, for the app's own window only: the Fabric view can't load it.
+fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
+    let builder = tauri::http::Response::builder();
+    if webview != "main" {
+        return builder.status(403).body(Vec::new()).unwrap();
+    }
+    builder
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Security-Policy", OUTPUT_CSP)
+        .header("X-Content-Type-Options", "nosniff")
+        .body(OUTPUT_FRAME.as_bytes().to_vec())
+        .unwrap()
+}
+
 fn main() {
     // Left behind by the last update; the old process has exited by now.
     if let Ok(exe) = std::env::current_exe() {
@@ -985,6 +1019,7 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None) })
+        .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link
@@ -1040,6 +1075,17 @@ mod integrity_tests {
         ] {
             assert!(!missing_release_file(err), "{err}");
         }
+    }
+
+    #[test]
+    fn notebook_output_frame_has_no_network_and_only_opens_in_the_app() {
+        let page = output_frame("main");
+        assert_eq!(page.status(), 200);
+        let csp = page.headers()["Content-Security-Policy"].to_str().unwrap();
+        assert!(csp.starts_with("default-src 'none';"), "{csp}");
+        let sources = csp.split("frame-ancestors").next().unwrap();
+        assert!(!sources.contains("connect-src") && !sources.contains("http") && !sources.contains("*"), "{csp}");
+        assert_eq!(output_frame(FABRIC_VIEW).status(), 403);
     }
 
     #[test]

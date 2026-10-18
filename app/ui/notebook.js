@@ -761,7 +761,7 @@ function editorFor(cell) {
     state: CM.EditorState.create({
       doc: cell.source,
       extensions: [
-        gutterComp.of(gutters(cell)),
+        gutterComp.of(gutters(cell)), cmStyleNonce(),
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
@@ -893,11 +893,16 @@ function limitOutput(o, cell) {
       btn("Open Settings", "settings", () => go("settings"), "tool outline small")));
 }
 
-// HTML output runs in a sandboxed frame with no access to the app, sized to its content.
+// HTML output is untrusted (anyone can write a notebook), so it never runs in the app's origin.
+// The frame loads a small page from the shell's nbout: scheme (main.rs, OUTPUT_FRAME): another
+// origin, sandboxed without allow-same-origin, with its own policy that allows no network. The
+// HTML goes in by postMessage once that page loads, and again if the frame reloads; the page
+// writes it into itself and reports its height for sizing.
 function htmlFrame(html) {
-  const sizer = "<script>(function(){function s(){parent.postMessage({fdFrameHeight:document.documentElement.scrollHeight},'*')}" +
-    "addEventListener('load',s);new ResizeObserver(s).observe(document.documentElement);})();<\/script>";
-  return h("iframe", { class: "out-html", sandbox: "allow-scripts", title: "HTML output", srcdoc: `${html}${sizer}` });
+  const frame = h("iframe", { class: "out-html", sandbox: "allow-scripts", title: "HTML output",
+    src: window.__TAURI__.core.convertFileSrc("frame", "nbout") });
+  frame.addEventListener("load", () => frame.contentWindow?.postMessage({ fdHtml: html }, "*"));
+  return frame;
 }
 
 window.addEventListener("message", (e) => {

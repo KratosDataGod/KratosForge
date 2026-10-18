@@ -1298,3 +1298,29 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   assert.match(fabric, /withHowItWorks\(/);
   assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
 });
+
+// HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
+// its own origin, never in the app's, where the Tauri API is.
+test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  const csp = conf.app.security.csp;
+  assert.ok(csp, "tauri.conf.json must set app.security.csp");
+  const text = typeof csp === "string" ? csp : Object.entries(csp).map(([k, v]) => `${k} ${[].concat(v).join(" ")}`).join("; ");
+  const directives = Object.fromEntries(text.split(";").map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).map(([k, ...v]) => [k, v]));
+  assert.ok(!/unsafe-eval|wasm-unsafe-eval/.test(text), text);
+  const scripts = directives["script-src"] || directives["default-src"] || [];
+  assert.ok(scripts.length && !scripts.some((s) => /unsafe-inline|\*|^https?:$|^data:$|^blob:$/.test(s)), `script-src: ${scripts}`);
+  assert.deepStrictEqual(directives["object-src"], ["'none'"]);
+  assert.ok(!(directives["frame-src"] || []).includes("'self'"), "notebook output must not be framed from the app's origin");
+
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(!/<script(?![^>]*\bsrc=)[^>]*>/.test(html), "index.html has an inline script");
+  assert.ok(!/\son[a-z]+\s*=/i.test(html), "index.html has an inline event handler");
+
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const frame = /function htmlFrame\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.match(frame, /sandbox: "allow-scripts"/);
+  assert.ok(!/allow-same-origin|srcdoc/.test(frame), frame);
+  assert.match(frame, /convertFileSrc\("frame", "nbout"\)/);
+  assert.ok(directives["frame-src"].includes("nbout:"), "frame-src must allow the nbout: output frame");
+});

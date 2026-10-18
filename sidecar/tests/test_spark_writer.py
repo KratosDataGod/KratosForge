@@ -15,7 +15,7 @@ from fabric_desktop.notebook import Kernel
 @pytest.fixture
 def lake(tmp_path, monkeypatch):
     root = tmp_path / "Tables"
-    monkeypatch.setattr(onelake.TableRef, "uri", property(lambda self: str(root / self.schema / self.table)))
+    monkeypatch.setattr(onelake.TableRef, "uri", property(lambda self: (root / self.schema / self.table).as_posix()))
     monkeypatch.setattr(publish_mod, "storage_options", lambda token: {})
     monkeypatch.setattr(lakehouse, "storage_options", lambda token: {})
     lakehouse.attach(lakehouse.Attached("ws1", "lh1", "Sales", lambda: "tok", tmp_path))

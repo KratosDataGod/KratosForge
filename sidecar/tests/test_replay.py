@@ -503,3 +503,19 @@ def test_a_replay_without_ids_still_recognises_the_same_error():
     got = replay.outcome(b, 1, "error", [{"type": "error", "ename": "OSError",
                                          "evalue": evalue.replace(WS, "99999999-9999-9999-9999-999999999999")}])
     assert got["verdict"] == "reproduced", got
+
+
+@pytest.mark.parametrize("source, kept", [
+    ('path = "abfss://Sales@onelake.dfs.fabric.microsoft.com/LH.Lakehouse"\nx = 1',
+     'path = "abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>"\nx = 1'),
+    ("# source: abfss://Sales@onelake.dfs.fabric.microsoft.com/LH.Lakehouse\ndf=read()\nprint(df)",
+     "# source: abfss://<workspace>@onelake.dfs.fabric.microsoft.com/<lakehouse>\ndf=read()\nprint(df)"),
+    ("open('https://onelake.dfs.fabric.microsoft.com/Sales/LH.Lakehouse/Files/a.csv')\nnext_line()",
+     "open('https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/Files/a.csv')\nnext_line()"),
+])
+def test_ids_come_out_of_code_without_changing_anything_else(source, kept):
+    cells = [{"type": "code", "source": source, "count": 1,
+              "outputs": [{"type": "error", "ename": "E", "evalue": source}]}]
+    b = replay.strip_ids(replay.build("n", cells, 0, {"tables": {}, "files": {}}, None))
+    assert b["cells"][0]["source"] == kept
+    assert b["error"]["evalue"] == kept

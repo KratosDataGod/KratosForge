@@ -134,6 +134,17 @@ def scrub_ids(text: str, known: tuple[str, ...] = ()) -> str:
     return _GUID.sub("<id>", text)
 
 
+def _scrub_strings(value: Any, ids: tuple[str, ...]) -> Any:
+    """``value`` with scrub_ids applied to each string in it (keys included), never to JSON text."""
+    if isinstance(value, str):
+        return scrub_ids(value, ids)
+    if isinstance(value, dict):
+        return {_scrub_strings(k, ids): _scrub_strings(v, ids) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_strings(v, ids) for v in value]
+    return value
+
+
 def strip_ids(bundle: dict[str, Any]) -> dict[str, Any]:
     """The bundle without workspace and lakehouse ids or the workspace name, to share outside the
     organization; replay then asks which lakehouse to use. Ids are taken out of the inputs and also
@@ -152,7 +163,7 @@ def strip_ids(bundle: dict[str, Any]) -> dict[str, Any]:
     out["ids_included"] = False
     ids = tuple(sorted(known, key=len, reverse=True))
     code = [c.get("source") for c in out.get("cells") or []]
-    out = json.loads(scrub_ids(json.dumps(out), ids))
+    out = _scrub_strings(out, ids)
     if code != [c.get("source") for c in out.get("cells") or []]:
         out.setdefault("limitations", []).append(
             "IDs in the cells' code were replaced with <id>, <workspace> and <lakehouse>. Put your own back "

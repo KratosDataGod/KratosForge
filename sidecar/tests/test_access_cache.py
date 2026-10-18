@@ -50,13 +50,20 @@ class FakeOneLake:
         self.roles = {"lh1": [{"name": "DefaultReader", "decisionRules": [{"effect": "Permit", "permission": [
             {"attributeName": "Path", "attributeValueIncludedIn": ["*"]}]}],
             "members": {"fabricItemMembers": [{"itemAccess": ["ReadAll"]}]}}]}
-        self.calls = 0
+        self.roles["lh-central"] = [{"name": "DefaultReader", "decisionRules": [{"effect": "Permit", "permission": [
+            {"attributeName": "Path", "attributeValueIncludedIn": ["*"]},
+            {"attributeName": "Action", "attributeValueIncludedIn": ["Read"]}]}],
+            "members": {"fabricItemMembers": [{"itemAccess": ["ReadAll"]}]}}]
+        self.puts: list = []
 
     def list_data_access_roles(self, ws, item):
-        self.calls += 1
         if item == "broken":
             raise RuntimeError("429 Too many requests")
-        return self.roles.get(item, [])
+        return list(self.roles.get(item, []))
+
+    def put_data_access_roles(self, ws, item, roles):
+        self.puts.append((item, roles))
+        self.roles[item] = roles
 
 
 @pytest.fixture
@@ -70,8 +77,9 @@ def svc(tmp_path, monkeypatch):
     lakes = tmp_path / "onelake"
     monkeypatch.setattr(Service, "_optimize_lake",
                         lambda self, ws, lh, schemas=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
+    monkeypatch.setattr(s.auth, "signed_in_tenant", lambda: "tenant", raising=False)
     s.optimize_create("plat")
-    s.fake, s.onelake = fabric, onelake
+    s.fake, s.onelake, s.lakes = fabric, onelake, lakes
     return s
 
 
@@ -85,6 +93,27 @@ def test_calls_are_registered_and_the_read_is_not_audited():
     assert METHODS <= server.METHODS
     assert not audit.audited("access_cache") and audit.audited("access_cache_refresh")
     assert schema.FAMILIES["fdacc_"] is access_cache.FAMILY
+
+
+def test_cache_tables_sit_in_their_own_schema(svc):
+    svc.access_cache_refresh(approve=True)
+    conn = svc.central_lakehouse()
+    tables = svc.lakes / conn["workspace_id"] / conn["lakehouse_id"] / "Tables"
+    assert (tables / "access" / "fdacc_scans").is_dir() and not (tables / "dbo" / "fdacc_scans").exists()
+
+
+def test_protect_asks_then_keeps_the_cache_from_default_reader(svc):
+    svc.access_cache_refresh(approve=True)
+    with pytest.raises(ValueError, match="at least one"):
+        svc.access_cache_protect([" "])
+    with pytest.raises(PermissionError, match="/Tables/access.*Confirm to continue"):
+        svc.access_cache_protect(["obj-admins"])
+    assert svc.onelake.puts == []  # asking changes nothing
+    out = svc.access_cache_protect(["obj-admins"], approve=True)
+    assert out["changed"] and out["family_path"] == "/Tables/access"
+    item, roles = svc.onelake.puts[0]
+    assert item == "lh-central" and [r["name"] for r in roles] == ["DefaultReader", "AccessCacheReaders"]
+    assert svc.access_cache_protect(["obj-admins"])["changed"] is False
 
 
 def test_first_refresh_asks_before_setting_up_the_tables(svc):

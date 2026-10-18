@@ -133,14 +133,16 @@ For developers: a family is a `schema.Family` registered with `schema.register` 
 
 ### The access cache (`fdacc_`)
 
-The access cache lets OneLake > Access show every workspace at once instead of asking Fabric about each one each time. A refresh asks Fabric, as you, for each workspace's roles and each lakehouse's OneLake data access roles, and writes to the central lakehouse only:
+The access cache lets OneLake > Access show every workspace at once instead of asking Fabric about each one each time. A refresh asks Fabric, as you, for each workspace's roles and each lakehouse's OneLake data access roles, and writes to the central lakehouse only, in its own `access` schema:
 
 - `fdacc_scans`: one row per workspace and lakehouse looked at, with when, whether the roles could be read, and why not;
 - `fdacc_workspace_roles` and `fdacc_data_access_roles`: what was seen, only when it changed since the last refresh. An unchanged workspace adds one scan row and nothing else.
 
 A refresh changes nothing in the workspaces it looks at. When a workspace's roles can't be read, the cache keeps the last list it could read and marks it out of date, never an empty list. You only see cached workspaces you can open in Fabric. The cache keeps names, ids, types (person, group, app), whether someone is a guest, and roles; it keeps no email addresses. The first refresh asks before adding the tables. Refreshing needs write access to the central lakehouse; reading needs read access.
 
-Not built yet: the page that shows the cache (a mockup comes first), and the cache's own table-level OneLake security role. Until that role exists, anyone who can read the central lakehouse's tables can read the cache.
+Keeping the cache to some people: **Protect** (`access_cache_protect`) uses the central lakehouse's `central_restrict`. DefaultReader stops reading the `access` schema and keeps its members and everything else it read. A new role, `AccessCacheReaders`, lets the people and groups you pick read it. It shows the planned change and asks first, and the change is recorded in `fdopt_audit`. It needs OneLake security turned on for the central lakehouse, and a lakehouse with schemas. Until you protect it, anyone who can read the central lakehouse's tables can read the cache.
+
+Not built yet: the page that shows the cache (a mockup comes first).
 
 ## For IT admins
 

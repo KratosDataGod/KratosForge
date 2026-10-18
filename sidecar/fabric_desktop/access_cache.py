@@ -12,7 +12,8 @@ A refresh asks Fabric about each workspace and lakehouse as the signed-in person
 
 Like every central lakehouse family, rows are only inserted; the latest scan wins. A scan that
 couldn't read the roles keeps the last snapshot that could, marked stale, never an empty list.
-Only names, ids, types and roles are kept: no email addresses.
+Only names, ids, types and roles are kept: no email addresses. The tables sit in their own
+``access`` schema, which ``access_cache_protect`` keeps from DefaultReader.
 """
 
 from __future__ import annotations
@@ -44,8 +45,10 @@ TABLES_V1: dict[str, dict[str, pl.DataType]] = {
     "schema_version": schema.TABLES_V1["schema_version"],
 }
 
+# Its own schema, so DefaultReader can leave it out and only READER_ROLE's members read it.
 FAMILY = schema.register(schema.Family("fdacc_", "Access cache", [
-    schema.Migration(1, "Create the access cache tables", TABLES_V1)]))
+    schema.Migration(1, "Create the access cache tables", TABLES_V1)], schema="access"))
+READER_ROLE = "AccessCacheReaders"
 
 
 def _fingerprint(kind: str, workspace_id: str, item_id: str, rows: list[dict[str, Any]]) -> str:

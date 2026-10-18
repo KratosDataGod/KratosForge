@@ -3,7 +3,8 @@
 ``access_cache`` reads what the cache holds, for the workspaces the signed-in person can open.
 ``access_cache_refresh`` asks Fabric again and writes what changed; the first refresh sets up the
 ``fdacc_`` tables only after the person confirms. Neither changes anything in the workspaces it
-looks at: the only writes are the cache's own rows in the central lakehouse.
+looks at: the only writes are the cache's own rows in the central lakehouse. ``access_cache_protect``
+lets only the chosen people read the cache (Optimize's central_restrict), after a confirm.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from . import access_cache as cache
 from .auth import ONELAKE_SCOPES
 from .optimize import setup
 
-METHODS = {"access_cache", "access_cache_refresh"}
+METHODS = {"access_cache", "access_cache_refresh", "access_cache_protect"}
 
 
 def _now() -> str:
@@ -93,3 +94,12 @@ class AccessCacheMixin:
             setup.write(lake, me, "scans", run.scans, family=fam)
         return {"checked": len(run.scans), "changed": run.changed,
                 "problems": sum(s["state"] == "error" for s in run.scans) + unlisted, "at": run.at}
+
+    def access_cache_protect(self, members: list[str], approve: bool = False) -> dict[str, Any]:
+        """Keep the cache from everyone who reads the central lakehouse through DefaultReader, and let
+        ``members`` (Entra object ids) read it through AccessCacheReaders. Without ``approve`` it
+        changes nothing and raises with the planned change, ending "Confirm to continue."."""
+        members = [m.strip() for m in members or [] if m and m.strip()]
+        if not members:
+            raise ValueError("Pick at least one person or group who may read the access cache.")
+        return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, approve)  # type: ignore[attr-defined]

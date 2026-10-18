@@ -341,6 +341,52 @@ impl Sidecar {
 struct SidecarState {
     sidecar: Mutex<Option<Sidecar>>,
     child: Mutex<Option<Arc<Mutex<Child>>>>,
+    /// Set while update_app hands over to a new exe: the engine is stopped and must not be
+    /// started again by a stray call while the new build's engine starts (HD-022).
+    updating: std::sync::atomic::AtomicBool,
+}
+
+impl SidecarState {
+    /// Starts the engine into an empty slot, as the first call after startup does.
+    fn start_into(&self, guard: &mut Option<Sidecar>) -> Result<(), String> {
+        if guard.is_none() {
+            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
+            *self.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
+            *guard = Some(sidecar);
+        }
+        Ok(())
+    }
+
+    /// Ends the engine the way quitting the app does: closing its stdin ends its request loop,
+    /// which stops the SQL page's query processes, and the local API thread ends with the
+    /// process. One that hasn't exited within `grace` is killed. Returns whether one was running.
+    fn shut_down(&self, grace: std::time::Duration) -> bool {
+        // A call in progress holds the sidecar lock: end the process so the call returns.
+        if self.sidecar.try_lock().is_err() {
+            if let Some(child) = self.child.lock().unwrap_or_else(|p| p.into_inner()).as_ref() {
+                let _ = child.lock().unwrap_or_else(|p| p.into_inner()).kill();
+            }
+        }
+        let sidecar = self.sidecar.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let child = self.child.lock().unwrap_or_else(|p| p.into_inner()).take();
+        let Some(child) = sidecar.as_ref().map(|s| s.child.clone()).or(child) else { return false };
+        drop(sidecar); // closes its stdin
+        let deadline = std::time::Instant::now() + grace;
+        loop {
+            let mut process = child.lock().unwrap_or_else(|p| p.into_inner());
+            match process.try_wait() {
+                Ok(None) if std::time::Instant::now() < deadline => {}
+                Ok(None) => {
+                    let _ = process.kill();
+                    let _ = process.wait();
+                    return true;
+                }
+                _ => return true,
+            }
+            drop(process);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+    }
 }
 
 #[tauri::command]
@@ -349,12 +395,11 @@ async fn rpc(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, String> {
-    let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
-    if guard.is_none() {
-        let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
-        *state.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
-        *guard = Some(sidecar);
+    if state.updating.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("Fabric Desktop by KratosBI is starting its new build. Try again in a moment.".into());
     }
+    let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
+    state.start_into(&mut guard)?;
     let sidecar = guard.as_mut().expect("sidecar started");
     let first_call = sidecar.next_id == 1;
     let result = sidecar.call(&method, params.unwrap_or_else(|| json!({})));
@@ -582,12 +627,81 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
 /// The first start of a new build unpacks WebView2 data and can be slow on a busy PC.
 const START_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
 
+/// update_app's hand-over to the downloaded exe (update_guard::hand_over gives the order).
+struct ExeHandover<'a> {
+    app: &'a tauri::AppHandle,
+    state: &'a SidecarState,
+    exe: PathBuf,
+    new: PathBuf,
+    old: PathBuf,
+    marker: PathBuf,
+    commit: &'a str,
+    child: Option<Child>,
+}
+
+impl update_guard::Handover for ExeHandover<'_> {
+    fn stop_engine(&mut self) -> Result<bool, String> {
+        self.state.updating.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.state.shut_down(std::time::Duration::from_secs(10)))
+    }
+
+    fn swap(&mut self) -> Result<(), String> {
+        update_guard::swap_in(&self.exe, &self.new, &self.old)
+    }
+
+    fn spawn(&mut self) -> Result<(), String> {
+        let _ = std::fs::remove_file(&self.marker);
+        self.child = Some(Command::new(&self.exe).args(["--updated-to", self.commit]).spawn().map_err(|e| e.to_string())?);
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.hide();
+        }
+        Ok(())
+    }
+
+    fn wait(&mut self) -> update_guard::Start {
+        let (marker, commit) = (&self.marker, self.commit);
+        let child = &mut self.child;
+        let outcome = update_guard::wait_for_start(
+            || update_guard::started_as(marker, commit),
+            || child.as_mut().is_none_or(|c| c.try_wait().map(|s| s.is_some()).unwrap_or(true)),
+            START_TIMEOUT,
+            std::time::Duration::from_millis(250),
+        );
+        let _ = std::fs::remove_file(&self.marker);
+        outcome
+    }
+
+    fn restore(&mut self) -> Result<(), String> {
+        update_guard::restore_previous(&self.exe, &self.old)
+    }
+
+    fn resume(&mut self, engine_was_running: bool) {
+        self.state.updating.store(false, std::sync::atomic::Ordering::SeqCst);
+        if engine_was_running {
+            // So the restored window works straight away; if this fails, the next call retries.
+            if let Ok(mut guard) = self.state.sidecar.lock() {
+                let _ = self.state.start_into(&mut guard);
+            }
+        }
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+
+    fn exit(&mut self) {
+        self.app.exit(0);
+    }
+}
+
 /// Downloads the build the channel offers (refusing any other), swaps it in place of this one
-/// and starts it. This exe is kept as exe.old and this process waits until the new one says it
-/// started; if the new one exits first, this exe is put back and keeps running (HD-022). One still
-/// running at the time limit without saying so is left to run: builds from before HD-022 never say.
+/// and starts it, after ending this exe's engine so the new one can take the local API port and
+/// the engine's files. This exe is kept as exe.old and this process waits until the new one says
+/// it started; if the new one exits first, this exe is put back, its engine restarted if it was
+/// running, and it keeps running (HD-022). One still running at the time limit without saying so
+/// is left to run: builds from before HD-022 never say.
 #[tauri::command]
-async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String> {
+async fn update_app(app: tauri::AppHandle, state: tauri::State<'_, SidecarState>, commit: String) -> Result<(), String> {
     if !update_guard::is_commit(&commit) {
         return Err(format!("{commit} is not a build commit"));
     }
@@ -605,43 +719,12 @@ async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String>
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
+    // The download runs the updater with its own Python, not the engine, so the engine keeps
+    // running until the file is here and checked.
     stream(&app, updater(&["download-app", &dest, &commit]))?;
-    update_guard::swap_in(&exe, &new, &old)?;
-    let marker = start_marker();
-    let _ = std::fs::remove_file(&marker);
-    let mut child = match Command::new(&exe).args(["--updated-to", &commit]).spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            update_guard::restore_previous(&exe, &old)?;
-            return Err(format!("The new build could not be started ({e}), so this build was put back."));
-        }
-    };
-    let window = app.get_webview_window("main");
-    if let Some(w) = &window {
-        let _ = w.hide();
-    }
-    let outcome = update_guard::wait_for_start(
-        || update_guard::started_as(&marker, &commit),
-        || child.try_wait().map(|s| s.is_some()).unwrap_or(true),
-        START_TIMEOUT,
-        std::time::Duration::from_millis(250),
-    );
-    if !update_guard::failed_start(&outcome) {
-        // Started, or still running without saying so: builds from before HD-022 never write the
-        // marker, and a rollback can install one, so only an exit counts as a failed start. The
-        // next start removes exe.old.
-        let _ = std::fs::remove_file(&marker);
-        app.exit(0);
-        return Ok(());
-    }
-    let _ = std::fs::remove_file(&marker);
-    let restored = update_guard::restore_previous(&exe, &old);
-    if let Some(w) = &window {
-        let _ = w.show();
-        let _ = w.set_focus();
-    }
-    restored?;
-    Err(format!("Build {} closed before it finished starting, so this build was put back.", &commit[..7]))
+    update_guard::hand_over(&mut ExeHandover {
+        app: &app, state: &state, exe, new, old, marker: start_marker(), commit: &commit, child: None,
+    })
 }
 
 // ---- Fabric's own pages (the Monitoring hub, the OneLake catalog), shown in one second webview
@@ -1093,7 +1176,7 @@ fn main() {
         let _ = std::fs::remove_file(exe.with_extension("exe.failed"));
     }
     tauri::Builder::default()
-        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None) })
+        .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None), updating: Default::default() })
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link

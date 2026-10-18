@@ -106,6 +106,9 @@ pub fn wants_install(running: &str, accepted: &Seen) -> bool {
 // { "channels": { "<release tag>": { "commit": "...", "published": 1760000000 } },
 //   "offered": "<the build the last accepted check offered, which update_app may install>" }
 
+/// A missing or corrupt file reads as empty: the app starts over and accepts the channel's next
+/// release, so one older release can get through once. Deliberate, so a damaged file never
+/// blocks updates (docs/security.md).
 fn read_state(path: &Path) -> Value {
     std::fs::read_to_string(path)
         .ok()
@@ -246,6 +249,53 @@ pub fn wait_for_start(
         }
         std::thread::sleep(poll);
     }
+}
+
+/// The steps of handing over to a new exe once it is downloaded, as update_app does them.
+pub trait Handover {
+    /// Ends this exe's engine the way quitting does, so the new build's engine can bind the local
+    /// API port and open the DuckDB files, kernels and token cache. Says whether one was running.
+    fn stop_engine(&mut self) -> Result<bool, String>;
+    fn swap(&mut self) -> Result<(), String>;
+    /// Starts the new exe (and hides this window while it starts).
+    fn spawn(&mut self) -> Result<(), String>;
+    fn wait(&mut self) -> Start;
+    fn restore(&mut self) -> Result<(), String>;
+    /// Back to this build: starts the engine again if it was running, and shows the window.
+    fn resume(&mut self, engine_was_running: bool);
+    fn exit(&mut self);
+}
+
+/// Hands over to the new exe. The engine stops before the new exe exists on disk, so the two
+/// builds' engines never run at once; on any failure this build is back in place and resumed.
+pub fn hand_over(h: &mut impl Handover) -> Result<(), String> {
+    let engine = match h.stop_engine() {
+        Ok(running) => running,
+        Err(e) => {
+            // Nothing was swapped; the next engine call starts one if it is needed.
+            h.resume(false);
+            return Err(format!("Could not stop the local engine before updating: {e}"));
+        }
+    };
+    if let Err(e) = h.swap() {
+        h.resume(engine);
+        return Err(e);
+    }
+    if let Err(e) = h.spawn() {
+        let restored = h.restore();
+        h.resume(engine);
+        restored?;
+        return Err(format!("The new build could not be started ({e}), so this build was put back."));
+    }
+    let outcome = h.wait();
+    if !failed_start(&outcome) {
+        h.exit();
+        return Ok(());
+    }
+    let restored = h.restore();
+    h.resume(engine);
+    restored?;
+    Err("The new build closed before it finished starting, so this build was put back.".into())
 }
 
 #[cfg(test)]
@@ -435,6 +485,94 @@ mod tests {
         // Started and closed between two polls: still a start.
         let mut calls = 0;
         assert_eq!(wait_for_start(|| { calls += 1; calls > 1 }, || true, Duration::from_secs(5), tick), Start::Started);
+    }
+
+    /// Records the order update_app's steps run in.
+    struct Recorder {
+        steps: Vec<String>,
+        engine_running: bool,
+        fail: &'static str,
+        outcome: Start,
+    }
+
+    impl Recorder {
+        fn new(fail: &'static str, outcome: Start) -> Self {
+            Self { steps: vec![], engine_running: true, fail, outcome }
+        }
+        fn step(&mut self, name: &str) -> Result<(), String> {
+            self.steps.push(name.into());
+            if self.fail == name { Err(format!("{name} failed")) } else { Ok(()) }
+        }
+    }
+
+    impl Handover for Recorder {
+        fn stop_engine(&mut self) -> Result<bool, String> {
+            self.step("stop_engine").map(|_| self.engine_running)
+        }
+        fn swap(&mut self) -> Result<(), String> {
+            self.step("swap")
+        }
+        fn spawn(&mut self) -> Result<(), String> {
+            self.step("spawn")
+        }
+        fn wait(&mut self) -> Start {
+            self.steps.push("wait".into());
+            std::mem::replace(&mut self.outcome, Start::Started)
+        }
+        fn restore(&mut self) -> Result<(), String> {
+            self.step("restore")
+        }
+        fn resume(&mut self, engine_was_running: bool) {
+            self.steps.push(format!("resume(engine={engine_was_running})"));
+        }
+        fn exit(&mut self) {
+            self.steps.push("exit".into());
+        }
+    }
+
+    fn run(fail: &'static str, outcome: Start) -> (Result<(), String>, Vec<String>) {
+        let mut r = Recorder::new(fail, outcome);
+        let result = hand_over(&mut r);
+        (result, r.steps)
+    }
+
+    #[test]
+    fn the_engine_stops_before_the_new_exe_is_put_in_place() {
+        let (result, steps) = run("", Start::Started);
+        assert!(result.is_ok());
+        assert_eq!(steps, ["stop_engine", "swap", "spawn", "wait", "exit"]);
+        // A rollback target from before HD-022 never says it started; it is left to run.
+        assert_eq!(run("", Start::TimedOut).1, ["stop_engine", "swap", "spawn", "wait", "exit"]);
+    }
+
+    #[test]
+    fn a_new_exe_that_exits_is_undone_and_the_engine_restarted() {
+        let (result, steps) = run("", Start::Exited);
+        assert!(result.unwrap_err().contains("closed before it finished starting"));
+        assert_eq!(steps, ["stop_engine", "swap", "spawn", "wait", "restore", "resume(engine=true)"]);
+    }
+
+    #[test]
+    fn the_engine_is_restarted_only_if_it_was_running() {
+        let mut r = Recorder::new("", Start::Exited);
+        r.engine_running = false;
+        let _ = hand_over(&mut r);
+        assert_eq!(r.steps.last().unwrap(), "resume(engine=false)");
+    }
+
+    #[test]
+    fn every_failure_resumes_this_build() {
+        let (result, steps) = run("stop_engine", Start::Started);
+        assert!(result.unwrap_err().contains("Could not stop the local engine"));
+        assert_eq!(steps, ["stop_engine", "resume(engine=false)"]);
+        assert_eq!(run("swap", Start::Started).1, ["stop_engine", "swap", "resume(engine=true)"]);
+        let (result, steps) = run("spawn", Start::Started);
+        assert!(result.unwrap_err().contains("could not be started"));
+        assert_eq!(steps, ["stop_engine", "swap", "spawn", "restore", "resume(engine=true)"]);
+        // A restore that fails is reported, and the window still comes back.
+        let (result, steps) = run("restore", Start::Exited);
+        assert_eq!(result.unwrap_err(), "restore failed");
+        assert_eq!(steps, ["stop_engine", "swap", "spawn", "wait", "restore", "resume(engine=true)"]);
     }
 
     #[test]

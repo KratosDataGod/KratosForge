@@ -823,8 +823,7 @@ async function renderKeysTab(body) {
         rerender();
       }
     }, "tool outline small"),
-    k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, rerender), "tool primary small")
-      : btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary small")));
+    addKeyTableButton(k, rerender, "tool primary small")));
 
   const problems = [...k.errors, ...(k.problem ? [k.problem] : [])];
   const list = tables.length ? h("table", { class: "list" },
@@ -838,8 +837,9 @@ async function renderKeysTab(body) {
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
     : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      btn("New key table", "add", () => newKeyTableDialog(rerender), "tool primary"));
+      h("span", { class: "text" }, k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
+      addKeyTableButton(k, rerender, "tool primary"));
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
@@ -880,6 +880,12 @@ function keyTableDetail(t, k, rerender) {
 }
 
 // Keys in the platform: a project uses the platform's key tables, it doesn't make its own.
+// With platform keys there is one key system: the project uses the platform's key tables and never makes its own.
+function addKeyTableButton(k, done, cls) {
+  return k.central_key_tables ? btn("Use a key table", "add", () => useKeyTableDialog(k, done), cls)
+    : btn("New key table", "add", () => newKeyTableDialog(done), cls);
+}
+
 function useKeyTableDialog(k, done) {
   const have = new Set(k.key_tables.map((t) => t.name));
   const free = k.central_key_tables.filter((t) => !have.has(t.name));

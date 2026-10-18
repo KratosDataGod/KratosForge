@@ -646,3 +646,16 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+test("with platform keys, no Keys button makes a project key table", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.strictEqual([...src.matchAll(/newKeyTableDialog\(/g)].length, 2, "newKeyTableDialog is reached only through addKeyTableButton");
+  const opened = [];
+  const ctx = { btn: (label, _icon, onClick) => ({ label, onClick }),
+    useKeyTableDialog: () => opened.push("use"), newKeyTableDialog: () => opened.push("new") };
+  vm.runInNewContext(`${src.match(/function addKeyTableButton\([\s\S]*?\n}\n/)[0]}; this.addKeyTableButton = addKeyTableButton;`, ctx);
+  const platform = ctx.addKeyTableButton({ central_key_tables: [{ name: "customer" }] }, () => {}, "x");
+  const local = ctx.addKeyTableButton({ central_key_tables: null }, () => {}, "x");
+  platform.onClick(); local.onClick();
+  assert.deepStrictEqual([platform.label, local.label, ...opened], ["Use a key table", "New key table", "use", "new"]);
+});

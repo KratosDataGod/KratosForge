@@ -316,6 +316,12 @@ class FabricClient:
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
 
+    def list_tenant_settings(self) -> list[dict[str, Any]]:
+        """Fabric's tenant settings: [{settingName, title, enabled, tenantSettingGroup, ...}]. Fabric
+        administrators only (Tenant.Read.All); anyone else gets 401/403. Documented as paged
+        (continuationUri) and limited to 25 calls a minute."""
+        return self._paged("/admin/tenantsettings")
+
     # ---- workspaces: who has access
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:

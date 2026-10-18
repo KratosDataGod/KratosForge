@@ -98,10 +98,26 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
 | `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
 | `fdcap_` | FinOps (planned) | Capacity setting history |
-| `fdten_` | Enterprise readiness (planned) | Tenant setting history |
+| `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
 | `fdinc_` | Incident management (planned) | Incident history |
 
 Every family follows the same rules: insert-only rows with a `record_id`, provenance on every row, upgrades that only add, and a newer schema opening that family read-only (the others keep working). A family never writes to or migrates another family's tables; reading them, for example a view that combines two families, is fine. Each family has one owner, so two features that store rows of the same shape still use two families (and can share the column definitions). The first time a feature writes to a connected central lakehouse, it asks you, then adds its own tables beside the others; nothing that is already there changes. Tables that name people, such as the access cache, also get their own OneLake security role at table level, set up by the feature that adds them.
+
+### Tenant settings history
+
+A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenantsettings`) is kept in three `fdten_` tables, in the same row shape as FinOps' capacity settings (`fdcap_`), so one view reads both:
+
+| Table | One row per | Columns besides provenance |
+| --- | --- | --- |
+| `fdten_snapshot` | Setting whose value differs from its last row | `taken_at`, `scope_type` (`tenant`), `scope_id` (tenant id), `setting`, `value_json`, `value_hash` (SHA-256 of the canonical JSON), `source`, `read_by` |
+| `fdten_change` | Difference found | `changed_after` and `changed_by_time` (the two reads it happened between), `scope_type`, `scope_id`, `setting`, `old_json` (empty the first time), `new_json` (empty when a setting disappears), `source`, `read_by` |
+| `fdten_read` | Read attempt | `read_at`, `scope_type`, `scope_id`, `source`, `outcome` (`read`, `unreadable` or `failed`), `reason` (with secrets removed), `read_by` |
+
+- **What counts as a value.** A setting's value is everything Fabric returns for it except its name, title and group, with security groups and properties in a fixed order. Microsoft renaming a setting isn't a change.
+- **When and by whom.** A change is only ever "between these two reads". Fabric's tenant settings API says neither when a setting changed nor who changed it, so the history doesn't claim either.
+- **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
+- **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
+- **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
 
 For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
 

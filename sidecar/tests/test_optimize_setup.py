@@ -13,7 +13,7 @@ from deltalake import write_deltalake
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.installation import Installation
 from fabric_desktop.meta.store import LocalStore
-from fabric_desktop.optimize import lakehouse
+from fabric_desktop import retrying
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.optimize.registry import Registry
 
@@ -106,7 +106,7 @@ def test_windows_delta_log_race_is_retried(lake, monkeypatch):
         return real(self, *args, **kwargs)
 
     monkeypatch.setattr(LocalStore, "create_if_absent", flaky)
-    monkeypatch.setattr(lakehouse.time, "sleep", lambda s: None)
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
     assert lake.create("fdopt_config", {schema.KEY: pl.String}) is True
     assert len(calls) == 2 and lake.has("fdopt_config")
 

@@ -275,7 +275,7 @@ async function governanceApplies(sub, p, o, can, rerender) {
     const steps = (got || gone || {}).steps || [];
     explain.replaceChildren(h("div", { class: "card pad gov-why" },
       h("b", {}, `Why ${project} gets ${got ? `${GOV_ENFORCEMENT[got.enforcement][0]}, v${got.version}` : "nothing"}`),
-      h("p", { class: "muted-text small" }, "Read from the top. Worked out on this PC from the platform's copy; no Fabric capacity is used."),
+      h("p", { class: "muted-text small" }, "Read from the top. Worked out on this PC from the platform's copy. With the platform in Fabric, reading that copy is one call to UDF_Platform, which uses a little capacity; no OneLake data is read and no Fabric job runs."),
       h("ol", { class: "gov-steps" }, steps.map((s) => h("li", { class: s.outcome === "ignored" ? "fail-text" : null },
         h("b", {}, `${GOV_SCOPE[s.scope]} ${s.target === "*" ? "" : s.scope === "domain" ? domainName(s.target) : s.target}`),
         s.origin !== "platform" ? h("span", { class: "muted-text" }, ` (${s.origin})`) : null, ": ",

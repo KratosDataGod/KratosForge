@@ -15,9 +15,9 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 
 | ID | Feature | Status | PR | Depends on |
 | --- | --- | --- | --- | --- |
-| ORCH-001 | Pipeline definition engine: import, validate, inspect, export | In review | see [continuation](continuation.md) | none |
-| ORCH-002 | Activity compatibility registry | Planned, waits for ORCH-001 approval | | ORCH-001 |
-| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Planned | | ORCH-001, ORCH-002 |
+| ORCH-001 | Pipeline definition engine: import, validate, inspect, export | Merged | #130 | none |
+| ORCH-002 | Activity compatibility registry | In review | #150 | ORCH-001 |
+| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Planned, waits for ORCH-002 approval | | ORCH-001, ORCH-002 |
 | ORCH-004 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
@@ -42,9 +42,24 @@ Fabric Desktop by KratosBI's program for importing, checking and, later, running
 
 **Rollback.** Revert the PR. It adds new files and adds one mixin to `Service`, four names to `server.METHODS` and `audit.READ_ONLY`, three capabilities and one CLI command; nothing stores data, so nothing needs cleaning up.
 
-## ORCH-002: activity compatibility registry (planned)
+## ORCH-002: activity compatibility registry
 
-A versioned registry describing, per activity type and property, whether Fabric Desktop can run it on this PC, simulate it, only check it statically, or must leave it to Fabric, plus implemented versus planned, the sign-in it needs, its side effects and external dependencies, and whether it needs paid Fabric capacity. Every imported activity gets a classification; unknown types are `unsupported` and kept. No activity is labelled locally executable until ORCH-003 ships a working adapter with tests. Reports come from ORCH-001's schema record, with no cloud calls. Registered in the capability registry for external tools.
+**Source files.** `sidecar/fabric_desktop/orchestration/registry.py` (entry model, overclaim rules, `StaticAdapter`, pipeline reports), `orchestration/activities.py` (the 28 entries and `default_registry()`), Service methods `pipeline_compatibility` and `pipeline_activity_registry` in `pipeline_service.py`, CLI `fabric-desktop pipeline compat|activities`, capabilities `fabric_desktop_check_pipeline_compatibility` and `fabric_desktop_get_activity_registry` (Preview). User guide: [Pipeline activity compatibility](activity-registry.md).
+
+**Design.** One entry per activity type, with aliases. Classifications are `local`, `simulated`, `static`, `cloud` and `unsupported`; `planned` support (with the stage) is reported apart from what is implemented. The registry rejects an entry that claims `local` or `simulated` without an executing adapter and tests, or `cloud` without capacity. Adapters share one interface: `validate(activity, ctx)` for static checks and, from ORCH-003, `execute(activity, run)`. Reports run ORCH-001's validation, then each activity's adapter checks, and summarize the pipeline by its least capable activity. The registry has a version and a fingerprint test, so an entry can't change without a version bump and a changelog line.
+
+**Test evidence.** `sidecar/tests/test_activity_registry.py` (74 tests, no network): coverage of every activity type in the brief, the overclaim rules, unknown types (kept, reported, never a parse failure), property reporting, each static check, fixture reports, the example report in [examples/](examples/orders-daily-compatibility.json), the APIs, the allowlists and the CLI.
+
+**Compatibility claims.** None against Fabric. Data Factory type names and limits (ForEach `batchCount` 1 to 50, timespan format) follow Microsoft's documentation; Fabric-only type names are marked unverified until a tenant export confirms them.
+
+**Known limitations.**
+
+- No activity runs on this PC; nothing is `local` or `simulated` until ORCH-003 adds executing adapters with tests.
+- Source, sink and connection settings are carried, not checked against each connector's schema.
+- `fabric_capacity` says whether an activity can only run in Fabric (`fabric_only`) or is metered when it runs there (`metered_in_fabric`); Fabric meters every activity run. A report counts every activity that can't run on this PC as needing capacity. It doesn't estimate capacity units; that belongs to the FinOps program.
+- Activity policy (timeout, retry, secure input and output) is read but not applied.
+
+**Rollback.** Revert the PR. It adds two modules, two Service methods (and their names in `server.METHODS` and `audit.READ_ONLY`), two capabilities and two CLI subcommands; nothing is stored.
 
 ## ORCH-003: local pipeline execution engine (planned)
 
@@ -52,4 +67,4 @@ A DAG scheduler over ORCH-001's model with adapters declared in ORCH-002: depend
 
 ## Next recommended PR
 
-ORCH-002, once ORCH-001 is reviewed and Chris authorizes it.
+ORCH-003, once ORCH-002 is reviewed and Chris authorizes it. It adds the first executing adapters (control flow and the mock activities of the reference pipeline) and moves them to `local` in the registry with their tests.

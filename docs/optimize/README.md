@@ -96,7 +96,7 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | Prefix | Owner | Holds |
 | --- | --- | --- |
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
-| `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
+| `fdacc_` | Governance (Preview, no page yet) | The access cache: who can reach what, updated with changes only ([below](#the-access-cache-fdacc_)) |
 | `fdcap_` | FinOps (planned) | Capacity setting history |
 | `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
 | `fdinc_` | Incident management (planned) | Incident history |
@@ -130,6 +130,17 @@ A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenant
 - **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
 
 For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix. `Family(..., schema="access")` puts its tables in a schema of its own (lowercase, not another family's); then `OptimizeMixin.central_restrict(family, role_name, members, approve=...)` keeps them from DefaultReader as above, raising with what it would change unless `approve=True`; pass the changes you showed as `shown=` so it refuses if they no longer match. Families never PUT data access roles themselves.
+
+### The access cache (`fdacc_`)
+
+The access cache lets OneLake > Access show every workspace at once instead of asking Fabric about each one each time. A refresh asks Fabric, as you, for each workspace's roles and each lakehouse's OneLake data access roles, and writes to the central lakehouse only:
+
+- `fdacc_scans`: one row per workspace and lakehouse looked at, with when, whether the roles could be read, and why not;
+- `fdacc_workspace_roles` and `fdacc_data_access_roles`: what was seen, only when it changed since the last refresh. An unchanged workspace adds one scan row and nothing else.
+
+A refresh changes nothing in the workspaces it looks at. When a workspace's roles can't be read, the cache keeps the last list it could read and marks it out of date, never an empty list. You only see cached workspaces you can open in Fabric. The cache keeps names, ids, types (person, group, app), whether someone is a guest, and roles; it keeps no email addresses. The first refresh asks before adding the tables. Refreshing needs write access to the central lakehouse; reading needs read access.
+
+Not built yet: the page that shows the cache (a mockup comes first), and the cache's own table-level OneLake security role. Until that role exists, anyone who can read the central lakehouse's tables can read the cache.
 
 ## For IT admins
 

@@ -39,7 +39,7 @@ GENESIS = audit_chain.GENESIS
 # Calls that only read or watch. Everything else is recorded, so a new call is audited unless it
 # is added here on purpose.
 READ_ONLY = frozenset("""
-access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules all_shortcuts app_settings
+access_cache access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules all_shortcuts app_settings
 audit_log telemetry_status benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
 governance_applicability governance_overview governance_policy governance_resolve governance_version history
 incidents_list incidents_summary kernel_complete kernel_info kernel_variables mesh_about mesh_map mesh_overview

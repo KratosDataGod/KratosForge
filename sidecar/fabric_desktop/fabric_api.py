@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 
 import requests
 
-from .retrying import TRANSIENT_STATUS
+from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
@@ -86,13 +86,6 @@ def _check_fabric_runs_allowed(what: str) -> None:
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 
-def _retry(method: str, status: int) -> bool:
-    """429 means Fabric refused the request unread, so any method can be sent again. Other transient
-    statuses are retried only for reads: a write that got a 5xx may have happened, and repeating it
-    could create or change something twice."""
-    return status == 429 or (method == "GET" and status in TRANSIENT_STATUS)
-
-
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
@@ -105,11 +98,8 @@ class FabricClient:
         if not url.startswith("http"):
             url = f"{API}{url}"
         headers = {"Authorization": f"Bearer {self._token()}"}
-        for attempt in range(5):
-            resp = self._http.request(method, url, headers=headers, timeout=60, **kwargs)
-            if not _retry(method, resp.status_code) or attempt == 4:
-                break
-            self._sleep(float(resp.headers.get("Retry-After", 5)))
+        resp = send_with_retry(lambda: self._http.request(method, url, headers=headers, timeout=60, **kwargs),
+                               method, sleep=self._sleep, attempts=5, default_wait=5)
         if resp.status_code >= 400:
             raise _error(method, url, resp)
         return resp
@@ -132,7 +122,7 @@ class FabricClient:
         location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
         deadline = time.monotonic() + self._poll_timeout
         while True:
-            self._sleep(float(resp.headers.get("Retry-After", 2)))
+            self._sleep(retry_after(resp.headers, 2))
             resp = self._request("GET", location)
             status = resp.json().get("status")
             if status == "Succeeded":

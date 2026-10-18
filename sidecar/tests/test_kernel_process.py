@@ -213,6 +213,19 @@ def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_l
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
 
 
+def test_a_poll_as_the_process_ends_reports_the_ended_cell_not_a_fresh_process(kernel):
+    kernel.run("kept = 1")
+    kernel.start("import time\ntime.sleep(600)")
+    proc, pid = kernel._proc, kernel.pid
+    kernel._end(proc, "Stopped: over the limit.")  # what the limits watcher does
+    proc.wait()
+    real, looks = proc.poll, iter([None])
+    proc.poll = lambda: next(looks, real())  # the first check still sees it running: it ends just after
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "over the limit" in text(snap)
+    assert kernel.pid == pid, "a poll doesn't start a process; the next cell does"
+
+
 @pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")
 def test_a_notebook_over_the_memory_limit_has_its_process_ended(kernel, quick_limits):
     from fabric_desktop.kernel_proc import memory_used

@@ -6,7 +6,7 @@
 const wizardState = { step: 1, template: null, values: {}, preview: null, problem: "", templates: null };
 
 async function openWizard() {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const t = await attempt(() => rpc("wizard_templates"), "Could not open the wizard");
   if (!t) return;
   Object.assign(wizardState, { step: 1, template: null, values: { mode: "overwrite" }, preview: null, problem: "", templates: t,

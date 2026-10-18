@@ -47,6 +47,7 @@ from .localdata_service import LocalDataMixin
 from .risk_service import RiskMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .tenant_history_service import TenantHistoryMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookStore, check_watches
 from .onelake import FileStore, TableCatalog
@@ -61,7 +62,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -398,7 +399,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:

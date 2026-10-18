@@ -73,11 +73,17 @@ def main(argv: list[str] | None = None) -> None:
     pipe_sub = pipe.add_subparsers(dest="pipeline_command", required=True)
     for name, text in (("validate", "list problems with their JSON paths; exit 1 if there are errors"),
                        ("inspect", "print the activities, dependencies, expressions and diagnostics as JSON"),
-                       ("export", "print the definition in another format")):
+                       ("export", "print the definition in another format"),
+                       ("compat", "what this version can do with each activity (classification, capacity, "
+                                  "properties); exit 1 if there are errors")):
         p = pipe_sub.add_parser(name, help=text)
         p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
         if name == "export":
             p.add_argument("--format", choices=["pipeline_content", "item_definition", "git_folder"])
+        if name == "compat":
+            p.add_argument("--json", action="store_true", help="print the whole report as JSON")
+    p = pipe_sub.add_parser("activities", help="print the activity registry, or one type's entry, as JSON")
+    p.add_argument("type", nargs="?", help="an activity type, such as Copy or TridentNotebook")
     args = parser.parse_args(argv)
 
     if args.command == "mcp":
@@ -241,6 +247,26 @@ def _pipeline(args: argparse.Namespace) -> int:
             return 0
     elif args.pipeline_command == "inspect":
         result = svc.pipeline_inspect(path=args.path)
+    elif args.pipeline_command == "activities":
+        print(json.dumps(svc.pipeline_activity_registry(args.type), indent=2))
+        return 0
+    elif args.pipeline_command == "compat":
+        result = svc.pipeline_compatibility(path=args.path)
+        if not args.json and "summary" in result:
+            for r in result["activities"]:
+                planned = f" (planned: {r['planned']['classification']}, {r['planned']['stage']})" if r["planned"] else ""
+                print(f"{r['classification']:<11} {r['name']} [{r['type']}]{planned}")
+                for prop in r["properties"]:
+                    print(f"{'':<11}   {prop['property']}: {prop['status']}")
+            s = result["summary"]
+            print(f"overall: {s['overall']}; runs on this PC: {'yes' if s['runs_on_this_pc'] else 'no'}; "
+                  f"needs Fabric capacity: {len(s['needs_fabric_capacity'])} of {s['activities']} activities")
+            if s["needs_fabric_capacity"]:
+                print("these can't run on this PC yet, and Fabric meters every activity run"
+                      + (f"; Fabric only: {', '.join(s['fabric_only'])}" if s["fabric_only"] else ""))
+            c = result["counts"]
+            print(f"{c['error']} errors, {c['warning']} warnings, {c.get('info', 0)} notes")
+            return 0 if result["ok"] else 1
     else:
         result = svc.pipeline_validate(path=args.path)
         for d in result["diagnostics"]:

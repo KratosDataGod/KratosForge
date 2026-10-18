@@ -24,7 +24,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
 
-from . import agent_status
+from . import agent_status, shared_schedules
 from .agent_config import AgentConfig
 from .audit import AuditLog
 from .dataops_service import post_teams
@@ -33,11 +33,12 @@ from .local_schedules import next_run
 from .logs import fields
 from .mailbox import Mailbox
 from .meta import mesh as mesh_mod
+from .meta.engine import Abandoned
 from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, send
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send
 
 KIND_META = "meta"
 
@@ -70,7 +71,8 @@ class Agent:
         if config.pipeline.enabled:
             p = config.pipeline
             self.mailbox = Mailbox(self, self._control, p.environments, p.entities, p.allow_backfill,
-                                   p.retention_days, known_entities=self.runtime.entity_names)
+                                   p.retention_days, known_entities=self.runtime.entity_names, claim=p.claim,
+                                   take_over=p.take_over, max_attempts=config.max_attempts)
 
     def _control(self, env: str) -> Any:
         """The environment's control files (mailbox and status records), built once."""
@@ -173,20 +175,47 @@ class Agent:
 
     def tick_schedules(self) -> list[str]:
         """Enqueue every schedule that is due. A schedule missed while the agent was down runs once
-        when it starts again, not once per missed time."""
+        when it starts again, not once per missed time. A shared schedule is written to its
+        environment's mailbox instead (shared_schedules.py), so one agent of those sharing it runs it."""
         fired = []
         now = self.clock()
         for s in self.config.schedules:
             due = self.queue.schedule_next(s.id)
             if due is None or due <= now:
                 if due is not None:
-                    self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
-                                 dedupe_key=f"schedule:{s.id}")
+                    if s.shared:
+                        self._submit_shared(s, due, now)
+                    else:
+                        self.enqueue(s.env, s.entities, s.backfill, source=f"schedule:{s.id}",
+                                     dedupe_key=f"schedule:{s.id}")
                     fired.append(s.id)
-                nxt = next_run(s.config, dt.datetime.fromtimestamp(now))
+                nxt = shared_schedules.next_aligned(s.when, now) if s.shared else None
+                if nxt is None:
+                    local = next_run(s.config, dt.datetime.fromtimestamp(now))
+                    nxt = _epoch(local) if local is not None else None
                 if nxt is not None:
-                    self.queue.set_schedule_next(s.id, _epoch(nxt))
+                    self.queue.set_schedule_next(s.id, nxt)
         return fired
+
+    def _submit_shared(self, s: Any, due: float, now: float) -> None:
+        """One request for this due time in the mailbox, unless another agent wrote it first or its
+        deadline passed. A mailbox that can't be reached is logged; the agents that can reach it run it."""
+        try:
+            rid, outcome = shared_schedules.submit(self._control(s.env), s, due, now, self.config.name)
+        except Exception as exc:
+            self._controls.pop(s.env, None)
+            self.log.warning("couldn't write the shared schedule's request", extra=fields(
+                schedule=s.id, env=s.env, error=f"{type(exc).__name__}: {exc}"))
+            return
+        self.log.info({"created": "shared schedule requested", "exists": "shared schedule already requested",
+                       "late": "shared schedule past its deadline; not requested"}[outcome],
+                      extra=fields(schedule=s.id, env=s.env, request_id=rid))
+
+    def has_free_worker(self) -> bool:
+        """Whether a request claimed now would start at once: fewer jobs running or queued here than workers."""
+        busy = len([f for f in self._running.values() if not f.done()])
+        queued = sum(self.queue.counts(env).get("queued", 0) for env in self.config.environments)
+        return busy + queued < self.config.concurrency
 
     # ---- doing work
 
@@ -205,9 +234,17 @@ class Agent:
         beat = threading.Thread(target=self._heartbeat, args=(job, done), daemon=True)
         beat.start()
         t0 = time.monotonic()
+        extra: dict[str, Any] = {}
+        if self.mailbox and str(job.get("source") or "").startswith("pipeline:"):
+            extra["guard"] = lambda: self._still_ours(job)
         try:
             results = self.runtime.run_environment(p["env"], p.get("entities") or None, p.get("backfill") or None,
-                                                   bool(p.get("cascade")), job=job)
+                                                   bool(p.get("cascade")), job=job, **extra)
+        except Abandoned as exc:
+            self.queue.cancel(job["id"], str(exc), owner=owner)
+            self._audit(job, "handed_over", time.monotonic() - t0, error=str(exc))
+            self.log.warning("job stopped: another agent took its request over", extra=fields(**ctx, error=str(exc)))
+            return
         except Exception as exc:
             from .retrying import is_retryable
             error = f"{type(exc).__name__}: {exc}"
@@ -250,6 +287,12 @@ class Agent:
             self.log.error("job failed", extra=fields(**ctx, seconds=seconds, error=error, **summary))
             self._alert(job, error)
 
+    def _still_ours(self, job: dict[str, Any]) -> None:
+        """Before each table: stop if another agent took this job's pipeline request over."""
+        other = self.mailbox.taken_over(job) if self.mailbox else ""
+        if other:
+            raise Abandoned(f"agent {other} took this request over")
+
     def _audit(self, job: dict[str, Any], outcome: str, seconds: float, error: str = "", **summary: Any) -> None:
         """One audit line per job run (FD-125), next to the desktop app's lines for the same actions."""
         p = job["payload"]
@@ -283,7 +326,7 @@ class Agent:
             post_teams(url, f"Fabric Desktop by KratosBI agent {self.config.name}: a {env} job didn't finish",
                        [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
         except Exception as exc:  # the log has it either way
-            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=str(exc)))
+            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=failure(exc)))
 
     # ---- the loop
 
@@ -314,6 +357,10 @@ class Agent:
             if self.mailbox.cancel_requested(job):
                 self.queue.cancel(job["id"], "the pipeline cancelled it", owner=self.config.name)
                 self.mailbox.job_changed(self.queue.get(job["id"]) or job)
+                return
+            other = self.mailbox.taken_over(job)
+            if other:  # it was taken over while this agent was away: not this agent's to run
+                self.queue.cancel(job["id"], f"agent {other} took this request over", owner=self.config.name)
                 return
             self.mailbox.job_changed(job)
         try:

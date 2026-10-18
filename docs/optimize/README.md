@@ -10,6 +10,10 @@ Optimize keeps optimization results in one Microsoft Fabric lakehouse that every
 - If you need separate boundaries, such as business units, regulated data or separate environments, use separate optimization lakehouses. Each installation is connected to one at a time and can switch between the ones it knows.
 - The default name is `FabricDesktop_Optimization`. It is a separate item from the platform's `LH_Meta`.
 
+## Where it is in the app
+
+**Optimize** in the left rail (Preview), in the place the Fabric page had; the Fabric portal is now a tab of Workspaces. It has three tabs: **Overview**, **Opportunities** and **Cost and savings** ([user guide](../user-guide.md#optimize-preview)). The lakehouses this PC uses are in **Settings > Optimize lakehouses**.
+
 ## Setting it up
 
 The first person creates the lakehouse: they pick a workspace and a name, and the app does the rest. It creates the lakehouse, creates the tables, records the schema version and default settings, checks it can read and write, and remembers the connection on that PC. Nobody runs SQL or creates tables by hand.

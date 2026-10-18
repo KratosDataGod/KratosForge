@@ -79,7 +79,7 @@ Home answers "what happened since I was last here". From the top:
 
 | Section | What it shows |
 | --- | --- |
-| **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. |
+| **Summary line** | "Nothing needs your attention", or how many things do, and how many are running. When run history, an environment or Fabric jobs couldn't be read, it says "Nothing found that needs your attention" and names what it couldn't check, since unknown isn't the same as fine. |
 | **Ready to work** | Whether this PC can do real work yet, with a fix for anything that's missing. See [Ready to work](#ready-to-work). |
 | **Needs your attention** | Tables whose latest run failed or is waiting for a decision, in any environment, with **Open entity** and **Open run**. Fabric runs that failed in the last day, with **Open in Fabric**. Tables that are late for their [freshness promise](metadata-guide.md#freshness-promises). |
 | **Your workloads** (Preview) | What you own, by health, with the ones that need attention and how many workloads have no owner. See [Workloads](#workloads-preview). |
@@ -130,7 +130,7 @@ New items:
 
 ## Workspaces
 
-Every Fabric workspace you can open.
+Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
 
 - **+** next to a workspace lists its items. Each item opens in the [Fabric page](#fabric); lakehouses also have **Open** and **SQL query**.
 - The **pin** keeps a workspace at the top, in the order you pinned them. The **star** marks a favorite. The chips at the top show **All**, **Favorites** or **Pinned**. Pins and favorites are kept on this PC.
@@ -259,22 +259,36 @@ Whoever creates the platform in Fabric becomes its first admin. Admins add other
 
 ## Fabric
 
-The Fabric page is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
+**Workspaces > Fabric portal** is Fabric's own portal, `app.fabric.microsoft.com`, inside the app. Links across the app (**Open in Fabric**, **Show in Fabric**) open their item here. Buttons along the top: **Back**, **Home**, **OneLake catalog**, **Monitoring hub**, **Reload**, and **Open in browser**.
 
 It signs in with your Windows account when that is the same work account you use in the app, so there's usually no password prompt. Otherwise sign in once; the app keeps that sign-in between launches, encrypted for your Windows account in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin`. Delete that file to make it forget. Links that leave Fabric open in your default browser.
+
+The portal used to have its own page in the left rail; that place now holds [Optimize](#optimize-preview). Type **Fabric** in the command bar (Ctrl+K) to open it from anywhere.
+
+## Optimize (Preview)
+
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+
+- **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
+- **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
+- **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
+- **Cost and savings:** the capacity each run used in Fabric and, for runs on this PC, what they would have used in Fabric (a scenario), each figure with its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. **Prices** sets your price per CU hour. It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor).
 
 ## Monitor
 
 Monitor has two halves.
 
-**From Fabric Desktop by KratosBI** (top) has six panels:
+**From Fabric Desktop by KratosBI** (top) has four tabs:
 
 - **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
-- **Workloads** (Preview): everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
-- **Incidents** (Preview): one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
-- **Agents** (Preview): every [agent](agent.md) that serves your environments, from the status each one reports. See [Agents](#agents-preview) below.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off.
-- **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md).
+- **Operations** (Preview): the views for running workloads day to day. **Show** picks one, and Operations opens on the last one you used:
+  - **Workloads**: everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
+  - **Queue**: what is running, queued and next, on this PC, on agents and in Fabric, with who owns each item. See [Queue](#queue-preview) below.
+  - **Agents**: every [agent](agent.md) that serves your environments, from the status each one reports. See [Agents](#agents-preview) below.
+  - **Run as**: which identity runs your workloads in each place, the credential it uses, and where data goes. See [Run as](#run-as-preview) below.
+  - **Incidents**: one record per problem in each environment, shared with your team and your agents. See [Incidents](#incidents-preview) below.
+- **Cost** (Preview): what runs in Fabric used in capacity units (CU hours) and what that is at your price, and the Fabric use avoided by running on this PC, over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. Each figure has a badge (Measured, Estimated, Scenario or Unknown); click it to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md).
 
 **In Fabric** (bottom, on Runs) is Fabric's own Monitoring hub, for everything else in your workspaces, with **Back**, **Home**, **Reload** and **Open in browser**. It shows under **Runs** only. **Hide** gives Runs the whole page; the app remembers it. Every other panel always uses the whole page.
 
@@ -334,7 +348,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 ### Agents (Preview)
 
-An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
+An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
 **The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
 
@@ -360,6 +374,29 @@ An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. E
 
 It also lists its last jobs. When the agent has stopped reporting or is older than the app, **What you can do** says what to check on its server. A stopped agent runs each missed schedule once when it starts again, and picks up any job it was running. An incident about an agent that stopped reporting has **Open agent**.
 
+### Queue (Preview)
+
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything.
+
+The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Schedules last read. The Queue page makes no Fabric call of its own. Until Schedules has read Fabric's schedules, the line says so, with a link.
+
+**Running and queued** lists what each agent is running and how many jobs it has queued, and the Fabric jobs this app started that haven't finished. An agent's status record counts its queued jobs but doesn't list them. For an agent that stopped reporting, what it was running shows as **Unknown**, from its last report; it picks those jobs up again when it is back.
+
+**Next 24 hours** lists each schedule due in the next day, with when it runs. A schedule that an agent should have run while it was down shows as **Missed**; the agent runs it once when it is back. A [shared schedule](agent.md#shared-schedules-preview) is one row that names every agent sharing it, because each due time runs once on whichever claims it; it is **Missed** only when none of them is reporting. On an agent's page, such a schedule is tagged **Shared**. A Fabric schedule says how often it runs, not when it runs next, so it is listed with its pattern, after the rest.
+
+A run Windows Task Scheduler started on this PC isn't listed while it runs; it shows in **Runs** when it finishes. Fabric work that this app didn't start isn't listed either. It is in Fabric's own Monitoring hub, in the bottom half of Monitor. The page doesn't poll your tenant.
+
+
+### Run as (Preview)
+
+Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server.
+
+- **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
+- **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.
+- **Fabric schedules** on items in your environments' workspaces run as their owner, as Monitor > Schedules last read them. Fabric doesn't say when the owner's access lapses, so that shows **Not visible**.
+
+The banner at the top lists what to look at: a certificate that has expired or ends within 30 days, and an agent whose last token request failed. For an agent that stopped reporting, its row shows its last report, as it was.
+
 ## Source control (Preview)
 
 **Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. The whole page is described in [Source control](source-control.md).
@@ -372,8 +409,9 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | --- | --- |
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
-| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library and quarantine Replay are core steps: they always show, with their Preview tag. |
+| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
@@ -418,7 +456,7 @@ A channel change takes effect the next time Fabric Desktop by KratosBI starts. M
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library and quarantine Replay are also in preview but are core steps, so they always show, with their Preview tag.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 

@@ -101,6 +101,7 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #214 | Optimize uses the shared Windows Delta log retry (follow-up to #210) | PASS | 9.2 | None. Its own copy is removed; three wrapped calls now retry at two levels, still bounded |
 | #213 | Keep punctuation after a scrubbed OneLake address (follow-up to #142) | PASS | 9.2 | None |
 | #212 | Danger confirm for metadata deletes and quarantine discard (UX-018) | PASS | 9.1 | None. UX-018 stays open for the other call sites |
 | #205 | Platform notices to Teams (engine) | CONDITIONAL PASS, then PASS (9.0) at 521bfef | 8.4 | The error text from an unreachable Teams held the webhook's `sig=` secret, which was returned and stored in the outbox. Fixed with `notify.failure`, which redacts it, for incident notices too. Still open on `main` (QA-031): `dataops_service.py:312` (freshness alerts) and `agent.py:286` (agent log) |

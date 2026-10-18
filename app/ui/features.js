@@ -44,6 +44,7 @@ const PREVIEW_FEATURES = {
   debug: "Variable history and watches",
   cost: "Cost",
   capacity: "Capacity status",
+  usage: "Measured usage import",
   shortcuts: "OneLake shortcuts",
   access: "OneLake access",
   history: "Table history and restore",

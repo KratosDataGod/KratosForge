@@ -297,6 +297,134 @@ function capacityStrip(doc) {
       h("td", {}, capacityAge(e)))))));
 }
 
+// ---------- measured usage imported from a Capacity Metrics app export (FINOPS-003) ----------
+
+const USAGE_STATE = {
+  matched: ["Measured", "pass", "Imported rows matched this run by workspace, item and time."],
+  no_row: ["No row", "wrn", "An import covers this workspace and time, but no row matched: the export may be sampled or filtered."],
+  not_covered: ["Not covered", "neu", "No import covers this run's workspace and time."],
+  no_item_name: ["Can't match", "neu", "This kind of run doesn't record the item it ran, so it can't be matched."],
+};
+
+function usageCard(u, cur) {
+  if (!u) return null;
+  const imports = u.imports_list || [];
+  const importBtn = btn("Import usage file", "attach", () => usageImportDialog(), "tool outline small");
+  const tag = preview("usage", h("span", { class: "usage-tag" }));
+  if (!tag) return null;
+  const head = h("div", { class: "row" }, h("b", {}, "Measured usage"), tag, h("span", { class: "spacer" }), importBtn);
+  if (u.error) return h("div", { class: "card pad usage-card" }, head, h("p", { class: "error-text" }, u.error));
+  if (!imports.length) {
+    return h("div", { class: "card pad usage-card" }, head,
+      h("p", { class: "muted-text small" }, "The figures above are estimates. For measured CU, a capacity admin exports the operations table from the Capacity Metrics app's Timepoint page (More options > Export data > CSV) and gives you the file. It stays on this PC; no admin rights are needed to import it."));
+  }
+  const m = u.matched, runs = u.runs;
+  const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
+    sub ? h("span", { class: "k" }, sub) : null);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const reasons = Object.entries(u.unmatched.by_reason || {}).map(([k, n]) => `${k}: ${n}`).join("\n");
+  const matchedRuns = (u.by_run || []).filter((b) => b.state === "matched");
+  return h("div", { class: "card pad usage-card" }, head,
+    h("div", { class: "cmp-stats" },
+      stat(u.imported ? measureFigure("Measured CU in your imports", u.imported, cur) : "None", "Measured CU in your imports",
+        `${plural(u.rows, "row")} in the last ${(Date.parse(u.period.end) - Date.parse(u.period.start)) / 864e5 | 0} days`),
+      stat(m.measured ? measureFigure("This app's runs, measured", m.measured, cur) : "None",
+        "This app's runs, measured", `${m.runs} of ${plural(runs.total, "Fabric run")} matched`),
+      m.estimated ? stat(measureFigure("The same runs, estimated", m.estimated, cur), "The same runs, estimated",
+        m.measured_to_estimate ? `measured is ${Number(m.measured_to_estimate).toFixed(1)}× the estimate` : null) : null,
+      stat(u.unmatched.measured ? measureFigure("Other use in the imports", u.unmatched.measured, cur) : "None",
+        h("span", { title: reasons }, "Other use in the imports"), `${plural(u.unmatched.rows, "row")} not from this app's runs`)),
+    runs.no_row || runs.not_covered || runs.no_item_name ? h("p", { class: "muted-text small" },
+      [runs.no_row ? `${plural(runs.no_row, "run")} inside an import had no matching row (exports can be sampled or filtered).` : "",
+        runs.not_covered ? `${plural(runs.not_covered, "run")} aren't covered by any import.` : "",
+        runs.no_item_name ? `${plural(runs.no_item_name, "run")} can't be matched.` : ""].filter(Boolean).join(" ")) : null,
+    matchedRuns.length ? h("table", { class: "list compact" },
+      h("thead", {}, h("tr", {}, ["Run", "Started", "Measured", "Estimated"].map((c) => h("th", {}, c)))),
+      h("tbody", {}, matchedRuns.slice(0, 20).map((b) => h("tr", {},
+        h("td", {}, h("b", {}, b.name || b.item), h("div", { class: "muted-text small" }, `${b.kind} · ${b.workspace || ""}`)),
+        h("td", {}, when(b.started_at)),
+        h("td", { class: "n" }, measureFigure(`${b.name}: measured`, b.measured, cur)),
+        h("td", { class: "n" }, measureFigure(`${b.name}: estimated`, b.estimated, cur)))))) : null,
+    h("details", { class: "usage-imports" }, h("summary", { class: "small" }, `${plural(imports.length, "import")} on this PC`),
+      h("table", { class: "list compact" }, h("tbody", {}, imports.map((i) => h("tr", {},
+        h("td", {}, h("b", {}, i.file_name), h("div", { class: "muted-text small" }, `${i.provider_label} · ${i.layout_label}`)),
+        h("td", { class: "small" }, i.period?.start ? `${new Date(i.period.start).toLocaleDateString()} to ${new Date(i.period.end || i.period.start).toLocaleDateString()}` : ""),
+        h("td", { class: "n" }, plural(i.rows, "row")),
+        h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
+        h("td", {}, btn("Remove", "delete", async () => {
+          if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove"))) return;
+          if (await attempt(() => rpc("usage_import_delete", { import_id: i.id }), "Not removed")) render();
+        }, "tool outline small"))))))));
+}
+
+function usageImportDialog() {
+  const state = { name: "", text: "", options: { tz: "UTC" } };
+  const out = h("div", { class: "usage-preview" });
+  const input = h("input", { type: "file", accept: ".csv,text/csv" });
+  const tz = h("input", { value: "UTC", size: 8, title: "The export doesn't say its time zone. UTC, or an offset such as +02:00." });
+  const go = btn("Import", "save", async () => {
+    const res = await attempt(() => rpc("usage_import", { file_name: state.name, content: state.text, options: state.options }), "Not imported");
+    if (res) { closeDialog(); toast(`Imported ${res.rows} row${res.rows === 1 ? "" : "s"} of measured usage`); render(); }
+  }, "tool primary");
+  go.disabled = true;
+  const check = async () => {
+    go.disabled = true;
+    if (!state.text) return;
+    state.options.tz = tz.value.trim() || "UTC";
+    fill(out, h("p", { class: "muted-text" }, "Checking the file..."));
+    const p = await attempt(() => rpc("usage_preview", { file_name: state.name, content: state.text, options: state.options }), "Not read");
+    if (!p) { fill(out); return; }
+    fill(out, ...usagePreview(p, (opt, value) => { Object.assign(state.options, opt === "period" ? value : { [opt]: value }); check(); }));
+    go.disabled = !p.ready;
+  };
+  input.onchange = async () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > 64 * 1024 * 1024) { fill(out, h("p", { class: "error-text" }, "The file is larger than 64 MB. Export a shorter period.")); return; }
+    state.name = f.name; state.text = await f.text(); state.options = { tz: tz.value.trim() || "UTC" };
+    check();
+  };
+  tz.onchange = check;
+  showDialog("Import measured usage", h("div", { class: "scroll" },
+    h("p", { class: "text" }, "A CSV exported from the Capacity Metrics app: the Timepoint page's operations table (with Total CU (s)), or the Compute page's items matrix (with CU (s)). A capacity admin can export it and give it to you. The file is read on this PC and kept here; nothing is sent anywhere."),
+    h("div", { class: "form-grid" }, h("label", { class: "field" }, "File", input), h("label", { class: "field" }, "Times are in", tz)),
+    out),
+  [btn("Cancel", null, closeDialog, "tool outline"), go]);
+}
+
+// What importing the file would add, and anything the person has to choose first.
+function usagePreview(p, choose) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const row = (k, v) => v ? h("tr", {}, h("td", { class: "muted-text" }, k), h("td", {}, v)) : null;
+  const need = p.needs;
+  let ask = null;
+  if (need && need.option === "period") {
+    const from = h("input", { type: "date" }), to = h("input", { type: "date" });
+    ask = h("div", { class: "row wrap" }, h("label", { class: "field" }, "From", from), h("label", { class: "field" }, "To", to),
+      btn("Use this period", "ok", () => choose("period", { period_start: from.value, period_end: to.value }), "tool outline small"));
+  } else if (need) {
+    ask = h("div", { class: "row wrap" }, Object.entries(need.choices).map(([v, label]) => btn(label, null, () => choose(need.option, v), "tool outline small")));
+  }
+  const cols = p.columns;
+  return [
+    p.problem ? h("p", { class: p.ready ? "muted-text" : "error-text" }, p.problem) : null,
+    ask,
+    p.provider ? h("table", { class: "list compact" }, h("tbody", {},
+      row("Recognized as", `${p.provider.label}, ${p.layout.label}`),
+      cols ? row("Columns used", Object.values(cols.used).join(", ")) : null,
+      cols?.not_stored?.length ? row("Not stored", cols.not_stored.join(", ")) : null,
+      cols?.ignored?.length ? row("Not used", cols.ignored.filter((c) => !cols.not_stored.includes(c)).join(", ")) : null,
+      p.rows_read !== undefined ? row("Rows", `${p.rows_read} read · ${p.to_import} to import` +
+        (p.already_imported ? ` · ${p.already_imported} already imported` : "") + (p.duplicates_in_file ? ` · ${p.duplicates_in_file} repeated in the file` : "")) : null,
+      p.period?.start ? row("Period", `${new Date(p.period.start).toLocaleString()} to ${new Date(p.period.end || p.period.start).toLocaleString()}`) : null,
+      p.workspaces?.length ? row("Workspaces", p.workspaces.join(", ")) : null,
+      p.total && p.to_import ? row("Measured CU", measureFigure("Measured CU in this file", p.total)) : null)) : null,
+    p.skipped?.length ? h("div", {}, h("p", { class: "text" }, h("b", {}, `${plural(p.skipped.reduce((a, s) => a + s.count, 0), "row")} skipped`)),
+      h("ul", { class: "text" }, p.skipped.map((s) => h("li", {}, `${s.reason}: ${s.count} (line${s.lines.length === 1 ? "" : "s"} ${s.lines.join(", ")}${s.count > s.lines.length ? ", ..." : ""})`)))) : null,
+    p.notes?.length ? h("ul", { class: "muted-text small" }, p.notes.map((n) => h("li", {}, n))) : null,
+  ];
+}
+
 function costBody(r) {
   const cur = r.settings.currency;
   const stat = (figure, label, sub) => h("div", { class: "cmp-stat" }, h("span", { class: "v" }, figure), h("span", { class: "k" }, label),
@@ -318,6 +446,7 @@ function costBody(r) {
       r.by_env.filter((e) => e.capacity_share_evidence && e.capacity_share_evidence.classification !== "unknown" && e.fabric_runs).map((e) =>
         stat(measureFigure(`Share of ${e.capacity || "the"} capacity`, e.capacity_share_evidence, cur), `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
     capacityStrip(r.capacities),
+    usageCard(r.usage, cur),
     t.unknown_runs ? h("p", { class: "muted-text small" }, `${t.unknown_runs === 1 ? "1 run's" : `${t.unknown_runs} runs'`} capacity use isn't known (still running, or no run time recorded). They are left out of the totals, not counted as 0.`) : null,
     r.by_item.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Avoided on this PC"].map((c) => h("th", {}, c)))),

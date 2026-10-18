@@ -47,6 +47,7 @@ nav = [
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
     { "Governance policies" = "governance.md" },
+    { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },

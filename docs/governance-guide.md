@@ -13,6 +13,8 @@ Some standards are already enforced today by the app's own gates, without a poli
 
 ## From draft to result
 
+Each step below is saved in the platform's catalog: the policy and its versions in `catalog.policy` and `catalog.policy_version`, assignments in `catalog.policy_assignment`, and every create, publish and assign as a row in `catalog.policy_event`.
+
 1. **Write it.** Platform > Governance > **New policy**. Give it an id, a name, a category, an owner, a severity, an enforcement (Advisory, Warn or Block), the scopes it may be assigned at, and **How to fix** text for developers. It starts as draft version 1.
 2. **Publish it.** **Publish** turns the draft into version 1. A published version never changes; editing starts version 2 as a new draft.
 3. **Assign it.** On the policy's **Where it applies** tab, choose **Assign** and pick a scope. An assignment can tighten the policy for that scope. If the policy is **Mandatory**, scopes below may only make it stricter.
@@ -21,6 +23,8 @@ Some standards are already enforced today by the app's own gates, without a poli
 6. **(Coming with GOV-002 and GOV-003)** The policy's **Checked by** rule runs against the project. An Advisory finding is shown, a Warn finding is shown as a warning, and a Block finding stops promote or deploy until it's fixed or an exception is approved.
 
 ## Worked examples
+
+The ids and **Checked by** rule names below are illustrative. Use your own. The rule names become real check names with GOV-002.
 
 ### 1. A naming policy
 
@@ -64,7 +68,8 @@ Your standard: every entity with custom code has an owner, and every data produc
 | --- | --- |
 | Id | `owner-required` |
 | Category | Ownership and stewardship |
-| Enforcement | Block at enterprise; a domain may keep it as is (it's mandatory) |
+| Enforcement | Block |
+| Mandatory | On (a domain may keep it as is but not loosen it) |
 | Checked by | `ownership.entity_owner`, `ownership.product_owner` |
 | Exceptions | Allowed, with an approver and an expiry |
 
@@ -84,7 +89,7 @@ There are three kinds of enforcement, and they differ in what each can stop:
 | --- | --- | --- | --- |
 | **Naming** | Today: entity and key table names must be valid when saved. With policies: naming rules on entities, layers and products at save and promote | With policies: names of items made in Fabric outside the app | Workspace and item names in the Fabric portal |
 | **Schema** | Today: the save gate checks every column exists upstream and shows what a rename or delete breaks; drift settings per layer decide whether a new column is accepted | Today: schema drift is recorded in `meta.schema_history` and shown for review | Table schemas changed directly in a lakehouse |
-| **Data quality** | Today: checks run before every write and can stop it (`on_fail = "stop"`) or quarantine rows; promote needs a green last run and passing tests | Today: `warn` checks and Table health findings | None. Fabric has no quality rules of its own |
+| **Data quality** | Today: checks run before every write and can stop it (`on_fail = "stop"`) or quarantine rows; promote needs a green last run and passing tests | Today: `warn` checks and Table health findings | Materialized lake view constraints, and Microsoft Purview Data Quality where you use it. Neither reads these policies |
 | **Classification** | With policies: block promote when a required classification is missing | With policies: tables without classification, and Restricted tables in open products | Sensitivity labels, label inheritance and DLP (Purview) |
 | **Ownership** | Today: custom code needs an owner and a test at save. With policies: owners on entities, products and domains | With policies: items and domains without owners | Workspace roles and item ownership (Fabric) |
 | **Data contracts** | With policies: block a promote that breaks a published product's port (a removed or renamed column) | Today: product deprecations carry a date, and the catalog lists every consumer. With policies: consumers reading outside a link | Access to the tables themselves (OneLake security roles, workspace roles) |

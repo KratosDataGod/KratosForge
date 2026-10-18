@@ -389,10 +389,27 @@ function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
   return box;
 }
 
+// Coming back to Home within a few minutes shows the page as it was, with no calls (#192), once it
+// had finished loading; a sign-in, a search or a run starting or finishing draws it again, as does Refresh.
+const HOME_REUSE_MS = 5 * 60 * 1000;
+const homeCache = { page: null, key: "", at: 0, stamp: null, done: false };
+function homeKey() {
+  return JSON.stringify([state.user, state.query, previewShown(), state.meta?.project?.path, activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
+}
+function homeUpdatedText() {
+  const min = Math.floor((Date.now() - homeCache.at) / 60000);
+  return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
+    homeCache.stamp.textContent = homeUpdatedText();
+    setView(homeCache.page);
+    return;
+  }
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
@@ -404,8 +421,11 @@ async function renderHome() {
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
-  setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  const page = h("div", { class: "page home" },
+    h("div", { class: "row home-head" },
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -422,8 +442,10 @@ async function renderHome() {
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
     foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
-    xray));
-  const onHome = () => state.view === "home";
+    xray);
+  Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
+  setView(page);
+  const onHome = () => state.view === "home" && homeCache.page === page;
 
   // What is running is already known in the app: no call needed.
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
@@ -550,7 +572,9 @@ async function renderHome() {
   // The X-ray's saved scan is read last, so it never holds up the rest of Home.
   await Promise.allSettled([notebooksDone, upcomingDone, runsDone]);
   if (onHome() && yours?.isConnected) await yours.load();  // reads every source, so after the quick parts
-  if (onHome() && xray?.isConnected) loadXray(xray, false);
+  if (onHome() && xray?.isConnected) await loadXray(xray, false);
+  // The engine answers in order, so the cards that read on their own (Ready to work, the mesh map) are in too.
+  if (onHome()) homeCache.done = true;
 }
 
 function tile(iconName, title, desc, onClick) {

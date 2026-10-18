@@ -212,7 +212,7 @@ function gitMergeBanner(st) {
       : "All conflicts are fixed. Commit to finish the merge."),
     h("span", { class: "spacer" }),
     btn("Undo the pull", "undo", async () => {
-      if (!(await confirmDialog("Undo the pull?", "Every file goes back to how it was before the pull, including the conflicts you fixed. Your own commits are kept.", "Undo the pull"))) return;
+      if (!(await confirmDialog("Undo the pull?", "Every file goes back to how it was before the pull, including the conflicts you fixed. Your own commits are kept.", "Undo the pull", { danger: true }))) return;
       if (await attempt(() => rpc("git_abort_merge", { repo: gitCurrent(), confirm: true }), "Couldn't undo the merge")) { toast("The pull was undone."); gitAfterChange(); }
     }, "tool outline"));
 }
@@ -430,7 +430,7 @@ async function gitDiscard(paths, untracked) {
   const text = untracked
     ? `${what} isn't in Git yet, so discarding deletes it from this PC. This can't be undone.`
     : `Your changes to ${what} since it was last staged or committed are thrown away. This can't be undone.`;
-  if (!(await confirmDialog(untracked ? "Delete this file?" : "Discard changes?", text, untracked ? "Delete file" : "Discard changes"))) return;
+  if (!(await confirmDialog(untracked ? "Delete this file?" : "Discard changes?", text, untracked ? "Delete file" : "Discard changes", { danger: true }))) return;
   const st = await attempt(() => rpc("git_discard", { repo: gitCurrent(), paths, confirm: true }), "Not discarded");
   if (st) gitAfterChange(st);
 }
@@ -529,13 +529,13 @@ async function gitSwitchBranch(name, mode = null) {
 }
 
 async function gitDeleteBranch(name) {
-  if (!(await confirmDialog(`Delete ${name}?`, "The branch is deleted on this PC. A copy on the remote stays; delete that on the provider's site.", "Delete branch"))) return;
+  if (!(await confirmDialog(`Delete ${name}?`, "The branch is deleted on this PC. A copy on the remote stays; delete that on the provider's site.", "Delete branch", { danger: true }))) return;
   try {
     await rpc("git_delete_branch", { repo: gitCurrent(), name, confirm: true });
   } catch (err) {
     const f = friendlyError(err);
     if (!/commits no other branch holds/.test(f.text)) { toast(f.text, true, { details: f.details }); return; }
-    if (!(await confirmDialog(`${name} has commits that aren't anywhere else`, "Deleting it loses those commits unless they were pushed. Delete it anyway?", "Delete anyway"))) return;
+    if (!(await confirmDialog(`${name} has commits that aren't anywhere else`, "Deleting it loses those commits unless they were pushed. Delete it anyway?", "Delete anyway", { danger: true }))) return;
     if (!(await attempt(() => rpc("git_delete_branch", { repo: gitCurrent(), name, confirm: true, force: true }), "Not deleted"))) return;
   }
   gitPage.branches = null;

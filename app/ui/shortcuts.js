@@ -248,7 +248,7 @@ async function renderShortcuts() {
 
   async function removeShortcut(s) {
     if (!(await confirmDialog(`Remove shortcut ${s.name}?`,
-      `Only the shortcut in ${s.lakehouse_name} goes. The data it points at isn't touched.${s.used_by.length ? ` ${s.used_by.map((u) => u.entity).join(", ")} read it and will fail.` : ""} You can recreate it from Changes.`, "Remove"))) return;
+      `Only the shortcut in ${s.lakehouse_name} goes. The data it points at isn't touched.${s.used_by.length ? ` ${s.used_by.map((u) => u.entity).join(", ")} read it and will fail.` : ""} You can recreate it from Changes.`, "Remove", { danger: true }))) return;
     const ok = await attempt(() => rpc("delete_shortcut", { workspace_id: s.host_workspace_id, item_id: s.lakehouse_id, path: s.path, name: s.name,
       lakehouse_name: s.lakehouse_name, workspace_name: s.workspace_name }), "Not removed");
     if (!ok) return;
@@ -627,7 +627,7 @@ async function shortcutDialog(mode, opts = {}) {
     const common = { workspace_id: l.workspace_id, item_id: l.item_id, source: src(), lakehouse_name: l.name,
       workspace_name: l.workspace_name, target_workspace_name: targetWs() };
     if (mode === "repoint") {
-      if (!(await confirmDialog(`Repoint ${s.name}?`, `Fabric can't change where a shortcut points, so ${s.name} is removed and made again with the same name, pointing at the new target. If that fails, it's put back as it was. Runs reading it in between may fail.`, "Repoint"))) return;
+      if (!(await confirmDialog(`Repoint ${s.name}?`, `Fabric can't change where a shortcut points, so ${s.name} is removed and made again with the same name, pointing at the new target. If that fails, it's put back as it was. Runs reading it in between may fail.`, "Repoint", { danger: true }))) return;
       const res = await attempt(() => rpc("shortcut_repoint", { ...common, path: s.path, name: s.name }), "Not repointed");
       if (res) done(`Repointed ${s.name}${res.problems?.length ? `; ${res.problems.join("; ")}` : ""}`);
       return;

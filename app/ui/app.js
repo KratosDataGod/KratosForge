@@ -389,10 +389,27 @@ function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
   return box;
 }
 
+// Coming back to Home within a few minutes shows the page as it was, with no calls (#192), once it
+// had finished loading; a sign-in, a search or a run starting or finishing draws it again, as does Refresh.
+const HOME_REUSE_MS = 5 * 60 * 1000;
+const homeCache = { page: null, key: "", at: 0, stamp: null, done: false };
+function homeKey() {
+  return JSON.stringify([state.user, state.query, previewShown(), state.meta?.project?.path, activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
+}
+function homeUpdatedText() {
+  const min = Math.floor((Date.now() - homeCache.at) / 60000);
+  return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
+    homeCache.stamp.textContent = homeUpdatedText();
+    setView(homeCache.page);
+    return;
+  }
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
@@ -404,8 +421,11 @@ async function renderHome() {
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
-  setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  const page = h("div", { class: "page home" },
+    h("div", { class: "row home-head" },
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -422,8 +442,10 @@ async function renderHome() {
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
     foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
-    xray));
-  const onHome = () => state.view === "home";
+    xray);
+  Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
+  setView(page);
+  const onHome = () => state.view === "home" && homeCache.page === page;
 
   // What is running is already known in the app: no call needed.
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
@@ -550,7 +572,9 @@ async function renderHome() {
   // The X-ray's saved scan is read last, so it never holds up the rest of Home.
   await Promise.allSettled([notebooksDone, upcomingDone, runsDone]);
   if (onHome() && yours?.isConnected) await yours.load();  // reads every source, so after the quick parts
-  if (onHome() && xray?.isConnected) loadXray(xray, false);
+  if (onHome() && xray?.isConnected) await loadXray(xray, false);
+  // The engine answers in order, so the cards that read on their own (Ready to work, the mesh map) are in too.
+  if (onHome()) homeCache.done = true;
 }
 
 function tile(iconName, title, desc, onClick) {
@@ -564,7 +588,7 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
       preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
 }
@@ -587,6 +611,8 @@ const MONITOR_OPS = [
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
+  // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
+  if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
   const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
   const slot = h("div", { class: "fabric-slot" },
@@ -616,10 +642,8 @@ async function renderMonitor() {
           segment(monitorPage.panel === "runs", "Runs", show("runs")),
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
           ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
-            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null,
-          preview("cost", segment(monitorPage.panel === "cost", "Cost", show("cost")))),
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
         h("span", { class: "muted-text" }, op ? op.text
-          : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
@@ -650,7 +674,6 @@ async function renderMonitor() {
       monitorPage.showFabric ? slot : null)));
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
   else invoke("fabric_view_hide").catch(() => {});
-  if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
@@ -709,7 +732,6 @@ async function renderMonitor() {
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook."));
 }
 
-// Fabric job states, shown with the same pills as local runs.
 // Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
 function runEnvCell(r) {
   if (r.env) return ENV_LABEL[r.env] || r.env;
@@ -719,6 +741,7 @@ function runEnvCell(r) {
   return h("span", { class: "muted-text", title: why }, "None");
 }
 
+// Fabric job states, shown with the same pills as local runs.
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
 }
@@ -1569,7 +1592,7 @@ function renderQuery() {
     let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
     if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
-        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
+        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
       out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
         "Could not save the table");
     }

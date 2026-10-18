@@ -114,7 +114,7 @@ async function governancePolicy(body, id) {
         p.current_version ? `Projects keep v${p.current_version} until it's published.` : "Nobody sees it in force until it's published."),
       btn("Edit draft", null, () => policyDialog(o.options, p, rerender), "tool outline small"),
       btn("Discard", null, async () => {
-        if (!(await confirmDialog(`Discard draft v${p.draft_version}?`, p.current_version ? `v${p.current_version} stays as it is.` : "The policy was never published, so it goes too.", "Discard"))) return;
+        if (!(await confirmDialog(`Discard draft v${p.draft_version}?`, p.current_version ? `v${p.current_version} stays as it is.` : "The policy was never published, so it goes too.", "Discard", { danger: true }))) return;
         const res = await platformCall("governance_discard_draft", { id }, "Not discarded");
         if (res?.deleted) { govPage.open = null; return platformGovernanceTab(body); }
         if (res) rerender();

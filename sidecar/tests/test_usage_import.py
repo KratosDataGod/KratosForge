@@ -366,3 +366,19 @@ def test_month_to_date_exports_that_repeat_days_are_counted_once(tmp_path):
     [cap] = r["billed"]
     assert cap["cu"]["value"] == pytest.approx(288) and cap["cost"][0]["value"] == pytest.approx(51.84)
     assert cap["days"] == 3
+
+
+def test_an_older_export_imported_later_doesnt_replace_a_finished_day(tmp_path):
+    # Export B (full 16th, through the 17th) is imported first; the older export A (partial 16th) after it.
+    head = COST.splitlines()[0]
+    line = lambda day, qty, cost: (f"10/{day}/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,"
+                                   f"{qty},1 Hour,{cost},EUR,{CAP},ContosoF64,Usage,OnDemand")
+    a = "\n".join([head, line(15, 96, "17.28"), line(16, 40, "7.20")]) + "\n"
+    b = "\n".join([head, line(15, 96, "17.28"), line(16, 96, "17.28"), line(17, 96, "17.28")]) + "\n"
+    svc = Service(root=tmp_path)
+    svc.usage_import("b.csv", b)
+    svc.usage_import("a.csv", a)
+    r = rc.reconcile(svc._usage.all(), [], {}, NOW - dt.timedelta(days=30), NOW + dt.timedelta(days=2), now=NOW)
+    [cap] = r["billed"]
+    assert cap["cu"]["value"] == pytest.approx(288) and cap["cost"][0]["value"] == pytest.approx(51.84)
+    assert cap["days"] == 3

@@ -155,9 +155,9 @@ function xrayFinding(f, box, res) {
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
     run_local: () => btn("Open notebook", "notebook", () => {
       openNotebook(f.notebook);
-      toast("Set Runs on to This PC in the ribbon, and its runs stop costing capacity.");
+      toast("Set Runs on to This PC in the ribbon, and its runs start no Fabric job (OneLake reads and writes still use capacity).");
     }, "tool primary"),
-    cost: () => btn("See cost", null, () => { monitorPage.panel = "cost"; go("monitor"); }, "tool outline"),
+    cost: () => btn("See cost", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool outline"),
   }[f.action];
   return h("div", { class: "xray-item" },
     h("span", { class: `pill-s ${sev[0]}` }, sev[1]),

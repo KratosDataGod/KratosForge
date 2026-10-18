@@ -186,3 +186,72 @@ def sample_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:
 def samples(bundle: dict[str, Any], read_sample: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
     """{table: up to SAMPLE_ROWS rows at its version}, read with ``read_sample(row)``."""
     return {f"{t.get('lakehouse', '')}/{t['table']}".lstrip("/"): read_sample(t) for t in sample_tables(bundle)}
+
+
+# ---- opening a bundle and replaying it (prove_service.replay_*)
+
+def notebook_cells(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """The bundle's cells as a notebook's (frozen cells stay frozen, the parameter cell keeps its tag)."""
+    cells = []
+    for c in bundle["cells"]:
+        meta: dict[str, Any] = {}
+        if c.get("parameters"):
+            meta["tags"] = ["parameters"]
+        if c.get("frozen"):
+            meta["frozen"] = True
+        cells.append({"type": c["type"], "source": c["source"], "meta": meta})
+    return cells
+
+
+def tables_to_pin(bundle: dict[str, Any], lakehouse_id: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    """The bundle's tables a replay in ``lakehouse_id`` can pin, and notes on the ones it can't."""
+    pin, notes = [], []
+    for t in bundle["inputs"]["tables"]:
+        if t.get("created"):
+            continue  # the notebook created it: a replay starts without it, as the failed run did
+        if bundle.get("ids_included", True) and t.get("lakehouse_id") and t["lakehouse_id"] != lakehouse_id:
+            notes.append(f"{t['table']} was read from another lakehouse ({t.get('lakehouse') or 'not named'}), "
+                         "so this replay can't read it.")
+            continue
+        if t.get("version") is None:
+            continue
+        pin.append(t)
+    return pin, notes
+
+
+def outcome(bundle: dict[str, Any], stopped_at: int, status: str, outputs: list[dict[str, Any]]) -> dict[str, Any]:
+    """How the replay ended against how the bundle's run ended. ``stopped_at`` is the 1-based cell
+    the replay stopped at, ``status`` how that cell ended and ``outputs`` its output."""
+    failed = bundle["failed_cell"]
+    expected = bundle.get("error") or {}
+    got = error([{"outputs": outputs}], 0) or {}
+    if status != "error":
+        if stopped_at < failed:
+            return {"verdict": "stopped", "text": f"The replay stopped at cell {stopped_at} before reaching cell {failed}."}
+        return {"verdict": "not_reproduced", "text": f"Cell {failed} ran without an error this time. Not reproduced."}
+    said = f"{got.get('ename')}: {got.get('evalue')}"
+    if stopped_at < failed:
+        return {"verdict": "failed_earlier", "text": f"Failed earlier, at cell {stopped_at}: {said}", "error": got}
+    if got.get("ename") == expected.get("ename") and got.get("evalue") == expected.get("evalue"):
+        return {"verdict": "reproduced", "text": "Failed the same way as in the bundle. Reproduced.", "error": got}
+    if got.get("ename") == expected.get("ename"):
+        return {"verdict": "same_kind", "text": f"Failed with the same kind of error, but a different message: {said}", "error": got}
+    return {"verdict": "different", "text": f"Failed differently: {said} (the bundle has {expected.get('ename')})", "error": got}
+
+
+def input_differences(bundle: dict[str, Any], log: dict[str, Any], marked: dict[str, str]) -> list[str]:
+    """What the replay read that isn't what the bundle's run read: files whose SHA-256 differs, and
+    tables read at another version (marked: the latest version or the bundle's sample)."""
+    read_as = {"sample": "from the bundle's sample", "latest": "at its latest version"}
+    notes = [f"{t} was read {read_as[how]}, not at the bundle's version: not the same input."
+             for t, how in sorted(marked.items())]
+    files = {f["path"]: f for f in bundle["inputs"]["files"]}
+    for rel, now in sorted((log.get("files") or {}).items()):
+        then = files.get(rel)
+        if then is None:
+            notes.append(f"{rel} wasn't read in the bundle's run.")
+        elif then.get("sha256") and then["sha256"] != now.get("sha256"):
+            notes.append(f"{rel} is different now from the file the bundle's run read (SHA-256 differs).")
+        elif not then.get("sha256"):
+            notes.append(f"{rel} has no SHA-256 in the bundle, so it can't be checked.")
+    return notes

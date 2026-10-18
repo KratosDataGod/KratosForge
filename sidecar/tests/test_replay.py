@@ -8,6 +8,9 @@ import json
 import time
 import zipfile
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -27,6 +30,7 @@ LH = {"name": "LH_Bronze", "workspace_id": "ws1", "lakehouse_id": "lh1", "worksp
 SETUP = """
 import shutil
 from pathlib import Path
+from typing import Any
 from deltalake import DeltaTable as _DT, write_deltalake as _write
 from fabric_desktop import lakehouse
 _ROOT = Path({root!r})
@@ -257,3 +261,172 @@ def test_a_file_that_is_not_a_bundle_is_refused(tmp_path):
         z.writestr("bundle.json", json.dumps({"format": replay.FORMAT, "version": replay.VERSION + 1}))
     with pytest.raises(ValueError, match="newer Fabric Desktop"):
         replay.read(newer)
+
+
+# ---- opening a bundle and replaying it
+
+def replay_lake(root: Path) -> Path:
+    """A local lakehouse folder with dbo.sales at versions 0 (1 row), 1 (3 rows, overwritten, so
+    version 0's file can be deleted as VACUUM would) and 2 (4 rows)."""
+    lh = root / "lake"
+    sales = str(lh / "Tables" / "dbo" / "sales")
+    write_deltalake(sales, pa.table({"id": [0]}))
+    write_deltalake(sales, pa.table({"id": [1, 2, 3]}), mode="overwrite")
+    write_deltalake(sales, pa.table({"id": [4]}), mode="append")
+    return lh
+
+
+REPLAY_CELLS = [
+    {"type": "markdown", "source": "# Events"},
+    {"type": "code", "source": "from fabric_desktop import lakehouse\nt = lakehouse.read_table('sales')\n"
+                               "lakehouse.write_table(t, 'out')", "count": 1},
+    {"type": "code", "source": "raise ValueError(f'rows {t.height}')", "count": 2,
+     "outputs": [{"type": "error", "ename": "ValueError", "evalue": "rows 3", "traceback": ""}]},
+]
+
+
+def bundle_file(tmp_path: Path, version: int = 1, sample: Any = None, ids: bool = True) -> Path:
+    reads = {"tables": {"lh1/dbo.sales": {"table": "dbo.sales", "version": version, "first": "read",
+                                          "workspace_id": "ws1", "lakehouse_id": "lh1", "lakehouse": "LH_Bronze"}},
+             "files": {}}
+    b = replay.build("events", REPLAY_CELLS, 2, reads, LH)
+    if not ids:
+        b = replay.strip_ids(b)
+    path = tmp_path / "replay-events.zip"
+    replay.write(path, b, {"LH_Bronze/dbo.sales": sample} if sample is not None else None)
+    return path
+
+
+def replay_service(tmp_path, monkeypatch):
+    s = service(tmp_path, monkeypatch)
+    s.kernel = s._new_kernel(True)
+    lh = replay_lake(tmp_path)
+    monkeypatch.setattr(s, "_proof_location", lambda ref: (str(lh), lambda: {}))
+    return s, lh
+
+
+def run_cells(s, name, upto):
+    nb = call(s, "open_notebook", name=name)
+    snap = None
+    for i, c in enumerate(nb["cells"][:upto], 1):
+        if c["type"] != "code":
+            continue
+        call(s, "start_cell", code=c["source"], lakehouse_ref=LH, notebook=name)
+        snap = finished(s.kernel)
+        if snap["status"] != "ok":
+            return i, snap
+    return upto, snap
+
+
+def test_a_replay_reads_the_bundle_versions_and_writes_to_a_sandbox(tmp_path, monkeypatch):
+    s, lh = replay_service(tmp_path, monkeypatch)
+    try:
+        nb = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))
+        name = nb["name"]
+        assert name == "events replay" and nb["replay"]["failed_cell"] == 3 and nb["lakehouse"]["lakehouse_id"] == "lh1"
+        assert [c["source"] for c in nb["cells"]] == [c["source"] for c in REPLAY_CELLS]
+        # Its cells don't run outside a replay: they'd read the latest tables and write the real ones.
+        out = handle(s, json.dumps({"id": 1, "method": "start_cell", "params": {"code": "1", "lakehouse_ref": LH, "notebook": name}}))
+        assert "click Replay" in json.dumps(out["error"])
+        check = call(s, "replay_check", name=name, lakehouse_ref=LH)
+        assert check["blockers"] == [] and check["tables"][0] | {} == {
+            "table": "dbo.sales", "version": 1, "readable": True, "latest": 2, "why": "", "has_sample": False}
+        started = call(s, "replay_start", name=name, lakehouse_ref=LH)
+        assert started["pins"] == {"dbo.sales": 1} and started["sandbox"].startswith("Files/_fabric_desktop/proofs/replay-")
+        stopped, snap = run_cells(s, name, 3)
+        assert stopped == 3 and snap["status"] == "error"
+        result = call(s, "replay_result", name=name, stopped_at=stopped, status="error", outputs=snap["outputs"])
+        assert result["verdict"] == "reproduced" and result["inputs"] == []
+        # The write went to the sandbox; the lakehouse's tables are as they were.
+        assert not (lh / "Tables" / "dbo" / "out").exists()
+        assert DeltaTable(str(lh / started["sandbox"] / "tables" / "dbo" / "out")).to_pyarrow_table().num_rows == 3
+        assert DeltaTable(str(lh / "Tables" / "dbo" / "sales")).version() == 2
+        # Nothing else runs in the kernel meanwhile.
+        out = handle(s, json.dumps({"id": 1, "method": "start_cell", "params": {"code": "1", "notebook": "other"}}))
+        assert "replaying events replay" in json.dumps(out["error"])
+        out = handle(s, json.dumps({"id": 1, "method": "prove_start", "params": {"name": name, "cells": [], "lakehouse_ref": LH}}))
+        assert "replay notebook" in json.dumps(out["error"])
+        # Kept as a normal notebook: the replay ends with a fresh kernel and its cells run as any other.
+        call(s, "replay_end", name=name, keep=True)
+        assert call(s, "open_notebook", name=name)["replay"] is None
+        call(s, "start_cell", code="x = 1", lakehouse_ref=None, notebook=name)
+        assert finished(s.kernel)["status"] == "ok"
+    finally:
+        s.kernel.close()
+
+
+def test_a_restart_ends_the_replay(tmp_path, monkeypatch):
+    s, _ = replay_service(tmp_path, monkeypatch)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        call(s, "replay_start", name=name, lakehouse_ref=LH)
+        assert call(s, "replay_check", name=name, lakehouse_ref=LH)["live"] is True
+        call(s, "restart_kernel")
+        assert call(s, "replay_check", name=name, lakehouse_ref=LH)["live"] is False
+        out = handle(s, json.dumps({"id": 1, "method": "replay_result", "params": {"name": name, "stopped_at": 3, "status": "ok"}}))
+        assert "has ended" in json.dumps(out["error"])
+        out = handle(s, json.dumps({"id": 1, "method": "start_cell", "params": {"code": "1", "lakehouse_ref": LH, "notebook": name}}))
+        assert "click Replay" in json.dumps(out["error"])
+    finally:
+        s.kernel.close()
+
+
+def test_a_vacuumed_version_is_replaced_only_by_choice_and_marked(tmp_path, monkeypatch):
+    s, lh = replay_service(tmp_path, monkeypatch)
+    try:
+        # Version 0's data file is gone, as after VACUUM.
+        sales = DeltaTable(str(lh / "Tables" / "dbo" / "sales"), version=0)
+        for uri in sales.file_uris():
+            Path(url2pathname(urlparse(uri).path) if uri.startswith("file:") else uri).unlink()
+        sample = pa.table({"id": [1, 2]})
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path, version=0, sample=sample)))["name"]
+        t = call(s, "replay_check", name=name, lakehouse_ref=LH)["tables"][0]
+        assert t["readable"] is False and "can't be read any more" in t["why"] and t["has_sample"] is True
+        out = handle(s, json.dumps({"id": 1, "method": "replay_start", "params": {"name": name, "lakehouse_ref": LH}}))
+        assert "Choose the bundle's sample or the latest version" in json.dumps(out["error"])
+
+        started = call(s, "replay_start", name=name, lakehouse_ref=LH, use={"dbo.sales": "sample"})
+        assert started["marked"] == {"dbo.sales": "sample"} and "dbo.sales" not in started["pins"]
+        stopped, snap = run_cells(s, name, 3)
+        result = call(s, "replay_result", name=name, stopped_at=stopped, status=snap["status"], outputs=snap["outputs"])
+        assert result["verdict"] == "same_kind" and "rows 2" in result["text"]
+        assert "from the bundle's sample" in result["inputs"][0]
+        call(s, "replay_end", name=name)
+
+        started = call(s, "replay_start", name=name, lakehouse_ref=LH, use={"dbo.sales": "latest"})
+        assert started["pins"] == {"dbo.sales": 2} and started["marked"] == {"dbo.sales": "latest"}
+        stopped, snap = run_cells(s, name, 3)
+        result = call(s, "replay_result", name=name, stopped_at=stopped, status=snap["status"], outputs=snap["outputs"])
+        assert "rows 4" in result["text"] and "at its latest version" in result["inputs"][0]
+    finally:
+        s.kernel.close()
+
+
+def test_replay_needs_the_kernel_process_and_the_bundles_lakehouse(tmp_path, monkeypatch):
+    s, _ = replay_service(tmp_path, monkeypatch)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        other = LH | {"lakehouse_id": "lh2", "name": "LH_Other"}
+        assert "Attach that lakehouse" in call(s, "replay_check", name=name, lakehouse_ref=other)["blockers"][0]
+        assert "Attach a lakehouse" in call(s, "replay_check", name=name, lakehouse_ref=None)["blockers"][0]
+        shared = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path, ids=False)))
+        assert shared["name"] == "events replay 2" and shared["lakehouse"] is None
+        assert "check you attached the same one" in call(s, "replay_check", name=shared["name"], lakehouse_ref=LH)["notes"][0]
+        s.kernel.close()
+        s.kernel = s._new_kernel(False)
+        assert "own process" in call(s, "replay_check", name=name, lakehouse_ref=LH)["blockers"][0]
+        out = handle(s, json.dumps({"id": 1, "method": "replay_bundle_open", "params": {"content": "bm90IGEgemlw"}}))
+        assert "isn't a replay bundle" in json.dumps(out["error"])
+    finally:
+        if isinstance(s.kernel, ProcessKernel):
+            s.kernel.close()
+
+
+def test_bundles_in_downloads_are_listed(tmp_path, monkeypatch):
+    s = service(tmp_path, monkeypatch)
+    downloads = tmp_path / "home" / "Downloads"
+    downloads.mkdir(parents=True)
+    bundle_file(tmp_path).rename(downloads / "replay-events-1.zip")
+    (downloads / "replay-junk.zip").write_bytes(b"x")
+    rows = call(s, "replay_bundles_list")
+    assert [(r["file"], r["notebook"], r["failed_cell"]) for r in rows] == [("replay-events-1.zip", "events", 3)]

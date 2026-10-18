@@ -688,3 +688,18 @@ test("Save replay bundle is a Preview feature, offered only under a cell that fa
   assert.match(src, /cell\.status !== "error" \|\| nbWhere\(nb\)\.fabric/);
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayOffer\(cell\)/);
 });
+
+test("a replay notebook shows its banner, and Create can open a bundle", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayBanner\(nb\), sbsPanel\(nb\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("replay", tile\("history", "Open replay bundle"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /replay: nb\.replay \|\| null/);
+  assert.match(fs.readFileSync(path.join(ui, "deps.js"), "utf8"), /replayRestarted\(\);/);
+  // A table whose version is gone is replaced only by the person's choice.
+  assert.match(src, /disabled: busy \|\| !!c\.blockers\.length \|\| unresolved/);
+  const { replayBase64 } = (() => { const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+    vm.runInNewContext(`${src.slice(src.indexOf("function replayBase64"), src.indexOf("async function replayOpenDialog"))}; this.replayBase64 = replayBase64;`, ctx);
+    return ctx; })();
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(replayBase64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+});

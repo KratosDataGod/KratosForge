@@ -1,6 +1,6 @@
 # Production readiness checklist
 
-Release gates for Fabric Desktop by KratosBI going to an enterprise pilot. Each gate has measurable acceptance criteria and the evidence that exists today. Reviewed at `main` **1248ccd** (2026-10-17). This page replaces the gate table in [release-readiness.md](../product/release-readiness.md), whose "open PR" entries have since merged.
+Release gates for Fabric Desktop by KratosBI going to an enterprise pilot. Each gate has measurable acceptance criteria and the evidence that exists today. Reviewed at `main` **1248ccd** (2026-10-17); gate states re-checked at **a346145** (2026-10-18 16:35Z). This page replaces the gate table in [release-readiness.md](../product/release-readiness.md), whose "open PR" entries have since merged.
 
 ## Evidence levels
 
@@ -17,22 +17,22 @@ A capability is only as far along as its weakest evidence. A passing unit test i
 
 ## Verdict
 
-**Not ready for an enterprise pilot.** Two gates are blocked on Chris (signing, live verification), and five confirmed High defects in data writes, restore and approvals need their fixes merged first (HD-001 to HD-006). Nothing is live-tenant verified.
+**Not ready for an enterprise pilot.** Three gates are met (7, 8, 9). Two are blocked on Chris (signing, live verification), and two High findings are still open (SH-1, SH-2). Nothing is live-tenant verified.
 
 ## Gates
 
 | # | Gate | Acceptance criteria | Evidence today | State |
 | --- | --- | --- | --- | --- |
-| 1 | Security verification | No open High finding in the [register](findings.md); CSP set; external-tool approvals bound to the code they run; token cache encrypted on Windows; security docs match the code | 3 High security findings open (SH-1, SH-2, EN-1); token cache plaintext (awaits D-C2); `security.md` has false claims (EN-7) | **Failing** |
-| 2 | Automated tests | Engine, UI, browser and Rust suites all run in CI on every PR and all pass; failure-injection tests for post-commit failures, restore and leases exist | Engine 1,345 pass, 2 skipped, 87% line coverage (Linux, Python 3.13, this audit); UI 45 pass; Rust tests (12) not run by CI (SH-6); 24 browser tests not run by CI; no post-commit failure tests | **Partly met** |
+| 1 | Security verification | No open High finding in the [register](findings.md); CSP set; external-tool approvals bound to the code they run; token cache encrypted on Windows; security docs match the code | 2 High findings open: no CSP (SH-1), unsigned updates (SH-2). EN-1 fixed (#156); security docs corrected (#137); token cache plaintext (awaits D-C2) | **Failing** |
+| 2 | Automated tests | Engine, UI, browser and Rust suites all run in CI on every PR and all pass; failure-injection tests for post-commit failures, restore and leases exist | Engine (1,915 pass, 2 skipped) and UI suites run in CI; failure-injection tests added (#138, #152, #155, #159, #180). Rust tests (SH-6, HD-011) and browser tests (UI-8, HD-052) don't run in CI | **Partly met** |
 | 3 | Live integration verification | FD-101 harness passes on a designated non-production workspace; summary recorded in release-readiness.md with date and build | Harness merged (#80), never run | **Blocked: Chris (HD-029)** |
 | 4 | Build signing and integrity | Exe and engine DLLs Authenticode-signed; release fails if unsigned; checksums required; provenance attested | Signing steps built but skipped (no account); unsigned releases publish without failing (SH-2); checksums enforced but missing ones accepted (SH-3); attestations produced, not verified | **Blocked: Chris (D-C3)** |
-| 5 | Installer and update reliability | Stable never installs a Preview engine; downgrades refused; failed update restores the previous exe; agent installers use pinned dependencies | Engine falls back to Preview on any network error (SH-4); downgrades accepted, `exe.old` deleted at startup (SH-5); agent installer unpinned (SH-9); no MSI | **Failing** |
+| 5 | Installer and update reliability | Stable never installs a Preview engine; downgrades refused; failed update restores the previous exe; agent installers use pinned dependencies | Stable never takes a Preview engine after a network error and checksums are required (#158). Downgrades accepted and `exe.old` deleted at startup (SH-5, HD-022); agent installer unpinned (SH-9); no MSI | **Partly met** |
 | 6 | Rollback capability | A named earlier build can be reinstalled for app and engine; documented and tested | Releases keep only the newest build per channel; engine always from the channel's current release | **Not met (HD-028)** |
-| 7 | Backup and restore | Restore yields exactly the backed-up state, verified by hash; refuses while in use; runbook in docs | Backup command and docs merged (#91); restore brings back post-backup data (EP-2) | **Failing until HD-005** |
-| 8 | Enterprise configuration policies | Invalid or wrongly typed policy fails closed and is shown in Settings; every documented key tested | Keys implemented and tested (#90); malformed file fails open (EP-4); valid keys reported unknown | **Failing until HD-010** |
-| 9 | Operational logging and diagnostics | Logs and bundles never contain secrets (shared redaction cases pass through every writer); audit chain verifies with concurrent writers | Redaction in errors, audit and bundles (#84, #89, #95); JSON agent log leaks quoted secrets (EN-5); audit chain forks across processes (EP-3) | **Failing until HD-007, HD-017** |
-| 10 | Documentation and support | Install, enterprise install, security, permissions, backup, troubleshooting accurate at the release commit; support route agreed with pilot | Extensive docs; four false statements in security and AI docs (DOC-1); readiness page stale | **Partly met (HD-009)** |
+| 7 | Backup and restore | Restore yields exactly the backed-up state, verified by hash; refuses while in use; runbook in docs | Restore removes stale WAL files, refuses databases in use and verifies each file's SHA-256 (#155); docs (#91) | **Met** |
+| 8 | Enterprise configuration policies | Invalid or wrongly typed policy fails closed and is shown in Settings; every documented key tested | Fails closed and keeps the last good copy, shown in Settings (#165) | **Met** |
+| 9 | Operational logging and diagnostics | Logs and bundles never contain secrets (shared redaction cases pass through every writer); audit chain verifies with concurrent writers | Agent log fields redacted before encoding (#157); audit chain holds across processes (#182); more secret patterns (#181, #215) | **Met** |
+| 10 | Documentation and support | Install, enterprise install, security, permissions, backup, troubleshooting accurate at the release commit; support route agreed with pilot | False statements corrected (#137); readiness pages refreshed. No security evidence pack, privacy statement or support terms yet | **Partly met** |
 
 ## Capability evidence
 

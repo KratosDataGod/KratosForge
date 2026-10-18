@@ -58,14 +58,14 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "all_schedules",
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
            "workload_preflight", "workload_act", "workload_actions",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority",
+           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
@@ -99,6 +99,10 @@ METHODS |= LOCAL_DATA_METHODS
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
+
+from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
+
+METHODS |= TENANT_HISTORY_METHODS
 
 # Governance's request and shortcut notices to Teams (platform_notify_service.py).
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402

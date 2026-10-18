@@ -14,7 +14,9 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | this PR | Status update after #125, #127 and #133 merged | Docs only |
+| `claude/workload-management-plan-4su03b` | #136 | Status update after #125, #127 and #133 merged | Docs only, ready |
+| `claude/workload-agent-fields-4su03b` | agent fields | `owner`, `identity`, and each schedule's `entities` and `when` in agent status records (agreed with the roadmap thread) | Ready, on #136 |
+| `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
 
 ## Completed backlog items
 
@@ -22,13 +24,13 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Next action: stage 5 overlap warning (board 7's "Scheduled in two places", item 36). Agent schedules don't name their entities, so ask the roadmap thread (owner of `agent_status.py` and the status records) before adding a field. Then the queue view across locations (item 34), then FD-124 multi-worker.
-- Agent owner and identity type are not in the status records either; same question to the roadmap thread.
+- Next action: the queue view across locations (item 34), then FD-124 multi-worker. 5B (item 36) compares agent and PC schedules by table, not by time window, and doesn't compare Fabric schedules yet.
+- The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
-- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
+- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `workloads/platform_notify.py` + `platform_notify_service.py` (governance's request/shortcut notices), `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
 
 ## Assumptions and decisions
 

@@ -52,6 +52,7 @@ const PREVIEW_FEATURES = {
   model: "Semantic model",
   tests: "Tests",
   xray: "Estate X-ray",
+  optimize: "Optimize",
   itemPreview: "Item preview",
   mesh: "Data mesh",
   platform: "Platform",

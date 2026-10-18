@@ -9,6 +9,16 @@ const SOURCE_TEXT = {
   built_in: "Comes with Fabric Desktop by KratosBI",
   default: "Default",
 };
+// When sign-in isn't Microsoft's own, people see that app's name, publisher and consent prompt instead,
+// so Settings says so plainly and how to go back (unit testing item 4).
+function clientIdNote(source) {
+  const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
+  if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
+  if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart Fabric Desktop by KratosBI and sign in again.`;
+  if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
+  if (source === "built_in") return `${lead} It came with this build.`;
+  return null;
+}
 // Shown under the app ID when nothing set one.
 const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
@@ -218,6 +228,11 @@ async function renderSettings() {
           if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
         }, "tool outline")),
       s.client_id.source === "default" ? MICROSOFT_SIGN_IN : s.client_id.source),
+    clientIdNote(s.client_id.source) ? h("div", { class: "callout git-warn small", role: "note" },
+      h("span", { class: "grow" }, clientIdNote(s.client_id.source)),
+      s.client_id.source === "user" ? btn("Use Microsoft's sign-in", null, async () => {
+        if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
+      }, "tool outline small") : null) : null,
     s.client_id.source !== "default" ? settingRow("Admin approval",
       "If sign-in says your organization needs to approve Fabric Desktop by KratosBI, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {

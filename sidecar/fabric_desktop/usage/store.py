@@ -44,11 +44,14 @@ class Store:
     def keys(self) -> set[str]:
         return {r["key"] for d in self.all() for r in d.get("rows", [])}
 
+    def slots(self) -> set[str]:
+        return {r["slot"] for d in self.all() for r in d.get("rows", []) if r.get("slot")}
+
     def save(self, preview: dict[str, Any], now: dt.datetime) -> dict[str, Any]:
         doc = {"id": "u-" + preview["sha256"][:16], "provider": preview["provider"]["id"],
                "provider_label": preview["provider"]["label"], "layout": preview["layout"]["id"],
                "layout_label": preview["layout"]["label"], "file_name": preview["file_name"],
-               "sha256": preview["sha256"], "imported_at": now.astimezone(dt.timezone.utc).isoformat(timespec="seconds"),
+               "sha256": preview["sha256"], "imported_at": now.astimezone(dt.timezone.utc).isoformat(timespec="microseconds"),
                "options": preview["options"], "period": preview["period"], "workspaces": preview["workspaces"],
                "capacities": preview.get("capacities", []), "total": preview["total"], "cost": preview.get("cost", []), "skipped": preview["skipped"], "notes": preview["notes"], "rows": preview["rows"]}
         path = self._path(doc["id"])

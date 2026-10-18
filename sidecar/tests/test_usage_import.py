@@ -186,9 +186,23 @@ def test_rows_match_only_the_one_run_they_can_belong_to():
 
 def test_a_row_that_fits_two_runs_isnt_given_to_either():
     r = recon(OPS, [run("j1", "nb_sales", "2026-10-16T14:00:00+00:00", "2026-10-16T14:05:00+00:00"),
-                    run("j2", "nb_sales", "2026-10-16T14:01:00+00:00", "2026-10-16T14:06:00+00:00")])
+                    run("j2", "nb_sales", "2026-10-16T14:00:01+00:00", "2026-10-16T14:06:00+00:00")])
     assert r["matched"]["runs"] == 0 and r["unmatched"]["by_reason"][rc.SEVERAL] == 2
     assert r["matched"]["measured"] is None
+
+
+def test_a_run_of_the_same_item_that_ended_just_before_isnt_counted_as_this_apps():
+    # A schedule of nb_sales ran 13:50-13:56; this app started its run at 14:00. Only the row that
+    # started inside the app's run is measured; the schedule's 9,000 CU-s stays other use.
+    text = HEAD + """
+Sales Dev,Notebook,nb_sales,Notebook run,10/16/2026 1:50:00 PM,10/16/2026 1:56:00 PM,Succeeded,sched@contoso.com,360,"9,000.0",1,Billable,op-s
+Sales Dev,Notebook,nb_sales,Notebook run,10/16/2026 2:00:05 PM,10/16/2026 2:04:00 PM,Succeeded,ana@contoso.com,235,"1,200.0",0.65,Billable,op-1
+"""
+    r = recon(text, [run("j1", "nb_sales", "2026-10-16T14:00:00+00:00", "2026-10-16T14:05:00+00:00")])
+    cu_s = lambda m: ms.convert(m["value"], m["unit"], ms.CU_SECONDS)  # noqa: E731
+    assert r["matched"]["runs"] == 1 and cu_s(r["matched"]["measured"]) == pytest.approx(1200, abs=0.01)
+    assert "start time" in r["by_run"][0]["measured"]["method"]
+    assert cu_s(r["unmatched"]["measured"]) == pytest.approx(9000, abs=0.01) and r["unmatched"]["by_reason"][rc.NO_RUN] == 1
 
 
 def test_runs_inside_an_import_without_a_row_are_told_apart_from_runs_no_import_covers():
@@ -333,3 +347,22 @@ def test_billed_totals_are_shown_per_capacity_and_never_matched_to_runs():
     assert cap["days"] == 2 and cap["first_day"] == "2026-10-15" and cap["last_day"] == "2026-10-16"
     assert cap["cu"]["value"] == pytest.approx(620.5) and cap["cost"][0]["value"] == pytest.approx(111.77)
     assert cap["meters"]["Data Warehouse Capacity Usage CU"] == 2
+
+
+def test_month_to_date_exports_that_repeat_days_are_counted_once(tmp_path):
+    # Export A ran mid-day on the 16th (partial day); export B, a day later, repeats the 15th and has the full 16th.
+    head = COST.splitlines()[0]
+    line = lambda day, qty, cost: (f"10/{day}/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,"  # noqa: E731
+                                   f"{qty},1 Hour,{cost},EUR,{CAP},ContosoF64,Usage,OnDemand")
+    a = "\n".join([head, line(15, 96, "17.28"), line(16, 40, "7.20")]) + "\n"
+    b = "\n".join([head, line(15, 96, "17.28"), line(16, 96, "17.28"), line(17, 96, "17.28")]) + "\n"
+    svc = Service(root=tmp_path)
+    svc.usage_import("a.csv", a)
+    preview = svc.usage_preview("b.csv", b)
+    assert preview["already_imported"] == 1 and preview["replaces_earlier"] == 1 and preview["to_import"] == 2
+    svc.usage_import("b.csv", b)
+    imports = svc._usage.all()
+    r = rc.reconcile(imports, [], {}, NOW - dt.timedelta(days=30), NOW + dt.timedelta(days=2), now=NOW)
+    [cap] = r["billed"]
+    assert cap["cu"]["value"] == pytest.approx(288) and cap["cost"][0]["value"] == pytest.approx(51.84)
+    assert cap["days"] == 3

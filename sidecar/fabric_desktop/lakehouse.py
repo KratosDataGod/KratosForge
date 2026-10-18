@@ -27,7 +27,7 @@ from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, stage_locally
+from .publish import publish, resolve_schema_mode, stage_locally
 
 MODES = ("overwrite", "append")
 
@@ -229,10 +229,14 @@ def _to_arrow(data: Any) -> pa.Table:
     return pa.table(data)
 
 
-def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
-    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``."""
+def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto") -> WriteResult:
+    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
+
+    ``schema_mode``: "auto" (the default) replaces the schema on overwrite; None refuses a
+    different schema, as Spark does; "merge" adds new columns; "overwrite" replaces it."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
@@ -242,8 +246,9 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     arrow = _to_arrow(data)
     stage_locally(arrow, lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
     if (p := _proof()) is not None:
-        return _write_proof(p, arrow, ref, mode)
-    delta = publish(arrow, ref, mode, lh.storage_token())
+        return _write_proof(p, arrow, ref, mode, schema_mode)
+    token = lh.storage_token()
+    delta = publish(arrow, ref, mode, token) if schema_mode == "auto" else publish(arrow, ref, mode, token, schema_mode=schema_mode)
     result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
     if lh.history_file:
         record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
@@ -256,19 +261,19 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     return result
 
 
-def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str) -> WriteResult:
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake
 
     from . import delta_profile
 
-    def write(uri: str, data: pa.Table, how: str = "overwrite") -> DeltaTable:
+    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
         delta_profile.check_target(uri, proof.options())
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
-                        schema_mode="overwrite" if how == "overwrite" else None)
+                        schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)
         return table
     uri = proof.write_location(ref.schema, ref.table, mode, write)
-    table = write(uri, arrow, mode)
+    table = write(uri, arrow, mode, schema_mode)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

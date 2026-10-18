@@ -235,7 +235,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-060](PRODUCT_BACKLOG.md#pb-060) | Sensitive data classification that complements Purview | 2 | 1 | 5 | 3 | 4 | 3 | 3 | 3.0 | 3.0 | 1.8 | none | L | Low | PB-056 | Enterprise readiness |
 | [PB-076](PRODUCT_BACKLOG.md#pb-076) | Retire side by side into Prove | 2 | 2 | 3 | 1 | 3 | 2 | 2 | 2.25 | 2.0 | 1.8 | none | S | Medium | none | Prove |
 
-### P3 (10 items)
+### P3 (11 items)
 
 | Id | Item | Dev | CU | Ent | Diff | Align | Cplx | Risk | Benefit | Cost | Score | Mandatory | Effort | Confidence | Depends on | Owner |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- | --- |
@@ -244,6 +244,7 @@ are sequenced by those programs; the order here is what the master product view 
 | [PB-026](PRODUCT_BACKLOG.md#pb-026) | Notebook debugger | 5 | 2 | 2 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Medium | PB-073 | Prove |
 | [PB-030](PRODUCT_BACKLOG.md#pb-030) | Data pipeline and Copy job scope after decision D2 | 3 | 2 | 4 | 3 | 4 | 4 | 3 | 3.2 | 3.5 | 1.6 | none | L | Low | none | Staged roadmap |
 | [PB-024](PRODUCT_BACKLOG.md#pb-024) | Native Warehouse and SQL database connectivity | 4 | 1 | 4 | 2 | 4 | 4 | 3 | 3.1 | 3.5 | 1.55 | none | L | Medium | PB-021 | SQL development sprint |
+| [PB-105](PRODUCT_BACKLOG.md#pb-105) | Simplified incident management | 2 | 1 | 5 | 3 | 3 | 4 | 3 | 2.85 | 3.5 | 1.43 | none | L | Low | none | Simplified incident management |
 | [PB-037](PRODUCT_BACKLOG.md#pb-037) | Local DAG execution engine | 4 | 5 | 4 | 5 | 5 | 5 | 4 | 4.5 | 4.5 | 1.35 | none | XL | Low | PB-035, PB-036 | Local Fabric pipeline execution |
 | [PB-020](PRODUCT_BACKLOG.md#pb-020) | Local Warehouse simulation | 4 | 4 | 3 | 5 | 5 | 5 | 4 | 4.05 | 4.5 | 1.21 | none | XL | Low | PB-022 | SQL development sprint |
 | [PB-097](PRODUCT_BACKLOG.md#pb-097) | Extensions | 3 | 1 | 4 | 4 | 3 | 4 | 4 | 3.0 | 4.0 | 1.2 | none | XL | Low | none | Git-native development |
@@ -260,3 +261,5 @@ are sequenced by those programs; the order here is what the master product view 
 | 2026-10-17 | PB-101 Codebase audit and hardening added as a blocker (P0); it takes over PB-010, PB-051 and PB-071 | Master product thread |
 | 2026-10-18 | PB-103 Engineering quality program (QA-001..030, PR-QA-01..14) added as a blocker (P0) for the data-loss defects QA-001 and QA-002 | Master product thread |
 | 2026-10-18 | PB-104 Optimize central lakehouse program (PR-OPT-001..009) added from Chris's Optimize brief; P1 by Chris's override (its score alone gives P3) | Chris |
+| 2026-10-18 | Direction changes from Chris's unit testing: one landing workspace shared by Dev, Test and Prod, split by domain with secure zones (item 24); keys in a Fabric SQL database in a dedicated workspace, per environment or shared still open (item 25); glossary from Purview, Collibra or another catalog instead of our own (item 27); Monitor > Cost becomes Optimize > Cost and savings (item 36). Recorded on FEAT-MESH-02..04, FEAT-ADM-01 and PB-030, PB-050, PB-052, PB-060, PB-068 | Chris |
+| 2026-10-18 | PB-105 Simplified incident management added (unit testing item 33); best-practice actions, in-app guidance and a docs page per area noted as a theme on PB-077 and PB-102 | Master product thread |

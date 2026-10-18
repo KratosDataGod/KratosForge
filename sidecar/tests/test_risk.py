@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from fabric_desktop import app_settings, risk, risk_service
+from fabric_desktop import app_settings, estate_service, risk
 from fabric_desktop import measurement as ms
 from fabric_desktop.workloads import model
 from tests.test_workloads import scan, signed_in, svc  # noqa: F401 - the fixture is used by name
@@ -52,7 +52,8 @@ def by_check(result):
 def test_a_running_capacity_with_good_history_passes_and_says_utilization_is_unknown():
     history = [run("succeeded", 60 * d, 600 + d) for d in (1, 2, 3)]
     r = risk.analyze(facts(runs=history), now=NOW)
-    assert r["result"] == risk.PASS and r["can_proceed"] and not r["needs_acknowledgement"]
+    assert r["result"] == risk.PASS and r["can_proceed"] and r["enforced"] is False
+    assert "Reports only" in r["note"]
     cap = by_check(r)["capacity"]
     assert cap["outcome"] == risk.PASS and "How busy it is isn't known" in cap["detail"]
     assert by_check(r)["runtime"]["title"] == "Usually takes about 10 min"
@@ -131,6 +132,9 @@ def test_unknown_cu_stays_unknown_and_a_threshold_warns_on_measured_or_estimated
     assert over["outcome"] == risk.WARNING and "estimated" in over["title"]
     prefer = by_check(risk.analyze(facts(measured=[measured], estimated=[est]), {"warn_run_cu_hours": 10}, now=NOW))
     assert prefer["consumption"]["outcome"] == risk.PASS and "(measured)" in prefer["consumption"]["title"]
+    broken = by_check(risk.analyze(facts(estimated=[est], measured_problem="Imported usage couldn't be read (bad file)"),
+                                   now=NOW))["consumption"]
+    assert "Imported usage couldn't be read (bad file)" in broken["evidence"]  # said, not swallowed
 
 
 def test_a_notebook_that_needs_fabric_is_not_offered_for_this_pc():
@@ -199,7 +203,7 @@ def item(svc, monkeypatch):  # noqa: F811
     signed_in(svc)
     scan(svc, monkeypatch)
     ReadOnlyFabric.calls = []
-    monkeypatch.setattr(risk_service, "FabricClient", ReadOnlyFabric)
+    monkeypatch.setattr(estate_service, "FabricClient", ReadOnlyFabric)
     return model.fabric_id("ws1", "pl1")
 
 
@@ -248,7 +252,7 @@ def test_warnings_can_be_acknowledged_and_recorded_but_blocked_or_changed_result
 def test_settings_turn_warnings_on_and_off(svc):  # noqa: F811
     assert svc.risk_settings() == risk.DEFAULTS
     cfg = svc.set_risk_settings(warn_run_cu_hours=2.5, require_acknowledgement=True)
-    assert cfg["warn_run_cu_hours"] == 2.5 and svc.risk_settings()["require_acknowledgement"]
+    assert cfg["warn_run_cu_hours"] == 2.5 and svc.risk_settings()["require_acknowledgement"]  # the run dialogs ask for the tick
     assert svc.set_risk_settings(warn_run_cu_hours=0)["warn_run_cu_hours"] is None
     with pytest.raises(ValueError):
         svc.set_risk_settings(warn_failed_runs=-1)

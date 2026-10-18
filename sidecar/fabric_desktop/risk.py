@@ -37,7 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "warn_run_cu_hours": None,  # warn when this item's last run used more than this (off unless set)
     "warn_failed_runs": 2,  # warn when this many of the last five runs failed
     "schedule_window_minutes": 60,  # warn when a schedule on this PC runs the item this soon
-    "require_acknowledgement": False,  # a warning must be acknowledged before the run starts
+    "require_acknowledgement": False,  # the run dialogs ask for a tick before running with warnings
 }
 
 CAPACITY_SOURCE = "Capacity reading (Fabric REST API: GET /workspaces/{id}, GET /capacities)"
@@ -271,13 +271,14 @@ def check_consumption(f: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any] 
     if pick is None:
         return finding("consumption", UNKNOWN, "CU use isn't known",
                        "No measured CU for this workload's runs, and no estimate. It stays unknown rather than 0.",
+                       evidence=[f.get("measured_problem") or ""],
                        remedy="Import a Capacity Metrics export in Monitor > Cost to measure it.",
                        source="Measured usage imports and cost estimates")
     hours = ms.convert(pick["value"], pick["unit"], ms.CU_HOURS)
     kind = ms.LABELS[pick["classification"]].lower()
     evidence = [f"{ms.LABELS[pick['classification']]}: {hours:.3f} CU hours" + (f" (run {pick.get('run_id')})" if pick.get("run_id") else "")]
     if not measured:
-        evidence.append("No import measured these runs; the figure is the app's estimate from run time.")
+        evidence.append(f.get("measured_problem") or "No import measured these runs; the figure is the app's estimate from run time.")
     limit = cfg.get("warn_run_cu_hours")
     if limit not in (None, "") and hours > float(limit):
         return finding("consumption", WARNING, f"The last run used more than {float(limit):g} CU hours ({kind})",
@@ -379,7 +380,9 @@ def analyze(facts: dict[str, Any], cfg: dict[str, Any] | None = None, now: dt.da
             "workload_id": facts.get("workload_id"), "workload": facts.get("workload"), "action": facts.get("action"),
             "action_label": facts.get("label"), "env": facts.get("env"), "where": facts["where"],
             "findings": findings, "can_proceed": result != BLOCKED,
-            "needs_acknowledgement": result == WARNING and bool(cfg.get("require_acknowledgement")),
             "evaluated_at": now.isoformat(timespec="seconds"),
             "reads": facts.get("reads") or [],
-            "note": "Read only: nothing was started, changed or paused to work this out."}
+            "needs_acknowledgement": result == WARNING and bool(cfg.get("require_acknowledgement")),
+            "enforced": False,
+            "note": "Read only: nothing was started, changed or paused to work this out. Reports only: a blocked "
+                    "result doesn't stop a run started another way."}

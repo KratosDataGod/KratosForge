@@ -2,7 +2,8 @@
 
 Every suggestion is a ``[[clean]]`` or ``[[check]]`` block the metadata framework
 already runs, so accepting one is adding its TOML to the entity file. Profiling reads
-every row locally, which is the point: it costs no Fabric capacity.
+every row on this PC, which is the point: no Fabric job runs (reading the table from OneLake
+still uses some capacity).
 """
 
 from __future__ import annotations

@@ -150,7 +150,8 @@ def register_core(reg: Registry) -> None:
             "Before a workload runs: whether anything would stop it (policy, sign-in, a paused capacity, definition "
             "problems, the memory guard) or should be looked at first (recent failures, a run already going, a "
             "schedule due soon, a CU threshold), as pass, warning, blocked or unknown, each with evidence. "
-            "Starts nothing; unknown CU stays unknown.",
+            "Starts nothing; unknown CU stays unknown. Reports only: it doesn't block runs, so a blocked result "
+            "doesn't stop a run started another way.",
             schema({"workload_id": {"type": "string", "minLength": 1, "maxLength": 400},
                     "action": {"enum": ["run", "run_in_fabric", "run_item", "run_schedule"]},
                     "env": {"type": "string", "maxLength": 10, "default": ""}}, ["workload_id", "action"]),

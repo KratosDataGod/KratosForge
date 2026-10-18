@@ -1,10 +1,13 @@
 """Which imported usage rows belong to which of this app's Fabric runs, and what is covered.
 
-A row is matched to a run only when it can't be anyone else's: same workspace name, same item
-name, its time overlapping the run's (give or take :data:`TOLERANCE_S`), and no other run fitting.
-Several rows can match one run (a job can show as more than one operation). Everything else stays
-unmatched with its reason, and its CU is still shown: it is use on the capacity that this app
-didn't start (other people, schedules, other items) or can't tie to one run.
+A row is matched to a run by name and time: same workspace name, same item name, the row starting
+inside the run (between when this app started it and when it ended), and no other run fitting.
+Names and times are all an export has, so a match is likely, not proven: someone else running the
+same item while this app's run was going would be counted with it. A row that started before the
+run, such as a schedule of the same notebook that ended just before, isn't matched. Several rows
+can match one run (a job can show as more than one operation). Everything else stays unmatched
+with its reason, and its CU is still shown: it is use on the capacity that this app didn't start
+(other people, schedules, other items) or can't tie to one run.
 
 Exports carry names, not ids, and the Capacity Metrics app's operation ids aren't documented to
 equal Fabric job instance ids, so ids aren't used to match.
@@ -74,14 +77,16 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
             start, end = ms.parse_time(p["start"]), ms.parse_time(p["end"])
             if r.get("start"):
                 if start and since <= start < until:
-                    rows.append(r | {"_import": imp["id"], "_start": start, "_end": end or start})
+                    rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                     "_start": start, "_end": end or start})
             elif start and end and since <= start and end <= until:
-                rows.append(r | {"_import": imp["id"], "_start": start, "_end": end})
+                rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                 "_start": start, "_end": end})
             elif start and end and start < until and since < end:
                 outside += 1  # a period total that only partly falls in the period can't be split
         sources[imp["id"]] = imp.get("imported_at") or ""
 
-    billed_rows = [r for r in rows if r.get("level") == "capacity"]
+    billed_rows = _latest(r for r in rows if r.get("level") == "capacity")
     rows = [r for r in rows if r.get("level") != "capacity"]
 
     app_runs = []
@@ -99,7 +104,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
             unmatched.setdefault(UNTIMED, []).append(r)
             continue
         fits = [a for a in app_runs if a["item"] and a["ws"] == _name(r["workspace"]) and a["item"] == _name(r["item"])
-                and r["_start"] <= a["end"] + tol and r["_end"] >= a["start"] - tol]
+                and a["start"] <= r["_start"] <= a["end"]]
         if len(fits) == 1:
             fits[0]["rows"].append(r)
         else:
@@ -130,7 +135,7 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
                                run_id=run["job_id"], workspace_id=run.get("workspace_id") or None,
                                source="; ".join(sorted({r["cu"]["source"] for r in a["rows"]})),
                                method=f"Sum of {len(a['rows'])} imported row{'s' if len(a['rows']) != 1 else ''} "
-                                      "matched by workspace, item and time",
+                                      "matched by workspace name, item name and start time",
                                collected_at=max(sources[r["_import"]] for r in a["rows"]),
                                period_start=a["start"], period_end=a["end"], uncertainty=a["rows"][0]["cu"]["uncertainty"],
                                reconciliation="matched")
@@ -172,6 +177,18 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
         "tolerance_s": TOLERANCE_S,
         "billed": billed(billed_rows, capacity_envs or {}),
     }
+
+
+def _latest(rows: Any) -> list[dict[str, Any]]:
+    """Cost rows with one row per capacity, meter, day and charge: when several imports have the
+    same one (month-to-date exports repeat earlier days), the one imported last counts. Imports
+    come newest first (Store.all), so on a tie in import time the first one seen is kept."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        slot = r.get("slot") or r["key"]
+        if slot not in out or (r.get("_imported_at") or "") > (out[slot].get("_imported_at") or ""):
+            out[slot] = r
+    return list(out.values())
 
 
 def billed(rows: list[dict[str, Any]], capacity_envs: dict[str, list[str]]) -> list[dict[str, Any]]:

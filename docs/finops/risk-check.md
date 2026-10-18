@@ -14,6 +14,8 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 
 A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 
+The engine itself **reports only**: starting a run (`workload_act`) doesn't check it, and results say `"enforced": false`. A run started another way, such as from an AI tool or the local API, isn't stopped by a blocked result. The dialogs above are where a block stops a run.
+
 ## Results
 
 | Result | Means |

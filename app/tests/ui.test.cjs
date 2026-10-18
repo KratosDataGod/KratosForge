@@ -1399,3 +1399,15 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
   assert.match(estate, /res\.partial \?/);
 });
+
+// The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
+test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div class="brand">\s*<img src="wolf-forge-emblem\.png"/);
+  assert.match(html, /rel="icon" href="wolf-forge-emblem-32\.png"/);
+  assert.ok(!html.includes("kratosbi-mark.svg"));
+  for (const f of ["wolf-forge-emblem.png", "wolf-forge-emblem-32.png"]) assert.ok(fs.existsSync(path.join(ui, f)), f);
+  const ico = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "icons", "icon.ico"));
+  const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
+  for (const s of [16, 24, 32, 48, 256]) assert.ok(sizes.includes(s), `icon.ico has ${s}px`);
+});

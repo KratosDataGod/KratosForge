@@ -44,6 +44,10 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
                     "engine_version": pl.String, "lock_hash": pl.String, "by": pl.String,
                     "receipt_id": pl.String, "receipt": pl.String},
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
+    # Every file of a release promoted here, base64, so the environment runs and rolls back to
+    # exactly what was released (meta/snapshot.py).
+    "release_files": {"version": pl.String, "path": pl.String, "sha256": pl.String, "content": pl.String,
+                      "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},
     # Files an entity has loaded (path under the lakehouse's Files, size, modified time), so the next
@@ -53,7 +57,8 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
 }
 # Delta returns rows in no particular order, so every meta table is sorted by when it was written.
 _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "schema_history": "at",
-          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at"}
+          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at",
+          "release_files": "at"}
 
 
 def ran_on(run: dict[str, Any]) -> str:

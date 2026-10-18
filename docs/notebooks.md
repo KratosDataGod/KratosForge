@@ -1,6 +1,6 @@
 # Notebooks and SQL
 
-Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
+Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake. A run on this PC starts no Fabric job, but its OneLake reads and writes still use the workspace's capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
 
 ## Your first notebook
 
@@ -175,7 +175,7 @@ How it is published:
 
 | Choice | What happens |
 | --- | --- |
-| **This PC** | Every cell runs in the kernel on your PC. No capacity used. |
+| **This PC** | Every cell runs in the kernel on your PC. No Fabric job starts; OneLake reads and writes still use some capacity. |
 | **Fabric** (Preview) | Run all publishes the notebook and runs the whole thing on its workspace's Fabric capacity. Single cells can't run in Fabric; switch back to This PC to run one cell. Cell output shows in Fabric, and the bell tells you when it finishes. |
 | **Same as Dev** (default) | Follows the environment picked on the Data mesh pages and where that environment runs. |
 

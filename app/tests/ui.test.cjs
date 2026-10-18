@@ -532,7 +532,7 @@ test("Incidents is a Preview feature on Monitor", () => {
   assert.match(features, /incidents: "Incidents"/);
   assert.match(incidents, /id: "incidents", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("incidents", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "incidents", feature: "incidents"/);
 });
 
 test("Agents is a Preview feature on Monitor and only reads", () => {
@@ -540,7 +540,7 @@ test("Agents is a Preview feature on Monitor and only reads", () => {
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /agents: "Agents"/);
   assert.match(agents, /id: "agents", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>\s*<script src="agents.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("agents", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "agents", feature: "agents"/);
   assert.deepStrictEqual([...agents.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).filter((m) => m !== "agents_list"), []);
 });
 
@@ -576,7 +576,7 @@ test("Queue is a Preview feature on Monitor that only reads and labels who owns 
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /queue: "Queue"/);
   assert.match(src, /id: "queue", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="agents.js"><\/script>\s*<script src="queue.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("queue", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "queue", feature: "queue"/);
   assert.deepStrictEqual([...src.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["queue_list"]);
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
   vm.runInNewContext(`${src.match(/const QU_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function quStatePill\([\s\S]*?\n}\n/)[0]}; this.pill = quStatePill;`, ctx);
@@ -591,7 +591,7 @@ test("Run as is a Preview Monitor segment that only reads who runs what", () => 
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /runAs: "Run as"/);
   assert.match(src, /id: "runAs", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="queue.js"><\/script>\s*<script src="runas.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("runAs", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "runas", feature: "runAs"/);
   assert.deepStrictEqual([...src.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["run_as_list"]);
   const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
   vm.runInNewContext(`${src.match(/const RA_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function raDaysLeft\([\s\S]*?\n}\n/)[0]}${src.match(/function raPill\([\s\S]*?\n}\n/)[0]}; this.pill = raPill;`, ctx);
@@ -701,4 +701,18 @@ test("Home doesn't say nothing needs attention when run history or Fabric jobs c
   assert.match(src, /rpc\("fabric_runs", \{ limit: 50, refresh: false \}\)\.catch\(\(\) => null\)/);
   assert.match(src, /unread\.length \? "Nothing found that needs your attention" : "Nothing needs your attention"/);
   assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
+});
+
+test("Monitor has four tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
+  const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
+  assert.deepStrictEqual(ops.map((o) => o.label), ["Workloads", "Queue", "Agents", "Run as", "Incidents"]);
+  // Every view keeps its panel id, so links and commands that open it still land there.
+  assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
+  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
+  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
+    ["Runs", "Schedules", "Operations", "Cost"]);
 });

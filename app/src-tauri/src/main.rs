@@ -544,7 +544,8 @@ const FABRIC_VIEW: &str = "fabric";
 const FABRIC_MONITOR: &str = "https://app.fabric.microsoft.com/monitoringhub?experience=fabric-developer";
 const FABRIC_CATALOG: &str = "https://app.fabric.microsoft.com/onelake/explore?experience=fabric-developer";
 
-/// Hosts of the sign-in and of Fabric's own pages.
+/// Domains whose cookies count as the Fabric view's sign-in (saved, restored, forgotten).
+/// Only for cookies; where the view may go is `FABRIC_VIEW_HOSTS`.
 const FABRIC_HOSTS: [&str; 6] = ["microsoft.com", "microsoftonline.com", "powerbi.com", "live.com", "msauth.net", "msftauth.net"];
 
 fn fabric_host(host: &str) -> bool {
@@ -552,9 +553,57 @@ fn fabric_host(host: &str) -> bool {
     FABRIC_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
-/// Sign-in and Fabric's own pages stay in the view; any other link opens in the default browser.
-fn stays_in_view(url: &Url) -> bool {
-    fabric_host(url.host_str().unwrap_or_default())
+/// The only hosts the Fabric view itself navigates to (top-level pages and pop-ups), matched
+/// exactly, https only. Images, scripts and frames inside a page aren't filtered by this.
+/// The list and its reasons are in docs/security.md (SH-12).
+const FABRIC_VIEW_HOSTS: [&str; 4] = [
+    "app.fabric.microsoft.com",  // Fabric's portal: Monitoring hub, OneLake catalog, item pages
+    "app.powerbi.com",           // Fabric's former portal host; older item links redirect through it
+    "login.microsoftonline.com", // Entra ID sign-in and sign-out
+    "login.microsoft.com",       // Entra ID's other sign-in host, used on some sign-in redirects
+];
+
+/// What the Fabric view does with a page it is about to open.
+#[derive(Debug, PartialEq, Eq)]
+enum FabricNav {
+    /// Open it in the view.
+    Stay,
+    /// Open it in the default browser instead.
+    Browser,
+    /// Open it nowhere.
+    Refuse,
+}
+
+/// Fabric's pages and sign-in stay in the view; other web links open in the default browser;
+/// anything else (http to a Microsoft host, file:, javascript:, ...) is refused. `about:blank`,
+/// which the view starts on, is allowed in the view but not as a pop-up.
+fn fabric_nav(url: &Url, new_window: bool) -> FabricNav {
+    if url.as_str() == "about:blank" {
+        return if new_window { FabricNav::Refuse } else { FabricNav::Stay };
+    }
+    let host = url.host_str().unwrap_or_default();
+    let listed = FABRIC_VIEW_HOSTS.contains(&host);
+    match url.scheme() {
+        "https" if listed && url.username().is_empty() && url.password().is_none() && url.port().is_none() => FabricNav::Stay,
+        "http" if listed => FabricNav::Refuse,
+        "https" | "http" => FabricNav::Browser,
+        _ => FabricNav::Refuse,
+    }
+}
+
+/// Applies `fabric_nav`: true keeps the page in the view.
+fn fabric_nav_allows(url: &Url, new_window: bool) -> bool {
+    match fabric_nav(url, new_window) {
+        FabricNav::Stay => true,
+        FabricNav::Browser => {
+            let _ = open_in_browser(url);
+            false
+        }
+        FabricNav::Refuse => {
+            eprintln!("Fabric view: refused to open {}", url.scheme());
+            false
+        }
+    }
 }
 
 fn open_in_browser(url: &Url) -> Result<(), String> {
@@ -628,14 +677,15 @@ async fn fabric_view_show(
     let window = app.get_window("main").ok_or("The main window is not open")?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank)).on_new_window(|url, _| {
-        if stays_in_view(&url) {
-            NewWindowResponse::Allow
-        } else {
-            let _ = open_in_browser(&url);
-            NewWindowResponse::Deny
-        }
-    });
+    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
+        .on_navigation(|url| fabric_nav_allows(url, false))
+        .on_new_window(|url, _| {
+            if fabric_nav_allows(&url, true) {
+                NewWindowResponse::Allow
+            } else {
+                NewWindowResponse::Deny
+            }
+        });
     #[cfg(windows)]
     let builder = match sso::environment(&app) {
         Ok(environment) => builder.with_environment(environment),
@@ -879,10 +929,9 @@ mod sso {
     fn create(folder: &std::path::Path) -> Result<ICoreWebView2Environment, String> {
         let options = CoreWebView2EnvironmentOptions::default();
         unsafe {
-            // Same arguments wry uses for the main view.
-            options.set_additional_browser_arguments(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string(),
-            );
+            // The arguments wry uses for the main view, except that SmartScreen stays on here
+            // (SH-12): this view shows web pages, and it only visits Microsoft's own hosts.
+            options.set_additional_browser_arguments("--disable-features=msWebOOUI,msPdfOOUI".to_string());
             options.set_allow_single_sign_on_using_os_primary_account(true);
         }
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1047,5 +1096,90 @@ mod integrity_tests {
         let tool = system_tool("curl.exe");
         assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
         assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
+}
+
+#[cfg(test)]
+mod fabric_nav_tests {
+    use super::*;
+
+    fn nav(url: &str) -> FabricNav {
+        fabric_nav(&Url::parse(url).unwrap(), false)
+    }
+
+    #[test]
+    fn fabric_pages_and_sign_in_stay_in_the_view() {
+        for url in [
+            FABRIC_MONITOR,
+            FABRIC_CATALOG,
+            "https://app.fabric.microsoft.com/groups/me/list?experience=fabric-developer",
+            "https://APP.Fabric.Microsoft.com:443/home",
+            "https://app.powerbi.com/groups/me/reports/1",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x",
+            "https://login.microsoft.com/common/oauth2/authorize",
+            "about:blank",
+        ] {
+            assert_eq!(nav(url), FabricNav::Stay, "{url}");
+        }
+        let item = fabric_page("https://app.fabric.microsoft.com/groups/1/lakehouses/2", Some("72f988bf-86f1-41af-91ab-2d7cd011db47")).unwrap();
+        assert_eq!(fabric_nav(&item, false), FabricNav::Stay);
+    }
+
+    #[test]
+    fn look_alike_and_other_hosts_open_in_the_browser() {
+        for url in [
+            "https://app.fabric.microsoft.com.evil.com/",
+            "https://evil.com/app.fabric.microsoft.com",
+            "https://app-fabric.microsoft.com/",
+            "https://appfabric.microsoft.com/",
+            "https://evil.app.fabric.microsoft.com/",
+            "https://fabric.microsoft.com/",
+            "https://microsoft.com/",
+            "https://learn.microsoft.com/fabric/",
+            "https://login.microsoftonline.com.evil.com/",
+            "https://login.live.com/",
+            "https://app.fabric.microsoft.com./",
+            "https://app.fabric.microsoft.com:8443/",
+            "https://\u{0430}pp.fabric.microsoft.com/", // Cyrillic a
+            "http://example.com/",
+        ] {
+            assert_eq!(nav(url), FabricNav::Browser, "{url}");
+        }
+    }
+
+    #[test]
+    fn user_info_never_counts_as_the_host() {
+        // The host is evil.com; the allowed name is only the user name.
+        assert_eq!(nav("https://app.fabric.microsoft.com@evil.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://app.fabric.microsoft.com:pw@evil.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://login.microsoftonline.com%2F@evil.com/"), FabricNav::Browser);
+        // Allowed host, but with credentials in the link: not kept in the view.
+        assert_eq!(nav("https://user@app.fabric.microsoft.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://user:pw@login.microsoftonline.com/"), FabricNav::Browser);
+    }
+
+    #[test]
+    fn plain_http_and_other_schemes_are_refused() {
+        for url in [
+            "http://app.fabric.microsoft.com/monitoringhub",
+            "http://login.microsoftonline.com/common",
+            "javascript:alert(1)",
+            "file:///C:/Windows/System32/calc.exe",
+            "data:text/html,<script>alert(1)</script>",
+            "ms-settings:privacy",
+            "about:srcdoc",
+            "blob:https://evil.com/0b0b",
+        ] {
+            assert_eq!(nav(url), FabricNav::Refuse, "{url}");
+        }
+    }
+
+    #[test]
+    fn pop_ups_follow_the_same_rule_but_not_blank_ones() {
+        let popup = |u: &str| fabric_nav(&Url::parse(u).unwrap(), true);
+        assert_eq!(popup("https://login.microsoftonline.com/common/oauth2/authorize"), FabricNav::Stay);
+        assert_eq!(popup("https://example.com/"), FabricNav::Browser);
+        assert_eq!(popup("about:blank"), FabricNav::Refuse);
+        assert_eq!(popup("javascript:alert(1)"), FabricNav::Refuse);
     }
 }

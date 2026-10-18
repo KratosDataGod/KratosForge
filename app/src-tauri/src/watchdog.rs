@@ -11,12 +11,14 @@ use std::time::Duration;
 /// queue behind it with the app frozen. Everything else (runs, publishing, Fabric calls) can
 /// legitimately take hours and has no limit; Stop ends those. The engine runs these in their
 /// own lane (QUICK in sidecar/fabric_desktop/server.py, kept the same as this list), so they
-/// never wait behind a long call.
+/// never wait behind a long call. Calls that write notebook files (new, save, rename) are left
+/// out: they must stay in order with publish and delete, which save the notebook too, or a
+/// publish queued behind a long call would write older cells over a newer autosave.
 pub const QUICK: &[&str] = &[
     "app_settings", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "new_notebook", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
-    "receipt_get", "receipts_list", "rename_notebook", "save_notebook", "side_by_side_list",
+    "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_start", "sql_status",

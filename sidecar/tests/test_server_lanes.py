@@ -111,3 +111,10 @@ def test_quick_calls_match_the_shell_time_limit_list():
     assert block, "QUICK not found in watchdog.rs"
     assert set(re.findall(r'"([a-z_]+)"', block.group(1))) == server.QUICK
     assert server.QUICK <= server.METHODS
+
+
+def test_notebook_writes_stay_in_order_with_publish():
+    # Publish saves the cells it was given before uploading; if a later autosave could overtake a
+    # publish queued behind a long call, the publish would write the older cells over it.
+    writers = {"new_notebook", "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook"}
+    assert writers <= server.METHODS and not writers & server.QUICK

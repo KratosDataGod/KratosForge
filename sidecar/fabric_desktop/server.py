@@ -112,12 +112,14 @@ METHODS |= PLATFORM_NOTIFY_METHODS
 # The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
 # local state or the kernel and answer at once. They run in their own lane, so a long run, publish
 # or sign-in can't hold them up (and the shell's time limit can't end the engine because one waited
-# behind it). Everything else runs one at a time in the order it arrives, as before.
+# behind it). Everything else runs one at a time in the order it arrives, as before. Notebook writes
+# (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
+# long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
     "app_settings", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "new_notebook", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
-    "receipt_get", "receipts_list", "rename_notebook", "save_notebook", "side_by_side_list",
+    "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_start", "sql_status",

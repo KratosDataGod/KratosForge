@@ -25,7 +25,7 @@ Severity:
 | QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02 |
 | QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
 | QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
-| QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04 |
+| QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
 | QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05 |
 | QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03 |
 | QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10 |

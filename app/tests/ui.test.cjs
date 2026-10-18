@@ -646,3 +646,20 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+test("a passed write test is remembered per account so Home stops asking (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  const saved = { user: "ana@contoso.com", at: "2026-10-18T12:00:00Z", workspace: "Sales Dev" };
+  const row = ctx.f(saved, "ana@contoso.com");
+  assert.strictEqual(row.status, "ok");
+  assert.match(row.text, /Sales Dev/);
+  assert.strictEqual(ctx.f(saved, "bob@contoso.com"), null);
+  assert.strictEqual(ctx.f(saved, null), null);
+  assert.strictEqual(ctx.f(null, "ana@contoso.com"), null);
+  assert.strictEqual(ctx.f({ ...saved, at: "nonsense" }, "ana@contoso.com"), null);
+  const card = src.slice(src.indexOf("function readinessCard"), src.indexOf("// ---------- Get started"));
+  assert.match(card, /rememberWrite\(r, workspace\)/);
+  assert.match(card, /localStorage\.getItem\("fd\.ready\.write"\)/);
+});

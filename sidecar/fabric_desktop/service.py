@@ -410,6 +410,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, PlatformNotifyMixin, Workl
     # every cell so a restarted sidecar picks it up again.
 
     def run_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        self._replay_guard(None)
         self._attach(lakehouse_ref)
         return self.kernel.run(code)
 
@@ -422,6 +423,7 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, PlatformNotifyMixin, Workl
         ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
+        self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
         # Busy is checked before attaching, under the lock external runs take: a refused start must
         # not re-point the running cell, and an external run can't re-point this one as it starts.
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
@@ -646,7 +648,8 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, PlatformNotifyMixin, Workl
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
-        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"])}
+        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+                     "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:

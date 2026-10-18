@@ -71,6 +71,10 @@ class ProofRuntime:
         self._options = lambda: {}
         self.log = {"proof": self.id, "side": side, "reads": {}, "files": {}, "writes": {},
                     "seed": self.seed, "timezone": None, "started": time.time()}
+        # Tables already in this side's sandbox when it starts (a replay seeded from a bundle's sample):
+        # reads and writes of these go to the sandbox copy, as if this side had written them.
+        for key in config.get("seeded") or []:
+            self.log["writes"][key.lower()] = ["seeded"]
 
     # ---- where things are
 

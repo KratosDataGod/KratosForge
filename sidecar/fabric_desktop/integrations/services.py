@@ -230,6 +230,31 @@ def get_activity_registry(svc: Any, ctx: CallContext, activity_type: str = "") -
     return svc.pipeline_activity_registry(activity_type or None)
 
 
+def check_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
+                       mocks: dict | None = None, children: dict | None = None) -> dict[str, Any]:
+    return svc.pipeline_run_check(text=definition, parameters=parameters, mocks=mocks, children=children)
+
+
+def start_pipeline_run(svc: Any, ctx: CallContext, definition: str, parameters: dict | None = None,
+                       mocks: dict | None = None, children: dict | None = None, max_parallel: int = 4,
+                       wait_scale: float = 1.0, timeout_seconds: float = 0) -> dict[str, Any]:
+    return svc.pipeline_run_start(text=definition, parameters=parameters, mocks=mocks, children=children,
+                                  max_parallel=max_parallel, wait_scale=wait_scale,
+                                  timeout_seconds=timeout_seconds or None)
+
+
+def get_pipeline_run(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_run_status(id, values=False)
+
+
+def list_pipeline_runs(svc: Any, ctx: CallContext, limit: int = 20) -> dict[str, Any]:
+    return svc.pipeline_runs(limit)
+
+
+def cancel_pipeline_run(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002
+    return svc.pipeline_run_cancel(id)
+
+
 def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
     nb = svc.notebooks.load(name)
     return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))

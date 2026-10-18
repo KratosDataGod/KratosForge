@@ -63,6 +63,7 @@ pipeline_activity_registry pipeline_compatibility pipeline_export pipeline_impor
 usage_imports usage_preview usage_reconciliation
 optimize_discover optimize_findings optimize_inspect optimize_recommendations optimize_status
 platform_notify_settings platform_notify_open
+pipeline_run_check pipeline_run_status pipeline_runs
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

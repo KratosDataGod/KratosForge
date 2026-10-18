@@ -57,6 +57,15 @@ function gitCommitLabel(st) {
   return all ? `Stage all and commit ${all} file${all === 1 ? "" : "s"}${where}` : "Nothing to commit";
 }
 
+// Repositories grouped by what they hold, in the order of the kinds; ones that don't say come last.
+function gitGroupRepos(repos, kinds) {
+  const order = Object.keys(kinds || {});
+  const groups = order.map((k) => ({ kind: k, label: kinds[k].label, repos: [] }));
+  const other = { kind: null, label: "Not yet sorted", repos: [] };
+  for (const r of repos || []) (groups.find((g) => g.kind === r.kind) || other).repos.push(r);
+  return [...groups, other].filter((g) => g.repos.length);
+}
+
 // ---------- state ----------
 
 const gitPage = {
@@ -125,8 +134,10 @@ async function renderSourceControl() {
       h("div", { class: "tiles" },
         tile("arrowDownload", "Clone a repository", "Copy a repository from GitHub, Azure DevOps or another Git server to this PC.", gitCloneDialog),
         tile("folderOpen", "Open a folder", "Use a repository that is already on this PC.", gitOpenDialog),
-        tile("add", "Start a new repository", "Make a folder a new Git repository.", () => gitInitDialog()),
-        tile("notebook", "Version my notebooks", "Start a repository in the folder this app keeps notebooks in.", () => gitInitDialog(info.notebooks_folder)))));
+        tile("notebook", "Version my notebooks", "Start a notebooks repository in the folder this app keeps notebooks in.", () => gitInitDialog(info.notebooks_folder, "notebooks"))),
+      h("h2", {}, "Start a repository for one kind of definition"),
+      h("p", { class: "muted-text" }, "Each kind lives in its own repository, so a notebook change never rides along with a platform change."),
+      gitKindTiles(info)));
     return;
   }
   if (!gitPage.status || gitPage.status.root !== gitCurrent()) {
@@ -151,7 +162,7 @@ async function renderSourceControl() {
   const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"), tab("branches", "Branches"),
     tab("history", "History"), tab("settings", "Repository settings"));
   const bodies = { changes: gitChangesTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
-  setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), tabs,
+  setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
 
@@ -188,6 +199,7 @@ function gitHeader(st) {
   return h("div", { class: "page-head" },
     h("div", { class: "grow" },
       h("div", { class: "row wrap" }, gitPage.title()[0], btn(gitRepoName(st.root), "chevronDown", (e) => gitRepoMenu(e.currentTarget), "tool outline", { title: "Switch repository" }),
+        gitKindOf(st.root).kind ? h("span", { class: "pill" }, gitPage.info.kinds[gitKindOf(st.root).kind].label) : null,
         ...gitPage.title().slice(1)),
       h("p", { class: "sub git-sub" }, sub)),
     h("div", { class: "row wrap" }, remoteActions));
@@ -196,11 +208,75 @@ function gitHeader(st) {
 function gitRepoMenu(anchor) {
   const repos = (gitPage.info?.repos || []).filter((r) => r.exists);
   showMenu(anchor, [
-    ...repos.map((r) => ({ label: r.path === gitCurrent() ? `${r.name} (open)` : r.name, icon: "branch", action: () => gitSwitchRepo(r.path) })),
+    ...gitGroupRepos(repos, gitPage.info?.kinds).flatMap((g) => [{ info: g.label },
+      ...g.repos.map((r) => ({ label: r.path === gitCurrent() ? `${r.name} (open)` : r.name, icon: "branch", action: () => gitSwitchRepo(r.path) }))]),
+    { info: "More" },
+    { label: "New repository", icon: "add", action: () => gitNewDialog() },
     { label: "Clone a repository", icon: "arrowDownload", action: gitCloneDialog },
     { label: "Open a folder", icon: "folderOpen", action: gitOpenDialog },
-    { label: "Start a new repository", icon: "add", action: () => gitInitDialog() },
   ]);
+}
+
+function gitKindTiles(info) {
+  const icons = { notebooks: "notebook", project: "database", platform: "building", capacity: "gauge" };
+  return h("div", { class: "tiles" }, Object.entries(info?.kinds || {}).map(([kind, k]) =>
+    tile(icons[kind] || "add", `New ${k.label.toLowerCase()} repository`, `${k.holds} ${k.for}`, () => gitNewDialog(kind))));
+}
+
+function gitKindOf(root) {
+  return gitPage.info?.repos.find((r) => r.path === root) || {};
+}
+
+// Under the header when the repository doesn't say what it holds: one click writes the marker.
+function gitKindBanner(st) {
+  const r = gitKindOf(st.root);
+  const kinds = gitPage.info?.kinds || {};
+  if (r.kind || !Object.keys(kinds).length) return null;
+  const order = Object.keys(kinds).sort((a, b) => (b === r.suggested) - (a === r.suggested));
+  return h("div", { class: "callout git-kind" }, icon("info", 20),
+    h("span", {}, "What does this repository hold? Fabric Desktop keeps each kind in its own repository. Choosing adds ",
+      h("code", {}, "fabric-desktop.repo.toml"), " as a change you commit; nothing else changes."),
+    h("span", { class: "spacer" }),
+    h("div", { class: "row wrap" }, order.map((k) => btn(kinds[k].label, null, () => gitSetKind(st.root, k),
+      k === r.suggested ? "tool primary small" : "tool outline small", k === r.suggested ? { title: "Suggested from the files in it" } : {}))));
+}
+
+async function gitSetKind(root, kind, confirm = false) {
+  const res = await attempt(() => rpc("git_set_kind", { repo: root, kind, confirm }), "Couldn't save what it holds");
+  if (!res) return;
+  await gitLoadInfo().catch(() => {});
+  gitAfterChange(res.status);
+  toast(`Marked as a ${gitPage.info?.kinds?.[kind]?.label.toLowerCase() || kind} repository. Commit fabric-desktop.repo.toml to keep it.`);
+}
+
+function gitNewDialog(kind = "notebooks") {
+  const kinds = gitPage.info?.kinds || {};
+  let chosen = kind in kinds ? kind : Object.keys(kinds)[0];
+  const name = h("input", { value: "", placeholder: "sales-notebooks", "aria-label": "Repository name" });
+  const parent = h("input", { value: gitPage.info?.clone_folder || "", "aria-label": "Into this folder" });
+  const holds = h("p", { class: "muted-text small" });
+  const err = h("p", { class: "field-error" });
+  const radios = h("div", { class: "git-kinds" }, Object.entries(kinds).map(([k, v]) =>
+    h("label", { class: "git-choice" }, h("input", { type: "radio", name: "git-kind", value: k, checked: k === chosen ? true : null,
+      onchange: () => { chosen = k; holds.textContent = `${v.holds} ${v.for}`; } }), h("span", {}, h("b", {}, v.label)))));
+  holds.textContent = chosen ? `${kinds[chosen].holds} ${kinds[chosen].for}` : "";
+  const ok = async () => {
+    err.textContent = "";
+    const folder = `${parent.value.trim().replace(/[\\/]+$/, "")}${parent.value.includes("\\") ? "\\" : "/"}${name.value.trim()}`;
+    if (!name.value.trim()) { err.textContent = "Give the repository a name."; return; }
+    try {
+      const st = await rpc("git_create", { path: folder, kind: chosen });
+      closeDialog();
+      await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
+      toast("Repository created with its starting files. Review them and commit to begin its history.");
+    } catch (e) { err.textContent = friendlyError(e).text; }
+  };
+  showDialog("New repository", h("div", { class: "git-form" },
+    h("p", { class: "text" }, "A new Git repository on this PC for one kind of definition, with that kind's starting files. Nothing is sent anywhere until you add a remote and push."),
+    h("div", { class: "field" }, "It holds", radios), holds,
+    h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Into this folder", parent), err),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Create repository", null, ok, "tool primary")]);
+  setTimeout(() => name.focus(), 50);
 }
 
 function gitMergeBanner(st) {
@@ -682,11 +758,11 @@ function gitOpenDialog() {
     });
 }
 
-function gitInitDialog(path = "") {
+function gitInitDialog(path = "", kind = null) {
   gitPathDialog("Start a new repository", "Makes this folder a Git repository on this PC. Nothing is sent anywhere until you add a remote and push.",
     [{ label: "Folder", value: path, placeholder: "C:\\Users\\you\\source\\repos\\new-project" }, { label: "First branch", value: "main" }], "Start repository",
     async (folder, branch) => {
-      const st = await rpc("git_init", { path: folder, branch: branch || "main" });
+      const st = await rpc("git_init", { path: folder, branch: branch || "main", kind });
       await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
       toast("Repository started. Stage and commit your files to begin its history.");
     });
@@ -725,6 +801,13 @@ function gitNotebookChip(nb) {
   if (!previewShown() || !nb?.name) return slot;
   const fill = (info) => {
     if (!info) { slot.replaceChildren(); return; }
+    if (info.wrong_place) {
+      slot.replaceChildren(btn(`${info.branch || "no branch"} · wrong repository`, "warning", async () => {
+        if (gitPage.repo !== info.repo) await gitSwitchRepo(info.repo);
+        go("source");
+      }, "tool outline warn", { title: `${info.wrong_place} Open ${info.name} in Source control to change what it holds.` }));
+      return;
+    }
     slot.replaceChildren(btn(`${info.branch || "no branch"}${info.state ? ` · ${info.state}` : ""}`, "branch", async () => {
       if (gitPage.repo !== info.repo) await gitSwitchRepo(info.repo);
       gitPage.tab = "changes";
@@ -758,6 +841,7 @@ registerFeature({
     { label: "Switch branch", icon: "branch", keywords: "git checkout switch", run: () => { gitPage.tab = "branches"; go("source"); }, when: () => !!gitCurrent() },
     { label: "Clone a repository", icon: "arrowDownload", keywords: "git clone github azure devops", run: gitCloneDialog },
     { label: "Open a repository", icon: "folderOpen", keywords: "git open folder", run: gitOpenDialog },
-    { label: "Start a new repository", icon: "add", keywords: "git init new", run: () => gitInitDialog() },
+    { label: "New repository", icon: "add", keywords: "git init new notebooks project platform capacity", run: () => gitNewDialog() },
+    { label: "Make a folder a repository", icon: "add", keywords: "git init existing folder", run: () => gitInitDialog() },
   ],
 });

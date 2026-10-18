@@ -4,6 +4,8 @@ How a change gets from a pull request to people's PCs, who decides each step, an
 
 Release gates are not defined here. The pass/fail gates for a pilot or production release are the [readiness checklist](../hardening/readiness-checklist.md) owned by the hardening program; this page says when each one is checked.
 
+Two review threads also give each PR a PASS, CONDITIONAL PASS or FAIL: the UX and simplicity review (`docs/ux/release-review.md`) and the engineering quality review (`docs/quality/`). A FAIL from either one keeps a PR out of a merge round until its owner fixes it or Chris overrides it. A CONDITIONAL PASS goes into the round with its conditions listed in the merge-round question. Neither review merges or releases anything.
+
 ## How Fabric Desktop is distributed
 
 There is no installer, store or package feed. The product is two files published as GitHub release assets, and the app updates itself from them.

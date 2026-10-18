@@ -1895,6 +1895,9 @@
       "effort": "M",
       "confidence": "High",
       "state": "In review",
+      "external_dependencies": [
+        "Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104)"
+      ],
       "prs": [
         117
       ],
@@ -3384,6 +3387,9 @@
       "effort": "L",
       "confidence": "Low",
       "state": "Proposed",
+      "external_dependencies": [
+        "Overlaps PR-OPT-004, whose measured CU savings need this import (Optimize central lakehouse, PB-104)"
+      ],
       "computed": {
         "benefit": 4.1,
         "cost": 3.5,
@@ -4016,6 +4022,50 @@
         "cost": 3.5,
         "score": 1.85,
         "priority": "P0"
+      }
+    },
+    {
+      "id": "PB-104",
+      "title": "Optimize central lakehouse program",
+      "category": "Enterprise Administration and FinOps",
+      "problem": "Optimization findings, CU measurements and local execution savings stay on each PC, so an organization can't see them across developers and workspaces or show what local execution saved.",
+      "capability": "Owned and specified by the Optimize central lakehouse thread from Chris's brief of 2026-10-18 (PR-OPT-001..009); not restated here. It covers initializing or attaching a shared optimization lakehouse (fdopt_ tables), the central data model, local execution savings tracking (Chris calls it a flagship feature), optimization savings tracking, reporting, offline sync, multiple lakehouse management, security and governance, and the optimization system's own cost accounting.",
+      "evidence": [
+        "Chris's Optimize brief, 2026-10-18 08:55Z",
+        "No code or plan merged yet"
+      ],
+      "features": [
+        "FEAT-ADM-01"
+      ],
+      "acceptance": [
+        "As defined in PR-OPT-001..009 by its owning thread",
+        "Savings follow the brief's rule: no CU savings without a defensible baseline, and estimated savings are never labelled realized"
+      ],
+      "scores": {
+        "developer_value": 3,
+        "cu_reduction": 5,
+        "enterprise_value": 4,
+        "differentiation": 5,
+        "strategic_alignment": 5,
+        "complexity": 5,
+        "risk": 4
+      },
+      "mandatory": "none",
+      "owner": "Optimize central lakehouse",
+      "source_refs": [
+        "PR-OPT-001..009"
+      ],
+      "duplicates": [
+        "Overlaps PB-050 and PB-089 (CU labels and measured CU import, Administration and FinOps sprint); noted on each item"
+      ],
+      "effort": "XL",
+      "confidence": "Low",
+      "state": "In progress",
+      "computed": {
+        "benefit": 4.25,
+        "cost": 4.5,
+        "score": 1.27,
+        "priority": "P3"
       }
     }
   ]

@@ -1694,7 +1694,7 @@ on quality.
 - **Known limitations:** Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU). Agent runs counted as local with no measured cost.
 - **Pull requests and issues:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
 - **Owning workstream:** Administration and FinOps sprint (FINOPS-001)
-- **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050)
+- **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-104](PRODUCT_BACKLOG.md#pb-104)
 - **Recommended next action:** Calibrate against the Capacity Metrics app and label every number estimated (PB-050).
 
 ### FEAT-ADM-02

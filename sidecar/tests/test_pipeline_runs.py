@@ -446,8 +446,9 @@ def test_child_needing_fabric_refuses_the_parent():
 def test_reference_pipeline_runs_with_mocks():
     r = PipelineRun(load(str(REFERENCE)), mocks=MOCKS, wait_scale=0).run().to_json()
     assert r["state"] == "succeeded"
-    assert r["variables"]["loaded"] == ["EMEA", "AMER", "APAC"] and r["variables"]["status"] == "valid"
-    assert r["return_value"] == {"rows": 120, "regions": ["EMEA", "AMER", "APAC"]}
+    # The ForEach runs two iterations at once, so appends land in the order iterations finish.
+    assert sorted(r["variables"]["loaded"]) == ["AMER", "APAC", "EMEA"] and r["variables"]["status"] == "valid"
+    assert r["return_value"]["rows"] == 120 and sorted(r["return_value"]["regions"]) == ["AMER", "APAC", "EMEA"]
     assert r["options"]["mocked"] == ["Ingest orders", "Transform"] and r["verified_against_fabric"] is False
     by = {a["name"]: a["executed_by"] for a in r["activities"] if not a["label"]}
     assert by["Ingest orders"] == "mock" and by["Checkpoint"] == "adapter" and by["On failure"] == "not_started"

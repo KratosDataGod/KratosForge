@@ -466,7 +466,11 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
         return self._attach_lock
 
     def _attach(self, lakehouse_ref: dict[str, str] | None) -> None:
-        with self.attach_lock:
+        # Bounded like start_cell: an external tool's query holds the lock while it runs, and the
+        # engine's one pipe must not freeze behind it.
+        if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
+            raise RuntimeError("An external tool is running against a lakehouse. Try again when it has finished.")
+        try:
             # A cell running in the engine reads the attached lakehouse as it goes; a process
             # kernel has its own copy from when the cell started.
             kernel = getattr(self, "kernel", None)
@@ -483,6 +487,8 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
                 storage_token=lambda: self.auth.storage_token(),
                 work_dir=self.root, history_file=self.history_file,
                 schemas_enabled=lambda: self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])))
+        finally:
+            self.attach_lock.release()
 
     # SQL query page: Spark SQL over one lakehouse's tables, run on this PC.
 

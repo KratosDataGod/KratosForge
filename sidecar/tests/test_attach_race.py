@@ -80,3 +80,21 @@ def test_desktop_start_waits_for_an_external_run_holding_the_target(svc):
         assert lakehouse.name() == "prod"
     assert started.wait(5)
     assert lakehouse.name() == "dev"
+
+
+def test_attach_gives_up_on_an_external_query_instead_of_freezing_the_engine(svc, monkeypatch):
+    s, _ = svc
+    monkeypatch.setattr("fabric_desktop.service.ATTACH_WAIT_SECONDS", 0.2)
+    holding, release = threading.Event(), threading.Event()
+
+    def external_query():  # an external tool's run_sql holds the lock while its query runs
+        with s.attach_lock:
+            holding.set()
+            release.wait(10)
+    threading.Thread(target=external_query, daemon=True).start()
+    assert holding.wait(5)
+    t0 = time.monotonic()
+    with pytest.raises(RuntimeError, match="external tool"):
+        s._attach(DEV)  # the SQL page, previews, table columns and proofs attach through here
+    assert time.monotonic() - t0 < 2
+    release.set()

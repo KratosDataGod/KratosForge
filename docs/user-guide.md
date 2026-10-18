@@ -11,7 +11,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 
 New here? Install first ([install.md](install.md)). Setting it up for others? Start with [Configure Azure and Fabric](azure-setup.md).
 
-**Where things run.** Unless a button says Fabric, work runs on your PC and uses no Fabric capacity: notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
+**Where things run.** Unless a button says Fabric, work runs on your PC and starts no Fabric job (its OneLake reads and writes still use capacity): notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
 
 ## The window
 
@@ -102,9 +102,11 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
-| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+| **Writing to OneLake** | You ran **Test a write** on this PC and it worked | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+A passed write test is remembered on this PC for your account, so Home doesn't ask again on every visit. A failed test clears it, and signing in as someone else asks again.
 
 When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
@@ -443,7 +445,7 @@ Each line says:
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
-| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before. The app, scheduled runs and the agent take turns writing (through `audit\.lock`), so they never break the chain by writing at the same moment |
 
 Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
 

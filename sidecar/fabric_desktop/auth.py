@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -88,6 +89,32 @@ def default_cache_path() -> Path:
     return Path(base) / "FabricDesktop" / "msal_cache.bin"
 
 
+
+class SignInError(RuntimeError):
+    """Microsoft sign-in returned no token. The message starts with Entra's code (``AADSTS50076``)
+    when there is one, so the app can say what happened and what to do; see docs/troubleshooting.md."""
+
+    def __init__(self, code: str, description: str):
+        self.code, self.description = code, description
+        super().__init__(f"{code}: {description}" if description else code)
+
+
+class SignInCancelled(SignInError):
+    """The person closed or cancelled the sign-in window: nothing to report."""
+
+
+def sign_in_error(result: dict) -> SignInError:
+    """The error for an MSAL result without a token. A cancel is recognised from the Windows sign-in's
+    UserCanceled status or Entra's ``error_subcode=cancel`` (unverified on a live tenant)."""
+    description = str(result.get("error_description") or "").strip()
+    error = str(result.get("error") or "unknown_error")
+    status = str(result.get("_broker_status") or "")
+    if "usercancel" in (status + description).replace("_", "").lower() or result.get("error_subcode") == "cancel":
+        return SignInCancelled("cancelled", "The sign-in window was closed before signing in.")
+    code = re.search(r"\bAADSTS\d+\b", description)
+    return SignInError(code.group(0) if code else error,
+                       description[code.end():].lstrip(": ").strip() if code and code.start() == 0 else description)
+
 class Authenticator:
     def __init__(self, client_id: str = "", cache_path: Path | None = None, interactive: bool = True):
         self.client_id = client_id or MICROSOFT_CLIENT_ID
@@ -146,7 +173,7 @@ class Authenticator:
                 result = self.app.acquire_token_interactive(scopes)
         self._save()
         if "access_token" not in result:
-            raise RuntimeError(f"Sign-in failed: {result.get('error')}: {result.get('error_description')}")
+            raise sign_in_error(result)
         self._check_tenant(result)
         return result["access_token"]
 
@@ -158,6 +185,9 @@ class Authenticator:
         if app_settings.tenant_allowed(tenant):
             return
         self.sign_out()
+        if app_settings.read_policy()[1]:  # a broken policy file lets no account in: say so, not "wrong account"
+            raise RuntimeError("Your organization's settings file for Fabric Desktop by KratosBI can't be read, so "
+                               "no account can sign in until IT fixes it. Settings > Help and about shows the problem.")
         raise RuntimeError("Your organization only allows signing in with its own work accounts, and this account "
                            "belongs to another organization. Sign in with your work account.")
 

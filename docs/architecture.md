@@ -2,7 +2,7 @@
 
 ![Fabric Desktop by KratosBI architecture](architecture.svg)
 
-Fabric Desktop by KratosBI does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they use no Fabric capacity.
+Fabric Desktop by KratosBI does Microsoft Fabric data engineering work on your own Windows PC and writes the results straight into OneLake. Fabric is used for sign-in, for managing items and for storage. Notebooks, SQL queries, jobs and metadata runs all execute on the PC, so they start no Fabric job; their OneLake reads and writes still use capacity.
 
 ## The pieces
 

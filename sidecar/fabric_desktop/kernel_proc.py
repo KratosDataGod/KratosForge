@@ -338,6 +338,12 @@ class ProcessKernel:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self._request("complete", code=code, cursor=cursor)
 
+    def reads(self) -> dict[str, Any]:
+        """What the cells read since this process started; nothing once it has ended."""
+        if self._proc is None or self._proc.poll() is not None:
+            return {"tables": {}, "files": {}}
+        return self._request("reads")
+
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 
     def bind_proof(self, config: dict[str, Any], side: str, root: str,
@@ -351,6 +357,13 @@ class ProcessKernel:
 
     def finish_proof(self, modules: list[str]) -> dict[str, Any]:
         return self._request("finish_proof", modules=modules)
+
+    def proof_log(self) -> dict[str, Any]:
+        """The bound proof runtime's log so far (a replay checks what the cells read)."""
+        return self._request("proof_log")
+
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.poll() is None
 
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:

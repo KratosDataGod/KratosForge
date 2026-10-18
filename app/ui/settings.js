@@ -90,6 +90,12 @@ function redactReport(text, level = "support") {
     .replace(/eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]*/g, "[removed]")
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
+    .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
+    .replace(/https:\/\/[A-Za-z0-9.\-]+\.webhook\.office\.com\/[^\s"'<>]+/g, "[removed]")
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
+    .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
+    .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
+    .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
     .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
@@ -295,8 +301,10 @@ async function renderSettings() {
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
-        h("dd", {}, "Only your organization's own work accounts")] : null,
-      s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
+        // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
+        h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
+          ? "No account, until the problems below are fixed" : "Only your organization's own work accounts")] : null,
+      s.policy_problems?.length ? [h("dt", {}, "Problems in that file"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.
@@ -447,7 +455,7 @@ function writeTestDialog(done) {
     const result = await attempt(() => rpc("readiness_write_test",
       { workspace_id: ws.value, lakehouse_id: lhSelect.value, workspace_name: ws.textContent }), "Write test");
     closeDialog();
-    if (result) done(result);
+    if (result) done(result, ws.textContent);
   }, "tool primary", { disabled: true });
   const canGo = () => { start.disabled = !(wsSelect.value && lhSelect.value); };
   wsSelect.addEventListener("change", async () => {
@@ -474,12 +482,31 @@ function writeTestDialog(done) {
   }).catch((err) => { why.textContent = friendlyError(err).text; });
 }
 
+// A passed write test is remembered per account, so Home doesn't ask for it again on every visit (#191).
+function savedWriteRow(saved, user) {
+  if (!saved || !user || saved.user !== user || !saved.at) return null;
+  const when = new Date(saved.at);
+  if (Number.isNaN(when.getTime())) return null;
+  const where = saved.workspace ? ` in ${saved.workspace}` : "";
+  return { key: "write", title: "Writing to OneLake", status: "ok",
+    text: `Test write passed${where} on ${when.toLocaleDateString()}.` };
+}
+
+function rememberWrite(row, workspace) {
+  try {
+    if (row?.status === "ok" && state.user) {
+      localStorage.setItem("fd.ready.write", JSON.stringify({ user: state.user, at: new Date().toISOString(), workspace }));
+    } else localStorage.removeItem("fd.ready.write");
+  } catch { /* not remembered */ }
+}
+
 function readinessCard() {
   let hidden = false;
   try { hidden = localStorage.getItem("fd.ready.hidden") === "1"; } catch { /* shown */ }
   if (hidden) return null;
   const box = h("section", { class: "card pad ready", "aria-labelledby": "ready-title" });
   let writeRow = null;
+  try { writeRow = savedWriteRow(JSON.parse(localStorage.getItem("fd.ready.write") || "null"), state.user); } catch { /* ask again */ }
   const draw = (rows, checkedAt) => {
     const all = writeRow ? [...rows, writeRow] : rows;
     const good = all.filter((r) => r.status === "ok").length;
@@ -496,7 +523,7 @@ function readinessCard() {
     const write = writeRow || { key: "write", title: "Writing to OneLake", status: "wait",
       text: capacityOk ? "Not checked. It writes a small test file, so it waits until you ask."
         : "Not checked. It needs a lakehouse you can write to, so it waits for the check above." };
-    const tester = btn("Test a write", null, () => writeTestDialog((r) => { writeRow = r; draw(rows, "just now"); }),
+    const tester = btn("Test a write", null, () => writeTestDialog((r, workspace) => { writeRow = r; rememberWrite(r, workspace); draw(rows, "just now"); }),
       "tool outline small", { disabled: capacityOk ? null : true });
     box.replaceChildren(head,
       h("p", { class: "muted-text small" }, "Each check reads only. Nothing in Fabric is changed unless you choose Test a write."),

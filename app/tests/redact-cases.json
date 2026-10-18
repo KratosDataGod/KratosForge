@@ -14,6 +14,12 @@
     {"level": "support", "in": "c:/users/Ann Lee/x and /home/ann/y and /Users/ann/z", "out": "c:/users/[user]/x and /home/[user]/y and /Users/[user]/z"},
     {"level": "support", "in": "Tenant 72F988BF-86F1-41AF-91AB-2D7CD011DB47 workspace 11111111-2222-3333-4444-555555555555", "out": "Tenant [id] workspace [id]"},
     {"level": "support", "in": "Bearer abcdefghijk from bob@x.io", "out": "Bearer [removed] from [email]"},
-    {"level": "support", "in": "Nothing personal in this line: run 42 failed after 3.5 s", "out": "Nothing personal in this line: run 42 failed after 3.5 s"}
+    {"level": "support", "in": "Nothing personal in this line: run 42 failed after 3.5 s", "out": "Nothing personal in this line: run 42 failed after 3.5 s"},
+    {"level": "secrets", "in": "fatal: unable to access 'https://ann:s3cretPAT@dev.azure.com/contoso/_git/repo/'", "out": "fatal: unable to access 'https://[removed]@dev.azure.com/contoso/_git/repo/'"},
+    {"level": "secrets", "in": "posting to https://contoso.webhook.office.com/webhookb2/abc@def/IncomingWebhook/123/456 failed", "out": "posting to [removed] failed"},
+    {"level": "secrets", "in": "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA rejected", "out": "token [removed] rejected"},
+    {"level": "secrets", "in": "client secret abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx expired", "out": "client secret [removed] expired"},
+    {"level": "secrets", "in": "key AKIAABCDEFGHIJKLMNOP and xoxb-1234567890-abcdef", "out": "key [removed] and [removed]"},
+    {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"}
   ]
 }

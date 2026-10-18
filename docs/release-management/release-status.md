@@ -57,7 +57,7 @@ Added since the snapshot: #169 (staged roadmap) adds the shared UI helper `previ
 | RM-007 | No rollback: one build per channel, engine always from the channel's current release | Hardening (HD-028) | Tracked there; manual procedure in [rollback today](README.md#rollback-today) |
 | RM-008 | Unsigned builds; Smart App Control blocks the engine on many PCs | Chris (Trusted Signing account, D-C3) | Tracked as readiness gate 4 |
 | RM-009 | Learn more links open docs from `main` (`open_doc` in `app/src-tauri/src/main.rs`), so a Stable PC can read about Preview-only features (UX-007 in the UX audit) | Shell owner, as UX-007 | Open `blob/<FABRIC_RELEASE_COMMIT>/docs/...` when the build carries its commit, `main` otherwise |
-| RM-010 | Stable `9715e28` carries a Critical data-loss defect (QA-001) and a High lost-work defect (QA-002). Rolling Stable back doesn't help: every earlier Stable build has them too | Prove (fixes); Chris (when to promote) | Promote to Stable as soon as both fixes are merged and on Preview; say in the release notes what was fixed |
+| RM-010 | Stable `9715e28` carries a Critical data-loss defect (QA-001) and a High lost-work defect (QA-002). Rolling Stable back doesn't help: every earlier Stable build has them too | Prove (fixes); Chris (when to promote) | Fixes are up: #177 (QA-001: the writer refuses `replaceWhere` and partition overwrite, honors `overwriteSchema`/`mergeSchema`) and #178 (QA-002: a failed save says so). Promote to Stable as soon as both are merged and on Preview; say in the release notes what was fixed |
 
 ## Held PRs and what they wait on
 

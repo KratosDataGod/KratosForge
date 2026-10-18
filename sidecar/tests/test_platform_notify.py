@@ -170,3 +170,29 @@ def test_methods_are_served_and_reads_are_not_audited():
     assert pns.METHODS <= server.METHODS
     assert {"platform_notify_settings", "platform_notify_open"} <= audit.READ_ONLY
     assert audit.audited("platform_notify") and audit.audited("platform_notify_save")
+
+
+LEAKY = "https://contoso.webhook.office.com/workflows/abc/invoke?api-version=1&sv=1.0&sig=SECRET123"
+
+
+def leaky_post(url, title, lines):
+    raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
+
+
+def test_a_webhooks_signature_never_reaches_a_result_or_the_outbox(tmp_path):
+    routing, outbox, ledger = setup(tmp_path, PlatformRoute("default", LEAKY))
+    out = send([event()], routing, outbox, ledger, leaky_post, now=NOON)
+    assert out["queued"] == 1 and "sig=[removed]" in out["error"]
+    again = send([], routing, outbox, ledger, leaky_post, now=NOON)  # the retry fails the same way
+    assert "SECRET123" not in str(out) + str(again) + (tmp_path / "o.sqlite").read_bytes().decode("latin-1")
+
+
+def test_incident_notices_keep_the_signature_out_too(tmp_path):
+    from fabric_desktop.workloads import notify
+    change = {"change": "opened", "incident": {"id": "i1", "env": "prod", "title": "Sales load failed",
+                                               "kind": "run_failed", "criticality": "high"}}
+    box = Outbox(tmp_path / "alerts.sqlite")
+    out = notify.send([change], notify.single(LEAKY), box, "test", leaky_post, now=NOON)
+    notify.send([], notify.single(LEAKY), box, "test", leaky_post, now=NOON)
+    assert out["queued"] == 1 and "SECRET123" not in str(out)
+    assert "SECRET123" not in (tmp_path / "alerts.sqlite").read_bytes().decode("latin-1")

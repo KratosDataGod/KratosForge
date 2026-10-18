@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
@@ -239,7 +239,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
         try:
             post(route.url, f"Delayed: {item['title']}" if item["attempts"] else item["title"], [first] + item["lines"])
         except Exception as exc:  # noqa: BLE001 - still unreachable: keep it
-            down[route.name] = f"{type(exc).__name__}: {exc}"
+            down[route.name] = failure(exc)
             outbox.failed(item["id"], down[route.name])
             continue
         outbox.done(item["id"])
@@ -268,7 +268,7 @@ def send(events: list[dict[str, Any]], routing: PlatformRouting, outbox: Outbox,
                     sent += 1
                     continue
                 except Exception as exc:  # noqa: BLE001
-                    down[r.name] = f"{type(exc).__name__}: {exc}"
+                    down[r.name] = failure(exc)
             outbox.add(title, lines, down[r.name], route=r.name)
             queued += 1
             outcome = "queued" if outcome == "sent" else outcome

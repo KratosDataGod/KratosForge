@@ -98,3 +98,22 @@ def test_queue_list_reads_without_calling_fabric_and_says_how_each_source_stands
 
 def test_the_queue_and_agent_reads_are_not_audited_as_changes():
     assert {"agents_list", "queue_list", "incidents_summary"} <= audit.READ_ONLY
+
+
+def test_a_schedule_agents_share_is_one_row_naming_them_all():
+    nxt = iso(NOW + dt.timedelta(minutes=20))
+    sched = {"id": "prod-hourly", "next": nxt, "entities": ["silver_orders"], "shared": True}
+    rows = build({"prod": [agent("etl-02", schedules=[sched]), agent("etl-01", schedules=[sched]),
+                           agent("etl-03", live=False, schedules=[sched | {"next": iso(NOW - dt.timedelta(hours=1))}])]},
+                 [], [], [], {}, NOW)
+    [row] = rows
+    assert row["state"] == "next" and row["at"] == nxt and row["owner"] == "shared schedule prod-hourly"
+    assert row["where"] == {"kind": "agents", "name": "etl-01, etl-02, etl-03", "names": ["etl-01", "etl-02", "etl-03"]}
+    assert row["note"] == "Shared by etl-01, etl-02, etl-03: runs once, on whichever claims it"
+
+
+def test_a_shared_schedule_none_of_whose_agents_reports_is_missed():
+    sched = {"id": "h", "next": iso(NOW - dt.timedelta(minutes=5)), "entities": [], "shared": True}
+    [row] = build({"dev": [agent("a", live=False, schedules=[sched]), agent("b", live=False, schedules=[sched])]},
+                  [], [], [], {}, NOW)
+    assert row["state"] == "missed" and row["what"] == "Every table" and row["note"].endswith("None of them is reporting")

@@ -800,8 +800,8 @@ async function renderWorkspaces() {
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
     signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
       reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
-      changes: "New lakehouse creates a lakehouse in Fabric after you name it; New notebook makes one on this PC. Stars and pins are kept on this PC, not in Fabric. Nothing else here writes to Fabric or OneLake.",
-      results: "Only you see your stars and pins. A new lakehouse shows in Fabric for everyone with access to its workspace.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook, in an item's preview, makes a new notebook on this PC that reads the table. Stars and pins are kept on this PC, not in Fabric.",
+      results: "Only you see your stars, pins and new notebooks. Clicking a workspace opens its own page, where New lakehouse creates a lakehouse in Fabric after you name it.",
       anchor: "workspaces",
     }))));
   if (!state.user) return;
@@ -1097,7 +1097,7 @@ async function renderOneLake() {
     // Under the catalog, not beside it: the table needs the page's full width for its row actions.
     howItWorks("onelake.catalog", {
       reads: "Every item in every workspace you can open, and each lakehouse's table names, from Fabric with your sign-in. It reads when the page opens and when you press Refresh.",
-      changes: "Nothing in Fabric or OneLake. Stars are kept on this PC; Open in notebook and SQL query open the table here without changing it.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook makes a new notebook on this PC that reads the table; SQL query reads it without changing it. Stars are kept on this PC.",
       results: "Only you see your stars. The list shows only what your own Fabric permissions let you open.",
       anchor: "catalog",
     })));

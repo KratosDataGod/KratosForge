@@ -1339,8 +1339,10 @@ test("Workspaces, the catalog and data products have a How this works panel that
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
   const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
   const ws = panel(app, "workspaces");
-  assert.match(ws, /New lakehouse creates a lakehouse in Fabric/);
-  assert.match(panel(app, "onelake.catalog"), /changes: "Nothing in Fabric or OneLake/);
+  assert.match(ws, /changes: "Nothing in Fabric or OneLake. Open in notebook[^"]*makes a new notebook on this PC/);
+  const catalog = panel(app, "onelake.catalog");
+  assert.match(catalog, /changes: "Nothing in Fabric or OneLake/);
+  assert.match(catalog, /Open in notebook makes a new notebook on this PC/);
   const products = panel(platform, "onelake.products");
   assert.match(products, /records your project as a reader/);
   assert.match(products, /adds a request/);

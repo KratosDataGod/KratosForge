@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import threading
@@ -13,6 +14,8 @@ from deltalake import DeltaTable
 
 from . import maintenance, xray
 from .fabric_api import FabricClient
+from .fabric_run import TERMINAL
+from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
 from .onelake import FileStore, TableRef, storage_options
 
@@ -113,7 +116,7 @@ class XRayMixin:
         out: dict[str, Any] = {"running": running, "paused": bool(running and (state or {}).get("paused")),
                                "progress": (state or {}).get("progress"), "error": (state or {}).get("error"), "result": saved}
         if saved:
-            out["result"] = self._xray_annotate(saved)
+            out["result"] = self._xray_annotate(saved, refresh=not running)
         return out
 
     def xray_pause(self, paused: bool = True) -> dict[str, Any]:
@@ -156,8 +159,8 @@ class XRayMixin:
         with self._xray_lock:
             self._xray_state = state
 
-    def _xray_annotate(self, result: dict[str, Any]) -> dict[str, Any]:
-        """Which lakehouses the metadata project already manages, and which findings were fixed."""
+    def _xray_annotate(self, result: dict[str, Any], refresh: bool = True) -> dict[str, Any]:
+        """Which lakehouses the metadata project already manages, and which findings have a fix under way or done."""
         managed: set[tuple[str, str]] = set()
         adopted: set[str] = set()
         try:
@@ -166,13 +169,16 @@ class XRayMixin:
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
         except Exception:
             pass
-        fixed = set(self._settings().get("xray_fixed", []))  # type: ignore[attr-defined]
+        fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
         for r in result.get("lakehouse_rows", []):
             prefix = f"abfss://{r['workspace_id']}@"
             n_adopted = sum(1 for a in adopted if a.startswith(prefix) and f"/{r['lakehouse_id']}/" in a)
             rows.append(r | {"managed": (r["workspace_id"], r["lakehouse_name"]) in managed, "adopted": n_adopted})
-        findings = [f | {"fixed": _finding_id(f) in fixed, "id": _finding_id(f)} for f in result.get("findings", [])]
+        findings = []
+        for f in result.get("findings", []):
+            fix = fixes.get(_finding_id(f))
+            findings.append(f | {"id": _finding_id(f), "fixed": bool(fix and fix["state"] == "fixed"), "fix": fix})
         return result | {"lakehouse_rows": rows, "findings": findings}
 
     def _xray_keep_days(self, workspace_id: str, lakehouse_name: str, table_days: int | None) -> tuple[int, str]:
@@ -184,11 +190,13 @@ class XRayMixin:
             keep.append((table_days, "the table's own retention setting"))
         try:
             project = self._project()  # type: ignore[attr-defined]
-            for ws, layer in _layer_workspaces(project):
-                if ws == workspace_id and layer.lakehouse == lakehouse_name:
-                    keep.append((layer.retention_days, f"Keep history on the {layer.name} layer"))
-        except Exception:  # no metadata project: nothing more to keep
+            keep += [(layer.retention_days, f"Keep history on the {layer.name} layer")
+                     for ws, layer in _layer_workspaces(project) if ws == workspace_id and layer.lakehouse == lakehouse_name]
+        except NoMetadataProject:  # no metadata project: nothing more to keep
             pass
+        except Exception as exc:  # a project that can't be read may promise more: guessing 7 days could delete it
+            raise RuntimeError(f"Couldn't read the metadata project ({type(exc).__name__}: {exc}), so the days of "
+                               "history its layers keep aren't known. Nothing was started; fix the project and try again.") from exc
         days, why = max(keep, key=lambda k: k[0])
         return days, why
 
@@ -199,12 +207,39 @@ class XRayMixin:
     def _xray_table_days(self, uri: str, options: dict[str, str]) -> int | None:
         try:
             return maintenance.kept_days(DeltaTable(uri, storage_options=options).metadata().configuration)
-        except Exception:  # unreadable here: the job still keeps at least the layer's days
-            return None
+        except Exception as exc:  # its own retention setting may be longer than the layer's: don't guess
+            raise RuntimeError(f"Couldn't read the table's retention setting ({type(exc).__name__}: {exc}), so the days "
+                               "of history it keeps aren't known. Nothing was started; try again when the table can be read.") from exc
 
-    def _xray_mark_fixed(self, finding_id: str) -> None:
+    def _xray_mark_submitted(self, finding_id: str, job_id: str, workspace_id: str, item_id: str) -> None:
+        """The fix's Fabric job, so the finding shows "submitted" until the job finishes."""
         if finding_id:
-            self._save_settings(xray_fixed=sorted(set(self._settings().get("xray_fixed", [])) | {finding_id}))  # type: ignore[attr-defined]
+            subs = dict(self._settings().get("xray_submitted") or {})  # type: ignore[attr-defined]
+            subs[finding_id] = {"job_id": job_id, "workspace_id": workspace_id, "item_id": item_id,
+                                "submitted_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+            self._save_settings(xray_submitted=subs)  # type: ignore[attr-defined]
+
+    def _xray_fixes(self, scanned: str | None, refresh: bool = True) -> dict[str, dict[str, Any]]:
+        """What became of each finding's fix job, from the Fabric runs log: "submitted" while it runs,
+        "fixed" once it completed, "failed" with Fabric's reason. A job that finished before the
+        scan began is superseded by that scan: if the scan still found the problem, it shows again."""
+        subs = self._settings().get("xray_submitted") or {}  # type: ignore[attr-defined]
+        if not subs:
+            return {}
+        runs = {r.get("job_id"): r for r in self.fabric_runs(limit=500, refresh=refresh)}  # type: ignore[attr-defined]
+        out = {}
+        for fid, sub in subs.items():
+            run = runs.get(sub.get("job_id"))
+            if run is None:  # gone from the runs log: what became of it isn't known, so the finding shows as found
+                continue
+            status = run.get("status") or "NotStarted"
+            if status in TERMINAL:
+                ended = str(run.get("finished_at") or sub.get("submitted_at") or "")[:19]
+                if scanned and ended < str(scanned)[:19]:  # both UTC; seconds are enough
+                    continue
+            state = "fixed" if status == "Completed" else "failed" if status in TERMINAL else "submitted"
+            out[fid] = {"state": state, "job_id": sub.get("job_id"), "status": status, "message": run.get("message") or ""}
+        return out
 
     def xray_optimize(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                       lakehouse_name: str = "", workspace_name: str = "", finding_id: str = "") -> dict[str, Any]:
@@ -214,7 +249,7 @@ class XRayMixin:
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days))
         label = f"{schema}.{table}" if schema else table
-        self._xray_mark_fixed(finding_id)
+        self._xray_mark_submitted(finding_id, job_id, workspace_id, lakehouse_id)
         return self._log_fabric_run({"kind": "Table maintenance", "name": f"{lakehouse_name} {label}".strip(),  # type: ignore[attr-defined]
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                      "item_id": lakehouse_id, "job_id": job_id})
@@ -244,7 +279,7 @@ class XRayMixin:
         job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
             workspace_id, lakehouse_id, table, schema, vacuum_retention=maintenance.fabric_retention(days), optimize=False)
         label = f"{schema}.{table}" if schema else table
-        self._xray_mark_fixed(finding_id)
+        self._xray_mark_submitted(finding_id, job_id, workspace_id, lakehouse_id)
         run = self._log_fabric_run({"kind": "Table maintenance", "name": f"Vacuum {lakehouse_name} {label}".replace("  ", " ").strip(),  # type: ignore[attr-defined]
                                     "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                     "item_id": lakehouse_id, "job_id": job_id})

@@ -185,6 +185,16 @@ def test_redact_result_walks_everything():
     assert out["n"] == 3 and out["t"] == ["x"]
 
 
+def test_redact_result_blanks_fields_named_like_secrets():
+    out = redact_result({"items": [{"name": "conn", "settings": {"Password": "plain words", "SAS_Token": "sv=1",
+                                                                 "host": "x.database"}}],
+                         "secrets_ignored": 2, "count": 1})
+    settings = out["items"][0]["settings"]
+    assert settings["Password"] == settings["SAS_Token"] == "[removed]"
+    assert settings["host"] == "x.database" and out["items"][0]["name"] == "conn"
+    assert out["secrets_ignored"] == 2 and out["count"] == 1
+
+
 # ---- MCP
 
 def test_mcp_lists_resources_and_templates(svc):

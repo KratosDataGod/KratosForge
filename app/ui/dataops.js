@@ -137,7 +137,7 @@ function promoteImpact(source, target) {
 
 // The last release promoted to an environment, from its meta.deployments row: which metadata,
 // which commit, which engine, who and when, and whether the stored record still matches its id.
-function lastRelease(env) {
+function lastRelease(env, onChange = null) {
   if (!previewShown()) return null;
   const box = h("div", { class: "muted-text small" }, `Reading the last release to ${ENV_LABEL[env]}...`);
   rpc("meta_last_release", { env }).then((res) => {
@@ -147,10 +147,11 @@ function lastRelease(env) {
     const row = (label, ...value) => h("div", { class: "release-row" }, h("span", { class: "muted-text" }, label), h("span", {}, value));
     const record = r.receipt_id ? [h("span", { class: "mono" }, `${r.receipt_id.slice(0, 8)}…`),
       h("span", { class: `pill-s ${r.verified ? "pass" : "fail"}` }, r.verified ? "checks out" : "doesn't match its id"),
-      btn("Copy record", null, () => attempt(() => navigator.clipboard.writeText(r.receipt), "Could not copy").then(() => toast("Copied")), "tool link small")]
+      btn("Copy record", null, () => copyText(r.receipt, "Record"), "tool link small")]
       : h("span", { class: "muted-text" }, "none (promoted before release records)");
     box.replaceWith(h("div", { class: "release-card dataops" },
-      preview("releases", h("b", {}, `Last release to ${ENV_LABEL[env]}`)),
+      h("div", { class: "row" }, preview("releases", h("b", { class: "grow" }, `Last release to ${ENV_LABEL[env]}`)),
+        env !== "dev" ? preview("rollback", btn("Roll back...", "history", () => rollbackDialog(env, onChange), "tool link small")) : null),
       row("Metadata version", h("span", { class: "mono" }, r.version || "")),
       row("Code", releaseCommitText(r)),
       r.engine_version ? row("Engine", `Fabric Desktop by KratosBI ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
@@ -159,6 +160,70 @@ function lastRelease(env) {
       row("Record", record)));
   }).catch(() => box.remove());
   return box;
+}
+
+// Put Test or Prod back on an earlier release, from the files that environment keeps
+// (meta/snapshot.py). Nothing is read from Git or Dev; tables keep their rows until they run.
+async function rollbackDialog(env, onChange) {
+  const res = await metaCall("meta_releases", { env }, "Releases not available");
+  if (!res) return;
+  if (res.problem) { toast(`Can't read ${ENV_LABEL[env]}'s releases: ${friendlyError(res.problem).text}`, true); return; }
+  const earlier = res.releases.filter((r) => !r.current && r.kept);
+  let pick = earlier.length ? earlier[0].version : null;
+  const what = h("div", { class: "rollback-what" });
+  const go = btn("Roll back", null, async () => {
+    if (!pick) return;
+    if (!state.user && !(await signIn())) return;
+    const out = await metaCall("meta_rollback", { env, version: pick }, "Rollback blocked");
+    if (!out) return;
+    closeDialog();
+    toast(`${ENV_LABEL[env]} is back on metadata ${out.version}`, false, { log: true });
+    if (out.fabric && out.fabric !== "synced") toast(`Fabric runs: ${out.fabric}`, true);
+    onChange?.();
+  }, "tool primary");
+  const label = (r) => `${r.version} (${relTime(r.at)})`;
+  const show = async () => {
+    go.disabled = !pick;
+    go.textContent = pick ? `Roll back ${ENV_LABEL[env]} to ${pick}` : "Roll back";
+    if (!pick) { what.replaceChildren(); return; }
+    what.replaceChildren(h("p", { class: "muted-text small" }, "Working out what changes..."));
+    const p = await metaCall("meta_rollback_preview", { env, version: pick }, "Preview not available");
+    if (!p || p.to !== pick) return;
+    const pills = { changed: ["wrn", "Logic changes"], removed: ["fail", "Removed"], new: ["info", "Comes back"], unreadable: ["neu", "Can't compare"] };
+    const rows = p.entities.map((t) => {
+      const [cls, text] = t.state === "changed" && !t.logic ? ["neu", "Settings change"] : pills[t.state] || ["neu", t.state];
+      const detail = t.state === "removed" ? h("span", { class: "muted-text" }, `Not in ${pick}. Its table stays; nothing runs it.`)
+        : t.problem ? h("span", { class: "muted-text" }, t.problem)
+        : h("ul", { class: "gate-list small" }, t.changes.slice(0, 6).map((c) => h("li", {}, c.text)),
+          t.changes.length > 6 ? h("li", { class: "muted-text" }, `and ${t.changes.length - 6} more`) : null);
+      return h("div", { class: "rollback-entity" }, h("span", { class: "mono" }, t.entity), h("span", {}, h("span", { class: `pill-s ${cls}` }, text)), detail);
+    });
+    what.replaceChildren(
+      h("b", {}, `What goes back in ${ENV_LABEL[env]}`),
+      rows.length ? h("div", { class: "rollback-list" }, rows) : h("p", { class: "muted-text small" }, "No entity's settings differ between the two releases; other project files may."),
+      h("div", { class: "rollback-warn" }, h("b", {}, "Tables keep their data"),
+        h("span", {}, `Rolling back changes which files ${ENV_LABEL[env]} runs, not what its tables hold. A table whose logic changes asks whether to rebuild on its next run. To put its rows back now, restore it from History.`)));
+  };
+  const row = (r) => {
+    const can = !r.current && r.kept;
+    const input = h("input", { type: "radio", name: "rollback-to", value: r.version, disabled: !can, checked: r.version === pick && can,
+      "aria-label": r.current ? "Current release" : `Roll back to ${r.version}`, onchange: () => { pick = r.version; show(); } });
+    const state_ = r.current ? ["neu", "Running now"] : !r.kept ? ["neu", "files not kept"] : r.receipt_id ? (r.verified ? ["pass", "checks out"] : ["fail", "doesn't match its id"]) : ["neu", "no record"];
+    return h("label", { class: `rollback-row${can ? "" : " off"}` }, input,
+      h("span", { class: "mono" }, r.version),
+      h("span", {}, `${relTime(r.at)}${r.by ? `, ${r.by}` : ""}${r.source_env === env ? " (rollback)" : ""}`),
+      h("span", {}, releaseCommitText(r)),
+      h("span", {}, h("span", { class: `pill-s ${state_[0]}` }, state_[1])));
+  };
+  const body = h("div", { class: "rollback-view" },
+    h("p", { class: "muted-text" }, `Puts ${ENV_LABEL[env]} back on the files an earlier promote kept there, exactly as they were. Nothing is read from Git or from Dev.`),
+    h("fieldset", { class: "rollback-releases" }, h("legend", {}, `Releases to ${ENV_LABEL[env]}`), res.releases.map(row)),
+    earlier.length ? null : h("p", { class: "muted-text small" }, `${ENV_LABEL[env]} keeps no earlier release to go back to. Releases promoted before this version of the app didn't keep their files.`),
+    what,
+    h("p", { class: "muted-text small" }, `The rollback is recorded as a new release in ${ENV_LABEL[env]}, naming the release it went back to. Your project folder on this PC is not changed.`));
+  showDialog(`Roll back ${ENV_LABEL[env]}`, body, [btn("Cancel", null, closeDialog, "tool"), go])
+    .querySelector(".dialog")?.classList.add("wide");
+  show();
 }
 
 // Where the released files stood in Git, in one line.

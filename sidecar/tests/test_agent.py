@@ -330,6 +330,21 @@ def test_retryable_errors():
     assert not is_retryable(ValueError("bad config")) and not is_retryable(KeyError("no entity"))
 
 
+def test_a_fabric_outage_is_retried_not_failed(setup, monkeypatch):
+    from fabric_desktop.fabric_api import FabricError
+    agent = Agent(setup)
+
+    def outage(*args, **kwargs):
+        raise FabricError("GET /workspaces failed with 503: Service unavailable", "ServiceUnavailable", 503)
+
+    monkeypatch.setattr(agent.runtime, "run_environment", outage)
+    job = agent.enqueue("dev")
+    agent.step()
+    finish(agent)
+    again = agent.queue.get(job["id"])
+    assert again["state"] == "queued" and "503" in again["error"]
+
+
 # ---- the agent, running the sample project for real
 
 def test_agent_runs_a_queued_environment_with_run_details(setup):

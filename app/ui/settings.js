@@ -295,8 +295,10 @@ async function renderSettings() {
       s.allow_fabric_runs?.value === false ? [h("dt", {}, "Runs in Fabric"),
         h("dd", {}, "Off: your organization keeps work on this PC")] : null,
       s.allowed_tenants?.value?.length ? [h("dt", {}, "Sign-in"),
-        h("dd", {}, "Only your organization's own work accounts")] : null,
-      s.policy_problems?.length ? [h("dt", {}, "Ignored in that file"),
+        // The nil GUID alone is the engine's "no tenant" (app_settings.NO_TENANT): the file can't be read.
+        h("dd", {}, s.allowed_tenants.value.includes("00000000-0000-0000-0000-000000000000")
+          ? "No account, until the problems below are fixed" : "Only your organization's own work accounts")] : null,
+      s.policy_problems?.length ? [h("dt", {}, "Problems in that file"),
         h("dd", {}, h("ul", { class: "plain" }, s.policy_problems.map((p) => h("li", {}, p))))] : null));
 
   // Integrations (external AI tools, integrations.js) is a tab: the left rail is full.

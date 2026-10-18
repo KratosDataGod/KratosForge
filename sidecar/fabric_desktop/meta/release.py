@@ -18,6 +18,7 @@ from __future__ import annotations
 import getpass
 import hashlib
 import importlib.metadata as md
+import json
 import platform
 from pathlib import Path
 from typing import Any
@@ -155,6 +156,32 @@ def deployment_columns(body: dict[str, Any]) -> dict[str, Any]:
             "engine_version": env["engine_version"], "lock_hash": env["lock_hash"],
             "by": (body.get("identity") or {}).get("user"),
             "receipt_id": receipts.receipt_id(body), "receipt": receipts.canonical(body).decode("utf-8")}
+
+
+def verified(receipt: str | None, rid: str | None) -> bool:
+    """Whether a stored receipt still hashes to the id recorded beside it."""
+    try:
+        return bool(receipt) and receipts.receipt_id(json.loads(receipt)) == rid
+    except (ValueError, KeyError, TypeError):
+        return False
+
+
+def rollback_record(project: Project, env: str, version: str, current: dict[str, Any], earlier: dict[str, Any],
+                    by: str | None = None) -> dict[str, Any]:
+    """The release receipt for rolling ``env`` back to ``version`` (``project`` is that release's
+    files). The code is the earlier release's, as it recorded it; ``rollback`` names both releases."""
+    entities = [{"name": e.name, "path": e.path.relative_to(project.root).as_posix(),
+                 "sha256": hashlib.sha256(e.path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()}
+                for e in project.entities.values()]
+    code = {"repo": bool(earlier.get("commit")), "commit": earlier.get("commit"), "branch": earlier.get("branch"),
+            "dirty": earlier.get("dirty"), "pushed": earlier.get("pushed"), "uncommitted": []}
+    return receipts.new_receipt(
+        "release",
+        project={"name": project.local_data.parent.name, "metadata_version": version,
+                 "source_env": env, "target_env": env},
+        rollback={"from_version": current["version"], "from_receipt_id": current.get("receipt_id"),
+                  "to_receipt_id": earlier.get("receipt_id")},
+        code=code, entities=entities, environment=engine(), identity={"user": by or _user()})
 
 
 def committed(root: Path | str, folder: str, suffix: str = "") -> dict[str, str] | None:

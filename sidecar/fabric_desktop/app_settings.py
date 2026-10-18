@@ -56,7 +56,17 @@ Keys:
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
                      goes to the organization's own Azure Monitor instead of KratosBI's
 
-policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
+The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
+reads them through read_policy() here, so both read the file by the same rules.
+
+Restrictions fail closed. A policy file that exists but can't be read is replaced by the last copy
+that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
+last applied settings; with no copy, and for a restriction with the wrong kind of value, that
+restriction takes its most restrictive value (RESTRICTED here, and integrations/policy.py's for its
+keys) rather than the default. A missing file means no policy, and deletes the copy.
+Other keys of the wrong kind are skipped, so the next place (environment, user, default) applies.
+policy_problems() says what in the policy file was ignored or restricted and why, so a typo doesn't
+fail silently.
 """
 
 from __future__ import annotations
@@ -98,6 +108,18 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 
+# Read by integrations/policy.py, which decides what each means; listed here so the policy file has
+# one list of settings.
+INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
+                    "receipt_redactions")
+POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS)
+# No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
+NO_TENANT = "00000000-0000-0000-0000-000000000000"
+# The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
+# be read. Updates (auto_update, channel) are enforced by the shell, which reads the file itself.
+RESTRICTED: dict[str, Any] = {"allow_fabric_runs": False, "allowed_tenants": [NO_TENANT], "show_preview": False,
+                              "telemetry": False}
+
 
 def policy_path() -> Path:
     base = os.environ.get("ProgramData") or os.environ.get("PROGRAMDATA") or "/etc"
@@ -117,6 +139,81 @@ def _read(path: Path) -> dict[str, Any]:
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
 
+def saved_policy_path() -> Path:
+    """The last policy file that could be read, kept for when the file later breaks."""
+    return user_path().with_name("policy-last-good.json")
+
+
+def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
+    """(settings, why the file can't be used, whether the saved copy stands in for it)."""
+    path = policy_path()
+    saved = saved_policy_path()
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+        data = json.loads(text)
+    except FileNotFoundError:
+        saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
+        return {}, None, False
+    except (OSError, ValueError) as exc:
+        reason = f"can't be read as JSON ({exc})" if isinstance(exc, ValueError) else f"can't be opened ({exc})"
+    else:
+        if isinstance(data, dict):
+            _save_copy(saved, text)
+            return data, None, False
+        reason = "must hold one JSON object"
+    try:
+        copy = json.loads(saved.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        copy = None
+    if isinstance(copy, dict):
+        return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
+                      "until it's fixed"), True
+    return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
+                "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
+                "external AI tools off"), False
+
+
+def _save_copy(saved: Path, text: str) -> None:
+    try:
+        if saved.exists() and saved.read_text(encoding="utf-8") == text:
+            return
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, saved)
+    except OSError:  # no copy this time; the policy itself still applies
+        pass
+
+
+def _saved_at(saved: Path) -> str:
+    import datetime as dt
+    try:
+        return "saved " + dt.datetime.fromtimestamp(saved.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        return "saved earlier"
+
+
+def read_policy() -> tuple[dict[str, Any], str | None]:
+    """The policy file's settings, and why nothing can stand in for it when it exists but can't be
+    read (then every restriction takes its most restrictive value). A broken file is replaced by the
+    last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
+    data, reason, from_copy = _policy_file()
+    return data, None if from_copy else reason
+
+
+def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
+    """``key`` is a restriction the policy file means to set but can't: the file is unreadable, or
+    the key has the wrong kind of value."""
+    if key not in RESTRICTED:
+        return False
+    if error:
+        return True
+    if key not in policy:
+        return False
+    v = policy[key]
+    return not _typed(key, v) or (key == "allowed_tenants" and not all(isinstance(t, str) for t in v))
+
+
 def built_in_client_id() -> str:
     env = os.environ.get("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", "")
     if env:
@@ -133,24 +230,21 @@ def _read_engine_info() -> dict[str, Any]:
 
 
 def policy_problems() -> list[str]:
-    """What in the organization's policy file is ignored, and why; empty when all of it applies."""
-    path = policy_path()
-    if not path.exists():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError) as exc:
-        return [f"{path} can't be read as JSON, so none of it applies: {exc}"]
-    if not isinstance(data, dict):
-        return [f"{path} must hold one JSON object, so none of it applies"]
-    problems = []
+    """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
+    data, reason, from_copy = _policy_file()
+    if reason and not from_copy:
+        return [reason]
+    problems = [reason] if reason else []
     for key, value in data.items():
-        if key not in DEFAULTS:
-            problems.append(f"{key} isn't a setting (settings: {', '.join(DEFAULTS)})")
+        if key not in POLICY_KEYS:
+            problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
+        elif key in INTEGRATION_KEYS:
+            continue  # integrations/policy.py checks these, below
         elif not _typed(key, value):
             kind = TYPES[key]
             name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__
-            problems.append(f"{key} should be {name}, not {type(value).__name__}")
+            problems.append(f"{key} should be {name}, not {type(value).__name__}"
+                            + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
@@ -165,7 +259,12 @@ def policy_problems() -> list[str]:
             problems.append("telemetry_connection_string isn't an Application Insights connection string "
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
-            problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
+            problems.append("allowed_tenants must list tenant ids, like 11111111-2222-3333-4444-555555555555"
+                            + ("; with other values in it, no account can sign in"
+                               if not all(isinstance(t, str) for t in value) else ""))
+    if any(key in data for key in INTEGRATION_KEYS):
+        from .integrations import policy as integrations_policy
+        problems += integrations_policy.current()["problems"]
     return problems
 
 
@@ -202,9 +301,13 @@ def valid_client_id(value: str) -> bool:
 
 def load() -> dict[str, Any]:
     """Each setting's value and where it came from: policy, environment, user, built_in or default."""
-    policy, user = _read(policy_path()), _read(user_path())
+    policy, error = read_policy()
+    user = _read(user_path())
     out: dict[str, Any] = {}
     for key, default in DEFAULTS.items():
+        if _restricted(key, policy, error):
+            out[key] = {"value": RESTRICTED[key], "source": "policy"}
+            continue
         candidates = [("policy", policy.get(key))]
         if key == "client_id":
             candidates.append(("environment", os.environ.get("FABRIC_DESKTOP_CLIENT_ID")))

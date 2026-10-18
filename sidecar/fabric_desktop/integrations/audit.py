@@ -19,8 +19,9 @@ whatever happened to it: refused, waiting for approval, denied, failed or done. 
 
 The lines go to ``<data>/integrations/audit/audit-YYYY-MM.jsonl`` for log shippers, and to the
 integration store for Settings > Integrations > Recent activity. Several processes write (one MCP
-server per connected tool, and the HTTP server), so each line is written inside a store
-transaction: one writer at a time, and the chain stays whole across processes.
+server per connected tool, and the HTTP server), so each line is chained under the folder's lock
+(audit_chain.py, the same writer as the app's audit trail) inside a store transaction: one writer
+at a time, and the chain stays whole across processes.
 
 It is evidence, not a lock: someone who controls the PC can delete the folder.
 """
@@ -28,23 +29,20 @@ It is evidence, not a lock: someone who controls the PC can delete the folder.
 from __future__ import annotations
 
 import getpass
-import hashlib
 import json
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .. import __version__
+from .. import __version__, audit_chain
+from ..audit import target
 from .core import CallContext, IntegrationError, redact_secrets
 
 SCHEMA = "integration-audit@1"
-GENESIS = "0" * 64
+GENESIS = audit_chain.GENESIS
 GIVEN = "(given)"
 KEEP_ROWS = 50_000  # in the store, for the Settings page; the files keep everything
-_MAX_TEXT = 200
-# Arguments that carry code, queries or free text: never recorded.
-_CONTENT = frozenset({"query", "sql", "code", "source", "text", "cells", "content", "body", "values", "rows", "data", "notes"})
 
 # Error codes from the permission checks, and the decision they record.
 _DECISIONS = {"permission_denied": "denied", "integrations_disabled": "denied", "approval_denied": "approval_denied",
@@ -60,32 +58,11 @@ create index if not exists audit_client on audit (client_id, seq);
 
 
 def arguments(values: dict[str, Any] | None) -> dict[str, Any]:
-    """What a line keeps of a call's arguments: identifying values only."""
+    """What a line keeps of a call's arguments: identifying values only, by the app audit trail's
+    rules (audit.target), so code, queries and data are left out the same way in both."""
     if values is not None and not isinstance(values, dict):
         return {"arguments": GIVEN}
-    out: dict[str, Any] = {}
-    for key, value in (values or {}).items():
-        lower = key.lower()
-        if lower in _CONTENT or any(w in lower for w in ("secret", "password", "token")):
-            out[key] = GIVEN
-        elif isinstance(value, (bool, int, float)) or value is None:
-            out[key] = value
-        elif isinstance(value, str):
-            out[key] = redact_secrets(value) if len(value) <= _MAX_TEXT else GIVEN
-        elif isinstance(value, list) and len(value) <= 20 and all(isinstance(v, str) and len(v) <= _MAX_TEXT for v in value):
-            out[key] = [redact_secrets(v) for v in value]
-        elif isinstance(value, dict):
-            inner = arguments(value)
-            out[key] = inner if len(json.dumps(inner, default=str)) <= 4 * _MAX_TEXT else GIVEN
-        else:
-            out[key] = GIVEN
-    return out
-
-
-def _hash(prev: str, entry: dict[str, Any]) -> str:
-    # The same as audit.py in the app's audit trail, so one verifier reads both.
-    body = json.dumps(entry, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256((prev + body).encode()).hexdigest()
+    return target(values or {})
 
 
 def decision_for(error: IntegrationError | None, ctx: CallContext) -> str:
@@ -125,15 +102,9 @@ class IntegrationAudit:
         }
         if error is not None:
             entry["error"] = redact_secrets(error.message)[:500]
-        with self.store._tx() as db:  # one writer at a time across every process
-            last = db.execute("select hash from audit order by seq desc limit 1").fetchone()
-            prev = last["hash"] if last else GENESIS
-            entry["prev"] = prev
-            entry["hash"] = _hash(prev, entry)
-            line = json.dumps(entry, default=str)
-            self.folder.mkdir(parents=True, exist_ok=True)
-            with (self.folder / f"audit-{entry['at'][:7]}.jsonl").open("a", encoding="utf-8") as f:
-                f.write(line + "\n")
+        with self.store._tx() as db, audit_chain.locked(self.folder):  # one writer at a time across every process
+            line = audit_chain.seal(audit_chain.last_hash(self.folder), entry)
+            audit_chain.write(self.folder, entry, line)
             db.execute("insert into audit (at, channel, client_id, client, capability, decision, outcome, execution_id,"
                        " line, hash) values (?,?,?,?,?,?,?,?,?,?)",
                        (entry["at"], entry["channel"], entry["client_id"], entry["client"], capability,
@@ -150,22 +121,4 @@ class IntegrationAudit:
 
     def verify(self) -> dict[str, Any]:
         """Walks the chain in the files: every line must match its hash and the line before it."""
-        prev, count, problems = GENESIS, 0, []
-        for path in sorted(self.folder.glob("audit-*.jsonl")):
-            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                if not line.strip():
-                    continue
-                count += 1
-                try:
-                    entry = json.loads(line)
-                    stored = entry.pop("hash")
-                except (ValueError, KeyError):
-                    problems.append(f"{path.name} line {number}: not an audit line")
-                    continue
-                if entry.get("prev") != prev:
-                    problems.append(f"{path.name} line {number}: a line before it is missing or changed")
-                if _hash(entry.get("prev", ""), entry) != stored:
-                    problems.append(f"{path.name} line {number}: this line was changed")
-                prev = stored
-        return {"lines": count, "ok": not problems, "problems": problems}
-
+        return audit_chain.verify(self.folder)

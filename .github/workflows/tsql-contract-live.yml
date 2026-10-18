@@ -21,6 +21,10 @@ concurrency:
 jobs:
   live:
     if: github.ref == 'refs/heads/main'
+    # Create this environment with required reviewers (Settings > Environments) before setting
+    # the variables: every run, scheduled ones too, then waits for a person to approve it, since
+    # each run uses Fabric capacity. GitHub would otherwise create it on first use with no rules.
+    environment: tsql-contract-live
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

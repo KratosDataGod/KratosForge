@@ -98,7 +98,7 @@ To add a case, add a line, run `python -m pytest -q tests/test_tsql_contract.py`
 
 ### The live job
 
-`.github/workflows/tsql-contract-live.yml` runs the same cases against a real Fabric warehouse or SQL analytics endpoint, every Monday and on demand. Until it is set up it stops at once with "No test workspace configured" and runs nothing.
+`.github/workflows/tsql-contract-live.yml` runs the same cases against a real Fabric warehouse or SQL analytics endpoint, every Monday and on demand. Each run uses Fabric capacity on the test workspace (its queries run in Fabric), so every run waits for a maintainer to approve it. Until it is set up it stops at once with "No test workspace configured" and runs nothing.
 
 It must only ever point at a **dedicated test workspace**, never at production or a workspace with data anyone needs. The test refuses a workspace without `fabric-desktop-live-test` in its description, one whose name or item name looks like production, and any Platform workspace in the policy file, the same as the live test above. It reads the server address from Fabric for the named item in that workspace, so it can't be pointed anywhere else. It only runs cases it can prove read-only (no writes, no `SELECT ... INTO`), each in a transaction it rolls back; MERGE, CREATE and other writes stay offline.
 
@@ -106,6 +106,7 @@ To turn it on, a maintainer:
 
 1. Creates the test workspace, marks it as described in [Before you start](#before-you-start), and creates a warehouse in it (or a lakehouse, for its SQL analytics endpoint).
 2. Creates a service principal, adds it to the workspace as **Viewer**, and allows it to use Fabric APIs ([permissions](permissions.md#the-t-sql-contract-job-maintainers-only)).
-3. Sets the repository variables `FABRIC_TSQL_TEST_WORKSPACE_ID`, `FABRIC_TSQL_TEST_ITEM` (the warehouse or lakehouse name), `FABRIC_TSQL_TEST_TARGET` (`warehouse` or `endpoint`), `FABRIC_TSQL_TENANT_ID` and `FABRIC_TSQL_CLIENT_ID`, and the secret `FABRIC_TSQL_CLIENT_SECRET`.
+3. Creates the GitHub environment `tsql-contract-live` (**Settings > Environments**) with **Required reviewers**, so no run, scheduled or manual, starts without a person's approval.
+4. Sets the repository variables `FABRIC_TSQL_TEST_WORKSPACE_ID`, `FABRIC_TSQL_TEST_ITEM` (the warehouse or lakehouse name), `FABRIC_TSQL_TEST_TARGET` (`warehouse` or `endpoint`), `FABRIC_TSQL_TENANT_ID` and `FABRIC_TSQL_CLIENT_ID`, and the secret `FABRIC_TSQL_CLIENT_SECRET`.
 
 Each run uploads `tsql-contract-results.json`: every case's outcome, rows and (with tokens removed) error. A case Fabric answers differently from its `fabric` block fails the run; `unknown` cases are only recorded. Locally, the same run is `FABRIC_DESKTOP_TSQL_LIVE=1` plus the `FABRIC_DESKTOP_TSQL_*` settings named in the workflow, with `pyodbc` and ODBC Driver 18 for SQL Server installed.

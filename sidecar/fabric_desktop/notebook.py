@@ -443,7 +443,7 @@ class Kernel:
         write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric."""
         if re.search(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", query, re.IGNORECASE):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
-                    "On this PC, Metadata > Run does the same surrogate key MERGE.\n")
+                    "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
             return "ok"
         try:

@@ -454,7 +454,7 @@ def _make_variable_library(host: Host) -> types.SimpleNamespace:
         values = host.variables(variableLibraryName) if host.variables else None
         if values is None:
             raise LookupError(f"On this PC the variable library {variableLibraryName} comes from the metadata project; "
-                              "only VL_Sources is there (Metadata > Source systems).")
+                              "only VL_Sources is there (Data mesh > Design > Source systems).")
         return VariableLibrary(variableLibraryName, values)
 
     def get(variableReference: str) -> str:  # noqa: N803

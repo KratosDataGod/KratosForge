@@ -126,7 +126,7 @@ async function renderMeshDomainsTab(body) {
     h("td", {}, h("span", { class: "row tight" },
       btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
       btn("Delete", null, async () => {
-        if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete"))) return;
+        if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete", { danger: true }))) return;
         if (await metaCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
       }, "tool small danger")))));
   const domainsCard = h("div", { class: "card pad" },
@@ -281,7 +281,7 @@ function productDialog(p, x, done) {
     h("label", { class: "field" }, "Description", description),
     h("div", { class: "field" }, "Ports: the tables other teams may read, and the name they use", h("div", { class: "port-list" }, portRows.map((r) => r.row)))), [
     x ? btn("Delete", "delete", async () => {
-      if (!(await confirmDialog(`Delete ${x.title}?`, "The product file is removed. Teams that link to it keep their links until they remove them; their runs fail once it's gone from the catalog.", "Delete"))) return;
+      if (!(await confirmDialog(`Delete ${x.title}?`, "The product file is removed. Teams that link to it keep their links until they remove them; their runs fail once it's gone from the catalog.", "Delete", { danger: true }))) return;
       if (await metaCall("mesh_delete_product", { name: x.name }, "Not deleted")) done();
     }, "tool outline") : null,
     btn("Cancel", null, closeDialog, "tool outline"),

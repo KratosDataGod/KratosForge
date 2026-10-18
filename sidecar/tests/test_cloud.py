@@ -192,7 +192,9 @@ class FakeFabric:
     def list_semantic_models(self, ws):
         return self.models
 
-    def save_semantic_model(self, ws, name, parts, description=""):
+    def save_semantic_model(self, ws, name, parts, description="", replace=True):
+        if not replace and any(m["displayName"] == name for m in self.models):
+            raise FileExistsError(f"{name} already exists", "m1")
         self.calls.append(("model", name, parts))
         self.models = [{"id": "m1", "displayName": name}]
         return {"id": "m1", "created": True}
@@ -291,8 +293,10 @@ def test_onelake_run_queues_maintenance_and_builds_the_model(svc, tmp_path, monk
     assert "column net_amount\n\t\tdataType: double" in fact and "summarizeBy: sum" in fact
     assert 'Sql.Database("abc.datawarehouse.fabric.microsoft.com", "sql1")' in parts["definition/expressions.tmdl"]
     assert "fromColumn: fact_sales.customer_sk\n\ttoColumn: dim_customer.customer_sk" in parts["definition/relationships.tmdl"]
-    # Building again keeps every lineage tag, so reports on the model keep working.
-    svc.meta_build_model("test")
+    # Building again asks first, since it replaces the model's definition; then keeps every lineage tag.
+    assert svc.meta_build_model("test")["confirm"]["name"] == "SM_Gold"
+    assert len([c for c in svc.fake.calls if c[0] == "model"]) == 1
+    svc.meta_build_model("test", replace=True)
     again = [c for c in svc.fake.calls if c[0] == "model"][-1][2]
     assert again == parts
 

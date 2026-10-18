@@ -113,11 +113,12 @@ Leave all of them empty to use Microsoft's sign-in.
 
 Every key is optional; leave out `client_id` to keep Microsoft's sign-in. `channel` is `stable` or `preview`; `support_url` is an `https://` link (a Teams channel, a ticket form) or a `mailto:` address.
 
-Three more keys are for control rather than convenience:
+Four more keys are for control rather than convenience:
 
 | Key | Effect |
 | --- | --- |
 | `allow_fabric_runs: false` | The app doesn't start jobs on Fabric capacity (Run in Fabric, Fabric schedules, Optimize, the Fabric side of a proof). People can still turn Fabric schedules off. It doesn't change what a person's own Fabric roles allow in the browser |
+| `allow_optimize_lakehouse: false` | The app doesn't create, connect to or write to shared optimization lakehouses ([Optimize](optimize/README.md)) |
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 

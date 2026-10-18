@@ -701,3 +701,28 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// FINOPS-004: what the risk panel shows up front, and when "Run on this PC" is offered.
+test("the risk panel shows what matters, folds the rest and never offers this PC for a Fabric-only notebook", () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids }), icon: () => null,
+    measureBadge: (m) => ({ tag: "badge", kids: [m.classification] }) };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskPanel, riskLocalAlternative });`, ctx);
+  const f = (check, outcome, title, measurement = null) => ({ check, outcome, title, detail: "", evidence: [], remedy: "", measurement });
+  const blocked = { result: "blocked", label: "Blocked", summary: "This run can't start: paused", findings: [
+    f("capacity", "blocked", "fabcapdev is paused"), f("local_alternative", "pass", "This PC could run it too"),
+    f("history", "pass", "Usually takes about 4 min")] };
+  const out = text(ctx.riskPanel(blocked));
+  assert.match(out, /fabcapdev is paused/);
+  assert.match(out, /This PC could run it too/);
+  assert.match(out, /1 other check passed or isn't known/);
+  assert.strictEqual(ctx.riskLocalAlternative(blocked), true);
+  assert.strictEqual(ctx.riskLocalAlternative({ findings: [f("local_alternative", "pass", "Needs Fabric")] }), false);
+  const pass = ctx.riskPanel({ result: "pass", label: "Pass", summary: "Nothing found", findings: [
+    f("consumption", "pass", "The last run used about 0.42 CU hours", { classification: "measured" })] });
+  assert.strictEqual(pass.tag, "details");
+  assert.match(text(pass), /0.42 CU hours\s+measured/);
+  assert.strictEqual(ctx.riskPanel(null), null);
+});

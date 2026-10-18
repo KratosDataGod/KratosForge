@@ -493,7 +493,9 @@ function costBody(r) {
   ];
 }
 
-function costSettingsDialog(cfg) {
+async function costSettingsDialog(cfg) {
+  const risk = await rpc("risk_settings").catch(() => null);
+  const before = risk ? riskSettingsFields(risk) : null;
   const field = (label, key, attrs) => {
     const input = h("input", { value: cfg[key], ...attrs });
     return [h("label", { class: "field" }, label, input), () => input.value];
@@ -502,11 +504,13 @@ function costSettingsDialog(cfg) {
   const [currency, getCurrency] = field("Currency", "currency", { maxlength: "5" });
   const [py, getPy] = field("CUs of a Python notebook (2 vCores = 1 CU)", "python_cu", { type: "number", min: "0.5", step: "0.5" });
   const [spark, getSpark] = field("CUs of a Spark job (starter pool, 2 medium nodes = 8 CU)", "spark_cu", { type: "number", min: "0.5", step: "0.5" });
-  showDialog("Cost estimate", h("div", { class: "scroll" },
+  showDialog(before ? "Prices and warnings" : "Cost estimate", h("div", { class: "scroll" },
     h("p", { class: "text" }, "Pay-as-you-go is about $0.18 per CU hour in US regions; a reserved capacity costs less. Use your own rate."),
-    h("div", { class: "form-grid" }, price, currency, py, spark)),
+    h("div", { class: "form-grid" }, price, currency, py, spark),
+    before ? before.el : null),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Save", "save", async () => {
     const res = await attempt(() => rpc("set_cost_settings", { price_per_cu_hour: getPrice(), currency: getCurrency(), python_cu: getPy(), spark_cu: getSpark() }), "Not saved");
+    if (res && before && !(await attempt(() => rpc("set_risk_settings", before.values()), "Warnings not saved"))) return;
     if (res) { closeDialog(); render(); }
   }, "tool primary")]);
 }

@@ -2,9 +2,17 @@
 
 Before a workload starts, Fabric Desktop by KratosBI checks what could stop the run or make it costly, and shows the evidence. The check only reads. Nothing is started, published, paused or changed to work it out.
 
-It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked.
+It runs for actions that start work on a notebook, a metadata entity or a Fabric item: **Run**, **Run in Fabric**, **Run now** and running a schedule now. Cancel isn't checked. It's a Preview feature.
 
-This first version is the engine. It is returned with each run dialog's details (`workload_preflight`) and through the `risk_check` call. The run dialogs will show it in the next release (FINOPS-004, part 2).
+## Where you see it
+
+- **Workloads.** The run dialog shows the result under what the run will do. A pass folds its checks away under **Show checks**. Warnings and blocks are shown with their evidence, and the other checks fold away below them.
+- **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or can't be checked, and the run starts as before. With warnings or a block, a dialog shows them first. **Run all** in Data mesh checks each entity and shows them in one dialog.
+- **Check again** reads the capacity again instead of using the last reading.
+- **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
+- **Warning** lets you go ahead. Going ahead is recorded (see below). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.
+
+A notebook not yet linked to its Fabric item isn't checked, and its first Run in Fabric starts as before.
 
 ## Results
 
@@ -35,14 +43,14 @@ The check makes at most two reads in Fabric: the workspace and the capacity list
 
 ## Settings
 
-`set_risk_settings` changes when the check warns. The settings are kept with this PC's settings.
+Change them in **Monitor > Cost > Prices**, under **Before a run**, or with `set_risk_settings`. The settings are kept with this PC's settings.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
 | `warn_run_cu_hours` | off | Warn when the last run of this workload used more CU hours than this. Measured when an import matched the run, otherwise estimated, and labeled so. |
 | `warn_failed_runs` | 2 | Warn when this many of the last five runs failed. 0 turns it off. |
 | `schedule_window_minutes` | 60 | Warn when a schedule on this PC runs the workload within this many minutes. |
-| `require_acknowledgement` | off | A warning must be acknowledged before the run starts. The run dialogs will use it in part 2. |
+| `require_acknowledgement` | off | The run dialogs ask you to tick "I've looked at these" before running with warnings. |
 
 ## Going ahead with warnings
 

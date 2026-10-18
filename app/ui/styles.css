@@ -405,6 +405,20 @@ h2.flush { margin: 0; }
 .usage-imports summary { cursor: pointer; margin-top: 8px; }
 .usage-billed { margin-top: 10px; }
 .usage-billed > p { margin: 0 0 6px; }
+/* Risk check before a run (risk.js) */
+.risk-panel { border: 1px solid var(--border, #e0e0e0); border-radius: 6px; padding: 10px 14px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.risk-panel.warning { border-color: #f2c27a; background: #fff8ec; }
+.risk-panel.blocked { border-color: #e8b4b9; background: #fdf3f4; }
+.risk-panel summary { cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.risk-panel ul { margin: 6px 0 0; padding-left: 20px; line-height: 1.6; }
+.risk-head { display: flex; align-items: center; gap: 8px; }
+.risk-finding { display: flex; gap: 10px; align-items: flex-start; }
+.risk-finding > svg { flex: none; margin-top: 1px; }
+.risk-finding.warning > svg { color: #a15c00; }
+.risk-finding.blocked > svg { color: #b10e1c; }
+.risk-finding.pass > svg { color: #1b6b3a; }
+.risk-remedy { margin-top: 4px; }
+.risk-ack { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .usage-preview { margin-top: 10px; }
 .usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }

@@ -127,7 +127,8 @@ class ExecutionManager:
         self._kernel_factory = kernel_factory or self._new_kernel
         self._runs: dict[str, Execution] = {}
         self._lock = threading.Lock()
-        self._attach_lock = threading.Lock()  # the engine has one attached lakehouse at a time
+        # The engine has one attached lakehouse at a time: share the lock the desktop's cells take.
+        self._attach_lock = getattr(service, "attach_lock", None) or threading.RLock()
 
     # ---- the kernel external code runs in
 

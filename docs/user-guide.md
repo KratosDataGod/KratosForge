@@ -209,7 +209,19 @@ The full guide is [Shortcut command center](shortcuts.md). Needs `OneLake.ReadWr
 
 ### Access (Preview)
 
-Who can reach each environment's workspace, and who can read which tables. Changes apply in Fabric right away.
+Who can reach your workspaces, and who can read which tables. The tab has three views.
+
+**All workspaces** shows every workspace you can open, from the access cache in the central lakehouse ([how the cache works](optimize/README.md#the-access-cache-fdacc_)). It needs a connected central lakehouse (Settings > Optimize lakehouses).
+
+- Each row counts the workspace's people, groups, apps and guests, and says how many things are **worth a look**. A workspace whose roles couldn't be read at the last refresh keeps its last known list, marked **Out of date**.
+- **Refresh changes** reads every workspace again as you, and writes only what changed. The first time, it asks before adding the cache's tables to the central lakehouse. Nothing in the workspaces it reads changes.
+- Filter by **Worth a look**, **Guests**, **Write roles by name** or **Out of date**, or find a workspace or person by name.
+- Click a workspace to see its people and its lakehouses' table roles, with **guided fixes**: people with write roles by name, guests, apps with Admin, and lakehouses without data access roles. **Review in Workspace roles** opens it in Environments, and **Table access** opens the lakehouse. Both ask before they change anything in Fabric.
+- **Who may read it** limits the cache to the people and groups you pick. It asks before it changes the central lakehouse's OneLake security roles: DefaultReader stops reading the cache's `access` schema, and a role named AccessCacheReaders reads it.
+
+Refreshing needs write access to the central lakehouse. Reading the cache needs read access.
+
+**Environments** and **Table access** ask Fabric directly, and changes there apply in Fabric right away.
 
 - **Workspace roles** is a grid: one row per person, group or app, one column per environment's workspace, with their role in each (No access, Viewer, Contributor, Member, Admin). Change a role with its drop-down; the app asks before it changes anything. The **Worth a look** column flags entries that deserve a check. **Add a workspace** adds any other workspace to the grid. Listing roles needs Member or Admin on the workspace.
 - **Give access** adds a person, group or app to a workspace with a role. Finding someone by email asks you once to let the app read your directory's names.

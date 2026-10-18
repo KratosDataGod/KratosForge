@@ -129,11 +129,17 @@ class Host:
         self.proof = None
         return log
 
+    def proof_log(self) -> dict[str, Any]:
+        return json.loads(json.dumps(self.proof.log)) if self.proof is not None else {}
+
+    def reads(self) -> dict[str, Any]:
+        return self.kernel.reads()
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "variables", "complete", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "ping")
+           "finish_proof", "proof_log", "reads", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")

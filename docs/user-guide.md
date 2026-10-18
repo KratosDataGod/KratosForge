@@ -102,9 +102,11 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
-| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+| **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+A passed write test counts for 7 days, for the same account, tenant and lakehouse; after that Home asks again. **Test again** reruns it at any time. A failed or refused test, and signing out, forget the pass.
 
 When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
@@ -347,10 +349,12 @@ An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. E
 
 **State.** An agent is **Running** while its reports arrive on time. It shows **Stopped reporting** once the time it promised to report again has passed. That means it stopped without saying so: a crash, a power cut or a lost network. It shows **Stopped** when it shut down cleanly. For a stopped or silent agent, everything shown is its last report as it was, labelled with when it was written, so its jobs show as unknown rather than as running.
 
-**The agent page** shows, for each environment:
+**Scheduled in two places.** Each agent and this PC keep their own queue, so when two of them schedule the same table, both run it. Table leases only stop them writing at the same moment. Above the list, **Scheduled in two places** names each table that is scheduled both on an agent and on this PC, or on two agents, in the same environment, with both schedules. Give each table's schedule to one place; **Review schedules** opens this PC's schedules. It changes no schedule itself. A cleanly stopped agent isn't counted. An agent that stopped reporting still is, because it runs a missed schedule when it is back. An older agent that doesn't say which tables its schedules run is listed as one that can't be compared, never as running every table.
+
+**The agent page** shows its owner and how it signs in (a service principal, a managed identity or a user's cached sign-in) when its `agent.toml` says so, and, for each environment:
 
 - what the agent runs: pipeline jobs and which entities, how many at a time, and whether backfill is allowed;
-- its schedules and when each runs next;
+- its schedules, the tables each runs, and when each runs next;
 - what it was doing;
 - whether it checks incidents.
 

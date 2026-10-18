@@ -102,7 +102,7 @@ async function loadRunAs(box) {
         : fab.state === "reading" ? " being read on Schedules"
         : fab.state === "error" ? `: ${friendlyError(fab.detail).text}`
         : [" not read yet. ", btn("Read them on Schedules", null, () => { monitorPage.panel = "schedules"; go("monitor"); }, "tool link small")])),
-    raAttention(out),
+    raAttention(out) || "",  // replaceChildren would print a null
     rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list inc-list" },
       h("thead", {}, h("tr", {}, ["Place", "Runs as", "Credential", "Its state", "Where data and credentials go"].map((c) => h("th", {}, c)))),
       h("tbody", {}, rows.map((r) => h("tr", { class: r.live ? null : "inc-done" },

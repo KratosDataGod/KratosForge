@@ -1267,3 +1267,8 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
   .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }
   .release-row { grid-template-columns: 1fr; gap: 0; }
 }
+
+/* Monitor > Agents: the list with How agents work beside it */
+.ag-two { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
+.ag-two > .inc-panel { min-width: 0; }
+.ag-steps { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }

@@ -79,9 +79,12 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
 | `login.microsoftonline.com` | Sign-in |
+| `login.microsoft.com` | Sign-in redirects in the Fabric pages embedded in the app |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
+| `app.powerbi.com` | Older Fabric item and report links in the embedded Fabric pages, which redirect through it |
+| Your identity provider's hosts in `fabric_view_sign_in_hosts` | Only with federated sign-in in the Fabric view ([the key](azure-setup.md#4-push-settings-to-everyone)) |
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |

@@ -6,15 +6,16 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Field | Value |
 | --- | --- |
-| Last updated | 2026-10-17 |
-| Base | `main` at `9715e28` |
-| Stage | Stages 0, 1, 2 (2.1 to 2.3C) and 5A merged. #125 (2.3B), #127 (2.3C) and #133 (5A) merged on 2026-10-17. Next: the rest of stage 5. |
+| Last updated | 2026-10-18 |
+| Base | `main` after #146 (the folded FD-124, Queue, Run as, UX-010 and UX-014 stack) and Optimize #200 |
+| Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | this PR | Status update after #125, #127 and #133 merged | Docs only |
+| `claude/workload-drop-monitor-cost-4su03b` | drop Cost | Monitor loses its Cost tab; old links and the X-ray "See cost" open Optimize > Cost and savings | Ready |
+| `claude/workload-agents-guide-4su03b` | #199 | Agents guidance panel (testing feedback) | To retarget to `main` |
 
 ## Completed backlog items
 
@@ -22,13 +23,13 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Next action: stage 5 overlap warning (board 7's "Scheduled in two places", item 36). Agent schedules don't name their entities, so ask the roadmap thread (owner of `agent_status.py` and the status records) before adding a field. Then the queue view across locations (item 34), then FD-124 multi-worker.
-- Agent owner and identity type are not in the status records either; same question to the roadmap thread.
+- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Step 4 labels are built too (no "taken over from" label: it would need the app to read mailbox status files). Governance split agreed 2026-10-18: this program has items 71, 78 and 79; the governance thread has 72 to 75 and 80, and wants 71 and 78 as queryable data (`run_as_list`). Chris chose "In Operations" for Run as (2026-10-18), so this program owns UX-010, the Monitor restructure (UX thread mockup https://claude.ai/artifact/YDTVabyWUFLNLMDaNLWRJ3, artboard 2). Next action: cost allocation on FinOps #153's `cost_report.usage.by_run`.
+- The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
 - Home question still open for Chris: Home has both "Needs your attention" and "Your workloads"; whether the card replaces the list.
 - How the screens were checked: a scratch harness serves `app/ui` with a fake shell whose `rpc` calls a real `Service` seeded with a project, a failed Test run, two agent status records (one live with incident settings, one offline) and an escalated incident, driven by Playwright with `/opt/pw-browsers` Chromium. Not in the repo; rebuild it from `tests/test_workloads.py` helpers if needed.
-- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
+- Engine map: `workloads/incidents.py` (log, escalate), `workloads/evaluate.py` (signals, `agent_signals`), `workloads/classify.py`, `workloads/agents.py`, `workloads/notify.py`, `workloads/platform_notify.py` + `platform_notify_service.py` (governance's request/shortcut notices), `meta/objectives.py`, `incident_service.py` (RPCs incl. `incidents_summary`), `Agent.evaluate_incidents`. UI: `app/ui/incidents.js`.
 
 ## Assumptions and decisions
 
@@ -62,6 +63,8 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - Everything is Preview until tried on a tenant; code signing and a tenant smoke test remain Chris's (project memory). OneLake If-Match on control files is the thing to confirm live (agent.md, Verify step 7).
 
 ## Next action
+
+Cost allocation on FinOps #153's `cost_report.usage.by_run`, then item 76 (audit trail for workload actions). Older notes:
 
 Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chris reacts to boards 7 and 8, adjust 5A and mark it ready. Then the rest of stage 5 (overlap warnings, queue view across locations; the roadmap thread owns agent status records, so ask it before adding fields), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
 

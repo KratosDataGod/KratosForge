@@ -38,11 +38,13 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
-| [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, with no Fabric job started |
+| [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
-| [docs/optimize/README.md](docs/optimize/README.md) | Optimize's shared optimization lakehouse (Preview): one lakehouse for every installation, permissions, what is written and who can see it |
-| [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Monitor > Cost comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
+| [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
+| [docs/finops/usage-import.md](docs/finops/usage-import.md) | Measured CU from an imported Capacity Metrics app export, matched to this app's runs beside their estimates, and billed CU hours and cost per capacity from an Azure Cost Management export |
+| [docs/optimize/README.md](docs/optimize/README.md) | Optimize and the central lakehouse (Preview): one lakehouse for every installation, permissions, what is written and who can see it |
+| [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Optimize > Cost and savings comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |
@@ -50,8 +52,11 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
+| [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or can only run in Fabric, per activity and property (Preview) |
+| [docs/orchestration/local-runs.md](docs/orchestration/local-runs.md) | Running a Fabric pipeline's control flow on your PC, with mocks for data activities and nothing run in Fabric (Preview) |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
+| [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
 | [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why Fabric Desktop by KratosBI is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
@@ -71,6 +76,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/ux/README.md](docs/ux/README.md) | UX and simplicity audit: scores, backlog and usability release gates |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |
+| [docs/incidents.md](docs/incidents.md) | Incidents and your service desk: numbers, priorities, SLAs, reported incidents, and where incidents are kept |
 | [docs/quality/README.md](docs/quality/README.md) | Engineering quality baseline: scorecard, [findings](docs/quality/findings.md) (QA-nnn), [remediation plan](docs/quality/remediation.md) and the [PR quality gate](docs/quality/pr-review.md) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |
@@ -224,7 +230,7 @@ business_key = "customer_id"     # or a list for a composite key, stored as "a||
 
 The first step of every run MERGEs the business keys it hasn't seen yet into the key table (continuing from the highest key, never reusing one), then adds `customer_sk` to every row. Rows with no business key get -1. A Type 1 dimension whose rows already carry the key uses it instead of issuing its own. **Data mesh > Surrogate keys** lists the key tables with their counts and looks up a business key; an entity's page shows the same MERGE in Spark SQL and **Create template notebook** saves a notebook whose first cell is that MERGE, for running in Fabric. Tick **Surrogate keys: Required** on a layer (for example Silver) to make every table in it use them.
 
-**Data mesh > Source systems** keeps each source's id, code, type and owner, and its connection per environment: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Passwords and keys never go in it. **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection` so notebooks and pipelines can look up connection values by code; promote does the same and creates any missing key table, but never copies keys between environments.
+**Data mesh > Source systems** keeps each source's id, code, type and owner (picked from the platform's one list of sources, with Preview on), and its connection per environment: server, port, database, schema, base URL, file path, authentication, tenant, username, Key Vault URL and secret name, Fabric connection id, gateway and extra options. Passwords and keys never go in it. **Sync to LH_Keys** writes them to `config.source_system` and `config.source_connection` so notebooks and pipelines can look up connection values by code; promote does the same and creates any missing key table, but never copies keys between environments.
 
 Four gates keep the rules followed:
 

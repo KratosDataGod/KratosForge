@@ -27,7 +27,7 @@ Paths are under `sidecar/fabric_desktop/` unless they start with `app/` or `docs
 - *Schedules on this PC* (`local_schedules.py`): Windows Task Scheduler tasks for a notebook or a metadata environment, with their own run log (`schedule_runs.jsonl`) and lock files.
 - *The headless agent* (`agent.py`, `jobqueue.py`, `agent_config.py`): a SQLite queue on the server, `agent.toml` with name, environments, workspace allowlist, identity type and schedules. The desktop app cannot see agents today.
 
-**Where people look.** Home (`app/ui/app.js` `renderHome`) already answers "what happened since I was last here": failed latest runs per entity and environment, Fabric jobs that failed in the last day, late tables, running now, coming up, environment tiles, mesh map, Estate X-ray. Monitor (`renderMonitor`) merges four run sources (metadata runs from every readable environment, Fabric jobs started from this app, scheduled runs on this PC, notebook table writes) beside Fabric's embedded Monitoring hub, plus Schedules and Cost panels. The command bar (Ctrl+K, `features.js`) finds pages, actions, notebooks, workspaces and entities.
+**Where people look.** Home (`app/ui/app.js` `renderHome`) already answers "what happened since I was last here": failed latest runs per entity and environment, Fabric jobs that failed in the last day, late tables, running now, coming up, environment tiles, mesh map, Estate X-ray. Monitor (`renderMonitor`) merges four run sources (metadata runs from every readable environment, Fabric jobs started from this app, scheduled runs on this PC, notebook table writes) beside Fabric's embedded Monitoring hub, plus Schedules and Operations panels (Cost moved to Optimize > Cost and savings, testing item 36). The command bar (Ctrl+K, `features.js`) finds pages, actions, notebooks, workspaces and entities.
 
 **Ownership, organization, governance.** Entities declare `owner`; projects declare domain, subdomain, team and contacts (`project.toml`, `meta/mesh.py`); data products declare an owner; the platform catalog (`central/core.py`, SQLite on this PC or SQL_Platform through UDF_Platform) holds domains, projects, products, ports, links, enrichment (classification, steward), glossary, admins, requests (key table, source, access, shortcut) with decide/withdraw/grants, an audit table, and shortcut inventory with first/last seen and change history. Catalog solution grouping and Dev/Test/Prod pills exist in the OneLake catalog (`app/ui/catalog-groups.js`). Exceptions with expiry exist in metadata projects (`Project.active_exception`).
 
@@ -305,16 +305,16 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: every management action shows environment, identity, target, consequence first; the full preflight reuses Prove's planner. Validation: U, UI. PR: —
 
 **34. Unified queue view** · Missing · Stage 5 · *Dep roadmap (agent queue records)*
-- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: —
+- Enhancement: queued and running work per location, labelled with which scheduler owns it. PR: 5C (Monitor > Queue: agents' running and queued work and schedules, this PC's schedules, Fabric jobs this app started and Fabric schedules as last read; no tenant polling)
 
 **35. Supported lifecycle controls** · Enhance · Stage 1
 - Today: run, cancel, enable/disable and run-now exist on separate pages. Enhancement: offered on the workload page only where the adapter supports them for that deployment. Acceptance: no pause/resume where none exists. Validation: U, UI. PR: —
 
 **36. Concurrency coordination** · Enhance · Stage 5 · *Dep review thread (PR #54)*
-- Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: —
+- Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: 5B (Monitor > Agents warns when an agent and this PC, or two agents, schedule the same table in one environment, whatever the times; Fabric schedules not compared yet)
 
 **37. Agent enrollment and inventory** · Enhance · Stage 5 · *Dep roadmap*
-- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: #133 (version, environments, what it runs; owner and identity type need fields the status record doesn't have yet)
+- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: #133 (version, environments, what it runs), agent fields PR (owner and identity type in the status record), 5B (shown on the agent page)
 
 **38. Agent health and heartbeat** · Missing · Stage 2.3, Stage 5 · *Dep roadmap (heartbeat records)*
 - Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident), #133 (version compared with the app)
@@ -397,7 +397,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 
 **65. Resource budgets and quotas** · Missing · Stage 8 · Advisory warnings; hard enforcement only where the agent can refuse (concurrency). PR: —
 
-**66. Cost model management** · Enhance · *Dep Prove (cost model)* · Today: `costs.py` price per CU-hour and currency in Monitor > Cost. This program reads it; no second model. PR: —
+**66. Cost model management** · Enhance · *Dep Prove (cost model)* · Today: `costs.py` price per CU-hour and currency in Optimize > Cost and savings. This program reads it; no second model. PR: —
 
 **67. Measured-versus-estimated cost** · Enhance · *Dep Prove* · Labels come from Prove's cost model. PR: —
 
@@ -410,7 +410,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 ### H. Governance, access and security
 
 **71. Effective identity visibility** · Enhance · Stage 1 (per deployment), Stage 9
-- Today: signed-in user in the account menu; agent auth type in agent.toml. Enhancement: each deployment says which identity runs it (you on this PC; you for runs started here; the schedule's owner for Fabric schedules; the agent's configured identity). Validation: U. PR: —
+- Today: signed-in user in the account menu; agent auth type in agent.toml. Enhancement: each deployment says which identity runs it (you on this PC; you for runs started here; the schedule's owner for Fabric schedules; the agent's configured identity). Validation: U. PR: engine in stage 9A (`run_as_list`), screen after Chris picks its place (board 10).
 
 **72. Access posture** · Enhance · Stage 9 · Today: OneLake Access tab, workspace access review, shortcut readers. PR: —
 
@@ -425,9 +425,9 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 
 **77. Sensitive-data handling posture** · Enhance · Stage 9 · Today: classification on entities and enrichment. PR: —
 
-**78. Credential lifecycle awareness** · Enhance · Stage 4 · Today: sign-in state; agent certificate path. Adds certificate expiry and failed refresh, never storing a copy. PR: —
+**78. Credential lifecycle awareness** · Enhance · Stage 4 · Today: sign-in state; agent certificate path. Adds certificate expiry and failed refresh, never storing a copy. PR: stage 9A (agents publish `credential` facts; `run_as_list` flags certificates expiring within 30 days and failed token requests).
 
-**79. External execution boundaries** · Missing · Stage 8 · Where data and credentials go for this PC, an agent and Fabric, shown when choosing. PR: —
+**79. External execution boundaries** · Missing · Stage 8 · Where data and credentials go for this PC, an agent and Fabric, shown when choosing. PR: stage 9A gives each place its boundary line; showing it when choosing where to run is later.
 
 **80. Governance exceptions** · Enhance · Stage 9 · Today: project exceptions with entity, rule and expiry. Adds owner, approval and re-evaluation. PR: —
 
@@ -488,3 +488,8 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | Stage 5A (FD-122): Monitor > Agents and the agent page, read-only over the status records; mockup boards 7 and 8. Overlap warnings (item 36) and the queue view across locations (item 34) follow. |
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |
 | 2026-10-17 | #125 (2.3B), #127 (2.3C) and #133 (5A) merged. Next: overlap warning, queue view across locations, FD-124. |
+| 2026-10-17 | The roadmap thread agreed four status-record fields: `owner`, `identity`, and each schedule's `entities` (empty = every table) and `when`. Stage 5B builds "Scheduled in two places" on them (item 36). |
+| 2026-10-17 | Stage 5C: Monitor > Queue (item 34), mockup board 9. Read only, no new Fabric calls; agent queued jobs are counts, as the status record has them. |
+| 2026-10-17 | FD-124 designed ([multi-worker.md](multi-worker.md)) and agreed with the roadmap thread. Part 1 built off by default: shared schedules through the mailbox, `claim = "when_free"`. |
+| 2026-10-18 | Chris chose to build FD-124 before a tenant test. Part 2 built off by default: `take_over = true` moves a request from an agent past `stale_after` to another, at most `max_attempts` agents. |
+| 2026-10-18 | Stage 9 split with the governance thread: this program keeps items 71, 78 and 79 (read-only views), the governance thread keeps 72 to 75 and 80. Stage 9A engine: agents publish `credential` facts; `run_as_list` says who runs each workload, with what, and where data goes. Mockup board 10. |

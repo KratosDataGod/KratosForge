@@ -152,6 +152,7 @@ class CloudMixin:
                  compute: str | None = None, workspace: dict[str, str] | None = None,
                  fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+        self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
@@ -351,7 +352,7 @@ class CloudMixin:
                 client = keys_store.client
                 if not getattr(client, "functions_id", ""):
                     raise ValueError(f"{env.title()}'s keys are in the platform on this PC, which Fabric can't reach. "
-                                     "Create or join a platform in Fabric first (Settings > Platform).")
+                                     "Create or join a platform in Fabric first (Platform > Settings).")
                 config["platform_keys"] = {"workspace_id": client.workspace_id, "functions_id": client.functions_id}
         if project.links:  # where each link points in this environment, resolved now for the runner
             resolve = self._link_table(project, env)  # type: ignore[attr-defined]

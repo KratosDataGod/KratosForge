@@ -252,6 +252,14 @@ def delete_source(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
+def adopt_sources(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, systems: list,
+                  project: str = "") -> dict:
+    return _run(sqlDB, "adopt_sources", ctx, systems=systems, project=project)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
 def request(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, kind: str, target: str,
             project: str = "", reason: str = "", detail: dict = None) -> dict:
     return _run(sqlDB, "request", ctx, kind=kind, target=target, project=project, reason=reason, detail=detail or {})

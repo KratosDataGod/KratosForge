@@ -61,11 +61,13 @@ A policy file that sets everything an organization usually wants:
 | --- | --- | --- |
 | `allow_fabric_runs` | `true` (default) or `false` | `false` keeps work off Fabric capacity: Run in Fabric, Fabric schedules, Optimize and the Fabric side of a proof are refused with a message, and turning a Fabric schedule off still works. Runs on the PC are not affected |
 | `allow_optimize_lakehouse` | `true` (default) or `false` | `false` stops the app creating, connecting to or writing to shared optimization lakehouses ([Optimize](optimize/README.md)) |
+| `allow_replay_samples` | `true` (default) or `false` | `false` takes "A sample of the input data" out of the Save replay bundle dialog, so a replay bundle never holds lakehouse rows. Code, input versions and the error with secrets removed are still saved |
 | `allowed_tenants` | A list of tenant (directory) IDs | People can only sign in with accounts from these tenants. Any other account is signed out again with a message. Leave it out to allow any |
 | `auto_update` | `true` (default) or `false` | `false` stops the app updating itself, so you roll out builds yourself ([Enterprise install](enterprise-install.md)) |
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
+| `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
 | `local_retention_days` | A whole number of days (default `30`; `0` keeps them) | Local copies of lakehouse data that haven't been used for this long are deleted when the app starts: file previews, tables staged before a publish, the metadata framework's download cache. Notebooks, settings and history are never deleted |
@@ -85,7 +87,7 @@ A policy file that sets everything an organization usually wants:
 A key that is misspelled is ignored. An invalid file or key fails closed for anything the file can restrict, so a mistake never opens up what you meant to lock down:
 
 - **The file is there but can't be read** (a stray comma, not one JSON object, no permission to open it): each PC keeps using the last copy of the file it could read, as Group Policy keeps its last applied settings, until you fix it. Each PC saves that copy whenever it reads a valid file, and deletes it when the file is removed. The copy is `%LOCALAPPDATA%\FabricDesktop\policy-last-good.json`. It sits in the person's own profile, so someone could edit it, but it only counts while the real file is broken, and **Settings > Help and about** says when it is in use.
-- **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. No runs in Fabric, no account can sign in, Preview features and telemetry are off, external AI tools are off with no permissions, no HTTP API and no extensions, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
+- **The file can't be read and the PC has never read a valid one** (a new PC whose first file is broken): none of it applies, and every restriction takes its most restrictive value until you fix it. People can still sign in and work on their PC, but there are no runs in Fabric, Preview features and telemetry are off, external AI tools are off with no permissions, no HTTP API and no extensions, and receipt exports leave out every part. Other settings (`client_id`, `channel`, `support_url`, `platform`, the SQL and notebook limits, `local_retention_days`) go back to what they'd be with no file.
 - **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `integrations` and `integrations_http` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions` and `integrations_extensions` allow none; `receipt_redactions` leaves out every part.
 - **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
 
@@ -110,7 +112,7 @@ Things to know:
 
 - **Dev can stay on the PC.** A new project's Dev keeps its tables in a `.local` folder on the developer's PC. It needs no workspace until someone assigns one in **Data mesh > Environments and promote**.
 - **Test and Prod lakehouses are created by the app** on the first promote. You don't create them by hand.
-- **Capacity.** Lakehouses need a workspace on a Fabric capacity (F SKU, or a trial). Runs on a PC use none of it. Features that deliberately run in Fabric do: Run in Fabric, Fabric schedules, environments set to **Runs on: Fabric**, Optimize (Fabric's table maintenance job), and semantic models. The Monitor **Cost** panel estimates how much.
+- **Capacity.** Lakehouses need a workspace on a Fabric capacity (F SKU, or a trial). Runs on a PC start no Fabric job, though their OneLake reads and writes still use some of it. Features that deliberately run in Fabric do: Run in Fabric, Fabric schedules, environments set to **Runs on: Fabric**, Optimize (Fabric's table maintenance job), and semantic models. **Optimize > Cost and savings** estimates how much.
 - **Workspaces can be created from the app** (**Data mesh > Environments and promote > Assign workspace > Create a new workspace**) if people are allowed to create workspaces.
 
 ## 6. Give people access

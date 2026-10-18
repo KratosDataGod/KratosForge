@@ -353,7 +353,7 @@ def test_a_platform_made_before_policies_gets_their_tables(tmp_path):
     conn.close()
     reopened = LocalPlatform(path, lambda: ADMIN)  # runs ensure_schema, as setup does in Fabric
     db = core.Db(sqlite3.connect(path), "sqlite")
-    assert db.rows("SELECT value FROM \"config__setting\" WHERE name = 'schema_version'")[0]["value"] == "4"
+    assert db.rows("SELECT value FROM \"config__setting\" WHERE name = 'schema_version'")[0]["value"] == str(core.SCHEMA_VERSION)
     assert all(db.exists("catalog", t) for t in ("policy", "policy_version", "policy_assignment", "policy_event"))
     assert [d["id"] for d in reopened.call("list_domains")] == ["sales"]
     assert reopened.call("key_stats", name="customer")["created"]

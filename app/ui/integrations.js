@@ -181,7 +181,7 @@ function extensionsCard(status, refresh) {
 }
 
 async function revokeTool(c, refresh) {
-  if (!(await confirmDialog(`Revoke ${c.name}?`, "Its next request is refused and anything it's waiting on is cancelled. You can add it again later.", "Revoke"))) return;
+  if (!(await confirmDialog(`Revoke ${c.name}?`, "Its next request is refused and anything it's waiting on is cancelled. You can add it again later.", "Revoke", { danger: true }))) return;
   if (await attempt(() => rpc("integrations_revoke_client", { client_id: c.id }), "Not revoked")) { toast(`${c.name} revoked`); refresh(); }
 }
 

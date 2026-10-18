@@ -654,3 +654,81 @@ def test_mesh_map_lists_domains_projects_products_and_links(svc):
     assert m["me"] == "crm" and [p["id"] for p in m["products"]] == ["crm/c360"]
     assert m["links"] == [{"from": "ledger", "product": "crm/c360", "to": "crm"}]
     assert {p["name"]: p["domain_id"] for p in m["projects"]} == {"crm": "sales", "ledger": "finance"}
+
+
+# --------------------------------------------------------------------------- one list of source systems (UX-009)
+
+
+def test_a_platform_made_before_source_ids_gets_them_keeping_its_sources(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite"
+    LocalPlatform(path, lambda: "chris@example.com")
+    with sqlite3.connect(path) as conn:  # the source table as schema 4 made it
+        conn.execute('DROP TABLE "catalog__source"')
+        conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
+                     'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
+        conn.executemany('INSERT INTO "catalog__source" (name, title, connections) VALUES (?, ?, ?)',
+                         [("sap", "SAP ERP", "{}"), ("crm", "Dynamics", "{}")])
+    platform = LocalPlatform(path, lambda: "chris@example.com")
+    got = {s["name"]: s for s in platform.call("list_sources")}
+    assert (got["crm"]["source_id"], got["crm"]["code"], got["crm"]["title"]) == (1, "CRM", "Dynamics")
+    assert (got["sap"]["source_id"], got["sap"]["code"], got["sap"]["active"]) == (2, "SAP", True)
+    # Saving again keeps the id; a new source takes the next one.
+    platform.call("save_source", source={"name": "sap", "title": "SAP S/4", "system_type": "SAP"})
+    platform.call("save_source", source={"code": "HR"})
+    got = {s["name"]: s for s in platform.call("list_sources")}
+    assert got["sap"]["source_id"] == 2 and got["sap"]["system_type"] == "SAP" and got["hr"]["source_id"] == 3
+    with pytest.raises(core.PlatformError, match="folder name in any case"):
+        platform.call("save_source", source={"name": "erp", "code": "SAP"})
+
+
+def test_moving_sources_to_the_platform_keeps_their_ids_and_reports_clashes(platform):
+    platform.call("save_source", source={"code": "ERP"})  # id 1
+    moved = platform.call("adopt_sources", project="crm", systems=[
+        {"id": 7, "code": "Shop", "name": "Online shop", "owner": "ana", "system_type": "Files", "active": True},
+        {"id": 1, "code": "ERP", "name": "ERP"},
+        {"id": 2, "code": "CRM", "name": "Dynamics"},
+        {"id": 7, "code": "POS", "name": "Tills"}])
+    assert moved["moved"] == ["Shop", "CRM"] and moved["already"] == ["ERP"]
+    assert moved["conflicts"] == ["POS: id 7 is already shop in the platform"]
+    got = {s["name"]: s for s in moved["sources"]}
+    assert (got["shop"]["source_id"], got["shop"]["code"], got["shop"]["title"]) == (7, "Shop", "Online shop")
+    again = platform.call("adopt_sources", systems=[{"id": 3, "code": "CRM"}])
+    assert again["moved"] == [] and again["conflicts"] == ["CRM is id 2 in the platform but 3 in this project"]
+    # Only platform admins move sources.
+    db = platform._db().__enter__()
+    try:
+        with pytest.raises(core.PlatformError, match="Only platform admins"):
+            core.adopt_sources(db, [{"id": 9, "code": "X"}], by="ana@example.com")
+    finally:
+        db.conn.close()
+
+
+def test_a_project_reads_platform_sources_with_the_platform_ids(svc):
+    k = svc.meta_keys(platform=True)
+    assert [s["code"] for s in k["source_systems"]] == ["CRM", "SHOP"]
+    assert all(s["platform"] is None for s in k["source_systems"]) and k["platform_sources"] == []
+
+    # Move sources to the platform: the platform's list now has the project's ids.
+    res = svc.meta_sources_move()
+    assert res["moved"] == ["CRM", "SHOP"] and res["conflicts"] == []
+    k = res["keys"]
+    assert [(p["code"], p["source_id"], p["read"]) for p in k["platform_sources"]] == [("CRM", 1, True), ("SHOP", 2, True)]
+    assert k["source_systems"][0]["platform"]["source_id"] == 1 and k["source_problems"] == []
+
+    # A source a platform admin adds is read with its platform id, and the project keeps its connection.
+    svc.platform_save_source({"code": "SAP", "title": "SAP ERP", "owner": "Platform team", "system_type": "SAP"})
+    k = svc.meta_source_read("sap")
+    sap = next(s for s in k["source_systems"] if s["code"] == "SAP")
+    assert (sap["id"], sap["name"], sap["owner"]) == (3, "SAP ERP", "Platform team")
+    with pytest.raises(ValueError, match="already reads SAP"):
+        svc.meta_source_read("sap")
+    sap["connections"]["dev"]["server_host"] = "sap-dev"
+    k = svc.meta_save_source_system(sap | {"name": "Renamed here", "owner": "me"}, original_id=3)
+    sap = next(s for s in k["source_systems"] if s["code"] == "SAP")
+    assert (sap["name"], sap["owner"], sap["connections"]["dev"]["server_host"]) == ("SAP ERP", "Platform team", "sap-dev")
+
+    # Ids that disagree are reported, never changed.
+    svc.platform_save_source({"code": "HR"})  # id 4 in the platform
+    svc.meta_save_source_system({"id": 9, "code": "HR", "name": "HR"})
+    assert svc.meta_keys(platform=True)["source_problems"][0].startswith("HR is id 4 in the platform but 9 in this project")

@@ -372,6 +372,61 @@ test("a capacity reads as running only when Fabric said Active, and a read failu
   assert.strictEqual(hidden.text, "The capacity isn't visible to you");
 });
 
+test("a usage file that reads two ways asks before importing, and a ready one says what it is", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const flat = (kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join("") : String(n ?? ""));
+  const ctx = {
+    h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, _icon, onclick) => ({ tag: "button", label, onclick, kids: [label] }),
+    measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.classification}`] }),
+  };
+  vm.runInNewContext(`${src.match(/function usagePreview\([\s\S]*?\n}\n/)[0]}; this.usagePreview = usagePreview;`, ctx);
+  const chosen = [];
+  const ask = ctx.usagePreview({ ready: false, problem: "The dates can be read two ways", provider: { label: "Capacity Metrics app export" },
+    layout: { label: "Operations (Timepoint page)" }, needs: { option: "date_order", choices: { mdy: "Month first", dmy: "Day first" } } },
+  (opt, v) => chosen.push([opt, v]));
+  const buttons = flat(ask).flatMap(function walk(n) { return n && typeof n === "object" ? [n].concat(flat(n.kids || []).flatMap(walk)) : []; })
+    .filter((n) => n.tag === "button");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(buttons.map((b) => b.label))), ["Month first", "Day first"]);
+  buttons[1].onclick();
+  assert.deepStrictEqual(chosen, [["date_order", "dmy"]]);
+  const ready = flat(ctx.usagePreview({ ready: true, provider: { label: "Capacity Metrics app export" }, layout: { label: "Operations (Timepoint page)" },
+    columns: { used: { cu: "Total CU (s)" }, not_stored: ["User"], ignored: ["User", "Timepoint CU (s)"] },
+    rows_read: 4, to_import: 3, already_imported: 0, duplicates_in_file: 0, total: { value: 0.6, classification: "measured" },
+    skipped: [{ reason: "No CU value", count: 1, lines: [5] }], notes: [] }, () => {})).map(text).join(" ");
+  assert.match(ready, /Capacity Metrics app export, Operations \(Timepoint page\)/);
+  assert.match(ready, /Not storedUser/);
+  assert.match(ready, /Not usedTimepoint CU \(s\)/);
+  assert.match(ready, /4 read · 3 to import/);
+  assert.match(ready, /0.6 measured/);
+  assert.match(ready, /No CU value: 1 \(line 5\)/);
+});
+
+test("billed capacity totals show each currency on its own and say which environments use the capacity", () => {
+  const src = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const flat = (kids) => kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = {
+    h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    measureFigure: (title, m) => ({ tag: "fig", kids: [`${m.value} ${m.currency || m.unit} ${m.classification}`] }),
+  };
+  vm.runInNewContext(`${src.match(/function usageBilled\([\s\S]*?\n}\n/)[0]}; this.usageBilled = usageBilled;`, ctx);
+  assert.strictEqual(ctx.usageBilled([], "USD"), null);
+  const out = text(ctx.usageBilled([
+    { capacity: "fabcapprod", environments: ["Prod"], days: 2, first_day: "2026-10-01", last_day: "2026-10-02",
+      cu: { value: 96, unit: "cu_hours", classification: "measured" },
+      cost: [{ value: 17.28, currency: "EUR", classification: "measured" }, { value: 20, currency: "USD", classification: "measured" }] },
+    { capacity: "other", environments: [], days: 1, first_day: "2026-10-01", last_day: "2026-10-01", cu: null, cost: [] },
+  ], "USD"));
+  assert.match(out, /Used by Prod/);
+  assert.match(out, /96 cu_hours measured/);
+  assert.match(out, /17.28 EUR measured/);
+  assert.match(out, /20 USD measured/);
+  assert.match(out, /Not one of your environments' capacities/);
+  assert.match(out, /None/);
+});
+
 // The pure helpers at the top of sqleditor.js (SQL-001), without CodeMirror.
 function sqlEditorHelpers() {
   const src = fs.readFileSync(path.join(ui, "sqleditor.js"), "utf8");
@@ -532,7 +587,7 @@ test("Incidents is a Preview feature on Monitor", () => {
   assert.match(features, /incidents: "Incidents"/);
   assert.match(incidents, /id: "incidents", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("incidents", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "incidents", feature: "incidents"/);
 });
 
 test("Agents is a Preview feature on Monitor and only reads", () => {
@@ -540,7 +595,7 @@ test("Agents is a Preview feature on Monitor and only reads", () => {
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /agents: "Agents"/);
   assert.match(agents, /id: "agents", preview: true/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="incidents.js"><\/script>\s*<script src="agents.js"><\/script>/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("agents", h\("button"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "agents", feature: "agents"/);
   assert.deepStrictEqual([...agents.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]).filter((m) => m !== "agents_list"), []);
 });
 
@@ -551,6 +606,54 @@ test("an agent past its promised report never shows as running", () => {
   assert.strictEqual(ctx.pill({ state: "offline" }).text, "Stopped reporting");
   assert.strictEqual(ctx.pill({ state: "something new" }).text, "Stopped reporting");
   assert.strictEqual(ctx.pill({ state: "live" }).text, "Running");
+});
+
+test("Scheduled in two places names both places and never reads a silent older agent as every table", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : (n.kids || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids: kids.flat().filter((k) => k != null && k !== false) }),
+    btn: (label) => label, envName: (e) => e.charAt(0).toUpperCase() + e.slice(1), monitorPage: {}, go: () => {} };
+  vm.runInNewContext(`${src.match(/function agPlace\([\s\S]*?\n}\n/)[0]}${src.match(/function agOverlaps\([\s\S]*?\n}\n/)[0]}; this.f = agOverlaps;`, ctx);
+  assert.strictEqual(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: true }), null);
+  const one = text(ctx.f({ overlaps: [{ env: "prod", entities: ["silver_orders"], schedules: [
+    { place: "agent", agent: "etl-01", state: "live", schedule: "hourly", text: "Every 60 minutes" },
+    { place: "pc", schedule: "p1", text: "Daily at 06:00" }] }], unknown: [] }));
+  assert.match(one, /Scheduled in two places/);
+  assert.match(one, /silver_orders in Prod runs on agent etl-01 \(hourly, every 60 minutes\) and on a schedule on this PC \(daily at 06:00\)\. Both write the same table\./);
+  const old = text(ctx.f({ overlaps: [], unknown: [{ agent: "etl-old", schedule: "nightly" }] }));
+  assert.doesNotMatch(old, /Scheduled in two places/);
+  assert.match(old, /Can't tell what etl-old schedules/);
+  assert.match(text(ctx.f({ overlaps: [], unknown: [], pc_schedules_read: false })), /couldn't be read/);
+});
+
+test("Queue is a Preview feature on Monitor that only reads and labels who owns each row", () => {
+  const src = fs.readFileSync(path.join(ui, "queue.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /queue: "Queue"/);
+  assert.match(src, /id: "queue", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="agents.js"><\/script>\s*<script src="queue.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "queue", feature: "queue"/);
+  assert.deepStrictEqual([...src.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["queue_list"]);
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/const QU_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function quStatePill\([\s\S]*?\n}\n/)[0]}; this.pill = quStatePill;`, ctx);
+  assert.strictEqual(ctx.pill({ state: "something new" }).text, "Unknown");
+  assert.strictEqual(ctx.pill({ state: "running" }).text, "Running");
+  assert.match(src, /w\.kind === "agents"/);  // a shared schedule's row names every agent sharing it
+  assert.match(fs.readFileSync(path.join(ui, "agents.js"), "utf8"), /s\.shared \? h\("span", \{ class: "pill-s neu"/);
+});
+
+test("Run as is a Preview Monitor segment that only reads who runs what", () => {
+  const src = fs.readFileSync(path.join(ui, "runas.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /runAs: "Run as"/);
+  assert.match(src, /id: "runAs", preview: true/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="queue.js"><\/script>\s*<script src="runas.js"><\/script>/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /\{ panel: "runas", feature: "runAs"/);
+  assert.deepStrictEqual([...src.matchAll(/rpc\("([a-z_]+)"/g)].map((m) => m[1]), ["run_as_list"]);
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, text: kids.flat().join("") }) };
+  vm.runInNewContext(`${src.match(/const RA_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function raDaysLeft\([\s\S]*?\n}\n/)[0]}${src.match(/function raPill\([\s\S]*?\n}\n/)[0]}; this.pill = raPill;`, ctx);
+  assert.strictEqual(ctx.pill({ state: "something new" }).text, "Unknown");
+  const soon = new Date(Date.now() + 25.5 * 86400000).toISOString();
+  assert.strictEqual(ctx.pill({ state: "expiring", expires_at: soon }).text, "Expires in 25 days");
+  assert.strictEqual(ctx.pill({ state: "failed" }).attrs.class, "pill-s fail");
 });
 
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {
@@ -647,6 +750,237 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t[t.length - 1].n, 11);
 });
 
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Operations get the whole page (#190)", () => {
+});
+
+test("Settings says plainly when sign-in isn't Microsoft's own, and how to go back", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function clientIdNote\([\s\S]*?\n}\n/)[0]}; this.f = clientIdNote;`, ctx);
+  assert.strictEqual(ctx.f("default"), null);
+  for (const source of ["policy", "environment", "user", "built_in"]) assert.match(ctx.f(source), /isn't using Microsoft's Fabric sign-in/);
+  assert.match(ctx.f("environment"), /setx FABRIC_DESKTOP_CLIENT_ID ""/);
+  assert.match(ctx.f("policy"), /only they can change it/);
+  assert.match(src, /btn\("Use Microsoft's sign-in"/);
+});
+
+// FINOPS-004: what the risk panel shows up front, and when "Run on this PC" is offered.
+test("the risk panel shows what matters, folds the rest and never offers this PC for a Fabric-only notebook", () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = (n) => (typeof n === "object" && n ? flat(n.kids || []).map(text).join(" ") : String(n ?? ""));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, attrs, kids }), icon: () => null,
+    measureBadge: (m) => ({ tag: "badge", kids: [m.classification] }),
+    previewMarked: (id, node) => { node.kids.push(`Preview:${id}`); return node; } };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskPanel, riskLocalAlternative });`, ctx);
+  const f = (check, outcome, title, measurement = null) => ({ check, outcome, title, detail: "", evidence: [], remedy: "", measurement });
+  const blocked = { result: "blocked", label: "Blocked", summary: "This run can't start: paused", findings: [
+    f("capacity", "blocked", "fabcapdev is paused"), f("local_alternative", "pass", "This PC could run it too"),
+    f("history", "pass", "Usually takes about 4 min")] };
+  const out = text(ctx.riskPanel(blocked));
+  assert.match(out, /fabcapdev is paused/);
+  assert.match(out, /This PC could run it too/);
+  assert.match(out, /1 other check passed or isn't known/);
+  assert.match(out, /Preview:risk/);
+  assert.strictEqual(ctx.riskLocalAlternative(blocked), true);
+  assert.strictEqual(ctx.riskLocalAlternative({ findings: [f("local_alternative", "pass", "Needs Fabric")] }), false);
+  const pass = ctx.riskPanel({ result: "pass", label: "Pass", summary: "Nothing found", findings: [
+    f("consumption", "pass", "The last run used about 0.42 CU hours", { classification: "measured" })] });
+  assert.strictEqual(pass.tag, "details");
+  assert.match(text(pass), /0.42 CU hours\s+measured/);
+  assert.match(text(pass), /Preview:risk/);
+  assert.strictEqual(ctx.riskPanel(null), null);
+});
+
+// FINOPS-004: the run gate stays quiet on a pass, offers no run on a block, and waits for the tick.
+test("the risk gate passes quietly, never runs a blocked item and needs the tick when asked", async () => {
+  const src = fs.readFileSync(path.join(ui, "risk.js"), "utf8");
+  const node = (tag, attrs, ...kids) => ({ tag, attrs, kids, querySelector: () => node.box });
+  let dialog = null;
+  const acks = [];
+  const toasts = [];
+  const ctx = { h: node, icon: () => null, measureBadge: () => null, previewMarked: (_, n) => n,
+    btn: (label, _i, onClick) => ({ label, onClick }), closeDialog: () => { dialog = null; },
+    showDialog: (title, body, actions) => { dialog = { title, actions }; }, toast: (t) => toasts.push(t),
+    attempt: (fn) => fn(), rpc: async (m, p) => (m === "risk_acknowledge" ? (acks.push(p), { ok: true }) : ctx.result) };
+  vm.runInNewContext(`${src}; Object.assign(this, { riskGate });`, ctx);
+  const target = { id: "notebook:nb", action: "run_in_fabric", title: "Run?", alt: { label: "Run on this PC", run: () => ctx.ran.push("pc") } };
+  ctx.ran = [];
+  const settle = () => new Promise((r) => setImmediate(r));
+  const press = (label) => dialog.actions.find((a) => a.label === label).onClick();
+
+  for (const result of ["pass", "unknown"]) {
+    ctx.result = { result, findings: [] };
+    assert.strictEqual(await ctx.riskGate(target), true);
+    assert.strictEqual(dialog, null, `${result} shows no dialog`);
+  }
+
+  ctx.result = { id: "r1", result: "blocked", summary: "paused", findings: [{ check: "local_alternative", outcome: "pass", title: "This PC could run it too" }] };
+  let gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Check again", "Run on this PC", "Close"]);
+  press("Run on this PC");
+  assert.strictEqual(await gate, false);
+  assert.deepStrictEqual(ctx.ran, ["pc"]);
+
+  ctx.result = { id: "r2", result: "warning", summary: "check", needs_acknowledgement: true, findings: [] };
+  node.box = { checked: false };
+  gate = ctx.riskGate(target);
+  await settle();
+  assert.deepStrictEqual(Array.from(dialog.actions, (a) => a.label), ["Cancel", "Run anyway"]);
+  await press("Run anyway");
+  assert.ok(dialog, "ran without the tick");
+  assert.strictEqual(acks.length, 0);
+  assert.match(toasts[0], /Tick/);
+  node.box.checked = true;
+  await press("Run anyway");
+  assert.strictEqual(await gate, true);
+  assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
+});
+
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+});
+
+// The pure helpers at the top of replay.js.
+function replayHelpers() {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const code = src.slice(0, src.indexOf("// ---------- the button and the dialog ----------"));
+  const ctx = {};
+  vm.runInNewContext(`${code}; Object.assign(this, { replayCells, replayInputLines, replayEnvironmentLine });`, ctx);
+  return ctx;
+}
+
+test("a replay bundle sends the cells up to the failed one, with only that cell's output", () => {
+  const { replayCells } = replayHelpers();
+  const cells = [{ type: "code", source: "a = 1", meta: {}, count: 1, outputs: [{ type: "text", text: "data" }], id: "x" },
+    { type: "markdown", source: "# m", meta: {}, outputs: [] },
+    { type: "code", source: "1/0", meta: {}, count: 2, outputs: [{ type: "error", ename: "ZeroDivisionError" }] },
+    { type: "code", source: "later", meta: {}, count: 3, outputs: [] }];
+  const out = JSON.parse(JSON.stringify(replayCells(cells, 2)));
+  assert.strictEqual(out.length, 3);
+  assert.deepStrictEqual(out[0], { type: "code", source: "a = 1", meta: {}, count: 1 });
+  assert.strictEqual(out[1].count, null);
+  assert.deepStrictEqual(out[2].outputs, [{ type: "error", ename: "ZeroDivisionError" }]);
+});
+
+test("the replay dialog lists inputs and the environment plainly", () => {
+  const { replayInputLines, replayEnvironmentLine } = replayHelpers();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(replayInputLines({
+    tables: [{ table: "bronze.events", version: 41 }, { table: "dbo.out", version: null, created: true }],
+    files: [{ path: "Files/raw/fx.csv", sha256: "9f2c0a1b2c3d" }, { path: "Files/x.csv", sha256: null }] }))), [
+    "bronze.events at Delta version 41", "dbo.out: created by the notebook, so a replay starts without it",
+    "Files/raw/fx.csv (SHA-256 9f2c0a1b…)", "Files/x.csv (changed after it was read, so no SHA-256)"]);
+  assert.strictEqual(replayEnvironmentLine({ python: "3.11.9", packages: { polars: "1.9.0" },
+    kernel: { process: true, limits: { cell_seconds: 3600, memory_bytes: null } } }),
+  "Python 3.11.9, polars 1.9.0, kernel in its own process, 60 min cell limit");
+});
+
+test("Save replay bundle is a Preview feature, offered only under a cell that failed on this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /replay: "Failure replay bundles"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="debugging.js"><\/script>\s*<script src="replay.js"><\/script>/);
+  assert.match(src, /cell\.status !== "error" \|\| nbWhere\(nb\)\.fabric/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayOffer\(cell\)/);
+});
+
+test("a replay notebook shows its banner, and Create can open a bundle", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /replayBanner\(nb\), sbsPanel\(nb\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /preview\("replay", tile\("history", "Open replay bundle"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /replay: nb\.replay \|\| null/);
+  assert.match(fs.readFileSync(path.join(ui, "deps.js"), "utf8"), /replayRestarted\(\);/);
+  // A table whose version is gone is replaced only by the person's choice.
+  assert.match(src, /disabled: busy \|\| !!c\.blockers\.length \|\| unresolved/);
+  const { replayBase64 } = (() => { const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+    vm.runInNewContext(`${src.slice(src.indexOf("function replayBase64"), src.indexOf("async function replayOpenDialog"))}; this.replayBase64 = replayBase64;`, ctx);
+    return ctx; })();
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(replayBase64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+});
+
+test("sign-in errors say what happened, and a cancelled sign-in says nothing (UX-003)", () => {
+  const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
+  const say = (raw) => ctx.friendlyError(raw).text;
+  assert.match(say("SignInError: AADSTS50076: Due to a configuration change made by your administrator"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50079: The user is required to use multi-factor authentication"), /multi-factor/);
+  assert.match(say("SignInError: AADSTS50020: User account from identity provider does not exist in tenant"), /work account/);
+  assert.match(say("SignInError: AADSTS53003: Access has been blocked by Conditional Access policies"), /Conditional Access/);
+  assert.match(say("SignInError: AADSTS50173: The provided grant has expired"), /expired/);
+  assert.match(say("SignInError: AADSTS9999999: Something new"), /quote the code/);
+  assert.match(say("SignInError: invalid_client: bad"), /didn't finish/);
+  assert.doesNotMatch(say("SignInError: AADSTS50076: x"), /expired/);
+  assert.deepStrictEqual({ ...ctx.friendlyError("SignInCancelled: cancelled: The sign-in window was closed before signing in.") }, { text: "", details: "", cancelled: true });
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /!f\.text\.startsWith\(label\)/);  // never "Sign-in failed: Sign-in failed:"
+});
+
+// UX-001: the command bar's list held a null for every result that didn't start a group, and
+// replaceChildren prints a null as the text "null".
+test("the command bar lists group headers and results, never the text null", () => {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(), addEventListener() {}, focus() {},
+    setSelectionRange() {}, querySelector() { return null; }, value: attrs.value || "",
+    replaceChildren(...k) { this.kids = k; } });
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: {}, rpc: () => Promise.resolve([]),
+    document: { getElementById: () => null, body: { append() {} } }, console,
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [
+    { group: "Pages", label: "Home", icon: "home", run() {} },
+    { group: "Pages", label: "Create", icon: "create", run() {} },
+    { group: "Actions", label: "New notebook", icon: "notebook", run() {} },
+  ];
+  let list = null;
+  ctx.document.body.append = (box) => { list = box.kids[0].kids[1]; };
+  ctx.openPalette();
+  assert.ok(list, "the command bar's list was not drawn");
+  assert.ok(list.kids.every((k) => k && typeof k === "object"), `list holds ${JSON.stringify(list.kids.map((k) => k && k.tag))}`);
+  assert.deepStrictEqual(list.kids.map((k) => k.attrs.class.split(" ")[0]),
+    ["palette-group", "palette-item", "palette-item", "palette-group", "palette-item"]);
+});
+
+// UX-002: every help link the app opens lands on a page and heading that exist.
+test("every in-app help link opens an existing docs page and heading", () => {
+  const docs = path.join(__dirname, "..", "..", "docs");
+  // GitHub's heading anchors: lower case, punctuation dropped, spaces to hyphens, repeats numbered.
+  const anchors = (page) => {
+    const seen = new Map();
+    const out = new Set();
+    let fence = false;
+    for (const line of fs.readFileSync(path.join(docs, page), "utf8").split("\n")) {
+      if (/^\s*(```|~~~)/.test(line)) { fence = !fence; continue; }
+      const m = !fence && /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
+      if (!m) continue;
+      const base = m[1].replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[`*]/g, "").trim().toLowerCase()
+        .replace(/[^\p{L}\p{N}_\- ]/gu, "").replace(/ /g, "-");
+      const n = seen.get(base) || 0;
+      seen.set(base, n + 1);
+      out.add(n ? `${base}-${n}` : base);
+    }
+    return out;
+  };
+  const links = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    for (const [, a] of src.matchAll(/learnMore\("([^"]*)"/g)) links.push([name, `user-guide.md${a ? `#${a}` : ""}`]);
+    for (const [, p] of src.matchAll(/open_doc", \{ page: "([^"]+)"/g)) links.push([name, p]);
+  }
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8").match(/const XRAY_DOCS = \{([\s\S]*?)\};/)[1];
+  for (const [, a] of xray.matchAll(/:\s*"([^"]+)"/g)) links.push(["xray.js", `xray-fixes.md#${a}`]);
+  assert.ok(links.length > 20, `only ${links.length} help links found`);
+  const broken = links.filter(([, link]) => {
+    const [page, anchor] = link.split("#");
+    if (!fs.existsSync(path.join(docs, page))) return true;
+    return anchor && !anchors(page).has(anchor);
+  }).map(([file, link]) => `${file}: ${link}`);
+  assert.deepStrictEqual(broken, []);
+});
+
 // A notebook that can't be saved is never reported as saved, closed or replaced (QA-002).
 test("a failed save says so and keeps the notebook open and dirty", async () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
@@ -678,4 +1012,367 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   ctx.rpc = async () => ({});
   assert.strictEqual(await ctx.saveNotebook(), true);
   assert.strictEqual(nb.dirty, false);
+});
+
+// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
+test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
+  assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
+  for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
+    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+  }
+  assert.match(domainsTab, /goPlatform\("domains"\)/);
+  assert.match(domainsTab, /goPlatform\("glossary"\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /importFabricDomains\(rerender\)/);
+  assert.match(platform, /platformSection\(\)/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
+  assert.match(settings, /goPlatform\("settings"\)/);
+});
+
+// UX-009: a project's source systems come from the platform's one list when Preview is on.
+test("a project reads source systems from the platform's list and can move its own there", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const tab = meta.match(/async function renderSourcesTab\([\s\S]*?\n}\n/)[0];
+  assert.match(tab, /meta_keys", \{ env: m\.env, platform: previewShown\(\) \}/);
+  assert.match(tab, /"Add a source this project reads"/);
+  assert.match(tab, /"Move sources to the platform"/);
+  assert.match(tab, /"New source system"/, "without the platform the project keeps its own list");
+  assert.match(meta, /metaCall\("meta_source_read"/);
+  assert.match(meta, /metaCall\("meta_sources_move"/);
+  const server = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "server.py"), "utf8");
+  for (const m of ["meta_source_read", "meta_sources_move"]) assert.ok(server.includes(`"${m}"`), `${m} isn't allowed by the engine`);
+});
+
+// The template gallery filters by group and search, and the review step names every table's contract.
+test("the template gallery filters templates and the review states each contract", () => {
+  const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = {};
+  vm.runInNewContext(`${fn("wizardShown")}${fn("wizardContract")}; this.shown = wizardShown; this.contract = wizardContract;`, ctx);
+  const all = [{ id: "a", group: "load", title: "Incremental load", text: "With a watermark" },
+    { id: "b", group: "model", title: "Date dimension", text: "A calendar table" }];
+  assert.deepStrictEqual(ctx.shown(all, "all", "").map((t) => t.id), ["a", "b"]);
+  assert.deepStrictEqual(ctx.shown(all, "model", "").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "all", "CALENDAR  table").map((t) => t.id), ["b"]);
+  assert.deepStrictEqual(ctx.shown(all, "load", "calendar"), []);
+  assert.strictEqual(ctx.contract({}), "This notebook writes no tables, so there is no proof contract.");
+  assert.strictEqual(ctx.contract({ "s.good": { keys: ["id"], ignore: ["loaded_at"] }, "s.bad": { keys: [], ignore: [] } }),
+    "Proof contract saved in the notebook: rows of s.good are matched by id, ignoring loaded_at; rows of s.bad are compared whole.");
+});
+
+// PR-OPT-001b: Optimize takes the Fabric page's rail slot; Fabric's portal is a Workspaces tab.
+test("Optimize is a rail page in Fabric's old slot, and the rail stays within its limit", () => {
+  const sources = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
+  const rails = [...sources.matchAll(/rail: \{ label: "([^"]+)"[^}]*\}/g)].filter((m) => !/bottom: true/.test(m[0])).map((m) => m[1]);
+  assert.ok(rails.includes("Optimize"), rails.join(", "));
+  assert.ok(!rails.includes("Fabric"), "Fabric is a Workspaces tab, not a rail page");
+  assert.ok(rails.length <= 8, rails.join(", "));
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["workspace", "lakehouse", "query", "fabric"\]/);
+  assert.match(app, /label: "Fabric portal"/);  // still found with Ctrl+K
+  const opt = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(opt, /id: "optimize", preview: true/);
+  // Cost and savings is the Cost panel without Fabric's Monitoring hub underneath.
+  assert.match(opt, /costPanel\(\)/);
+  assert.ok(!/dockFabricView|fabric_view_show/.test(opt));
+});
+
+test("Optimize offers only the recommendation moves the engine allows", () => {
+  const src = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const REC_MOVES = \{[\s\S]*?\n\};\n/)[0]}; this.REC_MOVES = REC_MOVES;`, ctx);
+  const py = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "optimize", "shared.py"), "utf8");
+  const block = py.match(/TRANSITIONS[^=]*= \{([\s\S]*?)\n\}/)[1];
+  const allowed = {};
+  for (const [, from, to] of block.matchAll(/\n\s+(\w+): (\{[^}]*\}|set\(\)),/g)) {
+    allowed[from.toLowerCase()] = to === "set()" ? [] : to.slice(1, -1).split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  }
+  for (const [from, moves] of Object.entries(ctx.REC_MOVES)) {
+    for (const [to] of moves) assert.ok((allowed[from] || []).includes(to), `${from} -> ${to}`);
+  }
+  // Disconnecting and a new installation id both ask first.
+  assert.match(src, /confirmDialog\(`Disconnect/);
+  assert.match(src, /confirmDialog\("Use a new installation ID\?"/);
+});
+
+// The Schedule dialog opens on Fabric when the current environment runs on Fabric (it once read
+// state.env, which is never set, so it always opened on This PC).
+test("Schedule follows the current environment's Runs on", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
+  const opened = [];
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
+  const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
+  for (const env of ["dev", "prod"]) {
+    ctx.state = { notebook: { name: "nb", lakehouse: { lakehouse_id: "l" } }, meta: { env, project: { environments } } };
+    ctx.scheduleNotebook();
+  }
+  ctx.state = { notebook: { name: "nb", compute: "local", lakehouse: { lakehouse_id: "l" } }, meta: { env: "prod", project: { environments } } };
+  ctx.scheduleNotebook();
+  assert.deepStrictEqual(opened, ["pc", "fabric", "pc"]);
+});
+
+test("with platform keys, no Keys button makes a project key table", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.strictEqual([...src.matchAll(/newKeyTableDialog\(/g)].length, 2, "newKeyTableDialog is reached only through addKeyTableButton");
+  const opened = [];
+  const ctx = { btn: (label, _icon, onClick) => ({ label, onClick }),
+    useKeyTableDialog: () => opened.push("use"), newKeyTableDialog: () => opened.push("new") };
+  vm.runInNewContext(`${src.match(/function addKeyTableButton\([\s\S]*?\n}\n/)[0]}; this.addKeyTableButton = addKeyTableButton;`, ctx);
+  const platform = ctx.addKeyTableButton({ central_key_tables: [{ name: "customer" }] }, () => {}, "x");
+  const local = ctx.addKeyTableButton({ central_key_tables: null }, () => {}, "x");
+  platform.onClick(); local.onClick();
+  assert.deepStrictEqual([platform.label, local.label, ...opened], ["Use a key table", "New key table", "use", "new"]);
+});
+
+test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const features = read("features.js");
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+    assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
+    assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
+  }
+  // A marked step stays, and keeps its tag, when someone hides preview features.
+  const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
+  vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
+  const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  ctx.shown = false;
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  // and Settings names them as staying
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
+  assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
+});
+
+// QA review of #173: only a cancelled sign-in is silent; an error with no message still says something.
+test("attempt() stays quiet only for a cancelled sign-in, never for an empty error", async () => {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const toasts = [];
+  const ctx = { toast: (text, isError) => toasts.push([text, isError]) };
+  vm.runInNewContext(`${activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}
+    ${app.match(/async function attempt\([\s\S]*?\n}\n/)[0]}; this.attempt = attempt;`, ctx);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(new Error("")), "Save"), undefined);
+  assert.strictEqual(await ctx.attempt(() => Promise.reject(""), "Save"), undefined);
+  assert.strictEqual(toasts.length, 2);
+  assert.match(toasts[0][0], /^Save: Something went wrong and no reason was given/);
+  assert.strictEqual(toasts[0][1], true);
+  await ctx.attempt(() => Promise.reject(new Error("SignInCancelled: cancelled: closed")), "Sign in");
+  assert.strictEqual(toasts.length, 2);
+  assert.strictEqual(await ctx.attempt(() => Promise.resolve(7), "Save"), 7);
+});
+
+test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
+  assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
+  assert.strictEqual(ctx.f(saved, "bob@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t2", now), null);  // another tenant
+  assert.strictEqual(ctx.f({ ...saved, lakehouse_id: "" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t1", Date.parse("2026-10-25T12:00:01Z")), null);  // expired
+  assert.strictEqual(ctx.f({ ...saved, at: "nonsense" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(null, "ana@contoso.com", "t1", now), null);
+});
+
+test("a failed or refused write test, and signing out, forget the saved pass (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const store = new Map();
+  const localStorage = { setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k), getItem: (k) => store.get(k) ?? null };
+  const ctx = { localStorage, state: { user: "ana@contoso.com", tenant: "t1" } };
+  vm.runInNewContext(`${src.match(/function rememberWrite\([\s\S]*?\n}\n/)[0]}; this.f = rememberWrite;`, ctx);
+  const target = { workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev" };
+  ctx.f({ status: "ok" }, target);
+  const saved = JSON.parse(store.get("fd.ready.write"));
+  assert.deepStrictEqual([saved.user, saved.tenant, saved.lakehouse_id], ["ana@contoso.com", "t1", "l"]);
+  ctx.f(undefined, target);  // refused or threw: attempt() returned nothing
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  ctx.f({ status: "ok" }, target);
+  ctx.f({ status: "fail" }, target);
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  // The dialog reports every outcome, and the card keeps a way to test again.
+  assert.match(src, /done\(result, \{ workspace_id: ws\.value, lakehouse_id: lhSelect\.value/);
+  assert.doesNotMatch(src, /if \(result\) done\(result\)/);
+  assert.match(src, /"Test again"/);
+  const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
+  assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
+});
+
+test("Home doesn't say nothing needs attention when run history or Fabric jobs couldn't be read", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /rpc\("meta_runs_all", \{ limit: 300 \}\)\.catch\(\(\) => \(\{ runs: \[\], unavailable: \{\}, failed: true \}\)\)/);
+  assert.match(src, /rpc\("fabric_runs", \{ limit: 50, refresh: false \}\)\.catch\(\(\) => null\)/);
+  assert.match(src, /unread\.length \? "Nothing found that needs your attention" : "Nothing needs your attention"/);
+  assert.match(src, /couldn't check \$\{unread\.join\(", "\)\}/);
+});
+
+test("Monitor has three tabs, and Operations holds the workload views in the mockup's order (UX-010)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const literal = src.match(/const MONITOR_OPS = (\[[\s\S]*?\n\]);/)[1];
+  const ops = JSON.parse(JSON.stringify(vm.runInNewContext(literal)));
+  assert.deepStrictEqual(ops.map((o) => o.label), ["Workloads", "Queue", "Agents", "Run as", "Incidents"]);
+  // Every view keeps its panel id, so links and commands that open it still land there.
+  assert.deepStrictEqual(ops.map((o) => o.panel), ["workloads", "queue", "agents", "runas", "incidents"]);
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  for (const o of ops) assert.ok(features.includes(`${o.feature}:`), `${o.feature} is a registered preview feature`);
+  const seg = src.slice(src.indexOf('"aria-label": "Show" },'), src.indexOf('h("span", { class: "spacer" })', src.indexOf('"aria-label": "Show" },')));
+  assert.deepStrictEqual([...seg.matchAll(/"(Runs|Schedules|Operations|Cost|Workloads|Queue|Agents|Run as|Incidents)"/g)].map((m) => m[1]),
+    ["Runs", "Schedules", "Operations"]);
+});
+
+test("Monitor > Agents explains agents beside the list, with links to sections of agent.md (testing item 34)", () => {
+  const src = fs.readFileSync(path.join(ui, "agents.js"), "utf8");
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "agent.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...doc.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(linked.length >= 6);
+  for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
+  assert.match(src, /return h\("div", \{ class: "mon-how" \}, withHowItWorks\(box, agGuide\(\)\)\);/);
+});
+
+test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const dataops = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  for (const [src, verb] of [[meta, "Delete"], [dataops, "Discard"]]) {
+    const calls = src.match(new RegExp(`confirmDialog\\(\`${verb} [^\\n]*`, "g"));
+    assert.ok(calls && calls.length, verb);
+    for (const c of calls) assert.match(c, new RegExp(`"${verb}", \\{ danger: true \\}\\)`), c);
+  }
+});
+
+test("Runs > Env says why a row has no environment, for this PC and for Fabric (testing item 32)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = { ENV_LABEL: { dev: "Dev", prod: "Prod" }, h: (tag, attrs, text) => ({ tag, attrs, text }) };
+  vm.runInNewContext(`${src.match(/function runEnvCell\([\s\S]*?\n}\n/)[0]}; this.runEnvCell = runEnvCell;`, ctx);
+  assert.strictEqual(ctx.runEnvCell({ env: "prod", where: "fabric" }), "Prod");
+  const pc = ctx.runEnvCell({ env: "", where: "local" });
+  assert.strictEqual(pc.text, "None");
+  assert.match(pc.attrs.title, /this PC's schedules/);
+  const fabric = ctx.runEnvCell({ env: "", where: "fabric" });
+  assert.strictEqual(fabric.text, "None");
+  assert.match(fabric.attrs.title, /Fabric workspace/);
+  assert.doesNotMatch(fabric.attrs.title, /this PC/);
+});
+
+test("Cost lives on Optimize only: Monitor has no Cost panel and old links to it open Optimize (testing item 36)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const monitor = app.slice(app.indexOf("async function renderMonitor()"), app.indexOf("\n}\n", app.indexOf("async function renderMonitor()")));
+  assert.ok(!monitor.includes("costPanel"), "Monitor doesn't draw the Cost panel");
+  assert.ok(!monitor.includes("what running on this PC saved"), "no savings claim on Monitor (QA-008)");
+  assert.match(monitor, /if \(monitorPage\.panel === "cost"\) \{ monitorPage\.panel = "runs"; optimizePage\.tab = "cost"; go\("optimize"\); return; \}/);
+  for (const file of ["app.js", "xray.js", "optimize.js", "features.js"]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    assert.ok(!/monitorPage\.panel = "cost"/.test(src), `${file} sends nobody to Monitor > Cost`);
+  }
+  assert.match(fs.readFileSync(path.join(ui, "xray.js"), "utf8"), /btn\("See cost", null, \(\) => \{ optimizePage\.tab = "cost"; go\("optimize"\); \}/);
+});
+
+// #193: messages from the engine that send people to a screen name one that exists.
+test("engine messages point to Data mesh and Platform tabs that exist", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const groups = vm.runInNewContext(`${/const META_TAB_GROUPS = \[[\s\S]*?\n\];/.exec(read("meta.js"))[0].replace("const ", "")}; META_TAB_GROUPS`);
+  const platform = vm.runInNewContext(`${/const PLATFORM_TABS = \[[\s\S]*?\n\];/.exec(read("platform.js"))[0].replace("const ", "")}; PLATFORM_TABS`);
+  const mesh = new Set();
+  for (const [, group, tabs] of groups) for (const [, tab] of tabs) mesh.add(`${group} > ${tab}`);
+  const plat = new Set(platform.map(([, label]) => label));
+  const engine = path.join(__dirname, "..", "..", "sidecar", "fabric_desktop");
+  const files = [];
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    if (e.isDirectory()) walk(path.join(d, e.name)); else if (e.name.endsWith(".py")) files.push(path.join(d, e.name)); } };
+  walk(engine);
+  const bad = [];
+  for (const f of files) {
+    const src = fs.readFileSync(f, "utf8");
+    if (/\bMetadata > /.test(src)) bad.push(`${path.basename(f)}: "Metadata >" is now Data mesh`);
+    for (const m of src.matchAll(/Data mesh > ([A-Z][\w ]*?) > ([A-Z][\w ]*?)(?=[).,"'\n]| first| and promote\b)/g)) {
+      const where = `${m[1]} > ${m[2]}`;
+      if (![...mesh].some((t) => t.startsWith(where))) bad.push(`${path.basename(f)}: Data mesh > ${where}`);
+    }
+    for (const m of src.matchAll(/Platform > ([A-Z][\w ]*?)(?=[).,"'\n])/g)) if (!plat.has(m[1])) bad.push(`${path.basename(f)}: Platform > ${m[1]}`);
+  }
+  assert.deepStrictEqual(bad, []);
+});
+
+// UX-018: a confirm that deletes, discards, replaces or removes something draws its button red
+// and focuses Cancel, so Enter doesn't lose data.
+test("confirms that delete or overwrite something pass danger", () => {
+  const missing = [];
+  for (const name of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    const lines = fs.readFileSync(path.join(ui, name), "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const m = line.match(/confirmDialog\(\s*[`"](Delete|Discard|Replace|Remove|Revoke|Undo the pull|Repoint)\b/);
+      if (!m) return;
+      let end = i;
+      while (end < lines.length - 1 && !lines[end].trimEnd().endsWith(";")) end++;
+      if (!lines.slice(i, end + 1).join("\n").includes("danger: true")) missing.push(`${name}:${i + 1}`);
+    });
+  }
+  assert.deepStrictEqual(missing, []);
+});
+
+test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const seen = {};
+  const ctx = {
+    h: (tag, attrs, ...children) => ({ tag, attrs, children }),
+    howItWorks: (id, parts) => { seen[id] = parts; return { panel: id }; },
+    withHowItWorks: (main, panel) => ({ main, panel }),
+    agDoc: (anchor) => ({ doc: anchor }),
+    loadWorkloads: () => {}, loadAgents: () => {},
+  };
+  const grab = (file, name) => {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    return src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  };
+  vm.runInNewContext(`${grab("workloads.js", "workloadsPanel")}${grab("agents.js", "agentsPanel")}${grab("agents.js", "agGuide")}
+    this.out = [workloadsPanel(), agentsPanel()];`, ctx);
+  for (const [i, id] of [[0, "monitor.workloads"], [1, "monitor.agents"]]) {
+    assert.deepStrictEqual(ctx.out[i].children[0].panel, { panel: id }, `${id} sits beside its list`);
+    const p = seen[id];
+    for (const k of ["reads", "changes", "results"]) assert.ok(String(p[k]).length > 20, `${id} says ${k}`);
+    assert.ok(anchors.has(p.anchor), `user-guide.md has #${p.anchor}`);
+  }
+  assert.match(seen["monitor.agents"].changes, /^Nothing\./);
+  assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
+});
+
+// Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
+test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
+  for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
+  assert.match(how, /only when you confirm/);
+  assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
+  assert.match(fabric, /withHowItWorks\(/);
+  assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
+});
+
+// Testing item 18: Workspaces, the OneLake catalog and Data products each say how they work, naming every write.
+test("Workspaces, the catalog and data products have a How this works panel that names their writes", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
+  const ws = panel(app, "workspaces");
+  assert.match(ws, /changes: "Nothing in Fabric or OneLake. Open in notebook[^"]*makes a new notebook on this PC/);
+  const catalog = panel(app, "onelake.catalog");
+  assert.match(catalog, /changes: "Nothing in Fabric or OneLake/);
+  assert.match(catalog, /Open in notebook makes a new notebook on this PC/);
+  const products = panel(platform, "onelake.products");
+  assert.match(products, /records your project as a reader/);
+  assert.match(products, /adds a request/);
+  for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });

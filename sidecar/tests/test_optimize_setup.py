@@ -12,6 +12,8 @@ from deltalake import write_deltalake
 
 from fabric_desktop.optimize import schema, setup
 from fabric_desktop.optimize.installation import Installation
+from fabric_desktop.meta.store import Store
+from fabric_desktop import retrying
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.optimize.registry import Registry
 
@@ -84,6 +86,62 @@ def test_two_installations_initialize_at_once(tmp_path, lake):
     assert lake.rows("fdopt_schema_version")["version"].to_list() == [1]
     assert len(lake.rows("fdopt_config")) == len(schema.DEFAULT_CONFIG)
     assert len(lake.rows("fdopt_installations")) == 4
+
+
+
+WINDOWS_RACE = OSError(
+    "Generic LocalFileSystem error: Unable to open file C:\\lh\\Tables\\dbo\\fdopt_dependencies\\_delta_log"
+    "\\00000000000000000000.json#1: Access is denied. (os error 5)")
+
+
+def test_windows_delta_log_race_is_retried(lake, monkeypatch):
+    # On Windows a second writer can briefly be refused the log file the first is renaming.
+    calls = []
+    real = Store.create_if_absent
+
+    def flaky(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise WINDOWS_RACE
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Store, "create_if_absent", flaky)
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    assert lake.create("fdopt_config", {schema.KEY: pl.String}) is True
+    assert len(calls) == 2 and lake.has("fdopt_config")
+
+
+def test_other_errors_are_not_retried(lake, monkeypatch):
+    calls = []
+
+    def broken(self, *args, **kwargs):
+        calls.append(1)
+        raise OSError("Access is denied. (os error 5)")  # not the Delta log race
+
+    monkeypatch.setattr(Store, "create_if_absent", broken)
+    with pytest.raises(OSError):
+        lake.create("fdopt_config", {schema.KEY: pl.String})
+    assert len(calls) == 1
+
+
+def test_race_retries_are_bounded(lake, monkeypatch):
+    # One level of retry per call: LocalStore's or LocalLakehouse's, never both (6 tries, not 36).
+    calls = {"create": 0, "exists": 0}
+
+    def race(name):
+        def fail(self, *args, **kwargs):
+            calls[name] += 1
+            raise WINDOWS_RACE
+        return fail
+
+    monkeypatch.setattr(Store, "create_if_absent", race("create"))
+    monkeypatch.setattr(Store, "exists", race("exists"))
+    monkeypatch.setattr(retrying.time, "sleep", lambda s: None)
+    with pytest.raises(OSError):
+        lake.create("fdopt_config", {schema.KEY: pl.String})
+    with pytest.raises(OSError):
+        lake.has("fdopt_config")
+    assert calls == {"create": 6, "exists": 6}
 
 
 def test_unrelated_tables_are_left_alone(tmp_path, lake):
@@ -278,3 +336,67 @@ def test_registry_switch_and_forget_never_touch_the_lakehouse(tmp_path, lake):
     reg.add({"workspace_id": "w1", "lakehouse_id": "a"}, activate=False)
     assert reg.active()["lakehouse_id"] == "b"
     assert {n: lake.version("optimization", "dbo", n) for n in lake.table_names()} == before
+
+
+# ---------- table families (the central lakehouse) ----------
+
+INCIDENTS_V1 = {"incident_event": {"incident_id": pl.String, "at": pl.String, "what": pl.String},
+                "schema_version": schema.TABLES_V1["schema_version"]}
+
+
+@pytest.fixture
+def incidents(monkeypatch):
+    fam = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create the incident tables", INCIDENTS_V1)])
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    return fam
+
+
+def test_a_family_gets_its_own_tables_and_version_beside_optimize(tmp_path, lake, incidents):
+    with pytest.raises(PermissionError, match="Confirm"):
+        setup.initialize(lake, pc(tmp_path), family=incidents)
+    assert lake.table_names() == []
+    out = setup.initialize(lake, pc(tmp_path), approve=True, family=incidents)
+    assert out["state"] == setup.READY and out["family"] == "fdtst_"
+    names = set(lake.table_names())
+    assert {"fdtst_incident_event", "fdtst_schema_version"} <= names
+    assert set(schema.expected()) <= names  # Optimize's shared tables first: installations, audit, config
+    assert setup.inspect(lake)["state"] == setup.READY and setup.inspect(lake)["other_tables"] == 0
+    setup.write(lake, pc(tmp_path), "incident_event", [{"record_id": "e1", "incident_id": "i1", "at": "t", "what": "opened"}],
+                family=incidents)
+    setup.write(lake, pc(tmp_path), "incident_event", [{"record_id": "e1", "incident_id": "i1", "at": "t", "what": "opened"}],
+                family=incidents)  # the same row again adds nothing
+    assert lake.rows("fdtst_incident_event")["what"].to_list() == ["opened"]
+    assert lake.rows("fdtst_schema_version")["version"].to_list() == [1]
+    assert lake.rows("fdopt_schema_version")["version"].to_list() == [1]
+    targets = lake.rows("fdopt_audit")["target"].to_list()
+    assert "fdtst_ schema 1" in targets and "fdopt_ schema 1" in targets
+
+
+def test_a_newer_family_is_read_only_without_touching_optimize(tmp_path, lake, incidents, monkeypatch):
+    setup.initialize(lake, pc(tmp_path), approve=True, family=incidents)
+    v2 = {"incident_event": INCIDENTS_V1["incident_event"] | {"priority": pl.String}}
+    newer = schema.Family("fdtst_", "Test incidents", [schema.Migration(1, "Create", INCIDENTS_V1), schema.Migration(2, "Priority", v2)])
+    setup.initialize(lake, pc(tmp_path), approve=True, family=newer)
+    state = setup.inspect(lake, incidents)  # this app knows version 1 only
+    assert state["state"] == setup.NEWER and not state["writable"] and "Test incidents" in state["message"]
+    assert setup.inspect(lake)["state"] == setup.READY
+
+
+def test_a_familys_default_settings_carry_its_prefix(tmp_path, lake, monkeypatch):
+    fam = schema.Family("fdtst_", "Test", [schema.Migration(1, "Create", INCIDENTS_V1)], (("retention_days", "30"),))
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    setup.initialize(lake, pc(tmp_path), approve=True, family=fam)
+    rows = dict(zip(*lake.rows("fdopt_config").select("key", "value").to_dict(as_series=False).values()))
+    assert rows["retention_days"] == "365" and rows["fdtst_retention_days"] == "30"
+
+
+def test_family_registration_rules(incidents):
+    m1 = [schema.Migration(1, "Create", INCIDENTS_V1)]
+    for prefix in ("fdopt_", "inc_", "fdINC_", "fd_"):
+        with pytest.raises(ValueError):
+            schema.register(schema.Family(prefix, "Bad", m1))
+    with pytest.raises(ValueError, match="numbered"):
+        schema.register(schema.Family("fdzzz_", "Gaps", [schema.Migration(2, "Create", INCIDENTS_V1)]))
+    with pytest.raises(ValueError, match="schema_version"):
+        schema.register(schema.Family("fdzzz_", "No version", [schema.Migration(1, "Create", {"t": {"a": pl.String}})]))
+    assert schema.family_of("fdtst_incident_event") is incidents and schema.family_of("sales") is None

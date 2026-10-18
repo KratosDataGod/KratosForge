@@ -76,7 +76,8 @@ async function attempt(fn, label) {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    toast(label ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
     return undefined;
   }
 }
@@ -388,10 +389,27 @@ function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
   return box;
 }
 
+// Coming back to Home within a few minutes shows the page as it was, with no calls (#192), once it
+// had finished loading; a sign-in, a search or a run starting or finishing draws it again, as does Refresh.
+const HOME_REUSE_MS = 5 * 60 * 1000;
+const homeCache = { page: null, key: "", at: 0, stamp: null, done: false };
+function homeKey() {
+  return JSON.stringify([state.user, state.query, previewShown(), state.meta?.project?.path, activity.items.filter((i) => i.status === "running" && !i.stale).map((i) => i.id)]);
+}
+function homeUpdatedText() {
+  const min = Math.floor((Date.now() - homeCache.at) / 60000);
+  return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
+    homeCache.stamp.textContent = homeUpdatedText();
+    setView(homeCache.page);
+    return;
+  }
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
@@ -403,8 +421,11 @@ async function renderHome() {
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
   let notebookCount = 0;
-  setView(h("div", { class: "page home" },
-    h("h1", {}, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+  const stamp = h("span", { class: "muted-text small" }, "Updated just now");
+  const page = h("div", { class: "page home" },
+    h("div", { class: "row home-head" },
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -421,8 +442,10 @@ async function renderHome() {
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
     foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
-    xray));
-  const onHome = () => state.view === "home";
+    xray);
+  Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
+  setView(page);
+  const onHome = () => state.view === "home" && homeCache.page === page;
 
   // What is running is already known in the app: no call needed.
   const live = activity.items.filter((i) => i.status === "running" && !i.stale);
@@ -445,9 +468,9 @@ async function renderHome() {
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
   const projectCall = rpc("meta_project").catch(() => null);
-  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => []);
+  const cloudCall = rpc("fabric_runs", { limit: 50, refresh: false }).catch(() => null);
   const pcCall = rpc("pc_schedules_for", { kind: "all" }).catch(() => []);
-  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {} }));
+  const metaCall = rpc("meta_runs_all", { limit: 300 }).catch(() => ({ runs: [], unavailable: {}, failed: true }));
 
   // Coming up: this PC's schedules straight away, Fabric's added once read (only when signed in).
   const upcomingDone = (async () => {
@@ -499,13 +522,18 @@ async function renderHome() {
     const cloudFailed = (cloud || []).filter((r) => r.status === "Failed" && Date.now() - new Date(r.started_at) < 86400000);
 
     const problems = failing.length + cloudFailed.length;
+    // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
+    const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
       const late = (fresh.items || []).filter((x) => x.status === "late").length;
       const total = problems + late;
       summary.textContent = [
-        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention` : "Nothing needs your attention",
+        total ? `${total} ${total === 1 ? "thing needs" : "things need"} your attention`
+          : unread.length ? "Nothing found that needs your attention" : "Nothing needs your attention",
         live.length ? `${live.length} running` : "",
+        unread.length ? `couldn't check ${unread.join(", ")}` : "",
       ].filter(Boolean).join(" · ") + ".";
     };
     state.homeSummary();
@@ -544,7 +572,9 @@ async function renderHome() {
   // The X-ray's saved scan is read last, so it never holds up the rest of Home.
   await Promise.allSettled([notebooksDone, upcomingDone, runsDone]);
   if (onHome() && yours?.isConnected) await yours.load();  // reads every source, so after the quick parts
-  if (onHome() && xray?.isConnected) loadXray(xray, false);
+  if (onHome() && xray?.isConnected) await loadXray(xray, false);
+  // The engine answers in order, so the cards that read on their own (Ready to work, the mesh map) are in too.
+  if (onHome()) homeCache.done = true;
 }
 
 function tile(iconName, title, desc, onClick) {
@@ -558,15 +588,31 @@ function renderCreate() {
     h("h2", {}, "Data engineering"),
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
-      preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
+      preview("wizard", tile("notebook", "Notebook from a template", "Ten templates to load, clean, check, model and compare data, with checks and a proof contract", openWizard)),
+      preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
 }
 
 // Filters on Monitor, kept for the session; showFabric is remembered on this PC.
-const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs" };
+const monitorPage = { env: "all", where: "any", problemsFirst: true, showFabric: true, panel: "runs", opsView: "workloads" };
+// Monitor > Operations holds the workload views (UX-010). Each keeps its own panel id, so links to it still work.
+const MONITOR_OPS = [
+  { panel: "workloads", feature: "workloads", label: "Workloads", anchor: "workloads-preview",
+    text: "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner" },
+  { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
+    text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
+  { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
+    text: "Fabric Desktop by KratosBI on your own servers, from the status they report" },
+  { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
+    text: "Which identity runs your workloads in each place, and with what credential" },
+  { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
+    text: "One record per problem, shared by everyone who can read the environment" },
+];
 try { monitorPage.showFabric = localStorage.getItem("fd.monitor.fabric") !== "hidden"; } catch { /* default: shown */ }
 
 async function renderMonitor() {
+  // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
+  if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
   const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
   const slot = h("div", { class: "fabric-slot" },
@@ -580,28 +626,31 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
-  const wide = ["workloads", "incidents", "agents"].includes(monitorPage.panel);
+  const ops = MONITOR_OPS.filter((o) => !PREVIEW_FEATURES[o.feature] || previewShown());
+  const op = ops.find((o) => o.panel === monitorPage.panel);
+  if (op) monitorPage.opsView = op.panel;
+  const segment = (on, label, onclick) => h("button", { class: on ? "on" : null, onclick }, label);
+  const show = (panel) => () => { monitorPage.panel = panel; render(); };
+  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
+  const wide = monitorPage.panel !== "runs";
   const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "From Fabric Desktop by KratosBI"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
-          h("button", { class: monitorPage.panel === "runs" ? "on" : null, onclick: () => { monitorPage.panel = "runs"; render(); } }, "Runs"),
-          preview("workloads", h("button", { class: monitorPage.panel === "workloads" ? "on" : null, onclick: () => { monitorPage.panel = "workloads"; render(); } }, "Workloads")),
-          preview("incidents", h("button", { class: monitorPage.panel === "incidents" ? "on" : null, onclick: () => { monitorPage.panel = "incidents"; render(); } }, "Incidents")),
-          preview("agents", h("button", { class: monitorPage.panel === "agents" ? "on" : null, onclick: () => { monitorPage.panel = "agents"; render(); } }, "Agents")),
-          preview("schedules", h("button", { class: monitorPage.panel === "schedules" ? "on" : null, onclick: () => { monitorPage.panel = "schedules"; render(); } }, "Schedules")),
-          preview("cost", h("button", { class: monitorPage.panel === "cost" ? "on" : null, onclick: () => { monitorPage.panel = "cost"; render(); } }, "Cost"))),
-        h("span", { class: "muted-text" }, monitorPage.panel === "workloads" ? "Everything you build and run: on this PC, on agents and in Fabric, with its health and owner"
-          : monitorPage.panel === "incidents" ? "One record per problem, shared by everyone who can read the environment"
-          : monitorPage.panel === "agents" ? "Fabric Desktop by KratosBI on your own servers, from the status they report"
-          : monitorPage.panel === "cost" ? "Capacity each run used in Fabric, and what running on this PC saved"
+          segment(monitorPage.panel === "runs", "Runs", show("runs")),
+          preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
+          ops.length ? segment(!!op, ["Operations", ops.every((o) => PREVIEW_FEATURES[o.feature]) ? previewTag() : null],
+            show(ops.some((o) => o.panel === monitorPage.opsView) ? monitorPage.opsView : ops[0].panel)) : null),
+        h("span", { class: "muted-text" }, op ? op.text
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
-          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : "monitor")),
+          : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(op ? op.anchor : "monitor")),
         h("span", { class: "spacer" }),
-        wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        op ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+      op ? h("div", { class: "monitor-filters", role: "group", "aria-label": "Operations" },
+        h("span", { class: "muted-text small" }, "Show"),
+        ops.map((o) => h("button", { class: `chip${o === op ? " on" : ""}`, "aria-pressed": String(o === op), onclick: show(o.panel) }, o.label))) : null,
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -625,11 +674,12 @@ async function renderMonitor() {
       monitorPage.showFabric ? slot : null)));
   if (fabricShown) dockFabricView(slot, "monitor", "monitor");
   else invoke("fabric_view_hide").catch(() => {});
-  if (monitorPage.panel === "cost") { local.replaceWith(costPanel()); return; }
   if (monitorPage.panel === "schedules") { local.replaceWith(schedulesPanel()); return; }
   if (monitorPage.panel === "workloads") { local.replaceWith(workloadsPanel()); return; }
   if (monitorPage.panel === "incidents") { local.replaceWith(incidentsPanel()); return; }
   if (monitorPage.panel === "agents") { local.replaceWith(agentsPanel()); return; }
+  if (monitorPage.panel === "queue") { local.replaceWith(queuePanel()); return; }
+  if (monitorPage.panel === "runas") { local.replaceWith(runAsPanel()); return; }
 
   const [writes, meta, cloud, scheduled] = await Promise.all([
     attempt(() => rpc("history")),
@@ -670,16 +720,25 @@ async function renderMonitor() {
   const bad = (r) => (r.status === "failed" || r.status === "needs_decision" ? 0 : r.status === "running" ? 1 : 2);
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
   local.replaceWith(rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
+    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
     h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
+      h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
       ? "Nothing matches these filters." : "Nothing has run yet. Run a metadata entity or write a table from a notebook."));
+}
+
+// Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
+function runEnvCell(r) {
+  if (r.env) return ENV_LABEL[r.env] || r.env;
+  const why = r.where === "fabric"
+    ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
+    : "Notebook writes and this PC's schedules aren't tied to an environment";
+  return h("span", { class: "muted-text", title: why }, "None");
 }
 
 // Fabric job states, shown with the same pills as local runs.
@@ -736,10 +795,15 @@ async function renderWorkspaces() {
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
-  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"),
+  setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
-    signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
+    signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
+      reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook, in an item's preview, makes a new notebook on this PC that reads the table. Stars and pins are kept on this PC, not in Fabric.",
+      results: "Only you see your stars, pins and new notebooks. Clicking a workspace opens its own page, where New lakehouse creates a lakehouse in Fabric after you name it.",
+      anchor: "workspaces",
+    }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
     wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
@@ -845,11 +909,19 @@ function openInFabric(page) {
   }
 }
 
+// Workspaces has two tabs: your workspaces in the app, and Fabric's own portal.
+function workspacesTabs(active) {
+  return h("div", { class: "subtabs", role: "tablist", "aria-label": "Workspaces views" },
+    [["workspaces", "Your workspaces"], ["fabric", "Fabric portal"]].map(([view, label]) =>
+      h("button", { class: `tab${active === view ? " active" : ""}`, role: "tab", "aria-selected": active === view ? "true" : "false",
+        onclick: () => go(view) }, label)));
+}
+
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
-  setView(h("div", { class: "page monitor fabric-page" },
+  setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
       h("div", { class: "monitor-band" },
         h("h2", {}, "Fabric"),
@@ -860,7 +932,16 @@ function renderFabric() {
         btn("Monitoring hub", "monitor", () => openInFabric("monitor"), "tool outline"),
         btn("Reload", "restart", () => action("reload"), "tool outline"),
         btn("Open in browser", "publish", () => action("browser"), "tool outline")),
-      slot)));
+      slot),
+    howItWorks("workspaces.fabric", {
+      reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
+        + "Fabric Desktop doesn't read anything from it.",
+      changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
+        + "with Fabric's own prompts; this app adds no confirmation of its own there.",
+      results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
+        + "account; delete fabric-view-signin.bin to make it forget.",
+      anchor: "fabric",
+    }))));
   dockFabricView(slot, "fabric", fabricPage.page);
   placeFabricView();
 }
@@ -1012,7 +1093,14 @@ async function renderOneLake() {
         h("span", { class: "muted-text" }, "Every item in every workspace you can open"), h("span", { class: "spacer" }), note, search,
         btn("Refresh", "sync", () => { cp.data = null; render(); }, "tool outline"),
         btn("Open Fabric's catalog", "open", () => openInFabric("catalog"), "tool outline")),
-      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list)))));
+      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list))),
+    // Under the catalog, not beside it: the table needs the page's full width for its row actions.
+    howItWorks("onelake.catalog", {
+      reads: "Every item in every workspace you can open, and each lakehouse's table names, from Fabric with your sign-in. It reads when the page opens and when you press Refresh.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook makes a new notebook on this PC that reads the table; SQL query reads it without changing it. Stars are kept on this PC.",
+      results: "Only you see your stars. The list shows only what your own Fabric permissions let you open.",
+      anchor: "catalog",
+    })));
   if (!state.user) return;
 
   const here = () => state.view === "onelake" && list.isConnected;
@@ -1525,7 +1613,7 @@ function renderQuery() {
     let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
     if (out?.exists) {
       const replace = await confirmDialog("Replace the table?",
-        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace");
+        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
       out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
         "Could not save the table");
     }
@@ -1937,7 +2025,7 @@ function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
   state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null };
+    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
   if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
   state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
   state.selected = state.notebook.cells[0].id;
@@ -2156,6 +2244,10 @@ async function runInFabric() {
     return;
   }
   if (!(await ensureSignedIn())) return;
+  // The risk check (FINOPS-004) asks only when something should stop or slow the run. A notebook
+  // not yet linked to its Fabric item can't be checked and runs as before.
+  if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
+    runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
   const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
   if (!run) return;
@@ -2223,7 +2315,7 @@ function scheduleForm() {
 async function scheduleNotebook() {
   const nb = state.notebook;
   // Where it runs by default: the notebook's own choice, else the environment's compute.
-  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.env]?.compute === "fabric");
+  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
     title: `Schedule ${nb.name}`,
     mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",
@@ -2441,7 +2533,7 @@ registerFeature({
   ],
 });
 registerFeature({
-  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query"] },
+  id: "workspaces", rail: { label: "Workspaces", icon: "workspaces", order: 30, also: ["workspace", "lakehouse", "query", "fabric"] },
   views: { workspaces: renderWorkspaces, workspace: renderWorkspace, lakehouse: renderLakehouse, query: renderQuery },
 });
 registerFeature({
@@ -2455,13 +2547,17 @@ registerFeature({
     { label: "OneLake access", icon: "shield", keywords: "permissions roles security", preview: true, run: () => { catalogPage.tab = "access"; go("onelake"); } },
   ],
 });
-registerFeature({ id: "fabric", rail: { label: "Fabric", icon: "cloud", order: 60 }, views: { fabric: renderFabric } });
+// Fabric's own portal is a tab of Workspaces; its rail slot went to Optimize (optimize.js).
+registerFeature({
+  id: "fabric", views: { fabric: renderFabric },
+  commands: [{ label: "Fabric portal", icon: "cloud", keywords: "fabric web browser app.fabric.microsoft.com", run: () => go("fabric") }],
+});
 registerFeature({
   id: "monitor", rail: { label: "Monitor", icon: "monitor", order: 70, also: ["workload"] }, views: { monitor: renderMonitor },
   commands: [
     { label: "Runs", icon: "monitor", keywords: "monitor history failed", run: () => { monitorPage.panel = "runs"; go("monitor"); } },
     { label: "Schedules", icon: "history", keywords: "monitor scheduled", preview: true, run: () => { monitorPage.panel = "schedules"; go("monitor"); } },
-    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { monitorPage.panel = "cost"; go("monitor"); } },
+    { label: "Cost", icon: "gauge", keywords: "monitor capacity cu spend", preview: true, run: () => { optimizePage.tab = "cost"; go("optimize"); } },
   ],
 });
 

@@ -88,7 +88,8 @@ function drawXray(box, res) {
   if (!result) {
     fill(box, head(h("div", { class: "row" }, scanBtn)), progress,
       res.error ? h("p", { class: "reason" }, `The scan stopped: ${friendlyError(res.error).text}`) : null,
-      !res.running && !res.error ? h("p", { class: "muted-text" }, "No scan yet. It reads table logs and workspace roles only, and changes nothing.") : null);
+      !res.running && !res.error ? h("p", { class: "muted-text" }, "No scan yet. It reads table logs and workspace roles only, and changes nothing.") : null,
+      xrayHow());
     return;
   }
   const open = result.findings.filter((f) => !f.fixed);
@@ -114,6 +115,7 @@ function drawXray(box, res) {
     top,
     progress,
     stats,
+    withHowItWorks([
     result.skipped?.length ? h("p", { class: "muted-text small" }, `Couldn't read: ${result.skipped.join(", ")} (a paused capacity, or no access).`) : null,
     open.length ? h("div", { class: "row wrap xray-chips" }, chip("all", "All", open.length),
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
@@ -127,7 +129,21 @@ function drawXray(box, res) {
         box.scrollIntoView({ block: "start", behavior: "smooth" });
       }, "tool link") : null,
       xrayPage.kind === "vacuum" && shown.length > 1 ? btn(`Vacuum all ${shown.length}`, "delete", () => vacuumAll(shown, box, res), "tool link") : null),
-    xrayLakehouses(result.lakehouse_rows || []));
+    xrayLakehouses(result.lakehouse_rows || [])].filter(Boolean), xrayHow()));
+}
+
+// "How this works" beside the findings: the scan only reads; Optimize, Vacuum and Adopt write.
+function xrayHow() {
+  return howItWorks("home.xray", {
+    reads: "Table logs and workspace roles in every lakehouse you can reach, and the runs this app started in Fabric. "
+      + "The first scan on this PC starts by itself after you sign in; after that it reads only when you press Scan again.",
+    changes: "Scanning changes nothing. Three buttons write. Optimize starts a Fabric table maintenance job that compacts "
+      + "that table as soon as you press it. Vacuum first shows how many old files it would delete, and deletes them in "
+      + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
+      + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
+    results: "Findings are kept on this PC and only you see them. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
+    anchor: "estate-x-ray-preview",
+  });
 }
 
 function stat(value, label, tone = "") {
@@ -155,9 +171,9 @@ function xrayFinding(f, box, res) {
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
     run_local: () => btn("Open notebook", "notebook", () => {
       openNotebook(f.notebook);
-      toast("Set Runs on to This PC in the ribbon, and its runs stop costing capacity.");
+      toast("Set Runs on to This PC in the ribbon, and its runs start no Fabric job (OneLake reads and writes still use capacity).");
     }, "tool primary"),
-    cost: () => btn("See cost", null, () => { monitorPage.panel = "cost"; go("monitor"); }, "tool outline"),
+    cost: () => btn("See cost", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool outline"),
   }[f.action];
   return h("div", { class: "xray-item" },
     h("span", { class: `pill-s ${sev[0]}` }, sev[1]),

@@ -114,7 +114,7 @@ async function governancePolicy(body, id) {
         p.current_version ? `Projects keep v${p.current_version} until it's published.` : "Nobody sees it in force until it's published."),
       btn("Edit draft", null, () => policyDialog(o.options, p, rerender), "tool outline small"),
       btn("Discard", null, async () => {
-        if (!(await confirmDialog(`Discard draft v${p.draft_version}?`, p.current_version ? `v${p.current_version} stays as it is.` : "The policy was never published, so it goes too.", "Discard"))) return;
+        if (!(await confirmDialog(`Discard draft v${p.draft_version}?`, p.current_version ? `v${p.current_version} stays as it is.` : "The policy was never published, so it goes too.", "Discard", { danger: true }))) return;
         const res = await platformCall("governance_discard_draft", { id }, "Not discarded");
         if (res?.deleted) { govPage.open = null; return platformGovernanceTab(body); }
         if (res) rerender();
@@ -275,7 +275,7 @@ async function governanceApplies(sub, p, o, can, rerender) {
     const steps = (got || gone || {}).steps || [];
     explain.replaceChildren(h("div", { class: "card pad gov-why" },
       h("b", {}, `Why ${project} gets ${got ? `${GOV_ENFORCEMENT[got.enforcement][0]}, v${got.version}` : "nothing"}`),
-      h("p", { class: "muted-text small" }, "Read from the top. Worked out on this PC from the platform's copy; no Fabric capacity is used."),
+      h("p", { class: "muted-text small" }, "Read from the top. Worked out on this PC from the platform's copy. With the platform in Fabric, reading that copy is one call to UDF_Platform, which uses a little capacity; no OneLake data is read and no Fabric job runs."),
       h("ol", { class: "gov-steps" }, steps.map((s) => h("li", { class: s.outcome === "ignored" ? "fail-text" : null },
         h("b", {}, `${GOV_SCOPE[s.scope]} ${s.target === "*" ? "" : s.scope === "domain" ? domainName(s.target) : s.target}`),
         s.origin !== "platform" ? h("span", { class: "muted-text" }, ` (${s.origin})`) : null, ": ",

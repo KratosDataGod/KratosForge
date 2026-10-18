@@ -211,7 +211,7 @@ def validate_keys(project: Project, today: dt.date | None = None) -> list[str]:
         seen = set()
         for b in blocks:
             if b["table"] not in project.key_tables:
-                errors.append(f"{e.name}: key table {b['table'] or '?'} is not defined in Metadata > Surrogate keys")
+                errors.append(f"{e.name}: key table {b['table'] or '?'} is not defined in Data mesh > Design > Surrogate keys")
             if b["column"] in seen:
                 errors.append(f"{e.name}: key table {b['table']} is listed twice")
             seen.add(b["column"])

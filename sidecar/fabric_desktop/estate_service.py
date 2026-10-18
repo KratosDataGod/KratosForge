@@ -52,6 +52,15 @@ class EstateMixin:
         """A Fabric client for calls that need a scope beyond the sign-in's (asked for once)."""
         return FabricClient(lambda: self.auth._token(scopes))  # type: ignore[attr-defined]
 
+    def _silent_client(self, scopes: list[str]) -> FabricClient | None:
+        """A Fabric client with an existing sign-in for these scopes, never a prompt; None when
+        signed out or the scope isn't granted yet."""
+        try:
+            token = self.auth.silent_token(scopes)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - no client configured: signed out
+            token = None
+        return FabricClient(lambda: token) if token else None
+
     # ---- restore a table to an earlier version
 
     def _entity_uri(self, project: Any, name: str, env: str) -> tuple[Any, Any, str]:
@@ -137,22 +146,16 @@ class EstateMixin:
             if not any(e["stale"] for e in fresh):
                 return cached | {"environments": fresh}
 
-        def silent(scopes: list[str]) -> str | None:
-            try:
-                return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
-            except Exception:  # noqa: BLE001 - no client configured: signed out
-                return None
-
-        fabric_token = silent(FABRIC_SCOPES)
-        get_workspace = FabricClient(lambda: fabric_token).get_workspace if fabric_token else None
+        fabric = self._silent_client(FABRIC_SCOPES)
+        get_workspace = fabric.get_workspace if fabric else None
         list_caps = None
-        if fabric_token:
-            cap_token = silent(CAPACITY_SCOPES)
+        if fabric:
+            cap_client = self._silent_client(CAPACITY_SCOPES)
 
             def list_caps() -> list[dict[str, Any]]:
-                if not cap_token:
+                if not cap_client:
                     raise PermissionError("Capacity.Read.All not granted")
-                return FabricClient(lambda: cap_token).list_capacities()
+                return cap_client.list_capacities()
         doc = capacity_mod.merge_cached(capacity_mod.observe(envs, get_workspace, list_caps, now), cached, now)
         try:
             capacity_mod.save(path, doc)
@@ -179,8 +182,12 @@ class EstateMixin:
             caps = self.capacity_health()
         except Exception:  # noqa: BLE001 - cost works without it
             caps = {"observed_at": None, "environments": [], "partial": True}
+        try:
+            usage = self._usage_reconcile(int(days), fabric, rows, caps)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - cost works without imported usage
+            usage = {"error": str(exc)[:300]}
         return costs_mod.report(rows, cfg, int(days), capacities=self._env_capacities(caps)) | {
-            "unavailable": meta.get("unavailable", {}), "capacities": caps}
+            "unavailable": meta.get("unavailable", {}), "capacities": caps, "usage": usage}
 
     # ---- OneLake shortcuts
 
@@ -503,7 +510,7 @@ class EstateMixin:
         cfg = project.environments.get(env, {})
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
+            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
                                             "Source system connections, managed by Fabric Desktop by KratosBI")

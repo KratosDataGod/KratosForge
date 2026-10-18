@@ -60,7 +60,7 @@ With your own app, Fabric Desktop by KratosBI signs in with the browser (not Win
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
-| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and the size and status of each environment's capacity (Monitor > Cost, Data mesh > Environments) | On first use |
+| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments) | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
 | Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
@@ -122,7 +122,7 @@ Four more keys are for control rather than convenience:
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 
-An invalid file or key fails closed: a file that can't be read leaves each PC on the last copy it could read, or, on a PC that never read a valid one, turns off runs in Fabric and stops every sign-in until it's fixed. A wrongly typed restriction takes its most restrictive value. The full table, what fails closed, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
+An invalid file or key fails closed: a file that can't be read leaves each PC on the last copy it could read, or, on a PC that never read a valid one, turns off runs in Fabric, Preview features, telemetry and AI tools until it's fixed. Sign-in still works there, and `allowed_tenants` isn't enforced until the file is fixed, so check the file on a pilot PC first. A wrongly typed restriction takes its most restrictive value. The full table, what fails closed, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
 
 **People from more than one organization, with your own app.** Make the registration multitenant. If an organization doesn't let users consent, its Microsoft Entra admin approves the app once with the link in **Settings > Account > Admin approval** (`https://login.microsoftonline.com/organizations/adminconsent?client_id=<application-client-id>`).
 

@@ -19,14 +19,24 @@ Document, contract 1::
         "owner", "acknowledged_by", "acknowledged_at",
         "resolved_at", "resolved_by", "resolution": "recovered" | "resolved" | "cleared",
         "team", "criticality", "classification": {"category", "label", "hint", "retry_helps"},
-        "escalated_at", "escalated_to", "notes": [{"at", "by", "text"}]}]}
+        "escalated_at", "escalated_to", "notes": [{"at", "by", "text"}],
+        "number": "INC-PROD-0042", "source": "detected" | "reported",
+        "priority": "P1".."P4", "priority_source": "policy" | "person",
+        "events": [{"at", "by", "what", "text"}]}],
+     "next_number": 43}
 
 Kinds: ``run_failed``, ``needs_decision``, ``late``, ``objective`` (a workload problem),
-``agent_offline`` (an agent that serves the environment stopped reporting), and ``cant_evaluate`` (the evaluator couldn't read the environment: a telemetry problem, never a
-workload one). An open incident whose signal is gone is resolved as ``recovered``, but only
+``agent_offline`` (an agent that serves the environment stopped reporting), ``cant_evaluate`` (the evaluator couldn't read the environment: a telemetry problem, never a
+workload one), and ``reported`` (a person reported it; only a person resolves it). An open incident whose signal is gone is resolved as ``recovered``, but only
 after an evaluation that could read the environment. A person can resolve an incident by hand;
 it opens again only on new evidence (a different failed run), never on the same one.
 Fields may be added within contract 1; readers ignore fields they don't know.
+
+Every incident has a number that stays the same for good (``INC-<ENV>-0001``, counted per
+environment; records written before numbers existed get one on the next write, oldest first), a
+priority P1 (many people blocked) to P4 (minor), and a timeline of ``events``. A detected
+incident's priority follows the workload's criticality (``default_priority``) until a person sets
+it; SLA targets per priority are applied when the incidents are read (``sla.py``), not stored.
 """
 
 from __future__ import annotations
@@ -39,9 +49,14 @@ from typing import Any, Callable
 
 KEY = "incidents/incidents.json"
 CONTRACT = 1
-KINDS = ("run_failed", "needs_decision", "late", "objective", "agent_offline", "cant_evaluate")
+KINDS = ("run_failed", "needs_decision", "late", "objective", "agent_offline", "cant_evaluate", "reported")
 KIND_LABELS = {"run_failed": "Run failed", "needs_decision": "Needs a decision", "late": "Late",
-               "objective": "Objective missed", "agent_offline": "Agent offline", "cant_evaluate": "Can't evaluate"}
+               "objective": "Objective missed", "agent_offline": "Agent offline", "cant_evaluate": "Can't evaluate",
+               "reported": "Reported"}
+PRIORITIES = ("P1", "P2", "P3", "P4")
+PRIORITY_LABELS = {"P1": "Many people blocked, no workaround", "P2": "A team blocked, or due soon",
+                   "P3": "Wrong or slow, has a workaround", "P4": "Minor, or a question"}
+KEEP_EVENTS = 100  # per incident: the first is always kept, then the newest
 ACTIVE = ("open", "acknowledged")
 KEEP_RESOLVED = 200
 ATTEMPTS = 8
@@ -69,6 +84,51 @@ def signal_key(kind: str, workload: str | None, env: str) -> str:
 
 def _id() -> str:
     return "inc-" + uuid.uuid4().hex[:12]
+
+
+def default_priority(inc: dict[str, Any]) -> str:
+    """The priority a detected incident gets from what it is about, until a person sets one."""
+    if inc.get("kind") == "cant_evaluate" or inc.get("env") == "dev":
+        return "P4"
+    crit = inc.get("criticality") or ""
+    if crit == "critical":
+        return "P1" if inc.get("kind") == "run_failed" and int(inc.get("occurrences") or 1) >= 3 else "P2"
+    return {"high": "P2", "low": "P4"}.get(crit, "P3")
+
+
+def number_of(env: str, n: int) -> str:
+    return f"INC-{env.upper()}-{n:04d}"
+
+
+def _event(inc: dict[str, Any], at: str, by: str, what: str, text: str = "") -> None:
+    events = inc.setdefault("events", [])
+    events.append({"at": at, "by": by, "what": what, "text": text[:2000]})
+    if len(events) > KEEP_EVENTS:
+        del events[1:len(events) - KEEP_EVENTS + 1]
+
+
+def _follow_policy(inc: dict[str, Any], at: str, by: str) -> None:
+    """Move a detected incident to its policy priority, unless a person set one."""
+    if inc.get("priority_source") == "person" or inc.get("source") == "reported":
+        return
+    want = default_priority(inc)
+    if inc.get("priority") != want:
+        before = inc.get("priority")
+        inc.update(priority=want, priority_source="policy")
+        if before:
+            _event(inc, at, by, "priority", f"{before} → {want} by policy")
+
+
+def _numbered(doc: dict[str, Any]) -> None:
+    """Give every incident without a number one, oldest first, from the document's counter."""
+    missing = sorted((i for i in doc["incidents"] if not i.get("number")), key=lambda i: i.get("opened_at") or "")
+    if not missing:
+        return
+    n = int(doc.get("next_number") or 1)
+    for inc in missing:
+        inc["number"] = number_of(inc.get("env") or doc.get("env") or "", n)
+        n += 1
+    doc["next_number"] = n
 
 
 class IncidentLog:
@@ -107,6 +167,7 @@ class IncidentLog:
             if result is None:
                 return None  # nothing to write
             doc["updated_at"] = _iso(self.clock())
+            _numbered(doc)
             resolved = [i for i in doc["incidents"] if i["state"] == "resolved"]
             if len(resolved) > KEEP_RESOLVED:
                 resolved.sort(key=lambda i: i.get("resolved_at") or "")
@@ -149,6 +210,8 @@ class IncidentLog:
                         cur["occurrences"] = int(cur.get("occurrences") or 1) + 1
                         cur.update(evidence_id=evidence_id, evidence=s.get("evidence") or {}, text=s.get("text", ""),
                                    title=s.get("title", cur["title"]), classification=s.get("classification"))
+                        _event(cur, now, by, "seen", f"Seen again ({cur['occurrences']} times)")
+                        _follow_policy(cur, now, by)
                         touched = True
                     # Seen again: noted at most every few minutes, so a quiet evaluation writes nothing.
                     if self.clock() - _epoch(cur.get("last_seen_at")) >= SEEN_EVERY:
@@ -165,18 +228,21 @@ class IncidentLog:
                        "resolved_at": None, "resolved_by": None, "resolution": None,
                        "team": s.get("team") or "", "criticality": s.get("criticality") or "",
                        "classification": s.get("classification"), "escalated_at": None, "escalated_to": None,
-                       "notes": []}
+                       "notes": [], "source": "detected"}
+                _follow_policy(inc, now, by)
+                _event(inc, now, by, "reopened" if cur else "opened", s.get("title", ""))
                 doc["incidents"].append(inc)
                 by_key[key] = inc
                 changes.append({"change": "reopened" if cur else "opened", "incident": inc})
             for key, inc in by_key.items():
-                if key in seen or inc["state"] not in ACTIVE:
+                if key in seen or inc["state"] not in ACTIVE or inc["kind"] == "reported":
                     continue
                 # A telemetry incident clears once the environment reads again; a workload one
                 # recovers only after an evaluation that could read the environment.
                 if inc["kind"] == "cant_evaluate" or checked(inc["kind"]):
                     inc.update(state="resolved", resolved_at=now, resolved_by=by,
                                resolution="cleared" if inc["kind"] == "cant_evaluate" else "recovered")
+                    _event(inc, now, by, inc["resolution"])
                     changes.append({"change": "recovered", "incident": inc})
             if not changes and not touched:
                 return None
@@ -201,6 +267,7 @@ class IncidentLog:
                 inc.update(escalated_at=now, escalated_to=to)
                 inc.setdefault("notes", []).append(
                     {"at": now, "by": by, "text": f"Escalated to {to}: not acknowledged in {after_seconds / 60:g} min"})
+                _event(inc, now, by, "escalated", f"To {to}: not acknowledged in {after_seconds / 60:g} min")
                 changes.append({"change": "escalated", "incident": inc})
             return changes or None
 
@@ -222,6 +289,7 @@ class IncidentLog:
             if inc["state"] == "resolved":
                 raise ValueError("It's resolved already.")
             inc.update(state="acknowledged", acknowledged_by=by, acknowledged_at=now)
+            _event(inc, now, by, "acknowledged", note)
             if note:
                 inc.setdefault("notes", []).append({"at": now, "by": by, "text": note[:2000]})
         return self._manual(incident_id, fn)
@@ -233,12 +301,16 @@ class IncidentLog:
             before = inc.get("owner") or "nobody"
             inc["owner"] = owner.strip()
             inc.setdefault("notes", []).append({"at": now, "by": by, "text": f"Assigned: {before} → {owner.strip() or 'nobody'}"})
+            _event(inc, now, by, "assigned", f"{before} → {owner.strip() or 'nobody'}")
         return self._manual(incident_id, fn)
 
     def note(self, incident_id: str, text: str, by: str) -> dict[str, Any]:
         now = _iso(self.clock())
-        return self._manual(incident_id, lambda inc: inc.setdefault("notes", []).append(
-            {"at": now, "by": by, "text": text[:2000]}))
+
+        def fn(inc: dict[str, Any]) -> None:
+            inc.setdefault("notes", []).append({"at": now, "by": by, "text": text[:2000]})
+            _event(inc, now, by, "note", text)
+        return self._manual(incident_id, fn)
 
     def resolve(self, incident_id: str, by: str, note: str = "") -> dict[str, Any]:
         now = _iso(self.clock())
@@ -247,6 +319,50 @@ class IncidentLog:
             if inc["state"] == "resolved":
                 raise ValueError("It's resolved already.")
             inc.update(state="resolved", resolved_at=now, resolved_by=by, resolution="resolved")
+            _event(inc, now, by, "resolved", note)
             if note:
                 inc.setdefault("notes", []).append({"at": now, "by": by, "text": note[:2000]})
         return self._manual(incident_id, fn)
+
+    def set_priority(self, incident_id: str, priority: str, by: str, note: str) -> dict[str, Any]:
+        """A person sets the priority, with a reason; policy no longer moves it."""
+        if priority not in PRIORITIES:
+            raise ValueError(f"Priority is one of {', '.join(PRIORITIES)}.")
+        if not note.strip():
+            raise ValueError("Say why the priority changes.")
+        now = _iso(self.clock())
+
+        def fn(inc: dict[str, Any]) -> None:
+            if inc["state"] == "resolved":
+                raise ValueError("It's resolved already.")
+            before = inc.get("priority") or default_priority(inc)
+            inc.update(priority=priority, priority_source="person")
+            _event(inc, now, by, "priority", f"{before} → {priority}: {note.strip()}")
+        return self._manual(incident_id, fn)
+
+    def report(self, title: str, by: str, *, text: str = "", priority: str = "P3", workload: str | None = None,
+               name: str = "", owner: str = "", team: str = "", criticality: str = "") -> dict[str, Any]:
+        """A person reports a problem Fabric Desktop can't see (wrong numbers in a report, say).
+        It opens like any incident but never recovers by itself: only a person resolves it."""
+        title = " ".join(title.split())
+        if not title:
+            raise ValueError("Say what's wrong.")
+        if priority not in PRIORITIES:
+            raise ValueError(f"Priority is one of {', '.join(PRIORITIES)}.")
+        now = _iso(self.clock())
+        inc_id = _id()
+        inc = {"id": inc_id, "key": signal_key("reported", inc_id, self.env), "kind": "reported",
+               "workload": workload or None, "name": name, "env": self.env, "title": title[:200], "text": text[:4000],
+               "evidence": {}, "evidence_id": "", "state": "open", "opened_at": now, "last_seen_at": now,
+               "occurrences": 1, "opened_by": by, "owner": owner.strip(), "acknowledged_by": None,
+               "acknowledged_at": None, "resolved_at": None, "resolved_by": None, "resolution": None,
+               "team": team, "criticality": criticality, "classification": None, "escalated_at": None,
+               "escalated_to": None, "notes": [], "source": "reported", "priority": priority,
+               "priority_source": "person"}
+        _event(inc, now, by, "reported", title[:200])
+
+        def apply(doc: dict[str, Any]) -> dict[str, Any]:
+            doc["incidents"].append(dict(inc, events=list(inc["events"])))
+            _numbered(doc)
+            return doc["incidents"][-1]
+        return self._change(apply)

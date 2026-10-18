@@ -1,6 +1,6 @@
 # Capacity of each environment
 
-**Monitor > Cost** (Preview) lists the Fabric capacity each environment's workspace is on, and each environment card in **Data mesh > Environments** shows the same line. It answers one question before you run something in Fabric: is the capacity there and running?
+**Optimize > Cost and savings** (Preview) lists the Fabric capacity each environment's workspace is on, and each environment card in **Data mesh > Environments** shows the same line. It answers one question before you run something in Fabric: is the capacity there and running?
 
 Everything is read only, with your own sign-in. Nothing changes a capacity, and nothing asks you to sign in or grant access. Work on this PC never needs any of it.
 

@@ -10,7 +10,7 @@ from .localdata import LocalData
 METHODS = {"list_local_projects", "local_create_project", "local_forget_project", "local_close_project",
            "local_project_settings", "local_add_source", "local_remove_source", "local_refresh",
            "list_local_tables", "local_set_types", "local_query", "local_query_start", "local_query_status",
-           "local_query_cancel"}
+           "local_query_cancel", "local_write_delta", "local_delta_history", "local_drop_delta"}
 
 
 class LocalDataMixin:
@@ -78,3 +78,24 @@ class LocalDataMixin:
 
     def local_query_cancel(self, query_id: str) -> dict[str, Any]:
         return self.local_data.cancel(query_id)
+
+    # The project's own Delta tables (<project>/Tables/<schema>/<table>), also written by SQL:
+    # CREATE TABLE t USING DELTA AS SELECT ..., INSERT INTO t SELECT ..., INSERT OVERWRITE t SELECT ...
+
+    def local_write_delta(self, project: str, table: str, query: str, mode: str = "create",
+                          dialect: str = "duckdb", partition_by: list[str] | None = None,
+                          schema_mode: str | None = None, dry_run: bool = False,
+                          timeout: float | None = None) -> dict[str, Any]:
+        """Write a query's rows to a Delta table in the project, in one commit. ``dry_run`` runs the
+        query and says what would be written, writing nothing."""
+        return self.local_data.engine(project).write_delta(table, query, mode=mode, dialect=dialect,
+                                                           partition_by=partition_by, schema_mode=schema_mode,
+                                                           dry_run=dry_run, timeout=timeout)
+
+    def local_delta_history(self, project: str, table: str, limit: int = 50) -> dict[str, Any]:
+        return self.local_data.engine(project).delta_history(table, limit)
+
+    def local_drop_delta(self, project: str, table: str, confirm: bool = False) -> dict[str, Any]:
+        """Delete one of the project's Delta tables with every version. Without ``confirm``, only
+        says what would be deleted."""
+        return self.local_data.engine(project).drop_delta(table, confirm)

@@ -132,7 +132,7 @@ class MetaMixin:
             return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
+            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
         spaces = cfg.get("workspaces") or {}
@@ -172,7 +172,7 @@ class MetaMixin:
             return LocalStore(project.local_data / f"keys-{env}", env)
         ws = cfg.get("keys_workspace_id")
         if not ws:
-            raise LookupError(f"Pick a Keys workspace for {env.title()} first (Metadata > Surrogate keys).")
+            raise LookupError(f"Pick a Keys workspace for {env.title()} first (Data mesh > Design > Surrogate keys).")
         fabric = self.fabric  # type: ignore[attr-defined]
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
@@ -446,7 +446,7 @@ class MetaMixin:
         cfg = project.environments.get(target, {})
         if (project.key_tables or project.source_systems) and cfg.get("target", "onelake") != "local" \
                 and not cfg.get("keys_workspace_id") and not self._keys_in_platform(project, target):
-            errors.append(f"Pick a Keys workspace for {target.title()} first (Metadata > Surrogate keys)")
+            errors.append(f"Pick a Keys workspace for {target.title()} first (Data mesh > Design > Surrogate keys)")
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking
@@ -657,7 +657,9 @@ class MetaMixin:
 
     # ---- surrogate keys and source systems
 
-    def meta_keys(self, env: str = "dev") -> dict[str, Any]:
+    def meta_keys(self, env: str = "dev", platform: bool = False) -> dict[str, Any]:
+        """The project's key tables and source systems. With ``platform``, also the platform's one
+        list of source systems and how the project's own compare with it (Sources this project reads)."""
         project = self._project()
         summary = project.summary()
         cfg = project.environments.get(env, {})
@@ -682,7 +684,61 @@ class MetaMixin:
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
-                "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]}
+                "errors": [x for x in summary["errors"] if x.startswith(("keys/", "source system"))]} \
+            | (self._platform_sources_view(summary["source_systems"]) if platform else {})
+
+    def _read_platform_sources(self) -> list[dict[str, Any]]:
+        try:
+            return self._catalog().call("list_sources")  # type: ignore[attr-defined]
+        except LookupError as exc:
+            raise LookupError(f"{exc} After an update, a platform admin runs Platform > Settings > Finish or repair.") from exc
+
+    def _platform_sources_view(self, systems: list[dict[str, Any]]) -> dict[str, Any]:
+        """Mark each of the project's source systems with the platform source it is (same code),
+        and say where the two disagree on the id, which business keys and loaded rows depend on."""
+        try:
+            listed = self._read_platform_sources()
+        except Exception as exc:  # noqa: BLE001 - the project's own sources still show
+            return {"platform_sources": None, "platform_problem": f"The platform's sources couldn't be read: {exc}",
+                    "source_problems": []}
+        by_name = {p["name"]: p for p in listed}
+        problems = []
+        for s in systems:
+            p = by_name.get(s["code"].lower())
+            s["platform"] = {k: p.get(k) for k in ("name", "source_id", "code", "title", "owner", "system_type",
+                                                    "description")} if p else None
+            if p and p.get("source_id") is not None and p["source_id"] != s["id"]:
+                problems.append(f"{s['code']} is id {p['source_id']} in the platform but {s['id']} in this project. "
+                                "Rows already loaded keep this project's id; ask a platform admin which one stays.")
+        codes = {s["code"].lower() for s in systems}
+        return {"platform_sources": [p | {"read": p["name"] in codes} for p in listed], "platform_problem": None,
+                "source_problems": problems}
+
+    def meta_source_read(self, name: str, env: str = "dev") -> dict[str, Any]:
+        """Start reading one of the platform's source systems: the project gets it with the
+        platform's id, code and name, and its own connection in each environment."""
+        project = self._project()
+        src = next((p for p in self._read_platform_sources() if p["name"] == str(name).strip().lower()), None)
+        if not src:
+            raise ValueError(f"{name} isn't one of the platform's source systems")
+        if any(s.code.lower() == src["name"] for s in project.source_systems):
+            raise ValueError(f"This project already reads {src['code']}")
+        clash = next((s for s in project.source_systems if s.id == src.get("source_id")), None)
+        if clash:
+            raise ValueError(f"id {clash.id} is {clash.code} in this project. Move sources to the platform first, "
+                             "so every project uses the same ids.")
+        system = {"id": src["source_id"], "code": src["code"], "name": src["title"], "system_type": src["system_type"],
+                  "owner": src["owner"], "description": src["description"], "active": src["active"]}
+        return self.meta_save_source_system(system, None, env)
+
+    def meta_sources_move(self, env: str = "dev") -> dict[str, Any]:
+        """Move sources to the platform: copy the project's own source systems into the platform's
+        one list, keeping their ids (like Move keys). Connections stay in the project."""
+        project = self._project()
+        systems = [{k: v for k, v in s.to_dict().items() if k != "connections"} for s in project.source_systems]
+        res = self._catalog().call("adopt_sources", systems=systems, project=project.root.name.lower())  # type: ignore[attr-defined]
+        return {"moved": res["moved"], "already": res["already"], "conflicts": res["conflicts"],
+                "keys": self.meta_keys(env, platform=True)}
 
     def meta_new_key_table(self, name: str, description: str = "", env: str = "dev") -> dict[str, Any]:
         project = self._project()
@@ -719,6 +775,15 @@ class MetaMixin:
                                 env: str = "dev") -> dict[str, Any]:
         project = self._project()
         new = keys_mod.source_system_from_dict(system)
+        # A source the platform lists is described there, once for every project: only its
+        # connections are the project's own.
+        try:
+            p = next((p for p in self._read_platform_sources() if p["name"] == new.code.lower()), None)
+        except Exception:  # noqa: BLE001 - without the platform the project's own fields stand
+            p = None
+        if p:
+            new.code, new.name, new.system_type = p["code"], p["title"], p["system_type"]
+            new.owner, new.description, new.active = p["owner"], p["description"], p["active"]
         # original_id is the id being edited; without it this is a new source system.
         others = [s for s in project.source_systems if original_id is None or s.id != int(original_id)]
         if original_id is not None and new.id != int(original_id):

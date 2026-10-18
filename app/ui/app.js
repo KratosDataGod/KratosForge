@@ -76,7 +76,8 @@ async function attempt(fn, label) {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    toast(label ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    if (!f.text) return undefined;  // nothing to say, for example a cancelled sign-in
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
     return undefined;
   }
 }

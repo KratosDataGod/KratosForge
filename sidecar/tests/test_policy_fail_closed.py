@@ -14,6 +14,7 @@ from fabric_desktop.receipts import REDACTIONS
 
 HOME = "11111111-2222-3333-4444-555555555555"
 AWAY = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+USER_CAN_CHANGE = app_settings.user_can_change  # before conftest replaces it for each test
 
 
 @pytest.fixture
@@ -116,6 +117,25 @@ def test_integration_and_receipt_keys_are_known_settings(files):
     files({"chanel": "stable"})
     assert app_settings.policy_problems()[0].startswith("chanel isn't a setting")
     assert "receipt_redactions" in app_settings.policy_problems()[0]  # the list of settings includes it
+
+
+def test_a_policy_file_people_can_change_is_reported(files, monkeypatch):
+    files({"allow_fabric_runs": False})
+    monkeypatch.setattr(app_settings, "user_can_change", lambda path: path == files.path)
+    [problem] = app_settings.policy_problems()
+    assert "can be changed by your Windows account" in problem and "only administrators" in problem
+    assert app_settings.load()["allow_fabric_runs"] == {"value": False, "source": "policy"}  # still applies
+
+
+def test_user_can_change_checks_write_access(files, monkeypatch, tmp_path):
+    monkeypatch.setattr(app_settings, "user_can_change", USER_CAN_CHANGE)  # the real check, not conftest's
+    monkeypatch.setattr(app_settings.sys, "platform", "linux")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 1000, raising=False)
+    files({})
+    assert USER_CAN_CHANGE(files.path)  # the test account wrote it
+    assert not USER_CAN_CHANGE(tmp_path / "missing.json")
+    monkeypatch.setattr(app_settings.os, "geteuid", lambda: 0, raising=False)
+    assert not USER_CAN_CHANGE(files.path)  # an administrator can change it anyway
 
 
 def test_missing_file_keeps_the_defaults(files):

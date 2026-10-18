@@ -244,6 +244,9 @@ def policy_problems() -> list[str]:
     if reason and not from_copy:
         return [reason]
     problems = [reason] if reason else []
+    if not from_copy and user_can_change(policy_path()):
+        problems.append(f"{policy_path()} can be changed by your Windows account, so anyone using this PC can "
+                        "change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
@@ -278,6 +281,25 @@ def policy_problems() -> list[str]:
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
     return problems
+
+
+def user_can_change(path: Path) -> bool:
+    """Whether the account running the app can write ``path``. An administrator, who can change it
+    anyway, isn't counted. Only a warning: the engine itself is in the person's own profile, so the
+    policy file stops mistakes, not someone set on getting round it (security.md)."""
+    try:
+        if not path.is_file():
+            return False
+        if sys.platform == "win32":
+            import ctypes
+            if ctypes.windll.shell32.IsUserAnAdmin():
+                return False
+        elif os.geteuid() == 0:
+            return False
+        os.close(os.open(path, os.O_WRONLY))  # no O_TRUNC: opening changes nothing
+        return True
+    except (OSError, AttributeError):
+        return False
 
 
 def _typed(key: str, value: Any) -> bool:

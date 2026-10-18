@@ -100,7 +100,7 @@ Each PR is independent, tested without Fabric, and reported before the next star
 1. and 2. **This plan, with local projects, engine and file discovery** (LDE-001, LDE-002), in one pull request. Engine calls only; no UI. *Built.*
 3. **Excel workbooks** (LDE-002 remainder): add a pinned Excel reader in its own PR (candidates: `openpyxl`, MIT; or `fastexcel`, MIT, via Polars), sheets imported into the project database and re-imported when the file changes.
 4. **T-SQL compatibility** (LDE-004) on SQL-002's profiles, once #120 merges.
-5. **Local Delta** (LDE-005): `CREATE TABLE ... AS` to a local Delta folder through delta-rs, append and overwrite, time travel, protocol checks before every write.
+5. **Local Delta** (LDE-005): `CREATE TABLE ... AS` to a local Delta folder through delta-rs, append and overwrite, time travel, protocol checks before every write. *Built:* `CREATE TABLE ... USING DELTA AS`, `INSERT INTO`, `INSERT OVERWRITE`, `VERSION AS OF` / `AT (VERSION => n)`, history, dry run and confirmed drop, in the Fabric-safe profile. `MERGE`, `UPDATE` and `DELETE` come with LDE-011.
 6. **Transformations** (LDE-006): SQL scripts with parameters and dependency order, each step's output kept as a table for inspection.
 7. **OneLake destinations and Files transfer** (LDE-007, LDE-008).
 8. **Delta publish with validation** (LDE-009, LDE-010): dry run, preview, confirm, commit, check the committed snapshot.

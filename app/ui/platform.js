@@ -40,7 +40,9 @@ async function renderPlatform() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
-      h("div", { class: "head-actions" }, ["landing", "keys", "overview"].includes(p.tab) ? envSeg : null,
+      // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
+      // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
       h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
@@ -84,13 +86,14 @@ async function platformOverviewTab(body) {
     h("thead", {}, h("tr", {}, ["", ...MESH_ENVS.map((e) => ENV_LABEL[e])].map((x) => h("th", {}, x)))),
     h("tbody", {}, h("tr", {}, h("td", {}, h("b", {}, "Platform")), ...MESH_ENVS.map((env) => {
       const e = o.status.environments[env];
-      return h("td", {}, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC"));
+      return h("td", {}, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC"),
+        e.kind === "fabric" ? null : adminOnly(btn("Set up in Fabric", null, () => goPlatform("settings"), "tool link small")));
     }))));
   body.replaceChildren(...[
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
-      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomains` : "", () => goPlatform("domains")),
-      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : ""),
+      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
+      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : "joined to a domain"),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
       platStat(c.products, "Data products", `${c.published} published`, () => go("onelake")),
       platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
@@ -99,7 +102,10 @@ async function platformOverviewTab(body) {
         requestTable(o.me.admin || o.needs_you.length ? o.needs_you : o.mine, () => render(), true),
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
-        h("div", { class: "row" }, h("b", { class: "grow" }, `Landing zone in ${ENV_LABEL[o.env]}`), btn("Open", null, () => goPlatform("landing"), "tool link small")),
+        h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
+          h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
+            h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },
           h("thead", {}, h("tr", {}, ["Source", "Last file", "Read by"].map((x) => h("th", {}, x)))),
@@ -109,10 +115,17 @@ async function platformOverviewTab(body) {
             h("td", {}, s.readers.length ? `${s.readers.length} project${s.readers.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
           : h("p", { class: "muted-text" }, "No sources in the landing zone yet."),
         h("b", {}, "Recent changes"),
-        auditList(o.recent)))].filter(Boolean));
+        auditList(o.recent, true)))].filter(Boolean));
 }
 
-function auditList(rows) {
+// compact: two lines per change, for a narrow card (Overview); the Audit tab keeps the table.
+function auditList(rows, compact = false) {
+  if (compact) {
+    return rows.length ? h("div", { class: "audit-compact" }, rows.map((a) => h("div", { class: "audit-row" },
+      h("div", { class: "audit-what" }, a.action, " ", h("span", { class: "mono small", title: a.target }, a.target)),
+      h("div", { class: "muted-text small" }, a.by_user || "someone", " · ", when(a.at)))))
+      : h("p", { class: "muted-text" }, "Nothing yet.");
+  }
   return rows.length ? h("table", { class: "list" }, h("tbody", {}, rows.map((a) => h("tr", {},
     h("td", { class: "muted-text small" }, when(a.at)), h("td", {}, a.by_user || h("span", { class: "muted-text" }, "someone")),
     h("td", {}, a.action), h("td", { class: "mono small" }, a.target)))))

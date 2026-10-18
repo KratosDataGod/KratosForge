@@ -509,7 +509,7 @@ function yourWorkloadsCard() {
       unowned ? h("div", { class: "callout" }, icon("person", 20),
         h("span", {}, `${unowned} ${unowned === 1 ? "workload has" : "workloads have"} no owner, so nobody is told when ${unowned === 1 ? "it fails" : "they fail"}.`),
         h("span", { class: "spacer" }), btn("Review", null, () => { wlPage.view = "unowned"; wlPage.offset = 0; backToWorkloads(); }, "tool outline")) : null,
-      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > Workloads to set its owner.") : null);
+      !rows.length && !unowned ? h("p", { class: "muted-text" }, "Nothing is assigned to you yet. Open a workload in Monitor > Operations > Workloads to set its owner.") : null);
     body.replaceWith(next);
   };
   return box;

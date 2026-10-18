@@ -398,6 +398,13 @@ h2.flush { margin: 0; }
 .capacity-strip { margin-bottom: 12px; }
 .capacity-strip .row { gap: 12px; align-items: center; }
 .capacity-strip td { vertical-align: top; }
+.usage-card { margin-bottom: 12px; }
+.usage-card > .row { gap: 8px; align-items: center; }
+.usage-card .cmp-stats { margin: 10px 0; }
+.usage-card td { vertical-align: top; }
+.usage-imports summary { cursor: pointer; margin-top: 8px; }
+.usage-preview { margin-top: 10px; }
+.usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .info p { margin: 0; }
@@ -1044,6 +1051,9 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .ag-overlap b { color: #6b4100; }
 .ag-overlap ul { margin: 4px 0; padding-left: 18px; }
 .ag-overlap p { margin: 4px 0 0; }
+/* Queue (queue.js) */
+.qu-chips { gap: 6px; margin: 8px 0; }
+.qu-group td { background: var(--surface-2, #fafafa); font-size: 12px; font-weight: 600; color: var(--muted); }
 /* Prove this notebook (prove.js) and the new notebook wizard (wizard.js) */
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }
@@ -1301,3 +1311,8 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .release-row { grid-template-columns: 1fr; gap: 0; }
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* Optimize (optimize.js) */
+.optimize-band { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; font-size: 13px; }
+.card.pad.optimize-setup { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.optimize-body .cmp-stats { margin-bottom: 16px; }

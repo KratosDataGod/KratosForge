@@ -327,6 +327,8 @@ async function renderSettings() {
   // The platform's status comes from the engine; it fills in after the page shows.
   const platform = await platformSection();
   if (state.view === "settings" && previewShown()) notify.before(platform);
+  const optimize = previewShown() ? await optimizeSettingsSection() : null;
+  if (state.view === "settings" && optimize) notify.before(optimize);
 }
 
 // The SQL page's limits. Each is checked by the engine (app_settings.SQL_RANGES); a value set by the

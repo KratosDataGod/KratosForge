@@ -1,0 +1,111 @@
+{
+  "name": "pl_reference_local",
+  "properties": {
+    "description": "ORCH-003 reference pipeline: checkpoint, ingest, transform, validate, record. Ingest and transform are mocked in tests; everything else runs on this PC.",
+    "parameters": {
+      "regions": {"type": "array", "defaultValue": ["emea", "amer", "apac"]},
+      "min_rows": {"type": "int", "defaultValue": 1}
+    },
+    "variables": {
+      "started_at": {"type": "String"},
+      "loaded": {"type": "Array", "defaultValue": []},
+      "status": {"type": "String", "defaultValue": "pending"}
+    },
+    "activities": [
+      {
+        "name": "Checkpoint",
+        "type": "SetVariable",
+        "dependsOn": [],
+        "typeProperties": {"variableName": "started_at", "value": {"value": "@utcNow()", "type": "Expression"}}
+      },
+      {
+        "name": "Ingest orders",
+        "type": "Copy",
+        "dependsOn": [{"activity": "Checkpoint", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.00:10:00", "retry": 1, "retryIntervalInSeconds": 30},
+        "typeProperties": {
+          "source": {"type": "BinarySource"},
+          "sink": {"type": "LakehouseTableSink"}
+        }
+      },
+      {
+        "name": "Per region",
+        "type": "ForEach",
+        "dependsOn": [{"activity": "Ingest orders", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "items": {"value": "@pipeline().parameters.regions", "type": "Expression"},
+          "batchCount": 2,
+          "activities": [
+            {
+              "name": "Settle",
+              "type": "Wait",
+              "dependsOn": [],
+              "typeProperties": {"waitTimeInSeconds": 1}
+            },
+            {
+              "name": "Mark region",
+              "type": "AppendVariable",
+              "dependsOn": [{"activity": "Settle", "dependencyConditions": ["Succeeded"]}],
+              "typeProperties": {"variableName": "loaded", "value": {"value": "@toUpper(item())", "type": "Expression"}}
+            }
+          ]
+        }
+      },
+      {
+        "name": "Transform",
+        "type": "TridentNotebook",
+        "dependsOn": [{"activity": "Per region", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"notebookId": "00000000-0000-0000-0000-000000000001"}
+      },
+      {
+        "name": "Validate",
+        "type": "IfCondition",
+        "dependsOn": [{"activity": "Transform", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "expression": {
+            "value": "@greaterOrEquals(activity('Ingest orders').output.rowsCopied, pipeline().parameters.min_rows)",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "Mark valid",
+              "type": "SetVariable",
+              "dependsOn": [],
+              "typeProperties": {"variableName": "status", "value": "valid"}
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "Too few rows",
+              "type": "Fail",
+              "dependsOn": [],
+              "typeProperties": {
+                "message": {"value": "@concat('Only ', string(activity('Ingest orders').output.rowsCopied), ' rows')", "type": "Expression"},
+                "errorCode": "ROWS_LOW"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "Record",
+        "type": "SetVariable",
+        "dependsOn": [{"activity": "Validate", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "variableName": "pipelineReturnValue",
+          "setSystemVariable": true,
+          "value": [
+            {"key": "rows", "value": {"type": "Expression", "content": "@activity('Ingest orders').output.rowsCopied"}},
+            {"key": "regions", "value": {"type": "Expression", "content": "@variables('loaded')"}}
+          ]
+        }
+      },
+      {
+        "name": "On failure",
+        "type": "SetVariable",
+        "dependsOn": [{"activity": "Validate", "dependencyConditions": ["Failed"]}],
+        "typeProperties": {"variableName": "status", "value": "failed"}
+      }
+    ]
+  }
+}

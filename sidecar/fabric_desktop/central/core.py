@@ -24,7 +24,8 @@ Tables (T-SQL schema.table; SQLite schema__table):
     catalog.audit        who changed what in the catalog
     catalog.admin        platform admins: the central team, who create domains, key tables and sources
     catalog.key_table    the platform's key tables: business key, description, who made it
-    catalog.source       source systems landed in LH_Landing: owner, expected arrival, connections per env
+    catalog.source       every source system: the id business keys use, code, owner, type, expected
+                         arrival in LH_Landing, connections per env (one list for every project)
     catalog.reader       which project reads which landing zone source
     catalog.request      requests from domain teams: a key table, a source, or access to a product
     catalog.grant        projects let in to a domain or private product by its owner
@@ -49,7 +50,7 @@ import re
 import uuid
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 UNKNOWN_KEY = -1
 UNKNOWN_BK = "UNKNOWN"
 MAX_BK = 400
@@ -59,6 +60,7 @@ CLASSIFICATIONS = ("public", "internal", "confidential", "restricted")
 REQUEST_KINDS = ("key_table", "source", "access", "shortcut")
 REQUEST_STATUS = ("waiting", "approved", "declined", "withdrawn")
 _NAME = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
+_CODE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
 _ID = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,63}$")
 
 
@@ -151,7 +153,8 @@ _CATALOG: dict[str, list[tuple[str, str]]] = {
     "key_table": [("name", "key"), ("business_key", "text"), ("description", "long"), ("domain_id", "text"),
                   ("created_at", "text"), ("created_by", "text")],
     "source": [("name", "key"), ("title", "text"), ("description", "long"), ("owner", "text"),
-               ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text")],
+               ("expected_hours", "text"), ("connections", "long"), ("updated_at", "text"), ("updated_by", "text"),
+               ("source_id", "text"), ("code", "text"), ("system_type", "text"), ("active", "text")],
     "reader": [("id", "key"), ("project", "text"), ("source", "text"), ("entities", "long"), ("updated_at", "text")],
     "request": [("id", "key"), ("kind", "text"), ("target", "text"), ("detail", "long"), ("project", "text"),
                 ("reason", "long"), ("requested_by", "text"), ("requested_at", "text"), ("status", "text"),
@@ -194,6 +197,7 @@ def ensure_schema(db: Db) -> dict[str, Any]:
         db.run(f"CREATE TABLE {db.t('catalog', 'audit')} (id {ident}, at {_TEXT[db.dialect]}, by_user {_TEXT[db.dialect]}, "
                f"action {_TEXT[db.dialect]}, target {_TEXT[db.dialect]}, detail {_LONG[db.dialect]})")
         created.append("catalog.audit")
+    created += ensure_source_ids(db)
     for hook in SCHEMA_HOOKS:
         created += hook(db)
     _upsert(db, "config", "setting", "name", {"name": "schema_version", "value": str(SCHEMA_VERSION)})
@@ -787,18 +791,73 @@ def list_key_tables(db: Db) -> list[dict[str, Any]]:
     return out
 
 
+# Columns catalog.source gained in schema 5, when it became the one list of source systems.
+_SOURCE_ADDED = ("source_id", "code", "system_type", "active")
+
+
+def _source_columns(db: Db) -> set[str]:
+    if db.tsql:
+        return {r["name"] for r in db.rows("SELECT name FROM sys.columns WHERE object_id = OBJECT_ID('catalog.source')")}
+    return {r["name"] for r in db.rows(f"PRAGMA table_info({db.t('catalog', 'source')})")}
+
+
+def ensure_source_ids(db: Db) -> list[str]:
+    """Give catalog.source the columns of schema 5 and every source an id. A platform made before
+    keeps its sources: each gets the next free id, in name order, and a code from its name."""
+    added = []
+    have = _source_columns(db)
+    for col in _SOURCE_ADDED:
+        if col not in have:
+            db.run(f"ALTER TABLE {db.t('catalog', 'source')} ADD {'' if db.tsql else 'COLUMN '}{_column(db, col, 'text')}")
+            added.append(f"catalog.source.{col}")
+    rows = db.rows(f"SELECT name, source_id, code, active FROM {db.t('catalog', 'source')}")
+    used = [int(r["source_id"]) for r in rows if str(r["source_id"] or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for r in sorted(rows, key=lambda r: r["name"]):
+        if not str(r["source_id"] or "").isdigit():
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET source_id = ? WHERE name = ?", (str(nxt), r["name"]))
+            nxt += 1
+        if not r["code"]:
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET code = ? WHERE name = ?", (r["name"].upper(), r["name"]))
+        if r["active"] in (None, ""):
+            db.run(f"UPDATE {db.t('catalog', 'source')} SET active = '1' WHERE name = ?", (r["name"],))
+    db.commit()
+    return added
+
+
+def _with_source_ids(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The schema 5 fields as ensure_source_ids would set them, worked out without writing: a read
+    never migrates the catalog (that's Finish or repair, or the next change to a source)."""
+    used = [int(s["source_id"]) for s in sources if str(s.get("source_id") or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for s in sorted(sources, key=lambda s: s["name"]):
+        if not str(s.get("source_id") or "").isdigit():
+            s["source_id"], nxt = str(nxt), nxt + 1
+        s["code"] = s.get("code") or s["name"].upper()
+        s["system_type"] = s.get("system_type") or ""
+        if s.get("active") in (None, ""):
+            s["active"] = "1"
+    return sources
+
+
 def list_sources(db: Db) -> list[dict[str, Any]]:
-    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    sources = _with_source_ids(db.rows(f"SELECT * FROM {db.t('catalog', 'source')}"))
     readers = db.rows(f"SELECT * FROM {db.t('catalog', 'reader')}")
     for src in sources:
         src["connections"] = json.loads(src["connections"] or "{}")
+        src["source_id"] = int(src["source_id"])
+        src["active"] = src["active"] != "0"
         src["readers"] = [{"project": r["project"], "entities": json.loads(r["entities"] or "[]")}
                           for r in readers if r["source"] == src["name"]]
     return sorted(sources, key=lambda x: x["name"])
 
 
 def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
-    name = key_name(source.get("name"))
+    code = str(source.get("code") or "").strip()
+    name = key_name(source.get("name") or code)
+    code = code or name.upper()
+    if not _CODE.match(code) or code.lower() != name:
+        raise PlatformError(f"{code!r}: a source's code is its folder name in any case, like {name.upper()}")
     hours = str(source.get("expected_hours") or "").strip()
     if hours and not hours.replace(".", "", 1).isdigit():
         raise PlatformError("Expected every ... hours is a number, like 24")
@@ -811,17 +870,79 @@ def _source_row(source: dict[str, Any], by: str) -> dict[str, Any]:
                 raise PlatformError(f"{env}.{k}: keep secrets in Key Vault and give the secret's name only")
     return {"name": name, "title": str(source.get("title") or name), "description": str(source.get("description") or ""),
             "owner": str(source.get("owner") or ""), "expected_hours": hours, "connections": json.dumps(conns),
-            "updated_at": _now(), "updated_by": by}
+            "updated_at": _now(), "updated_by": by, "code": code, "system_type": str(source.get("system_type") or ""),
+            "active": "0" if source.get("active") is False else "1"}
+
+
+def _put_source(db: Db, row: dict[str, Any], source_id: Any = None) -> None:
+    """Add or change one source. An existing source keeps its id; a new one takes ``source_id``
+    (a project's own id, when sources move to the platform) or the next free one."""
+    ensure_source_ids(db)
+    before = _row(db, "source", "name", row["name"])
+    if before:
+        row = row | {"source_id": before["source_id"]}
+    else:
+        ids = {int(r["source_id"]): r["name"] for r in db.rows(f"SELECT name, source_id FROM {db.t('catalog', 'source')}")}
+        if source_id not in (None, ""):
+            try:
+                sid = int(source_id)
+            except (TypeError, ValueError):
+                raise PlatformError("A source system id is a whole number") from None
+            if sid <= 0:
+                raise PlatformError("A source system id is a whole number above 0")
+            if sid in ids:
+                raise PlatformError(f"id {sid} is already {ids[sid]} in the platform")
+        else:
+            sid = max(ids, default=0) + 1
+        row = row | {"source_id": str(sid)}
+    _upsert(db, "catalog", "source", "name", row)
 
 
 def save_source(db: Db, source: dict[str, Any], by: str = "") -> list[dict[str, Any]]:
-    """Add or change a source system landed in LH_Landing (Files/<name>/<entity>/). Platform admins only."""
+    """Add or change a source system, landed in LH_Landing (Files/<name>/<entity>/) and read by
+    projects with the same id everywhere. Platform admins only."""
     row = _source_row(source, by)
     require_admin(db, by, "add or change source systems")
-    _upsert(db, "catalog", "source", "name", row)
+    _put_source(db, row)
     _audit(db, by, "save source", row["name"])
     db.commit()
     return list_sources(db)
+
+
+def adopt_sources(db: Db, systems: list[dict[str, Any]], project: str = "", by: str = "") -> dict[str, Any]:
+    """Move a project's own source systems into the platform's list, keeping their ids (like Move
+    keys). A source the platform already has with the same id is left as it is; one whose code or
+    id the platform uses for something else is reported, never changed. Platform admins only."""
+    require_admin(db, by, "move source systems to the platform")
+    ensure_source_ids(db)
+    moved, already, conflicts = [], [], []
+    for s in systems or []:
+        code = str(s.get("code") or "").strip()
+        try:
+            row = _source_row({"name": code.lower(), "code": code, "title": s.get("name") or code,
+                               "description": s.get("description"), "owner": s.get("owner"),
+                               "system_type": s.get("system_type"), "active": s.get("active", True)}, by)
+            sid = int(s.get("id") or 0)
+        except (PlatformError, TypeError, ValueError) as exc:
+            conflicts.append(f"{code or '?'}: {exc}")
+            continue
+        have = _row(db, "source", "name", row["name"])
+        if have:
+            if int(have["source_id"]) == sid:
+                already.append(code)
+            else:
+                conflicts.append(f"{code} is id {have['source_id']} in the platform but {sid} in this project")
+            continue
+        try:
+            _put_source(db, row, sid)
+        except PlatformError as exc:
+            conflicts.append(f"{code}: {exc}")
+            continue
+        moved.append(code)
+    if moved:
+        _audit(db, by, "move sources", project or "a project", {"moved": moved})
+    db.commit()
+    return {"moved": moved, "already": already, "conflicts": conflicts, "sources": list_sources(db)}
 
 
 def delete_source(db: Db, name: str, by: str = "") -> list[dict[str, Any]]:
@@ -945,7 +1066,7 @@ def decide_request(db: Db, id: str, approve: bool, note: str = "", by: str = "")
             _register_key_table(db, req["target"], d.get("business_key", ""), d.get("description", "") or req["reason"],
                                 d.get("domain_id", ""), _who(by))
         elif req["kind"] == "source":
-            _upsert(db, "catalog", "source", "name", _source_row({"name": req["target"], **d}, _who(by)))
+            _put_source(db, _source_row({"name": req["target"], **d}, _who(by)))
         elif req["kind"] == "shortcut":
             pass  # the app creates the shortcut in Fabric first, as the person approving, then approves
         else:
@@ -1186,7 +1307,7 @@ OPERATIONS = {
     "save_term": save_term, "audit": audit,
     "whoami": whoami, "list_admins": list_admins, "claim_admin": claim_admin, "add_admin": add_admin,
     "remove_admin": remove_admin, "list_key_tables": list_key_tables, "list_sources": list_sources,
-    "save_source": save_source, "delete_source": delete_source, "request": request, "list_requests": list_requests,
+    "save_source": save_source, "delete_source": delete_source, "adopt_sources": adopt_sources, "request": request, "list_requests": list_requests,
     "decide_request": decide_request, "withdraw_request": withdraw_request, "list_grants": list_grants,
     "revoke_grant": revoke_grant, "record_shortcuts": record_shortcuts, "log_shortcut_change": log_shortcut_change,
     "record_shortcut_health": record_shortcut_health, "list_seen_shortcuts": list_seen_shortcuts,

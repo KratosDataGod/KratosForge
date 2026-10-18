@@ -68,7 +68,7 @@ Restrictions fail closed. A policy file that exists but can't be read is replace
 that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
 last applied settings; with no copy, and for a restriction with the wrong kind of value, that
 restriction takes its most restrictive value (RESTRICTED here, and integrations/policy.py's for its
-keys) rather than the default. A missing file means no policy, and deletes the copy.
+keys) rather than the default, except that an unreadable file with no copy doesn't stop sign-in. A missing file means no policy, and deletes the copy.
 Other keys of the wrong kind are skipped, so the next place (environment, user, default) applies.
 policy_problems() says what in the policy file was ignored or restricted and why, so a typo doesn't
 fail silently.
@@ -178,8 +178,8 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
-                "external AI tools off"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
+                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
@@ -204,7 +204,7 @@ def _saved_at(saved: Path) -> str:
 
 def read_policy() -> tuple[dict[str, Any], str | None]:
     """The policy file's settings, and why nothing can stand in for it when it exists but can't be
-    read (then every restriction takes its most restrictive value). A broken file is replaced by the
+    read (then every restriction but sign-in takes its most restrictive value). A broken file is replaced by the
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
@@ -216,7 +216,7 @@ def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
     if key not in RESTRICTED:
         return False
     if error:
-        return True
+        return key != "allowed_tenants"  # people can still sign in and work on their PC (Chris, 2026-10-18)
     if key not in policy:
         return False
     v = policy[key]

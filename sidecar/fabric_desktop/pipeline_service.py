@@ -1,5 +1,5 @@
-"""Fabric pipeline definitions on this PC only: import, validate, inspect and export (ORCH-001), and
-what this version can do with each activity (ORCH-002).
+"""Fabric pipeline definitions on this PC only: import, validate, inspect and export (ORCH-001),
+what this version can do with each activity (ORCH-002), and local runs (ORCH-003).
 
 Each call takes the definition as ``text`` (pipeline-content.json or an item definition with
 parts) or a ``path`` (one of those files, or a Fabric Git ``<name>.DataPipeline`` folder). Nothing
@@ -8,11 +8,16 @@ is stored, run or sent to Fabric. See docs/orchestration/plan.md.
 
 from __future__ import annotations
 
+import threading
+import time
+from pathlib import Path
 from typing import Any
 
 from .orchestration import definition, expressions
 from .orchestration.activities import default_registry
 from .orchestration.definition import Activity, DefinitionError, ImportedPipeline
+from .orchestration.runner import PipelineRun, RunRefused
+from .orchestration.runs import RunStore
 from .orchestration.validate import own_json, summary, validate
 
 HIDDEN = "(hidden)"
@@ -127,3 +132,139 @@ class PipelineMixin:
             return {"registry_version": reg.version, "known": reg.known(activity_type),
                     "activity": reg.get(activity_type).to_json()}
         return reg.describe()
+
+
+MAX_RUNS = 2          # pipeline runs going at once on this PC
+_SAVE_EVERY = 0.5     # seconds between saves of a running run's record
+
+
+class PipelineRunMixin:
+    """Local pipeline runs (ORCH-003): check, start, follow, cancel and list. Runs happen in this
+    process, on this PC only; records go to ``<data>/pipeline_runs``. See docs/orchestration/local-runs.md."""
+
+    root: Path
+
+    def _runs(self) -> tuple[RunStore, dict[str, PipelineRun]]:
+        if not hasattr(self, "_pipeline_run_store"):
+            self._pipeline_run_store = RunStore(self.root / "pipeline_runs")
+            self._pipeline_live: dict[str, PipelineRun] = {}
+        return self._pipeline_run_store, self._pipeline_live
+
+    @staticmethod
+    def _prepare(text: str | None, path: str | None, parameters: dict[str, Any] | None,
+                 mocks: dict[str, Any] | None, children: dict[str, str] | None, **options: Any) -> PipelineRun:
+        imp = read(text, path)
+        kids = {}
+        for key, definition_text in (children or {}).items():
+            if not isinstance(definition_text, str):
+                raise DefinitionError(f"The child definition for {key!r} must be given as text.", "bad_request")
+            kids[key] = definition.loads(definition_text)
+        return PipelineRun(imp, parameters=parameters, mocks=mocks, children=kids, **options)
+
+    def pipeline_run_check(self, text: str | None = None, path: str | None = None,
+                           parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
+                           children: dict[str, str] | None = None) -> dict[str, Any]:
+        """Whether this pipeline can run on this PC with these parameters and mocks, and if not, why,
+        activity by activity. Runs nothing."""
+        try:
+            run = self._prepare(text, path, parameters, mocks, children)
+        except DefinitionError as exc:
+            return {"ok": False, "problems": [exc.to_json()]}
+        problems = run.check()
+        return {"ok": not problems, "problems": problems, "pipeline": run.pipeline.name,
+                "mocked": sorted(run.mocks), "registry_version": run.registry.version}
+
+    def pipeline_run_start(self, text: str | None = None, path: str | None = None,
+                           parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
+                           children: dict[str, str] | None = None, max_parallel: int = 4, wait_scale: float = 1.0,
+                           timeout_seconds: float | None = None) -> dict[str, Any]:
+        """Start a local run in the background and return its id at once. Refuses (with the
+        problems) when an activity can't run here and has no mock. Nothing is sent to Fabric."""
+        store, live = self._runs()
+        store.recover(set(live))
+        if sum(1 for r in live.values() if r.state in ("pending", "running")) >= MAX_RUNS:
+            return {"ok": False, "problems": [{"code": "busy", "message": f"{MAX_RUNS} pipeline runs are already going "
+                                               "on this PC; wait for one to finish or cancel it.", "activity": None,
+                                               "path": "$"}]}
+        try:
+            run = self._prepare(text, path, parameters, mocks, children, max_parallel=max_parallel,
+                                wait_scale=wait_scale, timeout_seconds=timeout_seconds)
+        except DefinitionError as exc:
+            return {"ok": False, "problems": [exc.to_json()]}
+        problems = run.check()
+        if problems:
+            return {"ok": False, "problems": problems}
+        last = [0.0]
+
+        def save(r: PipelineRun) -> None:
+            now = time.monotonic()
+            if r.state in ("pending", "running") and now - last[0] < _SAVE_EVERY:
+                return
+            last[0] = now
+            store.save(r.to_json())
+
+        run.on_change = save
+        live[run.id] = run
+        store.save(run.to_json())
+
+        def go() -> None:
+            try:
+                run.run()
+            except RunRefused:
+                pass
+            finally:
+                store.save(run.to_json())
+                store.trim()
+                for rid in [k for k, r in live.items() if r.state not in ("pending", "running")][:-MAX_RUNS]:
+                    live.pop(rid, None)
+
+        threading.Thread(target=go, name=f"pipeline-run-{run.id[:8]}", daemon=True).start()
+        return {"ok": True, "run_id": run.id, "state": "running", "pipeline": run.pipeline.name}
+
+    def pipeline_run_status(self, run_id: str, values: bool = True) -> dict[str, Any]:
+        """A run's record: state, every activity run with its state, output and error, variables and
+        return value. ``values=False`` leaves out outputs and variable values."""
+        store, live = self._runs()
+        run = live.get(run_id)
+        if run is not None:
+            return run.to_json(values)
+        try:
+            record = store.get(run_id)
+        except ValueError:
+            record = None
+        if record is None:
+            raise KeyError(f"no pipeline run {run_id}")
+        return record if values else _without_values(record)
+
+    def pipeline_run_cancel(self, run_id: str) -> dict[str, Any]:
+        """Stop a run: nothing new starts, waits end at once, running activities stop where they can."""
+        _, live = self._runs()
+        run = live.get(run_id)
+        if run is None or run.state not in ("pending", "running"):
+            return {"cancelled": False, "state": run.state if run else "unknown"}
+        run.cancel()
+        return {"cancelled": True, "state": "cancelling"}
+
+    def pipeline_runs(self, limit: int = 50) -> dict[str, Any]:
+        """Recent local runs, newest first, without activity details."""
+        store, live = self._runs()
+        rows = {r["run_id"]: r for r in store.list(limit)}
+        for run in live.values():
+            rows[run.id] = run.to_json(values=False)
+        keep = ("run_id", "pipeline", "state", "stop_reason", "started", "ended", "seconds", "counts", "options")
+        ordered = sorted(rows.values(), key=lambda r: r.get("started") or "", reverse=True)[:limit]
+        return {"runs": [{k: r.get(k) for k in keep} for r in ordered]}
+
+
+def _without_values(record: dict[str, Any]) -> dict[str, Any]:
+    out = {k: v for k, v in record.items() if k not in ("variables", "return_value")}
+    params = record.get("parameters")
+    out["parameters"] = sorted(params) if isinstance(params, dict) else params
+    acts = []
+    for a in record.get("activities", []):
+        a = {k: v for k, v in a.items() if k not in ("output", "child_run")}
+        if isinstance(a.get("error"), dict):
+            a["error"] = {"errorCode": a["error"].get("errorCode")}
+        acts.append(a)
+    out["activities"] = acts
+    return out

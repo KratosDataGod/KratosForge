@@ -1014,6 +1014,40 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
+// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
+test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
+  assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
+  for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
+    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+  }
+  assert.match(domainsTab, /goPlatform\("domains"\)/);
+  assert.match(domainsTab, /goPlatform\("glossary"\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /importFabricDomains\(rerender\)/);
+  assert.match(platform, /platformSection\(\)/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
+  assert.match(settings, /goPlatform\("settings"\)/);
+});
+
+// UX-009: a project's source systems come from the platform's one list when Preview is on.
+test("a project reads source systems from the platform's list and can move its own there", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const tab = meta.match(/async function renderSourcesTab\([\s\S]*?\n}\n/)[0];
+  assert.match(tab, /meta_keys", \{ env: m\.env, platform: previewShown\(\) \}/);
+  assert.match(tab, /"Add a source this project reads"/);
+  assert.match(tab, /"Move sources to the platform"/);
+  assert.match(tab, /"New source system"/, "without the platform the project keeps its own list");
+  assert.match(meta, /metaCall\("meta_source_read"/);
+  assert.match(meta, /metaCall\("meta_sources_move"/);
+  const server = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "server.py"), "utf8");
+  for (const m of ["meta_source_read", "meta_sources_move"]) assert.ok(server.includes(`"${m}"`), `${m} isn't allowed by the engine`);
+});
+
 // The template gallery filters by group and search, and the review step names every table's contract.
 test("the template gallery filters templates and the review states each contract", () => {
   const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
@@ -1203,7 +1237,7 @@ test("Monitor > Agents explains agents beside the list, with links to sections o
   const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
   assert.ok(linked.length >= 6);
   for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
-  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
+  assert.match(src, /return h\("div", \{ class: "mon-how" \}, withHowItWorks\(box, agGuide\(\)\)\);/);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
@@ -1286,17 +1320,84 @@ test("confirms that delete or overwrite something pass danger", () => {
   assert.deepStrictEqual(missing, []);
 });
 
+// QA-032: X-ray's Optimize asks first, says it runs in Fabric and uses capacity, and shows the risk check.
+test("Estate X-ray's Optimize confirms with the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function optimizeDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /showDialog\(`Optimize \$\{label\}\?`/);
+  assert.match(dialog, /runs in Fabric[\s\S]*uses capacity/);
+  assert.match(dialog, /rpc\("xray_optimize_check"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /result === "blocked"/);
+  assert.ok(dialog.indexOf('rpc("xray_optimize_check"') > -1 && !/optimize: \(\) => btn\("Optimize", "sync", async/.test(xray),
+    "the line's button opens the dialog instead of starting the job");
+});
+
+test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const seen = {};
+  const ctx = {
+    h: (tag, attrs, ...children) => ({ tag, attrs, children }),
+    howItWorks: (id, parts) => { seen[id] = parts; return { panel: id }; },
+    withHowItWorks: (main, panel) => ({ main, panel }),
+    agDoc: (anchor) => ({ doc: anchor }),
+    loadWorkloads: () => {}, loadAgents: () => {},
+  };
+  const grab = (file, name) => {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    return src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  };
+  vm.runInNewContext(`${grab("workloads.js", "workloadsPanel")}${grab("agents.js", "agentsPanel")}${grab("agents.js", "agGuide")}
+    this.out = [workloadsPanel(), agentsPanel()];`, ctx);
+  for (const [i, id] of [[0, "monitor.workloads"], [1, "monitor.agents"]]) {
+    assert.deepStrictEqual(ctx.out[i].children[0].panel, { panel: id }, `${id} sits beside its list`);
+    const p = seen[id];
+    for (const k of ["reads", "changes", "results"]) assert.ok(String(p[k]).length > 20, `${id} says ${k}`);
+    assert.ok(anchors.has(p.anchor), `user-guide.md has #${p.anchor}`);
+  }
+  assert.match(seen["monitor.agents"].changes, /^Nothing\./);
+  assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
+});
+
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
+  assert.match(how, /each asks first/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
   assert.match(fabric, /withHowItWorks\(/);
   assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
+});
+
+// Testing item 18: Workspaces, the OneLake catalog and Data products each say how they work, naming every write.
+test("Workspaces, the catalog and data products have a How this works panel that names their writes", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
+  const ws = panel(app, "workspaces");
+  assert.match(ws, /changes: "Nothing in Fabric or OneLake. Open in notebook[^"]*makes a new notebook on this PC/);
+  const catalog = panel(app, "onelake.catalog");
+  assert.match(catalog, /changes: "Nothing in Fabric or OneLake/);
+  assert.match(catalog, /Open in notebook makes a new notebook on this PC/);
+  const products = panel(platform, "onelake.products");
+  assert.match(products, /records your project as a reader/);
+  assert.match(products, /adds a request/);
+  for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});
+
+// QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
+test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
+  const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
+  assert.ok(!/shortcut_preflight[\s\S]{0,200}\.catch\(\(\) => \(\{ blocked: \[\]/.test(shortcuts), "a failed preflight reads as no rules");
+  assert.match(shortcuts, /unchecked: true \}\)\)/);
+  assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  assert.match(estate, /res\.partial \?/);
 });
 
 // HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.

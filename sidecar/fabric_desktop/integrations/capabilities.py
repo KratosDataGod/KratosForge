@@ -160,7 +160,7 @@ def register_core(reg: Registry) -> None:
             "READ_METADATA", services.check_run_risk, status="preview", limitations=FABRIC_LIMIT + (
                 "Reads the capacity's state; how busy a capacity is isn't available to developers.",), timeout=60),
     ]
-    caps += _prove() + _pipelines() + _executions() + _prove_actions()
+    caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions()
     for cap in caps:
         reg.register(cap)
 
@@ -233,6 +233,71 @@ def _pipelines() -> list[Capability]:
                    ["registry_version"], extra=True),
             "READ_METADATA", services.get_activity_registry, artifact_types=("DataPipeline",), status="preview",
             limitations=COMPAT_LIMIT, timeout=30),
+    ]
+
+
+RUN_INPUT = {
+    "definition": DEFINITION,
+    "parameters": {"type": "object", "default": {}, "description": "Pipeline parameter values by name."},
+    "mocks": {"type": "object", "default": {}, "description": "Activity name to {status: Succeeded|Failed, output, "
+              "error, seconds}: stands in for activities that can't run on this PC."},
+    "children": {"type": "object", "default": {}, "description": "Child pipeline definitions as text, by "
+                 "referenceName or pipelineId."},
+}
+RUN_LIMIT = ("Runs control flow (variables, conditions, loops, waits, Fail, Filter) and child pipelines on this PC. "
+             "Copy, Notebook and other data or compute activities need a mock; cloud-only and unknown activities "
+             "refuse the run.",
+             "Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
+             "hasn't been compared with Fabric.",
+             "Activity outputs and variable values are left out; open the run in Fabric Desktop by KratosBI to see them.")
+
+
+def _pipeline_runs() -> list[Capability]:
+    """Local pipeline runs (ORCH-003)."""
+    run_id = schema({"id": ID}, ["id"])
+    return [
+        Capability(
+            "fabric_desktop_check_pipeline_run", "Check a pipeline can run on this PC",
+            "Says whether a Fabric pipeline definition can run on this PC with the given parameters, mocks and "
+            "child pipelines, and if not, why, activity by activity. Runs nothing.",
+            schema(RUN_INPUT, ["definition"]), schema({"ok": {"type": "boolean"}, "problems": {"type": "array"}},
+                                                      ["ok", "problems"], extra=True),
+            "READ_METADATA", services.check_pipeline_run, artifact_types=("DataPipeline",), status="preview",
+            limitations=PIPELINE_LIMIT + RUN_LIMIT[:2], timeout=60),
+        Capability(
+            "fabric_desktop_start_pipeline_run", "Run a pipeline on this PC",
+            "Starts a local run of a Fabric pipeline definition and returns its id. Activities that can't run here "
+            "must be mocked, or the run is refused before anything starts.",
+            schema(RUN_INPUT | {"max_parallel": {"type": "integer", "minimum": 1, "maximum": 32, "default": 4},
+                                "wait_scale": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+                                "timeout_seconds": {"type": "number", "minimum": 0, "maximum": 86400, "default": 0}},
+                   ["definition"]),
+            schema({"ok": {"type": "boolean"}, "run_id": STR, "state": STR, "problems": {"type": "array"}}, ["ok"],
+                   extra=True),
+            "EXECUTE_LOCAL_CODE", services.start_pipeline_run, read_only=False, approval="always",
+            locations=("this_pc",), artifact_types=("DataPipeline",), status="preview", limitations=RUN_LIMIT,
+            timeout=60),
+        Capability(
+            "fabric_desktop_get_pipeline_run", "Get a local pipeline run",
+            "A local pipeline run's state and every activity run: state, Fabric-style status, whether it ran, was "
+            "mocked or was skipped, timings, attempts and error codes.",
+            run_id, schema({"run_id": STR, "state": STR, "activities": {"type": "array"}}, ["run_id", "state"],
+                           extra=True),
+            "READ_METADATA", services.get_pipeline_run, artifact_types=("DataPipeline",), status="preview",
+            limitations=RUN_LIMIT[2:], timeout=30),
+        Capability(
+            "fabric_desktop_list_pipeline_runs", "List local pipeline runs",
+            "Recent local pipeline runs on this PC, newest first, with their state and activity counts.",
+            schema({"limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20}}),
+            schema({"runs": {"type": "array"}}, ["runs"], extra=True),
+            "READ_METADATA", services.list_pipeline_runs, artifact_types=("DataPipeline",), status="preview",
+            timeout=30),
+        Capability(
+            "fabric_desktop_cancel_pipeline_run", "Cancel a local pipeline run",
+            "Stops a local pipeline run: nothing new starts and waits end at once.",
+            run_id, schema({"cancelled": {"type": "boolean"}}, ["cancelled"], extra=True),
+            "EXECUTE_LOCAL_CODE", services.cancel_pipeline_run, read_only=False, approval="always",
+            locations=("this_pc",), status="preview", timeout=30),
     ]
 
 

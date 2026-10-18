@@ -36,8 +36,9 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
-    (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token"
-                r"|id_token|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
+    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
+    (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"
+                r"|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.

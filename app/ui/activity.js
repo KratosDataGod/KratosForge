@@ -41,14 +41,19 @@ function runReason(r) {
 // Sidecar errors arrive as "ExceptionName: message". Known causes become a sentence; the raw
 // text stays available under Details.
 function friendlyError(err) {
-  const raw = String(err?.message || err || "").trim();
+  const raw = String((err && typeof err === "object" ? err.message : err) || "").trim();  // new Error("") has no reason, not "Error"
   const known = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
     [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],
     [/InsufficientScopes|AADSTS65001|consent_required/i, "Your sign-in doesn't carry the permission this feature needs. docs/permissions.md lists each feature's permission and what IT can change."],
-    [/AADSTS|invalid_grant|interaction_required|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
+    [/AADSTS50076|AADSTS50079|AADSTS50074|AADSTS50072/, "Your organization needs an extra sign-in step (multi-factor authentication). Sign in again and finish the step in the Microsoft window."],
+    [/AADSTS50020|AADSTS50034|AADSTS90072/, "That account doesn't belong to your organization's Fabric tenant. Sign in with your work account."],
+    [/AADSTS50058|AADSTS50173|AADSTS700082|AADSTS70043|invalid_grant|\b401\b|Unauthorized|token.*expired/i, "Your sign-in expired. Sign in again and retry."],
+    [/^SignInError: (AADSTS\d+)/, "Microsoft sign-in didn't finish. Sign in again; if it happens again, ask IT and quote the code in the details below."],
+    [/^SignInError: /, "Microsoft sign-in didn't finish. Sign in again; if it happens again, the details below help IT."],
+    [/AADSTS|interaction_required/i, "Your sign-in needs attention. Sign in again and retry; if it happens again, ask IT and quote the code in the details below."],
     [/\b403\b|Forbidden|InsufficientPrivileges|PrincipalTypeNotSupported/i, "You don't have permission for that in this workspace. A workspace admin can make you a Contributor or above."],
     [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed."],
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
@@ -58,6 +63,8 @@ function friendlyError(err) {
     [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
     [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
   ];
+  if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
+  if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
   const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
@@ -152,7 +159,7 @@ function trayItem(i) {
   if (i.results) links.push(btn("See results", null, () => { toggleTray(false); showRunResults(i.results, i.results.find((r) => r.status === "needs_decision")); }, "tool link small"));
   if (i.monitor) links.push(btn("Open in Monitor", null, () => { toggleTray(false); go("monitor"); }, "tool link small"));
   if (i.url) links.push(btn("Open in Fabric", null, () => { toggleTray(false); openInFabric(i.url); }, "tool link small"));
-  if (i.details) links.push(btn("Copy details", null, () => attempt(() => navigator.clipboard.writeText(i.details)).then(() => toast("Copied", false, { quiet: true })), "tool link small"));
+  if (i.details) links.push(btn("Copy details", null, () => copyText(i.details, "Details"), "tool link small"));
   return h("div", { class: `tray-item${PROBLEM.has(i.status) ? " bad" : ""}` },
     h("div", { class: "row" }, h("span", { class: `pill-s ${cls}` }, label), h("b", { class: "grow" }, i.title || ""), h("span", { class: "muted-text small" }, when(i.at))),
     i.status === "running" && !i.stale ? h("div", { class: "progress", role: "progressbar", "aria-label": i.title },

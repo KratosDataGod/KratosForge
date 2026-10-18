@@ -11,7 +11,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 
 New here? Install first ([install.md](install.md)). Setting it up for others? Start with [Configure Azure and Fabric](azure-setup.md).
 
-**Where things run.** Unless a button says Fabric, work runs on your PC and uses no Fabric capacity: notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
+**Where things run.** Unless a button says Fabric, work runs on your PC and starts no Fabric job (its OneLake reads and writes still use capacity): notebooks, SQL queries, metadata runs in an environment set to **This PC**, profiling, comparing and testing. Buttons that say **Fabric** (Run in Fabric, Fabric schedules, Optimize in Test or Prod, semantic models, environments set to **Runs on: Fabric**) use your workspace's capacity.
 
 ## The window
 
@@ -102,9 +102,11 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
-| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+| **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+A passed write test counts for 7 days, for the same account, tenant and lakehouse; after that Home asks again. **Test again** reruns it at any time. A failed or refused test, and signing out, forget the pass.
 
 When every check passes, the list folds into one line. **Hide** removes it on this PC.
 
@@ -347,10 +349,12 @@ An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. E
 
 **State.** An agent is **Running** while its reports arrive on time. It shows **Stopped reporting** once the time it promised to report again has passed. That means it stopped without saying so: a crash, a power cut or a lost network. It shows **Stopped** when it shut down cleanly. For a stopped or silent agent, everything shown is its last report as it was, labelled with when it was written, so its jobs show as unknown rather than as running.
 
-**The agent page** shows, for each environment:
+**Scheduled in two places.** Each agent and this PC keep their own queue, so when two of them schedule the same table, both run it. Table leases only stop them writing at the same moment. Above the list, **Scheduled in two places** names each table that is scheduled both on an agent and on this PC, or on two agents, in the same environment, with both schedules. Give each table's schedule to one place; **Review schedules** opens this PC's schedules. It changes no schedule itself. A cleanly stopped agent isn't counted. An agent that stopped reporting still is, because it runs a missed schedule when it is back. An older agent that doesn't say which tables its schedules run is listed as one that can't be compared, never as running every table.
+
+**The agent page** shows its owner and how it signs in (a service principal, a managed identity or a user's cached sign-in) when its `agent.toml` says so, and, for each environment:
 
 - what the agent runs: pipeline jobs and which entities, how many at a time, and whether backfill is allowed;
-- its schedules and when each runs next;
+- its schedules, the tables each runs, and when each runs next;
 - what it was doing;
 - whether it checks incidents.
 
@@ -368,7 +372,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | --- | --- |
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
-| **Preview features** | Show or hide every feature tagged Preview. |
+| **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library and quarantine Replay are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
@@ -414,7 +418,7 @@ A channel change takes effect the next time Fabric Desktop by KratosBI starts. M
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them all, turn off **Settings > Preview features**.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library and quarantine Replay are also in preview but are core steps, so they always show, with their Preview tag.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 
@@ -443,7 +447,7 @@ Each line says:
 | `who`, `tenant` | The account signed in to the app, and its tenant |
 | `host`, `os_user`, `app`, `version`, `compute` | The PC and Windows account, desktop or agent, the engine version, and where it ran |
 | `target` | What it was done to: workspace, lakehouse, environment, entity, notebook name, ids |
-| `prev`, `hash` | A SHA-256 chain linking each line to the one before |
+| `prev`, `hash` | A SHA-256 chain linking each line to the one before. The app, scheduled runs and the agent take turns writing (through `audit\.lock`), so they never break the chain by writing at the same moment |
 
 Code, SQL text, cell contents and data are never recorded; they show as `(given)`. Tokens, keys and passwords are taken out of errors.
 

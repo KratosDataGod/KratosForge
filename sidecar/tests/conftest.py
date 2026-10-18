@@ -18,6 +18,14 @@ def no_interactive_sign_in(monkeypatch):
     monkeypatch.setattr(msal.PublicClientApplication, "acquire_token_interactive", refuse)
 
 
+@pytest.fixture(autouse=True)
+def saved_policy_in_tmp(monkeypatch, tmp_path):
+    """Reading a policy file keeps a copy of it (app_settings.saved_policy_path); keep it out of the
+    real profile, so one test's copy can't stand in for another test's broken file."""
+    from fabric_desktop import app_settings
+    monkeypatch.setattr(app_settings, "saved_policy_path", lambda: tmp_path / "saved-policy" / "policy-last-good.json")
+
+
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only
 # come back once the job ends). After TEST_TIME_LIMIT seconds, print which test it was and every
 # thread's stack, then end pytest so the job fails with that in its log.

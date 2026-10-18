@@ -76,7 +76,8 @@ async function attempt(fn, label) {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
-    toast(label ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
     return undefined;
   }
 }
@@ -300,7 +301,7 @@ function renderChrome() {
     h("button", { class: "rail-close", title: `Close ${label}`, "aria-label": `Close ${label}`,
       onclick: async (e) => {
         e.stopPropagation();
-        await onClose();
+        if (await onClose() === false) return;  // e.g. a notebook that couldn't be saved stays open
         if (state.view === view) go("home"); else renderChrome();
       } }, icon("dismiss", 12)));
   if (state.openWorkspace) {
@@ -312,7 +313,7 @@ function renderChrome() {
   }
   if (state.notebook) {
     open.push(recent("notebook", "notebook", state.notebook.name, () => go("notebook"), async () => {
-      if (state.notebook?.dirty) await saveNotebook();  // closing never loses edits
+      if (state.notebook?.dirty && !(await saveNotebook())) return false;  // closing never loses edits
       state.notebook = null;
     }));
   }
@@ -559,6 +560,7 @@ function renderCreate() {
     h("div", { class: "tiles" },
       tile("notebook", "Notebook", "Explore, transform and write Delta tables with Python", newNotebook),
       preview("wizard", tile("notebook", "Notebook from a template", "Clean a table, join and aggregate, or load a file, with checks and a proof contract", openWizard)),
+      preview("replay", tile("history", "Open replay bundle", "Run a notebook that failed again, up to the failed cell, against the same table versions", replayOpenDialog)),
       tile("lakehouse", "Lakehouse", "Store tables and files in OneLake, organized by schema", () => newLakehouse()))));
 }
 
@@ -1551,8 +1553,8 @@ function renderQuery() {
     const r = tab.result;
     if (!r) return;
     const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")), "Could not copy");
-    toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
+    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
+    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
   }
 
   // Explorer: click a table to query it, a column to type its name.
@@ -1767,7 +1769,7 @@ function renderQuery() {
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB. No Fabric capacity is used."))),
+      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
@@ -1937,7 +1939,7 @@ function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
   state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null };
+    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
   if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
   state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
   state.selected = state.notebook.cells[0].id;
@@ -1945,7 +1947,7 @@ function loadIntoState(nb) {
 }
 
 async function openNotebook(name) {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const nb = await attempt(() => rpc("open_notebook", { name }), "Could not open the notebook");
   if (!nb) return;
   loadIntoState(nb);
@@ -1953,7 +1955,7 @@ async function openNotebook(name) {
 }
 
 async function newNotebook(lakehouse) {
-  if (state.notebook?.dirty) await saveNotebook();
+  if (state.notebook?.dirty && !(await saveNotebook())) return;
   const nb = await attempt(() => rpc("new_notebook"), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
@@ -1973,15 +1975,20 @@ function notebookPayload() {
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
 }
 
+// True when the notebook is saved (or there is none). On a failure the error toast stays, the
+// notebook stays dirty, and callers that would close or replace it stop.
 async function saveNotebook() {
-  if (!state.notebook) return;
+  if (!state.notebook) return true;
   clearTimeout(saveTimer);
+  const nb = state.notebook;
   const ok = await attempt(() => rpc("save_notebook", notebookPayload()), "Could not save");
-  if (ok && state.notebook) {
-    state.notebook.dirty = false;
+  if (!ok) return false;
+  if (state.notebook === nb) {
+    nb.dirty = false;
     if (ok.check) setComputeCheck(ok.check);
     renderChrome();
   }
+  return true;
 }
 
 function markDirty() {
@@ -1997,7 +2004,7 @@ async function renameNotebook() {
   const nb = state.notebook;
   const name = await askText("Rename notebook", "Name", nb.name, "Rename");
   if (!name || name === nb.name) return;
-  await saveNotebook();
+  if (!(await saveNotebook())) return;
   const ok = await attempt(() => rpc("rename_notebook", { name: nb.name, new_name: name }), "Could not rename");
   if (ok) { nb.name = name; renderChrome(); }
 }
@@ -2075,7 +2082,7 @@ function computeMenu(nb) {
     action: () => setNotebookCompute(value) });
   return [
     { info: "Where Run all runs this notebook." },
-    option("local", "This PC (no Fabric capacity used)", "desktop"),
+    option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
       ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
@@ -2218,7 +2225,7 @@ function scheduleForm() {
 async function scheduleNotebook() {
   const nb = state.notebook;
   // Where it runs by default: the notebook's own choice, else the environment's compute.
-  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.env]?.compute === "fabric");
+  const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
     title: `Schedule ${nb.name}`,
     mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",
@@ -2480,7 +2487,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
-    saveNotebook().then(() => toast("Saved"));
+    saveNotebook().then((ok) => { if (ok) toast("Saved"); });
   }
 });
 window.addEventListener("beforeunload", () => { if (state.notebook?.dirty) saveNotebook(); });

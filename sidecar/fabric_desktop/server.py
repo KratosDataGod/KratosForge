@@ -36,7 +36,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_create_designation_workspace", "meta_keys_to_platform", "meta_keys_to_lakehouse",
            "meta_project", "meta_init", "meta_open", "meta_set_environment", "meta_create_workspace", "meta_entity", "meta_save_entity",
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
-           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
+           "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
            "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
@@ -66,7 +66,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
-           "notebook_debug_get", "notebook_debug_set",
+           "notebook_debug_get", "notebook_debug_set", "replay_bundle_preview", "replay_bundle_save",
+           "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
            "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
            "notebook_dependencies", "side_by_side_writes",
            "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
@@ -93,6 +94,11 @@ METHODS |= LOCAL_DATA_METHODS
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
+
+# Governance's request and shortcut notices to Teams (platform_notify_service.py).
+from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402
+
+METHODS |= PLATFORM_NOTIFY_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

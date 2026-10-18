@@ -123,6 +123,9 @@ class SideBySideMixin:
         runs = self._sbs_state()
         if any(r["state"] in ("local", "fabric", "checking") for r in runs.values()):
             raise RuntimeError("A side-by-side run is already going. Wait for it, or cancel it.")
+        self._replay_refuse(name, "running it side by side")  # type: ignore[attr-defined]
+        if self._replay_live():  # type: ignore[attr-defined]
+            raise RuntimeError("A replay is using the kernel. End it first.")
         if not lakehouse_ref:
             raise ValueError("Attach a lakehouse first. Both runs read and write it, so their results can be compared.")
         check = compute_check(cells, lakehouse_ref)

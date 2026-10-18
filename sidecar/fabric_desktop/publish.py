@@ -49,11 +49,26 @@ def resolve_target(job: Job, fabric: FabricClient) -> TableRef:
     return TableRef(t.workspace_id, lakehouse["id"], t.schema, t.table)
 
 
-def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str) -> DeltaTable:
+SCHEMA_MODES = ("auto", "overwrite", "merge", None)
+
+
+def resolve_schema_mode(mode: str, schema_mode: str | None) -> str | None:
+    if schema_mode not in SCHEMA_MODES:
+        raise ValueError(f"schema_mode must be one of {SCHEMA_MODES}, got {schema_mode!r}")
+    if schema_mode == "auto":
+        return "overwrite" if mode == "overwrite" else None
+    if schema_mode == "overwrite" and mode != "overwrite":
+        raise ValueError("A table's schema can only be replaced by an overwrite.")
+    return schema_mode
+
+
+def publish(data: pa.Table, ref: TableRef, mode: str, storage_token: str, schema_mode: str | None = "auto") -> DeltaTable:
+    """Write ``data`` to ``ref``. ``schema_mode`` "auto" replaces the schema on overwrite (as jobs
+    always have); None refuses a different schema, as Spark does without overwriteSchema; "merge"
+    adds new columns."""
     opts = storage_options(storage_token)
     delta_profile.check_target(ref.uri, opts)
-    write_deltalake(ref.uri, data, mode=mode, storage_options=opts,
-                    schema_mode="overwrite" if mode == "overwrite" else None)
+    write_deltalake(ref.uri, data, mode=mode, storage_options=opts, schema_mode=resolve_schema_mode(mode, schema_mode))
     table = DeltaTable(ref.uri, storage_options=opts)
     delta_profile.note_after_write(table)
     return table

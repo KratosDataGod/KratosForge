@@ -20,8 +20,8 @@ Rules for every PR in this plan:
 | PR-QA-07 | Tell "not set up" from "the call failed" | QA-013, QA-021, QA-027 | P1 | Hardening, then each owner | PR-QA-06 |
 | PR-QA-08 | One way to get a Fabric client and run background work | QA-014, QA-023, QA-025, QA-030 | P2 | Hardening | PR-QA-05 |
 | PR-QA-09 | Declare each RPC method once; remove dead surface | QA-015, QA-017, QA-029 | P2 | Hardening with Release management | |
-| PR-QA-10 | Say what runs where, and tag what's untested | QA-008, QA-017 (docs), QA-020 | P1 | FinOps and Prove (claims), UX oversight (tags) | |
-| PR-QA-11 | One confirmation dialog, red for destructive actions | QA-019 | P1 | UX oversight | |
+| PR-QA-10 | Say what runs where, and tag what's untested | QA-008, QA-017 (docs), QA-020 (UX-021) | P1 | Capacity wording: FinOps (own files, in #174), Prove, Local data engine, Governance and Hardening for theirs, UX oversight for README and top-level docs. Preview tags (UX-021): Prove, roadmap, Hardening | |
+| PR-QA-11 | One confirmation dialog, red for destructive actions | QA-019 (now UX-018) | P1 | UX oversight, as UX-018; this thread reviews it | |
 | PR-QA-12 | Accessible tabs, segmented controls and menus | QA-019 | P2 | UX oversight with Enterprise readiness (a11y) | |
 | PR-QA-13 | Shared pills, result grid, time formats and polling | QA-019 | P2 | UX oversight | PR-QA-11 |
 | PR-QA-14 | Tests that reach the Fabric client and OneLake I/O | QA-018 | P1 | Hardening | |

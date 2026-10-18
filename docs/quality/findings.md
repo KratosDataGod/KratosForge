@@ -142,6 +142,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Impact.** The product's central promise is stated more strongly than the code can support, in the place (a "measured" badge) users trust most. The brief's rule is explicit: no zero-CU claim without verifying the execution path.
 
+**Open PR.** #174 fixes FinOps's own strings; the other strings went to Prove, Local data engine, Governance and Hardening, and README and top-level docs to UX oversight.
+
 **Fix.** PR-QA-10: "No Fabric compute (Spark, notebooks, SQL endpoint). OneLake reads and writes still count against the workspace's capacity" in the UI and docs; the PC cost becomes kind `not available` with that text. **Verify:** a test that no figure labelled `measured` is a constant.
 
 ### QA-009 `runMultiple` ignores the DAG (Medium)
@@ -242,7 +244,7 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 - RPC errors: `attempt` (166 calls), `metaCall` (63), `platformCall` (a one-line alias, 36), and 48 silent `.catch(() => null|{}|[]|false)`.
 - 208 hex colors outside `:root`, 82 distinct, several equal to existing tokens.
 
-**Overlaps.** UX-011 (one error panel), UX-012 (keyboard), UX-018 (one confirmation), UX-020 (shared loading and empty states). This adds the counts and the specific helpers.
+**Overlaps.** UX-011 (one error panel), UX-012 (keyboard), UX-018 (one confirmation), UX-020 (shared loading and empty states). This adds the counts and the specific helpers. The confirmation part is tracked as UX-018 and built by the UX thread.
 
 **Fix.** PR-QA-11 (danger confirm), PR-QA-12 (tabs, segmented, menu), PR-QA-13 (pills, grids, dates, polling). **Verify:** a UI test that every destructive confirm uses the danger style.
 
@@ -250,7 +252,7 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Evidence: Code.** `PREVIEW_FEATURES` (`app/ui/features.js:37-63`) has no entry for Publish (`notebook.js:84`), Promote (`meta.js:665`), Create workspace (`meta.js:765`, `mesh.js:195`), Sync to LH_Keys (`meta.js:816`), Publish variable library (`estate.js:157`), Quarantine replay (`dataops.js:296`) or Run all in Fabric (`meta.js:119`; the tag is only on the compute picker at `:686`). The live test (`docs/live-testing.md`) covers lakehouses, files and Delta tables only. `railItem` (`features.js:23-32`) never shows the tag for a rail page registered with `preview: true`.
 
-**Overlaps.** UX-019 (one generated Preview list).
+**Overlaps.** UX-019 (one generated Preview list). Tracked as UX-021 since 2026-10-18; tags owned by Prove, the roadmap thread and Hardening.
 
 **Fix.** PR-QA-10. **Verify:** a test that every UI call to a method that writes to Fabric sits under a Preview tag until a live run records it.
 

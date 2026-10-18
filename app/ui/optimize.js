@@ -1,4 +1,4 @@
-// Optimize: what the organization could improve, what it fixed and what it saved, shared through
+// Optimize: what the organization could improve, what it fixed and what it could save, shared through
 // one optimization lakehouse (sidecar optimize/ and optimize_service.py). Setting it up never
 // blocks the page: until a lakehouse is connected, Cost and savings still shows this PC's figures.
 
@@ -24,7 +24,7 @@ async function renderOptimize() {
   setView(h("div", { class: "page optimize" },
     h("div", { class: "page-head" }, h("div", {},
       h("h1", {}, "Optimize ", previewTag()),
-      h("p", { class: "sub" }, "What your Fabric estate could do better, what was fixed and what it saved, shared with everyone on your optimization lakehouse. ",
+      h("p", { class: "sub" }, "What your Fabric estate could do better, what was fixed and what it could save, shared with everyone on your optimization lakehouse. ",
         learnMore("optimize-preview")))),
     band,
     h("div", { class: "subtabs", role: "tablist", "aria-label": "Optimize views" }, OPTIMIZE_TABS.map(([id, label]) =>
@@ -96,7 +96,7 @@ function optimizeOverview(findings, recs, writable) {
       open.length ? optimizeRecTable(open.slice(0, 5), optimizeFindingIndex(findings), writable)
         : h("p", { class: "muted-text" }, findings.length ? "Nothing open: every recommendation has been acted on."
           : "Nothing found yet. Results appear here once an installation records an analysis.")),
-    h("p", { class: "muted-text small" }, "Savings figures are under Cost and savings, each with how it was worked out. Figures are never shown as saved unless they were measured or estimated from a measured Fabric run."),
+    h("p", { class: "muted-text small" }, "Cost figures are under Cost and savings, each badged Measured, Estimated, Scenario or Unknown with how it was worked out."),
   ];
 }
 

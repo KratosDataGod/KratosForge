@@ -267,12 +267,12 @@ The portal used to have its own page in the left rail; that place now holds [Opt
 
 ## Optimize (Preview)
 
-What your Fabric estate could do better, what was fixed and what it saved, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
+What your Fabric estate could do better, what was fixed and what it could save, shared with everyone who uses the same optimization lakehouse. How the shared lakehouse works, what it stores and who can read it is in [Optimize: the shared optimization lakehouse](optimize/README.md).
 
 - **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
-- **Cost and savings:** the capacity each run used in Fabric and what running on this PC saved, each figure with its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. **Prices** sets your price per CU hour. It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor).
+- **Cost and savings:** the capacity each run used in Fabric and, for runs on this PC, what they would have used in Fabric (a scenario), each figure with its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. **Prices** sets your price per CU hour. It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor).
 
 ## Monitor
 

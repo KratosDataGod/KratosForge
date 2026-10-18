@@ -5,7 +5,7 @@ Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every c
 ## Your first notebook
 
 1. **Create > Notebook** (or **New notebook** on Home, or Ctrl+K "New notebook"). The notebook opens with one empty code cell.
-2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it.
+2. **Add data items** in the ribbon opens a OneLake catalog of every lakehouse you can reach. Select one to see its tables and files on the right, then **Attach** (or double-click it). The attached lakehouse shows in the **Explorer** on the left. **New lakehouse** at the bottom creates one and attaches it. A running cell keeps the lakehouse it started with: starting a cell from another notebook, or an external tool's run against another lakehouse, waits or is refused until it finishes.
 3. In the Explorer, click a table to insert code that loads it, or a file to insert code that reads it.
 4. Run the cell with **Shift+Enter**. Output shows below it.
 5. Write a result back:

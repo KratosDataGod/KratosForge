@@ -46,6 +46,35 @@ fn policy_allows_updates(text: &str) -> bool {
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
 }
 
+/// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
+/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
+/// file can set it; a missing or unreadable file means none.
+fn fabric_view_sign_in_hosts() -> Vec<String> {
+    let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
+    policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+}
+
+/// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
+fn policy_sign_in_hosts(text: &str) -> Vec<String> {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    let Some(list) = value.get("fabric_view_sign_in_hosts").and_then(Value::as_array) else { return Vec::new() };
+    list.iter().filter_map(Value::as_str).filter(|h| dns_name(h)).map(str::to_ascii_lowercase).collect()
+}
+
+/// An exact DNS host name: two or more labels of letters, digits and inner hyphens, each at most
+/// 63 long, 253 in all, not ending in a number (so no IP address). No wildcard, scheme, port,
+/// path, user name or trailing dot; a non-ASCII name must be given in its xn-- form.
+fn dns_name(host: &str) -> bool {
+    let labels: Vec<&str> = host.split('.').collect();
+    host.len() <= 253
+        && labels.len() >= 2
+        && labels.iter().all(|l| {
+            !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && !labels.last().is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod policy_tests {
     use super::policy_allows_updates;
@@ -59,6 +88,34 @@ mod policy_tests {
         assert!(policy_allows_updates(r#"{"auto_update": true}"#));
         assert!(!policy_allows_updates(r#"{"auto_update": false}"#));
         assert!(!policy_allows_updates("\u{feff}{\"auto_update\": false}"));
+    }
+
+    #[test]
+    fn sign_in_hosts_keep_only_exact_dns_names() {
+        let text = r#"{"fabric_view_sign_in_hosts": [
+            "adfs.contoso.com", "Contoso.Okta.com", "sso.login-1.example.co.uk", "xn--bcher-kva.example",
+            "*.okta.com", "https://adfs.contoso.com", "adfs.contoso.com:443", "adfs.contoso.com/adfs/ls",
+            "user@adfs.contoso.com", "adfs.contoso.com.", ".contoso.com", "localhost", "10.0.0.5",
+            "-adfs.contoso.com", "adfs-.contoso.com", "adfs..contoso.com", "adfs contoso.com", "bücher.example",
+            "", 42, null, ["adfs.contoso.com"]
+        ]}"#;
+        assert_eq!(
+            super::policy_sign_in_hosts(text),
+            ["adfs.contoso.com", "contoso.okta.com", "sso.login-1.example.co.uk", "xn--bcher-kva.example"]
+        );
+        assert!(super::dns_name(&format!("{}.com", "a".repeat(63))));
+        assert!(!super::dns_name(&format!("{}.com", "a".repeat(64))));
+        assert!(!super::dns_name(&format!("{}com", "a.".repeat(126))));
+        assert_eq!(super::policy_sign_in_hosts("\u{feff}{\"fabric_view_sign_in_hosts\": [\"adfs.contoso.com\"]}"), ["adfs.contoso.com"]);
+    }
+
+    #[test]
+    fn no_sign_in_hosts_from_a_missing_broken_or_wrongly_typed_file() {
+        for text in ["", "not json", "{", "[]", "{}", r#"{"fabric_view_sign_in_hosts": "adfs.contoso.com"}"#,
+                     r#"{"fabric_view_sign_in_hosts": {"host": "adfs.contoso.com"}}"#,
+                     r#"{"fabric_view_sign_in_hosts": null}"#] {
+            assert!(super::policy_sign_in_hosts(text).is_empty(), "{text}");
+        }
     }
 }
 
@@ -576,13 +633,15 @@ enum FabricNav {
 
 /// Fabric's pages and sign-in stay in the view; other web links open in the default browser;
 /// anything else (http to a Microsoft host, file:, javascript:, ...) is refused. `about:blank`,
-/// which the view starts on, is allowed in the view but not as a pop-up.
-fn fabric_nav(url: &Url, new_window: bool) -> FabricNav {
+/// which the view starts on, is allowed in the view but not as a pop-up. `sign_in_hosts` are the
+/// organization's own (`fabric_view_sign_in_hosts`, already checked by `policy_sign_in_hosts`)
+/// and follow the same rule as the built-in hosts.
+fn fabric_nav(url: &Url, new_window: bool, sign_in_hosts: &[String]) -> FabricNav {
     if url.as_str() == "about:blank" {
         return if new_window { FabricNav::Refuse } else { FabricNav::Stay };
     }
     let host = url.host_str().unwrap_or_default();
-    let listed = FABRIC_VIEW_HOSTS.contains(&host);
+    let listed = FABRIC_VIEW_HOSTS.contains(&host) || sign_in_hosts.iter().any(|h| h == host);
     match url.scheme() {
         "https" if listed && url.username().is_empty() && url.password().is_none() && url.port().is_none() => FabricNav::Stay,
         "http" if listed => FabricNav::Refuse,
@@ -592,8 +651,8 @@ fn fabric_nav(url: &Url, new_window: bool) -> FabricNav {
 }
 
 /// Applies `fabric_nav`: true keeps the page in the view.
-fn fabric_nav_allows(url: &Url, new_window: bool) -> bool {
-    match fabric_nav(url, new_window) {
+fn fabric_nav_allows(url: &Url, new_window: bool, sign_in_hosts: &[String]) -> bool {
+    match fabric_nav(url, new_window, sign_in_hosts) {
         FabricNav::Stay => true,
         FabricNav::Browser => {
             let _ = open_in_browser(url);
@@ -677,10 +736,13 @@ async fn fabric_view_show(
     let window = app.get_window("main").ok_or("The main window is not open")?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
+    // The organization's identity provider hosts, read once for this view.
+    let sign_in_hosts = Arc::new(fabric_view_sign_in_hosts());
+    let for_pop_ups = sign_in_hosts.clone();
     let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
-        .on_navigation(|url| fabric_nav_allows(url, false))
-        .on_new_window(|url, _| {
-            if fabric_nav_allows(&url, true) {
+        .on_navigation(move |url| fabric_nav_allows(url, false, &sign_in_hosts))
+        .on_new_window(move |url, _| {
+            if fabric_nav_allows(&url, true, &for_pop_ups) {
                 NewWindowResponse::Allow
             } else {
                 NewWindowResponse::Deny
@@ -1104,7 +1166,7 @@ mod fabric_nav_tests {
     use super::*;
 
     fn nav(url: &str) -> FabricNav {
-        fabric_nav(&Url::parse(url).unwrap(), false)
+        fabric_nav(&Url::parse(url).unwrap(), false, &[])
     }
 
     #[test]
@@ -1122,7 +1184,7 @@ mod fabric_nav_tests {
             assert_eq!(nav(url), FabricNav::Stay, "{url}");
         }
         let item = fabric_page("https://app.fabric.microsoft.com/groups/1/lakehouses/2", Some("72f988bf-86f1-41af-91ab-2d7cd011db47")).unwrap();
-        assert_eq!(fabric_nav(&item, false), FabricNav::Stay);
+        assert_eq!(fabric_nav(&item, false, &[]), FabricNav::Stay);
     }
 
     #[test]
@@ -1176,10 +1238,38 @@ mod fabric_nav_tests {
 
     #[test]
     fn pop_ups_follow_the_same_rule_but_not_blank_ones() {
-        let popup = |u: &str| fabric_nav(&Url::parse(u).unwrap(), true);
+        let popup = |u: &str| fabric_nav(&Url::parse(u).unwrap(), true, &[]);
         assert_eq!(popup("https://login.microsoftonline.com/common/oauth2/authorize"), FabricNav::Stay);
         assert_eq!(popup("https://example.com/"), FabricNav::Browser);
         assert_eq!(popup("about:blank"), FabricNav::Refuse);
         assert_eq!(popup("javascript:alert(1)"), FabricNav::Refuse);
+    }
+
+    #[test]
+    fn the_organizations_sign_in_hosts_follow_the_same_rule() {
+        let hosts = policy_sign_in_hosts(r#"{"fabric_view_sign_in_hosts": ["adfs.contoso.com", "Contoso.Okta.com", "*.ping.com"]}"#);
+        let with = |u: &str| fabric_nav(&Url::parse(u).unwrap(), false, &hosts);
+        assert_eq!(with("https://adfs.contoso.com/adfs/ls/?SAMLRequest=x"), FabricNav::Stay);
+        assert_eq!(with("https://ADFS.contoso.com:443/adfs/ls/"), FabricNav::Stay);
+        assert_eq!(with("https://contoso.okta.com/app/office365/sso/wsfed/passive"), FabricNav::Stay);
+        assert_eq!(fabric_nav(&Url::parse("https://contoso.okta.com/").unwrap(), true, &hosts), FabricNav::Stay);
+        assert_eq!(with(FABRIC_MONITOR), FabricNav::Stay); // the built-in hosts still apply
+        for url in [
+            "https://adfs.contoso.com.evil.com/",
+            "https://evil.adfs.contoso.com/",
+            "https://contoso.com/",
+            "https://adfs-contoso.com/",
+            "https://adfs.contoso.com@evil.com/",
+            "https://user@adfs.contoso.com/",
+            "https://adfs.contoso.com:8443/",
+            "https://adfs.contoso.com./",
+            "https://x.ping.com/",
+            "https://evil-okta.com/",
+        ] {
+            assert_eq!(with(url), FabricNav::Browser, "{url}");
+        }
+        assert_eq!(with("http://adfs.contoso.com/adfs/ls/"), FabricNav::Refuse);
+        // Without the policy, the same host leaves the view.
+        assert_eq!(nav("https://adfs.contoso.com/adfs/ls/"), FabricNav::Browser);
     }
 }

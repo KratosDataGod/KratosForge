@@ -118,6 +118,28 @@ def test_integration_and_receipt_keys_are_known_settings(files):
     assert "receipt_redactions" in app_settings.policy_problems()[0]  # the list of settings includes it
 
 
+def test_fabric_view_sign_in_hosts_is_a_setting_and_bad_entries_are_reported(files):
+    files({"fabric_view_sign_in_hosts": ["adfs.contoso.com", "contoso.okta.com"]})
+    assert app_settings.policy_problems() == []
+    files({"fabric_view_sign_in_hosts": ["adfs.contoso.com", "*.okta.com", "https://sso.contoso.com",
+                                         "adfs.contoso.com:443", "adfs.contoso.com/adfs", 7]})
+    problems = app_settings.policy_problems()
+    assert len(problems) == 5 and all(p.startswith("fabric_view_sign_in_hosts: ") for p in problems)
+    files({"fabric_view_sign_in_hosts": "adfs.contoso.com"})
+    assert app_settings.policy_problems()[0].startswith("fabric_view_sign_in_hosts should be a list")
+    assert "fabric_view_sign_in_hosts" not in app_settings.load()  # the shell applies it, not the engine
+
+
+@pytest.mark.parametrize("host,ok", [
+    ("adfs.contoso.com", True), ("xn--bcher-kva.example", True), ("a.b-c.co.uk", True),
+    ("*.okta.com", False), ("localhost", False), ("10.0.0.5", False), ("adfs.contoso.com.", False),
+    ("-a.com", False), ("a-.com", False), ("a..com", False), ("bücher.example", False), ("", False),
+    ("a" * 64 + ".com", False), ("a." * 126 + "com", False),
+])
+def test_sign_in_host_names_match_the_shell(host, ok):
+    assert app_settings.dns_name(host) is ok
+
+
 def test_missing_file_keeps_the_defaults(files):
     s = app_settings.load()
     assert s["allow_fabric_runs"] == {"value": True, "source": "default"}

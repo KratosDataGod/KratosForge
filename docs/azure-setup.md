@@ -67,6 +67,7 @@ A policy file that sets everything an organization usually wants:
 | `cell_time_limit_minutes` | A number, `0` for none | With `kernel_process`: minutes a notebook cell may run before it's interrupted (Preview; none by default) |
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
+| `fabric_view_sign_in_hosts` | A list of exact host names, for example `["adfs.contoso.com", "contoso.okta.com"]` | Only if your tenant's sign-in hands off to your own identity provider (AD FS, Okta, Ping and similar). The Fabric view (Monitor and Fabric pages) opens only Fabric and Microsoft sign-in pages and sends every other page to the default browser, so without this key people can't sign in inside it. Hosts here are treated like Microsoft's sign-in hosts: `https` only, default port, no user name in the link. Each entry must be a whole host name: no `*`, `https://`, port or path. Entries that aren't are skipped and listed in **Settings > Help and about**. Read by the app itself when the view opens; a missing or unreadable file adds no hosts ([Security](security.md#threats-and-what-stops-them)) |
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |
 | `kernel_memory_limit_gb` | A number, `0` for none | With `kernel_process`: gigabytes a notebook's process may use before it's ended (Preview; none by default) |
 | `kernel_process` | `true` or `false` | Runs notebook cells in a Python process of their own, so Stop and crashes end only that process (Preview; off by default) |
@@ -92,6 +93,8 @@ A key that is misspelled is ignored. An invalid file or key fails closed for any
 - **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
 
 With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what Fabric Desktop by KratosBI did about it. Check there after you push a new file.
+
+`fabric_view_sign_in_hosts` is also read by the app itself, not the engine: an unreadable file, a value that isn't a list, or an entry that isn't a host name adds no sign-in host. The last copy of the file isn't used for it.
 
 `auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 

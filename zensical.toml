@@ -85,6 +85,11 @@ nav = [
       { "Hardening backlog" = "hardening/backlog.md" },
       { "Readiness checklist" = "hardening/readiness-checklist.md" },
     ] },
+    { "Release management" = [
+      { "Process" = "release-management/README.md" },
+      { "Release status" = "release-management/release-status.md" },
+      { "Release history" = "release-management/release-history.md" },
+    ] },
     { "Product management" = [
       { "Process" = "product/PRODUCT_MANAGEMENT_PROCESS.md" },
       { "Feature inventory" = "product/FEATURE_INVENTORY.md" },
@@ -98,11 +103,6 @@ nav = [
   ] },
   { "Contributing" = [
     { "Architecture" = "architecture.md" },
-    { "Release management" = [
-      { "Process" = "release-management/README.md" },
-      { "Release status" = "release-management/release-status.md" },
-      { "Release history" = "release-management/release-history.md" },
-    ] },
     { "AI integration" = [
       { "Architecture" = "architecture/ai-integration.md" },
       { "Backlog" = "product/ai-integration-backlog.md" },

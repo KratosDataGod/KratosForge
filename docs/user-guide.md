@@ -102,9 +102,11 @@ A short list that says whether this PC can do real work yet. Each check only rea
 | **Fabric answers** | Fabric lists your workspaces | The error, and **Check again**. No workspaces: ask to be added to one |
 | **A workspace on a capacity** | At least one of your workspaces is on a running Fabric capacity | You can't create lakehouses yet; notebooks and SQL on this PC still work. [Plan workspaces and capacity](azure-setup.md#5-plan-workspaces-and-capacity) |
 | **Your organization's settings** | Nothing in your organization's policy file was ignored | **Open Settings** shows what was ignored |
-| **Writing to OneLake** | You ran **Test a write** and it worked | Only checked when you ask (below) |
+| **Writing to OneLake** | **Test a write** worked in the last 7 days | Only checked when you ask (below) |
 
 **Test a write** is the one check that writes. You pick a workspace and lakehouse. Workspaces whose name says Prod aren't offered, and the engine refuses them too. It writes `Files/_fabric_desktop_check/write-test.txt`, reads it back and deletes the folder, even if the read fails. No table is touched.
+
+A passed write test counts for 7 days, for the same account, tenant and lakehouse; after that Home asks again. **Test again** reruns it at any time. A failed or refused test, and signing out, forget the pass.
 
 When every check passes, the list folds into one line. **Hide** removes it on this PC.
 

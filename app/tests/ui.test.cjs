@@ -726,3 +726,41 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   ctx.shown = false;
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
 });
+
+test("a passed write test counts for a week, for the same account and tenant (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`const WRITE_PASS_DAYS = 7; ${src.match(/function savedWriteRow\([\s\S]*?\n}\n/)[0]}; this.f = savedWriteRow;`, ctx);
+  const now = Date.parse("2026-10-20T12:00:00Z");
+  const saved = { user: "ana@contoso.com", tenant: "t1", workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev", at: "2026-10-18T12:00:00Z" };
+  assert.match(ctx.f(saved, "ana@contoso.com", "t1", now).text, /Sales Dev/);
+  assert.strictEqual(ctx.f(saved, "bob@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t2", now), null);  // another tenant
+  assert.strictEqual(ctx.f({ ...saved, lakehouse_id: "" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(saved, "ana@contoso.com", "t1", Date.parse("2026-10-25T12:00:01Z")), null);  // expired
+  assert.strictEqual(ctx.f({ ...saved, at: "nonsense" }, "ana@contoso.com", "t1", now), null);
+  assert.strictEqual(ctx.f(null, "ana@contoso.com", "t1", now), null);
+});
+
+test("a failed or refused write test, and signing out, forget the saved pass (#191)", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const store = new Map();
+  const localStorage = { setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k), getItem: (k) => store.get(k) ?? null };
+  const ctx = { localStorage, state: { user: "ana@contoso.com", tenant: "t1" } };
+  vm.runInNewContext(`${src.match(/function rememberWrite\([\s\S]*?\n}\n/)[0]}; this.f = rememberWrite;`, ctx);
+  const target = { workspace_id: "w", lakehouse_id: "l", workspace: "Sales Dev" };
+  ctx.f({ status: "ok" }, target);
+  const saved = JSON.parse(store.get("fd.ready.write"));
+  assert.deepStrictEqual([saved.user, saved.tenant, saved.lakehouse_id], ["ana@contoso.com", "t1", "l"]);
+  ctx.f(undefined, target);  // refused or threw: attempt() returned nothing
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  ctx.f({ status: "ok" }, target);
+  ctx.f({ status: "fail" }, target);
+  assert.strictEqual(store.has("fd.ready.write"), false);
+  // The dialog reports every outcome, and the card keeps a way to test again.
+  assert.match(src, /done\(result, \{ workspace_id: ws\.value, lakehouse_id: lhSelect\.value/);
+  assert.doesNotMatch(src, /if \(result\) done\(result\)/);
+  assert.match(src, /"Test again"/);
+  const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
+  assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
+});

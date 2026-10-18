@@ -20,17 +20,23 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import time
 import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
 from . import envprofile
+from .onelake import check_name
 from .redact import secrets
 
 FORMAT = "fabric-desktop-replay"
 VERSION = 1
 SAMPLE_ROWS = 1000
+# A bundle holds code and a few samples. Anything bigger was not written by Fabric Desktop.
+MAX_BUNDLE_JSON = 64 * 1024 * 1024
+MAX_SAMPLE_FILE = 256 * 1024 * 1024
+_SAMPLE_FILE = re.compile(r"^samples/\d+\.parquet$")
 
 
 def _private(text: str) -> str:
@@ -168,14 +174,47 @@ def read(path: Path) -> dict[str, Any]:
     """bundle.json from a bundle file, checked to be one."""
     try:
         with zipfile.ZipFile(path) as z:
-            bundle = json.loads(z.read("bundle.json"))
-    except (zipfile.BadZipFile, KeyError, ValueError) as exc:
+            info = z.getinfo("bundle.json")
+            if info.file_size > MAX_BUNDLE_JSON:  # checked before reading: a small zip can unpack to gigabytes
+                raise ValueError(f"{path.name} is too large to be a replay bundle.")
+            bundle = json.loads(z.read(info))
+            members = {i.filename: i.file_size for i in z.infolist()}
+    except (zipfile.BadZipFile, KeyError) as exc:
         raise ValueError(f"{path.name} isn't a replay bundle.") from exc
-    if bundle.get("format") != FORMAT:
+    except ValueError as exc:
+        if "too large" in str(exc):
+            raise
+        raise ValueError(f"{path.name} isn't a replay bundle.") from exc
+    if not isinstance(bundle, dict) or bundle.get("format") != FORMAT:
         raise ValueError(f"{path.name} isn't a replay bundle.")
     if int(bundle.get("version", 0)) > VERSION:
         raise ValueError(f"{path.name} was saved by a newer Fabric Desktop. Update the app to open it.")
+    try:
+        _check_names(bundle, members)
+    except (TypeError, KeyError, AttributeError, ValueError) as exc:
+        raise ValueError(f"{path.name} isn't a replay bundle: {exc}") from exc
     return bundle
+
+
+def _check_table(table: Any) -> None:
+    """A bundle's table name is schema.table or table, each a name Fabric allows: never a path."""
+    schema, _, name = str(table).rpartition(".")
+    if schema:
+        check_name("schema", schema)
+    check_name("table", name)
+
+
+def _check_names(bundle: dict[str, Any], members: dict[str, int]) -> None:
+    """Every table a bundle names, and every sample file, is one a replay may use. A replay builds its
+    sandbox paths from these names, so a hand-edited bundle must not be able to point outside it."""
+    for t in (bundle.get("inputs") or {}).get("tables") or []:
+        _check_table(t["table"])
+    for s in bundle.get("samples") or []:
+        _check_table(str(s["table"]).split("/", 1)[-1])
+        if not _SAMPLE_FILE.match(str(s["file"])) or s["file"] not in members:
+            raise ValueError(f"the sample file {s['file']!r} isn't in the bundle's samples folder")
+        if members[s["file"]] > MAX_SAMPLE_FILE:
+            raise ValueError(f"the sample file {s['file']} is too large")
 
 
 def sample_tables(bundle: dict[str, Any]) -> list[dict[str, Any]]:

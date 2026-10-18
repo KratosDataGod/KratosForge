@@ -28,7 +28,7 @@ from .notebook import check_watches
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
-from .onelake import DFS_HOST, FileStore, TableRef, storage_options
+from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
 from .proof_runtime import PROOF_ROOT
 from .side_by_side import machine
 
@@ -368,6 +368,8 @@ class ProveMixin:
                 table = s["table"].split("/", 1)[-1]
                 if table in tables:
                     schema, name = replay_key(table).split(".", 1)
+                    check_name("schema", schema)  # replay.read checked it too: never build a path from a bad name
+                    check_name("table", name)
                     uri = f"{root}/{PROOF_ROOT}/{rid}/pc/tables/{schema}/{name}"
                     write_deltalake(uri, pq.read_table(z.open(s["file"])), storage_options=options())
 

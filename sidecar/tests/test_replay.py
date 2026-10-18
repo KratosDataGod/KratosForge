@@ -430,3 +430,48 @@ def test_bundles_in_downloads_are_listed(tmp_path, monkeypatch):
     (downloads / "replay-junk.zip").write_bytes(b"x")
     rows = call(s, "replay_bundles_list")
     assert [(r["file"], r["notebook"], r["failed_cell"]) for r in rows] == [("replay-events-1.zip", "events", 3)]
+
+
+def tampered(path: Path, change: Callable[[dict[str, Any]], None]) -> Path:
+    """The bundle at ``path`` with bundle.json changed by ``change``, as someone could hand-edit it."""
+    out = path.with_name("tampered.zip")
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(out, "w") as dst:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "bundle.json":
+                b = json.loads(data)
+                change(b)
+                data = json.dumps(b).encode()
+            dst.writestr(item.filename, data)
+    return out
+
+
+EVIL = "../../../../../../Tables/dbo.evil"
+
+
+@pytest.mark.parametrize("change", [
+    lambda b: [t.update(table=EVIL) for t in b["inputs"]["tables"]],
+    lambda b: [s.update(table=f"LH_Bronze/{EVIL}") for s in b["samples"]],
+    lambda b: [s.update(file="../outside.parquet") for s in b["samples"]],
+])
+def test_a_bundle_cannot_name_a_table_or_file_outside_its_own(tmp_path, monkeypatch, change):
+    s, lh = replay_service(tmp_path, monkeypatch)
+    try:
+        bad = tampered(bundle_file(tmp_path, sample=pa.table({"id": [9]})), change)
+        out = handle(s, json.dumps({"id": 1, "method": "replay_bundle_open", "params": {"path": str(bad)}}))
+        assert "isn't a replay bundle" in json.dumps(out["error"]), out
+        assert not (lh / "Files" / "tables").exists() and not (lh / "Tables" / "dbo" / "evil").exists()
+        # Checked again when the replay seeds its sandbox, so a bundle changed after it was opened is refused too.
+        with pytest.raises(ValueError, match="isn't a replay bundle"):
+            replay.read(bad)
+    finally:
+        s.kernel.close()
+
+
+def test_an_oversized_bundle_json_is_refused_before_it_is_read(tmp_path, monkeypatch):
+    monkeypatch.setattr(replay, "MAX_BUNDLE_JSON", 1000)
+    big = tmp_path / "big.zip"
+    with zipfile.ZipFile(big, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("bundle.json", json.dumps({"format": replay.FORMAT, "version": 1, "pad": " " * 5000}))
+    with pytest.raises(ValueError, match="too large"):
+        replay.read(big)

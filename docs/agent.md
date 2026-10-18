@@ -20,7 +20,7 @@ fabric-desktop agent enqueue ─┼─> durable queue (SQLite) ─> worker ─> 
 - **No one at the keyboard.** The agent signs in as an app identity. Nothing ever opens a sign-in window.
 - **Durable queue.** Jobs are kept in `queue.sqlite3` in the agent's home folder. A job is `queued`, then `running`, then `succeeded`, `failed` or `dead`. A running job holds a lease that its worker renews; if the worker dies (crash, reboot, killed service), the lease runs out and the job is put back in the queue on the next start.
 - **Retries that make sense.** Network errors, throttling (HTTP 429 and 5xx), a lost Delta commit race and a table busy with another writer are retried, waiting `backoff_seconds`, then twice that, up to `max_backoff_seconds`, for `max_attempts` tries in all. A retry runs only the tables that didn't finish. A job that still fails is `dead` and posts to Teams. A table that fails its checks is `failed` straight away, since running it again would fail the same way.
-- **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
+- **Safe concurrent writes.** The engine writes a table by reading it, merging new rows and committing the result. Before it starts an entity, the agent takes a **write lease** on that table: a small file in the environment's `LH_Meta` lakehouse under `Files/_fabric_desktop/leases/`, created with `If-None-Match: *`, renewed with `If-Match`, and deleted when done. A second writer waits for it (up to `table_lease_seconds`), then retries later. An abandoned lease expires after `table_lease_seconds`. For a local environment the lease files are in its `.local` folder, and taking one over is a single step across every process on the PC, so two writers never both win an expired lease. A worker that can't renew its lease for a whole `table_lease_seconds` (OneLake unreachable, say) treats it as lost and reports the run that way. Every write, from the agent, the desktop app or a run in Fabric, also commits against the Delta version it read: if anyone committed to the table since, Delta refuses the commit and the engine re-reads the table and merges again (up to 3 times), so no writer's rows are lost even without a lease.
 - **Schedules.** `[[schedule]]` entries fire in the machine's local time: every N minutes, daily at set times, or weekly. A schedule that comes due while its last run is still queued or running doesn't add a second job. A schedule missed while the agent was down runs once when it starts.
 - **Fabric pipelines can ask for runs.** With `[pipeline]` turned on, a pipeline writes a run request to the environment's `LH_Meta` and waits for the agent's answer next to it. See [Run from a Fabric pipeline](#run-from-a-fabric-pipeline).
 - **Guard rails.** The agent runs only the environments listed in `agent.environments`, writes only to the workspaces in `agent.workspaces` when you set it, and never creates lakehouses: an environment is set up by promoting to it from the app.
@@ -70,6 +70,7 @@ Secrets never go in `agent.toml`, and the agent refuses to start if one does. A 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `agent.name` | host name | The worker's name in logs and run rows |
+| `agent.owner` | none | Who looks after this agent (a team or contact), shown in the app as written |
 | `agent.project` | required | The metadata project folder |
 | `agent.environments` | required | The environments this agent may run |
 | `agent.workspaces` | any | Workspace ids this agent may write to |
@@ -177,6 +178,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
+| `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
@@ -185,10 +187,10 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `incidents` | Whether it checks [incidents](#incidents-preview) and how often, its quiet hours, escalation, and each route's name and filters. Webhook addresses and the variables holding them are never included |
 | `counts` | This environment's jobs in each state: `queued`, `running`, `succeeded`, `failed`, `dead`, `cancelled` |
 | `running` | Each running job: `job_id`, `source`, `attempts`, `entities`, `started_at` |
-| `schedules` | This environment's schedules and when each fires `next` |
+| `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
 
-Fields may be added within contract 1; readers should ignore fields they don't know. A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
+Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
 
 ### Incidents (Preview)
 

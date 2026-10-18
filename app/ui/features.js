@@ -28,7 +28,8 @@ function railFeatures(bottom = false) {
 function railItem(f) {
   const view = Object.keys(f.views || {})[0];
   const lit = [view, ...(f.rail.also || [])].includes(state.view);
-  return h("button", { class: `rail-item${lit ? " active" : ""}`, onclick: () => go(view) }, icon(f.rail.icon, 22), f.rail.label);
+  return h("button", { class: `rail-item${lit ? " active" : ""}`, "aria-current": lit ? "page" : null, onclick: () => go(view) },
+    icon(f.rail.icon, 22), f.rail.label);
 }
 
 // ---------- preview ----------
@@ -61,6 +62,11 @@ const PREVIEW_FEATURES = {
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
+  rollback: "Roll back a release",
+  promote: "Promote",
+  syncKeys: "Sync keys",
+  varlib: "Variable library",
+  replay: "Quarantine replay",
 };
 
 function previewShown() {
@@ -76,6 +82,13 @@ function preview(id, node) {
   if (!PREVIEW_FEATURES[id]) return node;
   if (!previewShown()) return null;
   node.append(previewTag());
+  return node;
+}
+
+// The node with a Preview tag while preview features are shown; the node alone otherwise. For core
+// steps (promote, sync keys) that are untested on a tenant but must not disappear with the setting.
+function previewMarked(id, node) {
+  if (PREVIEW_FEATURES[id] && previewShown()) node.append(previewTag());
   return node;
 }
 
@@ -135,7 +148,7 @@ function openPalette(initial = "") {
       const row = h("button", { class: `palette-item${i === palette.selected ? " on" : ""}`, role: "option",
         onmousemove: () => { if (palette.selected !== i) { palette.selected = i; draw(); } },
         onclick: () => { close(); it.run(); } }, icon(it.icon, 16), it.label);
-      return [head, row];
+      return head ? [head, row] : [row];  // replaceChildren would print a null as the text "null"
     }) : [h("div", { class: "palette-empty" }, "Nothing matches. Try fewer letters.")]));
     list.querySelector(".on")?.scrollIntoView({ block: "nearest" });
     return items;

@@ -185,6 +185,9 @@ class Authenticator:
         if app_settings.tenant_allowed(tenant):
             return
         self.sign_out()
+        if app_settings.read_policy()[1]:  # a broken policy file lets no account in: say so, not "wrong account"
+            raise RuntimeError("Your organization's settings file for Fabric Desktop by KratosBI can't be read, so "
+                               "no account can sign in until IT fixes it. Settings > Help and about shows the problem.")
         raise RuntimeError("Your organization only allows signing in with its own work accounts, and this account "
                            "belongs to another organization. Sign in with your work account.")
 

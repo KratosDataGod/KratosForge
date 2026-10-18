@@ -39,8 +39,13 @@ When it has been tried on a tenant, remove it from `PREVIEW_FEATURES`. The tag g
 ## Words and help
 
 - Plain words people use, not internal names. "Run in Fabric", not "submit job".
+- Ask before deleting or overwriting data with `confirmDialog(title, text, verb, { danger: true })`: the verb button is red and Cancel has focus. Title the question "Delete *name*?" or "Overwrite *name*?", say in the text what is lost, and use the action's verb on the button. Add `typeToConfirm: name` for overwriting a table or anything in Prod.
 - Every page header ends with `learnMore("<anchor>")`, linking to its section of [user-guide.md](user-guide.md). Add the section in the same pull request.
 - Errors go through `friendlyError` (`activity.js`), which turns known causes into a sentence and says what to do.
+
+## UX review
+
+A pull request that changes a screen gets a UX review against the [usability release gates](ux/release-review.md). The [navigation architecture](ux/navigation.md) says where planned features go; a new rail item, Monitor segment or Platform tab needs a mockup first.
 
 ## Releases
 

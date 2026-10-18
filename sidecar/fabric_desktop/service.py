@@ -619,13 +619,15 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
                 for f in lakehouse.open_table(table).schema().fields]
 
     def _schemas_enabled(self, workspace_id: str, lakehouse_id: str) -> bool:
-        """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse."""
+        """Fabric reports a defaultSchema only for lakehouses created with schemas. Asked once per lakehouse.
+        A failed lookup raises: guessing wrong puts a table in Tables/dbo/x or Tables/x, the wrong folder."""
         if lakehouse_id not in self._schema_cache:
             try:
                 props = self.fabric.get_lakehouse(workspace_id, lakehouse_id).get("properties") or {}
-                self._schema_cache[lakehouse_id] = bool(props.get("defaultSchema"))
-            except Exception:  # offline or no access: keep the schema layout this app creates
-                return True
+            except Exception as exc:
+                raise RuntimeError(f"Couldn't ask Fabric whether this lakehouse uses schemas ({type(exc).__name__}: {exc}), "
+                                   "so its table folders aren't known. Nothing was read or written; try again.") from exc
+            self._schema_cache[lakehouse_id] = bool(props.get("defaultSchema"))
         return self._schema_cache[lakehouse_id]
 
     def restart_kernel(self) -> dict[str, Any]:

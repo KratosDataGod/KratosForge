@@ -251,7 +251,7 @@ def test_vacuum_keeps_the_history_the_layer_promises(vacuum_svc):
     (args, kw), = jobs
     assert kw == {"vacuum_retention": "30.01:00:00", "optimize": False}
     assert out["keep_days"] == 30 and out["job_id"] == "job-1" and out["name"] == "Vacuum LH_Silver dbo.orders"
-    assert "vacuum|x" in svc._settings()["xray_fixed"]
+    assert svc._settings()["xray_submitted"]["vacuum|x"]["job_id"] == "job-1"  # submitted, not fixed
     svc.xray_optimize("ws-dev", "lh-silver", "orders", "dbo", "LH_Silver", "Dev")
     assert jobs[1][1] == {"vacuum_retention": "30.01:00:00"}  # Optimize's vacuum keeps it too
 

@@ -9,8 +9,8 @@ Last updated: 2026-10-18.
 | Feature | Branch | PR | State |
 | --- | --- | --- | --- |
 | ORCH-001 Pipeline definition engine | `claude/orch-001-pipeline-definitions-b6ql2h` | #130 | Merged 2026-10-17 |
-| ORCH-002 Activity compatibility registry | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | #150 | Open for review |
-| ORCH-003 Local pipeline execution engine | built on ORCH-002 | see GitHub | Open for review |
+| ORCH-002 Activity compatibility registry | `claude/orch-001-pipeline-definitions-b6ql2h` (restarted from main) | #150 | Merged 2026-10-18 |
+| ORCH-003 Local pipeline execution engine | `claude/orch-003-local-runs-b6ql2h` | #218 | Draft, waiting on Chris |
 
 Chris authorized ORCH-002 on 2026-10-18 and ORCH-003 the same day ("Good idea. Do this", answering the recommended next PR). The next stage needs his go. Chris merges PRs himself.
 

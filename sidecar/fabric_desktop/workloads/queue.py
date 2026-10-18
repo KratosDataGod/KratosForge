@@ -10,7 +10,9 @@ Monitoring hub.
 Rows: ``{"state": "running" | "queued" | "unknown" | "next" | "missed", "what", "env", "where",
 "owner", "at", "text", "started_by", "note"}``; an agent's rows add ``as_of``, its last heartbeat. ``where`` is ``{"kind": "pc" | "agent" | "fabric",
 "name"}``. An agent that stopped reporting has its last report shown as it was: what it was running
-is ``unknown``, and a schedule it should have run since is ``missed``.
+is ``unknown``, and a schedule it should have run since is ``missed``. A schedule several agents
+share through the mailbox (``shared``, shared_schedules.py) is one row, ``where`` ``{"kind": "agents",
+"names"}``, since each due time runs once on whichever of them claims it.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ def _source(source: Any) -> str:
 
 def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime, until: dt.datetime) -> list[dict[str, Any]]:
     rows = []
+    shared: dict[tuple[str, str], list[tuple[str, bool, dt.datetime, Any, Any]]] = {}
     for env, records in by_env.items():
         for r in records:
             name = str(r.get("agent") or "")
@@ -70,6 +73,9 @@ def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime, until:
                 at = _when(s.get("next"))
                 if at is None or at > until:
                     continue
+                if s.get("shared") is True:
+                    shared.setdefault((env, str(s.get("id"))), []).append((name, live, at, s.get("entities"), r.get("heartbeat_at")))
+                    continue
                 missed = at <= now
                 if missed and live:  # it is about to start it
                     missed = False
@@ -80,7 +86,23 @@ def agent_rows(by_env: dict[str, list[dict[str, Any]]], now: dt.datetime, until:
                              "text": "", "started_by": "",
                              "note": f"Runs once when {name} is back" if missed else ("" if live else note)})
             rows[start:] = _as_of(rows[start:], r.get("heartbeat_at"))
-    return rows
+    return rows + [_shared_row(env, sid, held, now) for (env, sid), held in shared.items()]
+
+
+def _shared_row(env: str, sid: str, held: list[tuple[str, bool, dt.datetime, Any, Any]], now: dt.datetime
+                ) -> dict[str, Any]:
+    names = sorted({h[0] for h in held})
+    live = [h for h in held if h[1]]
+    at = min(h[2] for h in (live or held))
+    entities = held[0][3]
+    missed = not live and at <= now
+    note = f"Shared by {', '.join(names)}: runs once, on whichever claims it"
+    return {"state": "missed" if missed else "next",
+            "what": _what(entities, "Every table" if isinstance(entities, list) else "Tables not named (an older agent)"),
+            "env": env, "where": {"kind": "agents", "name": ", ".join(names), "names": names},
+            "owner": f"shared schedule {sid}", "at": _iso(at), "text": "", "started_by": "",
+            "note": note + (". None of them is reporting" if not live else ""),
+            "as_of": max((str(h[4]) for h in held if h[4]), default=None)}
 
 
 def _as_of(rows: list[dict[str, Any]], beat: Any) -> list[dict[str, Any]]:

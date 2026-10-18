@@ -35,7 +35,7 @@ Shared work goes through the environment's mailbox, which every agent serving th
    - Before each table, once its lease is held, a running agent reads the request's status. If another agent has it, it stops without writing or recording that table. That catches an agent that comes back mid-run.
    - An agent with no status record, or one that can't be read, is never judged lost. A minute's grace past `stale_after` covers clock differences.
    - A takeover counts as one attempt, using the existing `max_attempts`. After that many, the request is `failed`, with every agent that tried it named, so a request that crashes every agent doesn't move round the pool forever.
-4. **What the app shows.** [Queue](../user-guide.md#queue-preview) labels a shared schedule's row "shared by etl-01, etl-02". A run that was taken over names both agents. "Scheduled in two places" no longer flags agents that share a schedule this way.
+4. **What the app shows.** [Queue](../user-guide.md#queue-preview) shows a shared schedule as one row, "Shared by etl-01, etl-02", and the agent page tags it Shared. "Scheduled in two places" no longer flags agents that share a schedule this way. Built in the PR after takeover. Not built: naming both agents on a run that was taken over. Agent status records list running jobs, not their mailbox status, so the app would have to read `status/` files. That waits until someone asks for it.
 
 ## What it does not do
 

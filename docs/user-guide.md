@@ -364,7 +364,7 @@ The line at the top says how each source was read. **This PC** is its schedules.
 
 **Running and queued** lists what each agent is running and how many jobs it has queued, and the Fabric jobs this app started that haven't finished. An agent's status record counts its queued jobs but doesn't list them. For an agent that stopped reporting, what it was running shows as **Unknown**, from its last report; it picks those jobs up again when it is back.
 
-**Next 24 hours** lists each schedule due in the next day, with when it runs. A schedule that an agent should have run while it was down shows as **Missed**; the agent runs it once when it is back. A Fabric schedule says how often it runs, not when it runs next, so it is listed with its pattern, after the rest.
+**Next 24 hours** lists each schedule due in the next day, with when it runs. A schedule that an agent should have run while it was down shows as **Missed**; the agent runs it once when it is back. A [shared schedule](agent.md#shared-schedules-preview) is one row that names every agent sharing it, because each due time runs once on whichever claims it; it is **Missed** only when none of them is reporting. On an agent's page, such a schedule is tagged **Shared**. A Fabric schedule says how often it runs, not when it runs next, so it is listed with its pattern, after the rest.
 
 A run Windows Task Scheduler started on this PC isn't listed while it runs; it shows in **Runs** when it finishes. Fabric work that this app didn't start isn't listed either. It is in Fabric's own Monitoring hub, in the bottom half of Monitor. The page doesn't poll your tenant.
 

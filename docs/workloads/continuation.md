@@ -19,6 +19,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
 | `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
 | `claude/workload-multi-worker-4su03b` | FD-124 part 1 | Shared schedules through the mailbox and `claim = "when_free"`, off by default, untested on a tenant | Draft, on 5C |
+| `claude/workload-shared-labels-4su03b` | FD-124 step 4 | Queue shows a shared schedule as one row naming its agents; agent page tags it Shared | Draft, on part 2 |
 | `claude/workload-takeover-4su03b` | FD-124 part 2 | `take_over = true`: take over requests from an agent past `stale_after`, with `If-Match`; a returning agent stands down before its next table | Draft, on part 1 |
 
 ## Completed backlog items
@@ -27,7 +28,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Next action: FD-124 step 4, the app labels ("shared by", "taken over from" on Queue and Agents; no overlap warning for shared schedules), then governance views.
+- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Step 4 labels are built too (no "taken over from" label: it would need the app to read mailbox status files). Next action: governance views (check FD-129/130 with the enterprise thread first), then cost allocation on FinOps #153's `cost_report.usage.by_run`.
 - The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.

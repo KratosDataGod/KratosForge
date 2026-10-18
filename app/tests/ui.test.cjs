@@ -582,6 +582,8 @@ test("Queue is a Preview feature on Monitor that only reads and labels who owns 
   vm.runInNewContext(`${src.match(/const QU_STATE = \{[\s\S]*?\n};\n/)[0]}${src.match(/function quStatePill\([\s\S]*?\n}\n/)[0]}; this.pill = quStatePill;`, ctx);
   assert.strictEqual(ctx.pill({ state: "something new" }).text, "Unknown");
   assert.strictEqual(ctx.pill({ state: "running" }).text, "Running");
+  assert.match(src, /w\.kind === "agents"/);  // a shared schedule's row names every agent sharing it
+  assert.match(fs.readFileSync(path.join(ui, "agents.js"), "utf8"), /s\.shared \? h\("span", \{ class: "pill-s neu"/);
 });
 
 test("an incident goes to the routes that match it, else the default, never the escalation route", () => {

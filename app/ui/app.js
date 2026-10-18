@@ -582,8 +582,8 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
-  const wide = ["workloads", "incidents", "agents"].includes(monitorPage.panel);
+  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
+  const wide = monitorPage.panel !== "runs";
   const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
@@ -603,7 +603,7 @@ async function renderMonitor() {
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : "monitor")),
         h("span", { class: "spacer" }),
-        wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        ["workloads", "incidents", "agents"].includes(monitorPage.panel) ? null : btn("Refresh", "sync", () => render(), "tool outline")),
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),
@@ -672,12 +672,12 @@ async function renderMonitor() {
   const bad = (r) => (r.status === "failed" || r.status === "needs_decision" ? 0 : r.status === "running" ? 1 : 2);
   if (monitorPage.problemsFirst) rows.sort((a, b) => bad(a) - bad(b));  // stable: newest first within each group
   local.replaceWith(rows.length ? h("div", { class: "monitor-scroll" }, h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
+    h("thead", {}, h("tr", {}, ["Status", "Activity", "Env", "Ran on", "When", "Took", "Rows", ""].map((c) => h("th", ["Took", "Rows"].includes(c) ? { class: "n" } : {}, c)))),
     h("tbody", {}, rows.map((r) => h("tr", r.open ? { class: "click", onclick: r.open } : {},
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
+      h("td", {}, ENV_LABEL[r.env] || r.env || h("span", { class: "muted-text", title: "Notebook writes and this PC's schedules aren't tied to an environment" }, "None")), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"

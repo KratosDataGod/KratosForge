@@ -350,7 +350,7 @@ async function renderEntity() {
           h("span", { class: "mono" }, e.path))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
-          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete"))) return;
+          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
           const res = await metaCall("meta_delete_entity", { name: e.name }, "Not deleted");
           if (res) { toast(`Deleted ${e.name}`); goMeta("entities"); }
         }, "tool outline"),
@@ -911,7 +911,7 @@ function keyTableDetail(t, k, rerender) {
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush mono" }, t.table), h("span", { class: "spacer" }),
       btn("Delete", "delete", async () => {
-        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete"))) return;
+        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete", { danger: true }))) return;
         const res = await metaCall("meta_delete_key_table", { name: t.name, env: k.env }, "Not deleted");
         if (res) { toast(`Deleted ${t.name}`); state.meta.keyTable = null; rerender(); }
       }, "tool outline small", { disabled: t.used_by.length ? true : null, title: t.used_by.length ? "Tables still use it" : "Delete" })),
@@ -1035,7 +1035,7 @@ async function renderSourcesTab(body) {
   const form = h("div", { class: "card pad source-form" },
     h("div", { class: "row" }, h("h2", { class: "flush" }, m.source === "new" ? "New source system" : current.code), h("span", { class: "spacer" }),
       m.source === "new" ? null : btn("Delete", "delete", async () => {
-        if (!(await confirmDialog(`Delete ${current.code}?`, "It is removed from source_systems.toml. Sync to remove it from LH_Keys too.", "Delete"))) return;
+        if (!(await confirmDialog(`Delete ${current.code}?`, "It is removed from source_systems.toml. Sync to remove it from LH_Keys too.", "Delete", { danger: true }))) return;
         const res = await metaCall("meta_delete_source_system", { id: current.id, env: m.env }, "Not deleted");
         if (res) { toast(`Deleted ${current.code}`); pick(null); }
       }, "tool outline small"),

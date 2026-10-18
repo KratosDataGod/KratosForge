@@ -794,6 +794,11 @@ test("the risk gate passes quietly, never runs a blocked item and needs the tick
   assert.deepStrictEqual(acks.map((a) => a.risk_id), ["r2"]);
 });
 
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+});
+
 // The pure helpers at the top of replay.js.
 function replayHelpers() {
   const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
@@ -1070,4 +1075,14 @@ test("a failed or refused write test, and signing out, forget the saved pass (#1
   assert.match(src, /"Test again"/);
   const signOut = src.slice(src.indexOf("async function signOut"), src.indexOf("// ---------- account menu"));
   assert.match(signOut, /localStorage\.removeItem\("fd\.ready\.write"\)/);
+});
+
+test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const dataops = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  for (const [src, verb] of [[meta, "Delete"], [dataops, "Discard"]]) {
+    const calls = src.match(new RegExp(`confirmDialog\\(\`${verb} [^\\n]*`, "g"));
+    assert.ok(calls && calls.length, verb);
+    for (const c of calls) assert.match(c, new RegExp(`"${verb}", \\{ danger: true \\}\\)`), c);
+  }
 });

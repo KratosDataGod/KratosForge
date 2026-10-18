@@ -47,6 +47,9 @@ from .notebook import Kernel, NotebookStore, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
 
+# How long a cell start waits for an external tool's run that holds the attached lakehouse.
+ATTACH_WAIT_SECONDS = 10.0
+
 
 def data_dir() -> Path:
     base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
@@ -418,11 +421,20 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
         ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
-        self._attach(lakehouse_ref)
-        self.kernel.notebook_name = notebook or ""
-        if isinstance(self.kernel, ProcessKernel):
-            return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
-        return self.kernel.start(code, check_watches(watches))
+        # Busy is checked before attaching, under the lock external runs take: a refused start must
+        # not re-point the running cell, and an external run can't re-point this one as it starts.
+        if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
+            raise RuntimeError("An external tool is running against a lakehouse. Try again when it has finished.")
+        try:
+            if self.kernel.poll().get("status") == "running":
+                raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+            self._attach(lakehouse_ref)
+            self.kernel.notebook_name = notebook or ""
+            if isinstance(self.kernel, ProcessKernel):
+                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
+            return self.kernel.start(code, check_watches(watches))
+        finally:
+            self.attach_lock.release()
 
     def poll_cell(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
         return self.kernel.poll(version, wait)
@@ -446,13 +458,38 @@ class Service(PipelineMixin, GitMixin, IncidentMixin, WorkloadMixin, ShortcutMix
         scopes = _AUDIENCES.get(audience) or [audience.rstrip("/") + "/.default"]
         return self.auth._token(scopes)
 
+    @property
+    def attach_lock(self) -> threading.RLock:
+        """Held while the engine's one attached lakehouse is set for a run (external runs hold it
+        for the whole run); reentrant, as an external run_sql attaches through run_sql."""
+        if getattr(self, "_attach_lock", None) is None:
+            self._attach_lock = threading.RLock()
+        return self._attach_lock
+
     def _attach(self, lakehouse_ref: dict[str, str] | None) -> None:
-        lakehouse.attach(None if not lakehouse_ref else lakehouse.Attached(
-            workspace_id=lakehouse_ref["workspace_id"], lakehouse_id=lakehouse_ref["lakehouse_id"],
-            name=lakehouse_ref["name"], workspace_name=lakehouse_ref.get("workspace_name") or "",
-            storage_token=lambda: self.auth.storage_token(),
-            work_dir=self.root, history_file=self.history_file,
-            schemas_enabled=lambda: self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])))
+        # Bounded like start_cell: an external tool's query holds the lock while it runs, and the
+        # engine's one pipe must not freeze behind it.
+        if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
+            raise RuntimeError("An external tool is running against a lakehouse. Try again when it has finished.")
+        try:
+            # A cell running in the engine reads the attached lakehouse as it goes; a process
+            # kernel has its own copy from when the cell started.
+            kernel = getattr(self, "kernel", None)
+            current = lakehouse._attached
+            attached = (current.workspace_id, current.lakehouse_id) if current else None
+            wanted = (lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"]) if lakehouse_ref else None
+            if (wanted != attached and kernel is not None and not isinstance(kernel, ProcessKernel)
+                    and kernel.poll().get("status") == "running"):
+                raise RuntimeError(f"A cell is running against {current.name if current else 'no lakehouse'}. "
+                                   "Wait for it, or Cancel it, before using another lakehouse.")
+            lakehouse.attach(None if not lakehouse_ref else lakehouse.Attached(
+                workspace_id=lakehouse_ref["workspace_id"], lakehouse_id=lakehouse_ref["lakehouse_id"],
+                name=lakehouse_ref["name"], workspace_name=lakehouse_ref.get("workspace_name") or "",
+                storage_token=lambda: self.auth.storage_token(),
+                work_dir=self.root, history_file=self.history_file,
+                schemas_enabled=lambda: self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])))
+        finally:
+            self.attach_lock.release()
 
     # SQL query page: Spark SQL over one lakehouse's tables, run on this PC.
 

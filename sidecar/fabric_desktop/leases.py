@@ -61,12 +61,48 @@ class Backend(Protocol):
     def delete(self, key: str, etag: str) -> bool: ...
 
 
+@contextmanager
+def _file_lock(path: Path) -> Iterator[None]:
+    """An exclusive lock on ``path`` held across processes (the app, scheduled runs, agents)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # retries for about 10 s, then raises
+                    break
+                except OSError:
+                    continue
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
 class LocalBackend:
     """Lease files in a folder on this machine (local environments, and tests)."""
 
     def __init__(self, folder: Path):
         self.folder = Path(folder)
+        # Read, compare and replace must be one step for every process on the machine, or two of
+        # them taking over the same expired lease both win. The thread lock keeps threads of one
+        # process off the file lock, which on Windows is per process.
         self._lock = threading.Lock()
+
+    @contextmanager
+    def _exclusive(self) -> Iterator[None]:
+        with self._lock, _file_lock(self.folder / ".lock"):
+            yield
 
     def _path(self, key: str) -> Path:
         return self.folder / (key.replace("/", "__") + ".json")
@@ -111,7 +147,7 @@ class LocalBackend:
         return None
 
     def replace(self, key: str, data: bytes, etag: str) -> str | None:
-        with self._lock:
+        with self._exclusive():
             now = self.read(key)
             if now is None or now.etag != etag:
                 return None
@@ -121,7 +157,7 @@ class LocalBackend:
             return self._etag(data)
 
     def delete(self, key: str, etag: str) -> bool:
-        with self._lock:
+        with self._exclusive():
             now = self.read(key)
             if now is None or now.etag != etag:
                 return False
@@ -250,6 +286,7 @@ class Held:
     def __init__(self, leases: Leases, key: str, etag: str):
         self.leases, self.key, self.etag = leases, key, etag
         self.lost = False
+        self._renewed = leases.clock()  # when the lease was last known to be ours
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._renew, daemon=True, name=f"lease-{key}")
 
@@ -260,12 +297,16 @@ class Held:
         while not self._stop.wait(self.leases.ttl / 3):
             try:
                 etag = self.leases.backend.replace(self.key, self.leases._body(), self.etag)
-            except Exception:  # a network blip: try again at the next beat, the lease still has time
+            except Exception:  # a network blip: try again at the next beat while the lease has time
+                if self.leases.clock() - self._renewed >= self.leases.ttl:
+                    # Unrenewed past its length: another writer may have taken it over by now.
+                    self.lost = True
+                    return
                 continue
             if etag is None:
                 self.lost = True
                 return
-            self.etag = etag
+            self.etag, self._renewed = etag, self.leases.clock()
 
     def stop(self) -> None:
         self._stop.set()

@@ -184,6 +184,7 @@ class Store:
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
+        delta_profile.check_target(uri, self.options())
         target: Any = uri
         extra: dict[str, Any] = {}
         if mode == "overwrite" and read_version is not False:
@@ -204,7 +205,7 @@ class Store:
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def write_stream(self, lakehouse: str, schema: str, table: str, rows: Any,
@@ -216,6 +217,7 @@ class Store:
         uri = self.uri(lakehouse, schema, table)
         if isinstance(self, LocalStore):
             Path(uri).mkdir(parents=True, exist_ok=True)
+        delta_profile.check_target(uri, self.options())
         target: Any = uri
         extra: dict[str, Any] = {"mode": "error"}
         if read_version is not None:
@@ -230,7 +232,7 @@ class Store:
                 raise CommitFailedError(f"{table} was created by another writer meanwhile") from exc
             raise
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
@@ -276,13 +278,15 @@ class Store:
             # A new table: created empty only if still absent, then merged into like any other.
             self.create_if_absent(lakehouse, schema, table, dict(df.schema))
             target = DeltaTable(uri, storage_options=self.options(), version=0)
-        if version is not None and DeltaTable(uri, storage_options=self.options()).version() != version:
+        current = DeltaTable(uri, storage_options=self.options())
+        delta_profile.check_table(current)
+        if version is not None and current.version() != version:
             raise CommitFailedError(f"{table} changed since version {version}")
         predicate = " AND ".join(f"t.{c} = s.{c}" for c in on)
         target.merge(df.to_arrow(), predicate, source_alias="s", target_alias="t") \
             .when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version()
 
     def upsert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
@@ -302,6 +306,7 @@ class Store:
         concurrent insert there conflicts.
         """
         uri = self.uri(lakehouse, schema, table)
+        delta_profile.check_target(uri, self.options())
         target = DeltaTable(uri, storage_options=self.options(), version=read_version)
         # The keys' range bounds the target rows that can match, so delta-rs skips files by their
         # statistics and scans less (a 1,000-row merge into 5 million rows peaks at half the memory).
@@ -316,7 +321,7 @@ class Store:
                                commit_properties=CommitProperties(custom_metadata=metadata) if metadata else None) \
             .when_matched_update_all().when_not_matched_insert_all().execute()
         dt_ = DeltaTable(uri, storage_options=self.options())
-        delta_profile.check_table(dt_)
+        delta_profile.note_after_write(dt_)
         return dt_.version(), metrics
 
     def history(self, lakehouse: str, schema: str, table: str, limit: int = 20) -> list[dict[str, Any]]:

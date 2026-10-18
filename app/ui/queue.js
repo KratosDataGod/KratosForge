@@ -23,6 +23,7 @@ function quStatePill(r) {
 function quWhere(r) {
   const w = r.where || {};
   if (w.kind === "agent") return btn(`Agent ${w.name}`, null, () => openAgent(w.name), "tool link small");
+  if (w.kind === "agents") return h("span", {}, "Agents ", (w.names || []).map((n, i) => [i ? ", " : "", btn(n, null, () => openAgent(n), "tool link small")]));
   return w.kind === "fabric" ? `Fabric · ${w.name}` : w.name || "";
 }
 

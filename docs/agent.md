@@ -182,6 +182,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `contract`, `kind` | `1` and `agent_status` |
 | `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
+| `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
 | `env`, `environments` | The environment this record is for, and every environment the agent runs |
 | `started_at`, `heartbeat_at`, `stale_after` | UTC times. Treat an agent as **offline** once `stale_after` (three beats after `heartbeat_at`) has passed without a newer record |
@@ -193,7 +194,7 @@ Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each envi
 | `schedules` | This environment's schedules: `id`, when each fires `next`, the `entities` it runs (an empty list means every entity) and `when` as written in agent.toml (`{"kind": "cron", "every_minutes"}`, `{"kind": "daily", "times"}` or `{"kind": "weekly", "times", "weekdays"}`) |
 | `recent` | The last 10 finished jobs: `job_id`, `state`, `source`, `finished_at`, `error` (first 300 characters) |
 
-Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
+Fields may be added within contract 1; readers should ignore fields they don't know. Agents built before these fields were added leave out `owner`, `identity`, `credential` and each schedule's `entities` and `when`; read a missing field as unknown, never as "all" or "none". A record that can't be written (OneLake unreachable, `LH_Meta` missing) is logged and tried again at the next beat; it never stops the agent.
 
 ### Incidents (Preview)
 

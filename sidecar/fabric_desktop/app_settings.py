@@ -57,9 +57,11 @@ Keys:
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
 
-Restrictions fail closed. A policy file that exists but can't be read, or a restriction with the
-wrong kind of value, gives that restriction its most restrictive value (RESTRICTED here, and
-integrations/policy.py's for its keys) rather than the default; a missing file means no policy.
+Restrictions fail closed. A policy file that exists but can't be read is replaced by the last copy
+that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
+last applied settings; with no copy, and for a restriction with the wrong kind of value, that
+restriction takes its most restrictive value (RESTRICTED here, and integrations/policy.py's for its
+keys) rather than the default. A missing file means no policy, and deletes the copy.
 Other keys of the wrong kind are skipped, so the next place (environment, user, default) applies.
 policy_problems() says what in the policy file was ignored or restricted and why, so a typo doesn't
 fail silently.
@@ -133,23 +135,66 @@ def _read(path: Path) -> dict[str, Any]:
     return {k: v for k, v in data.items() if k in DEFAULTS} if isinstance(data, dict) else {}
 
 
-def read_policy() -> tuple[dict[str, Any], str | None]:
-    """The policy file's settings, and why the file can't be used when it exists but can't be read
-    (then every restriction takes its most restrictive value). No file: ({}, None)."""
+def saved_policy_path() -> Path:
+    """The last policy file that could be read, kept for when the file later breaks."""
+    return user_path().with_name("policy-last-good.json")
+
+
+def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
+    """(settings, why the file can't be used, whether the saved copy stands in for it)."""
     path = policy_path()
+    saved = saved_policy_path()
     try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        text = path.read_text(encoding="utf-8-sig")
+        data = json.loads(text)
     except FileNotFoundError:
-        return {}, None
+        saved.unlink(missing_ok=True)  # IT removed the policy: an old copy mustn't come back later
+        return {}, None, False
     except (OSError, ValueError) as exc:
         reason = f"can't be read as JSON ({exc})" if isinstance(exc, ValueError) else f"can't be opened ({exc})"
     else:
         if isinstance(data, dict):
-            return data, None
+            _save_copy(saved, text)
+            return data, None, False
         reason = "must hold one JSON object"
+    try:
+        copy = json.loads(saved.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        copy = None
+    if isinstance(copy, dict):
+        return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
+                      "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
                 "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
-                "external AI tools off")
+                "external AI tools off"), False
+
+
+def _save_copy(saved: Path, text: str) -> None:
+    try:
+        if saved.exists() and saved.read_text(encoding="utf-8") == text:
+            return
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        tmp = saved.with_name(f"{saved.name}.{os.getpid()}.tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, saved)
+    except OSError:  # no copy this time; the policy itself still applies
+        pass
+
+
+def _saved_at(saved: Path) -> str:
+    import datetime as dt
+    try:
+        return "saved " + dt.datetime.fromtimestamp(saved.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        return "saved earlier"
+
+
+def read_policy() -> tuple[dict[str, Any], str | None]:
+    """The policy file's settings, and why nothing can stand in for it when it exists but can't be
+    read (then every restriction takes its most restrictive value). A broken file is replaced by the
+    last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
+    data, reason, from_copy = _policy_file()
+    return data, None if from_copy else reason
 
 
 def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
@@ -182,10 +227,10 @@ def _read_engine_info() -> dict[str, Any]:
 
 def policy_problems() -> list[str]:
     """What in the organization's policy file is ignored or restricted, and why; empty when all of it applies."""
-    data, error = read_policy()
-    if error:
-        return [error]
-    problems = []
+    data, reason, from_copy = _policy_file()
+    if reason and not from_copy:
+        return [reason]
+    problems = [reason] if reason else []
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")

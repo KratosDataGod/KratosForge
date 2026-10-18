@@ -39,7 +39,7 @@ def test_policy_problems_are_reported_not_applied(policy):
     assert any(p.startswith("allowed_tenants must list tenant ids") for p in problems)
     assert app_settings.value("auto_update") is True  # a string "false" is ignored, not read as true or false
     policy("{not json")
-    assert "none of it applies" in app_settings.policy_problems()[0]
+    assert "last copy that could be read" in app_settings.policy_problems()[0]  # the file above was read
     policy("[]")
     assert "one JSON object" in app_settings.policy_problems()[0]
 

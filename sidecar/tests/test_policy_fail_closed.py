@@ -160,3 +160,38 @@ def test_sign_in_blocked_by_a_broken_file_says_so(files):
     files({"allowed_tenants": [AWAY]})
     with pytest.raises(RuntimeError, match="belongs to another organization"):
         Authenticator._check_tenant(Signed(), {"id_token_claims": {"tid": HOME}})
+
+
+def test_a_broken_file_keeps_the_last_copy_that_could_be_read(files):
+    files({"allow_fabric_runs": False, "show_preview": True, "allowed_tenants": [HOME]})
+    assert app_settings.load()["allow_fabric_runs"]["value"] is False  # read once: a copy is kept
+    files('{"allow_fabric_runs": true,')  # IT's next push has a stray comma
+    s = app_settings.load()
+    assert s["allow_fabric_runs"] == {"value": False, "source": "policy"}
+    assert s["show_preview"] == {"value": True, "source": "policy"}  # not locked down: the copy applies
+    assert app_settings.tenant_allowed(HOME) and not app_settings.tenant_allowed(AWAY)
+    assert app_settings.read_policy()[1] is None  # so sign-in isn't blocked
+    [problem] = app_settings.policy_problems()
+    assert str(files.path) in problem and "last copy that could be read" in problem
+    files({"allow_fabric_runs": True})  # fixed: the new file applies, and becomes the copy
+    assert app_settings.load()["allow_fabric_runs"]["value"] is True and app_settings.policy_problems() == []
+    files("{broken")
+    assert app_settings.load()["allow_fabric_runs"]["value"] is True
+
+
+def test_removing_the_file_forgets_the_copy(files):
+    files({"allow_fabric_runs": False})
+    app_settings.load()
+    files.path.unlink()  # IT removed the policy
+    assert app_settings.load()["allow_fabric_runs"] == {"value": True, "source": "default"}
+    assert not app_settings.saved_policy_path().exists()
+    files("{broken")  # a broken file later has no old copy to fall back on
+    assert_everything_restricted()
+
+
+def test_a_damaged_copy_fails_closed(files):
+    files({"show_preview": True})
+    app_settings.load()
+    app_settings.saved_policy_path().write_text("{damaged")
+    files("{broken")
+    assert_everything_restricted()

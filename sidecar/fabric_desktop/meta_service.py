@@ -10,7 +10,7 @@ from typing import Any
 
 import polars as pl
 
-from . import duties, lakehouse, receipts
+from . import duties, lakehouse
 from .meta import keys as keys_mod
 from .meta import lineage, release
 from .meta import mesh
@@ -18,7 +18,9 @@ from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, i
 from .meta.engine import RunResult
 from .onelake import storage_options
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
-from .meta.promote import promote_checks
+from .meta import diff as diff_mod
+from .meta import snapshot
+from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 
@@ -366,15 +368,32 @@ class MetaMixin:
         """What running ``name`` on this PC would read and whether it fits in memory, from the Delta
         log only: for the run dialog."""
         project = self._project()
-        engine = Engine(project, self._store(project, env), source_options=self._source_options,
+        store = self._store(project, env)
+        project = self._released(project, env, store)
+        engine = Engine(project, store, source_options=self._source_options,
                         link_table=self._link_table(project, env))  # type: ignore[attr-defined]
         return engine.preflight(name, backfill)
+
+    def _released(self, project: Project, env: str, store: Store) -> Project:
+        """What ``env`` runs: in Test and Prod, the files of the release it is on, as it keeps them
+        (meta/snapshot.py), whatever this folder holds now. An environment last promoted before
+        releases kept their files runs this folder, which must then be on that release."""
+        if env == "dev":
+            return project
+        deps = store.meta("deployments").filter(pl.col("env") == env)
+        if not deps.height or deps["version"][-1] == project.version:
+            return project
+        try:
+            return snapshot.restore(project, store, deps["version"][-1])
+        except LookupError:
+            return project  # Engine.check_deployed says the folder isn't on the release
 
     def _run_here(self, project: Project, env: str, names: list[str] | None = None, backfill: str | None = None,
                   cascade: bool = False) -> list[dict[str, Any]]:
         """Run on this PC, whatever the environment's compute (schedules on this PC use it)."""
-        keys_store = self._keys_store(project, env, create=env == "dev") if self._uses_keys(project, names) else None
         store = self._store(project, env, create=env == "dev")
+        project = self._released(project, env, store)
+        keys_store = self._keys_store(project, env, create=env == "dev") if self._uses_keys(project, names) else None
         engine = Engine(project, store, keys_store=keys_store, source_options=self._source_options,
                         link_table=self._link_table(project, env))  # type: ignore[attr-defined]
         if cascade and names and len(names) == 1:
@@ -495,6 +514,50 @@ class MetaMixin:
         """Where the project's files stand in Git (read with this PC's git; no network)."""
         return release.status(self._project().root)
 
+    def meta_releases(self, env: str) -> dict[str, Any]:
+        """Every release to ``env``, newest first, and whether each can be rolled back to. Reads only."""
+        project = self._project()
+        try:
+            history = releases(self._store(project, env))
+        except Exception as exc:  # noqa: BLE001 - the environment can't be read: say so
+            return {"env": env, "releases": [], "problem": str(exc)}
+        return {"env": env, "releases": history, "problem": None}
+
+    def meta_rollback_preview(self, env: str, version: str) -> dict[str, Any]:
+        """What rolling ``env`` back to ``version`` changes, by meaning, entity by entity. Reads only."""
+        project = self._project()
+        store = self._store(project, env)
+        history = releases(store)
+        if not history:
+            raise LookupError(f"Nothing has been promoted to {env.title()} yet.")
+        configs = store.meta("entities")
+
+        def texts(v: str) -> dict[str, str]:
+            rows = configs.filter(pl.col("version") == v).unique("name", keep="last")
+            return {r["name"]: r["config"] for r in rows.iter_rows(named=True)}
+        changes = diff_mod.project_changes(texts(history[0]["version"]), texts(version))
+        return {"env": env, "from": history[0]["version"], "to": version, "entities": changes}
+
+    def meta_rollback(self, env: str, version: str) -> dict[str, Any]:
+        """Put Test or Prod back on an earlier release, from the files that environment keeps. The
+        workspace role check of a promote applies; tables keep their rows until their next run."""
+        if env == "dev":
+            raise ValueError("Dev runs this folder; roll back with Git instead.")
+        project = self._project()
+        errors, _ = self._duties_gate(project, env, env, separation=False)  # undoing a release isn't a second promote
+        if errors:
+            raise GateError("rollback", errors)
+        store = self._store(project, env)
+        result = rollback(project, store, version, duties.current_user())
+        released = result.pop("project")
+        if self._compute(project, env) == "fabric":  # type: ignore[attr-defined]
+            try:  # so scheduled runs in Fabric run the release rolled back to
+                self._fabric_bundle(released, env, store)  # type: ignore[attr-defined]
+                result["fabric"] = "synced"
+            except Exception as exc:  # the rollback itself worked; the next run uploads again
+                result["fabric"] = f"not synced: {exc}"
+        return result
+
     def meta_last_release(self, env: str) -> dict[str, Any]:
         """The last release promoted to ``env`` from its ``meta.deployments`` row, and whether the
         stored receipt still hashes to its id. Reads only."""
@@ -511,10 +574,7 @@ class MetaMixin:
                 "by", "receipt_id")
         out = {k: row.get(k) for k in keep}
         receipt = row.get("receipt")
-        try:
-            out["verified"] = bool(receipt) and receipts.receipt_id(json.loads(receipt)) == row.get("receipt_id")
-        except (ValueError, KeyError, TypeError):
-            out["verified"] = False
+        out["verified"] = release.verified(receipt, row.get("receipt_id"))
         out["receipt"] = receipt  # the canonical record, for Copy record
         return {"env": env, "release": out, "problem": None}
 
@@ -529,7 +589,7 @@ class MetaMixin:
         return [], [f"The release record can't name a pushed commit that holds these files: {'; '.join(found)}"]
 
     def _duties_gate(self, project: Project, source: str, target: str,
-                     src: Any = None) -> tuple[list[str], list[str]]:
+                     src: Any = None, separation: bool = True) -> tuple[list[str], list[str]]:
         """Before writing to Test or Prod: the person's workspace roles there, and with
         ``separate_promoter = true`` on the target, that they didn't promote this version to the
         source themselves (FD-130). Reads only; see duties.py."""
@@ -538,7 +598,7 @@ class MetaMixin:
             return [], []
         errors: list[str] = []
         notes: list[str] = []
-        if cfg.get("separate_promoter"):
+        if cfg.get("separate_promoter") and separation:
             try:
                 store = src or self._store(project, source)
                 deps = store.meta("deployments")

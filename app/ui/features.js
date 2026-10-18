@@ -61,6 +61,7 @@ const PREVIEW_FEATURES = {
   integrations: "External AI tools",
   releases: "Release records",
   lineage: "Column lineage",
+  rollback: "Roll back a release",
 };
 
 function previewShown() {

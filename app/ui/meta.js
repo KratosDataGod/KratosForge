@@ -669,7 +669,7 @@ async function renderEnvTab(body, p) {
           if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
-      box, promoteImpact(source, target), lastRelease(target));
+      box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
     promoteRow("dev", "test"), promoteRow("test", "prod"));

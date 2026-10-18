@@ -52,6 +52,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
 | [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
+| [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or can only run in Fabric, per activity and property (Preview) |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
 | [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |

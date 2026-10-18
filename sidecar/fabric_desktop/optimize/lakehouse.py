@@ -7,42 +7,17 @@ reads. The folder on this PC is laid out like a lakehouse and is what the tests 
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable
 
 import polars as pl
 
 from ..meta.store import LocalStore, OneLakeStore
 from ..onelake import FileStore, TableRef
+from ..retrying import local_retry
 from . import schema
 
 NAME = "optimization"  # the one lakehouse these stores hold, as meta/store.py's methods name it
-
-T = TypeVar("T")
-
-
-def _windows_log_race(exc: BaseException) -> bool:
-    """Windows refuses to open a Delta log file another process or thread is writing or renaming
-    (os error 5 "Access is denied", os error 32 "being used by another process"). The file is
-    complete a moment later, so the call is safe to repeat."""
-    text = str(exc)
-    return isinstance(exc, OSError) and "_delta_log" in text and ("os error 5)" in text or "os error 32)" in text)
-
-
-def _local_retry(fn: Callable[[], T], attempts: int = 6, backoff: float = 0.05) -> T:
-    """Repeat ``fn`` while it hits the Windows Delta log race, a bounded number of times. Every
-    call wrapped here is safe to repeat: create-if-absent, an insert-only MERGE on record_id, an
-    add-columns that re-reads the schema, or a read. Any other error is raised at once."""
-    for attempt in range(attempts):
-        try:
-            return fn()
-        except OSError as exc:
-            if attempt == attempts - 1 or not _windows_log_race(exc):
-                raise
-            time.sleep(backoff * (2 ** attempt))
-    raise AssertionError("unreachable")
-
 
 class _Tables:
     """The calls Optimize makes, by table name (``fdopt_...``)."""
@@ -92,24 +67,25 @@ class LocalLakehouse(_Tables, LocalStore):
     def uri(self, lakehouse: str, schema_: str, table: str) -> str:
         return str(self.root / "Tables" / (f"{schema_}/{table}" if self.schemas else table))
 
-    # Two installations sharing a folder on Windows can hit the Delta log race (_windows_log_race).
+    # Two installations sharing a folder on Windows can hit the Delta log race (retrying.windows_log_race).
+    # LocalStore covers its own repeat-safe calls; these also cover exists, scan and the add-columns append.
     def has(self, name: str) -> bool:
-        return _local_retry(lambda: super(LocalLakehouse, self).has(name))
+        return local_retry(lambda: super(LocalLakehouse, self).has(name))
 
     def rows(self, name: str) -> pl.DataFrame | None:
-        return _local_retry(lambda: super(LocalLakehouse, self).rows(name))
+        return local_retry(lambda: super(LocalLakehouse, self).rows(name))
 
     def columns_of(self, name: str) -> dict[str, pl.DataType]:
-        return _local_retry(lambda: super(LocalLakehouse, self).columns_of(name))
+        return local_retry(lambda: super(LocalLakehouse, self).columns_of(name))
 
     def create(self, name: str, columns: dict[str, pl.DataType]) -> bool:
-        return _local_retry(lambda: super(LocalLakehouse, self).create(name, columns))
+        return local_retry(lambda: super(LocalLakehouse, self).create(name, columns))
 
     def add_columns(self, name: str, columns: dict[str, pl.DataType]) -> list[str]:
-        return _local_retry(lambda: super(LocalLakehouse, self).add_columns(name, columns))
+        return local_retry(lambda: super(LocalLakehouse, self).add_columns(name, columns))
 
     def insert_new(self, name: str, df: pl.DataFrame) -> int:
-        return _local_retry(lambda: super(LocalLakehouse, self).insert_new(name, df))
+        return local_retry(lambda: super(LocalLakehouse, self).insert_new(name, df))
 
     def table_names(self) -> list[str]:
         folder = self.root / "Tables" / (schema.SCHEMA if self.schemas else "")

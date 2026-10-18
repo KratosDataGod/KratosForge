@@ -227,6 +227,14 @@ def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, en
     return svc.risk_check(workload_id, action, env or None)
 
 
+def check_pipeline_compatibility(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
+    return svc.pipeline_compatibility(text=definition)
+
+
+def get_activity_registry(svc: Any, ctx: CallContext, activity_type: str = "") -> dict[str, Any]:
+    return svc.pipeline_activity_registry(activity_type or None)
+
+
 def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
     nb = svc.notebooks.load(name)
     return {"name": name} | svc.prove_check(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace"))

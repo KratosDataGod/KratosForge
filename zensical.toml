@@ -50,6 +50,7 @@ nav = [
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
+    { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },

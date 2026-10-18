@@ -347,3 +347,22 @@ def test_billed_totals_are_shown_per_capacity_and_never_matched_to_runs():
     assert cap["days"] == 2 and cap["first_day"] == "2026-10-15" and cap["last_day"] == "2026-10-16"
     assert cap["cu"]["value"] == pytest.approx(620.5) and cap["cost"][0]["value"] == pytest.approx(111.77)
     assert cap["meters"]["Data Warehouse Capacity Usage CU"] == 2
+
+
+def test_month_to_date_exports_that_repeat_days_are_counted_once(tmp_path):
+    # Export A ran mid-day on the 16th (partial day); export B, a day later, repeats the 15th and has the full 16th.
+    head = COST.splitlines()[0]
+    line = lambda day, qty, cost: (f"10/{day}/2026,Microsoft Fabric,Fabric Capacity,Data Warehouse Capacity Usage CU,"  # noqa: E731
+                                   f"{qty},1 Hour,{cost},EUR,{CAP},ContosoF64,Usage,OnDemand")
+    a = "\n".join([head, line(15, 96, "17.28"), line(16, 40, "7.20")]) + "\n"
+    b = "\n".join([head, line(15, 96, "17.28"), line(16, 96, "17.28"), line(17, 96, "17.28")]) + "\n"
+    svc = Service(root=tmp_path)
+    svc.usage_import("a.csv", a)
+    preview = svc.usage_preview("b.csv", b)
+    assert preview["already_imported"] == 1 and preview["replaces_earlier"] == 1 and preview["to_import"] == 2
+    svc.usage_import("b.csv", b)
+    imports = svc._usage.all()
+    r = rc.reconcile(imports, [], {}, NOW - dt.timedelta(days=30), NOW + dt.timedelta(days=2), now=NOW)
+    [cap] = r["billed"]
+    assert cap["cu"]["value"] == pytest.approx(288) and cap["cost"][0]["value"] == pytest.approx(51.84)
+    assert cap["days"] == 3

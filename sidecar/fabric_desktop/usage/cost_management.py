@@ -114,10 +114,14 @@ class CostManagement(Provider):
                          source=source, method=f"{layout.columns['quantity'][0]} x {unit!r} of a compute meter ({meter})",
                          collected_at=ctx.imported_at, period_start=start, period_end=end, uncertainty=BILLED,
                          reconciliation="unreconciled")
-        key = "cost_management:" + hashlib.sha256(json.dumps(
-            [resource_id.lower(), meter, reader.iso(start), reader.iso(end), cells.get("charge_type"), cells.get("pricing"),
-             quantity, cost, currency]).encode()).hexdigest()[:24]
-        return {"key": key, "provider": self.id, "layout": layout.id, "level": layout.level, "workspace": None,
+        # The same capacity, meter, day and charge in two exports: a month-to-date export repeats
+        # earlier days, and its last day may still be growing. "slot" names that cell, so the
+        # export imported last replaces it; "key" also has the amounts, so an identical row is a duplicate.
+        slot_of = [resource_id.lower(), meter, reader.iso(start), reader.iso(end), cells.get("charge_type"),
+                   cells.get("pricing"), currency]
+        slot = "cost_management:" + hashlib.sha256(json.dumps(slot_of).encode()).hexdigest()[:24]
+        key = "cost_management:" + hashlib.sha256(json.dumps(slot_of[:6] + [quantity, cost, currency]).encode()).hexdigest()[:24]
+        return {"key": key, "slot": slot, "provider": self.id, "layout": layout.id, "level": layout.level, "workspace": None,
                 "item": None, "capacity_id": resource_id.lower(), "capacity": capacity, "meter": meter or None,
                 "meter_category": cells.get("meter_category") or None, "unit": unit or None, "quantity": quantity,
                 "charge_type": cells.get("charge_type") or None, "pricing": cells.get("pricing") or None,

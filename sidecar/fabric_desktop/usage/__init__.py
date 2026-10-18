@@ -52,10 +52,12 @@ def _overlaps(a: tuple[Any, Any], b: tuple[Any, Any]) -> bool:
 
 
 def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, known_keys: set[str] | None = None,
-         imports: list[dict[str, Any]] | None = None, now: dt.datetime | None = None) -> dict[str, Any]:
+         known_slots: set[str] | None = None, imports: list[dict[str, Any]] | None = None,
+         now: dt.datetime | None = None) -> dict[str, Any]:
     """Check a usage file and say what importing it would add.
 
-    ``known_keys`` are rows already imported (skipped as duplicates); ``imports`` are earlier
+    ``known_keys`` are rows already imported (skipped as duplicates); ``known_slots`` are cost rows
+    already imported, which a changed row for the same day replaces; ``imports`` are earlier
     imports, to refuse the same file twice and overlapping item totals. The result has
     ``ready`` and, when not ready, ``problem`` (and ``needs`` when the person must choose
     something). ``rows`` are the measurements to save; everything else is the preview."""
@@ -103,7 +105,8 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
     kept: list[dict[str, Any]] = []
     skipped: dict[str, list[int]] = {}
     seen: set[str] = set()
-    in_file = already = 0
+    in_file = already = replaces = 0
+    known_slots = known_slots or set()
     for line, c in enumerate(cells, start=2):
         r = provider.row(c, layout, ctx)
         if isinstance(r, str):
@@ -116,6 +119,7 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
         if r["key"] in known_keys:
             already += 1
             continue
+        replaces += r.get("slot") in known_slots
         kept.append(r | {"line": line})
     workspaces = sorted({r["workspace"] for r in kept if r.get("workspace")})
     capacities = sorted({r["capacity"] for r in kept if r.get("capacity")})
@@ -149,6 +153,7 @@ def read(text: str, file_name: str, options: dict[str, Any] | None = None, *, kn
         "options": {"tz": opts.tz, "decimal": decimal, "date_order": order,
                     "period_start": reader.iso(period[0]), "period_end": reader.iso(period[1])},
         "rows_read": len(cells), "to_import": len(kept), "duplicates_in_file": in_file, "already_imported": already,
+        "replaces_earlier": replaces,
         "skipped": [{"reason": k, "count": len(v), "lines": v[:_SAMPLE]} for k, v in
                     sorted(skipped.items(), key=lambda kv: -len(kv[1]))],
         "period": {"start": reader.iso(min(starts)) if starts else None, "end": reader.iso(max(ends)) if ends else None},

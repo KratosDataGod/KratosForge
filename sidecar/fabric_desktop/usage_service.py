@@ -26,7 +26,7 @@ class UsageMixin:
     def _usage_read(self, file_name: str, content: str, options: dict[str, Any] | None) -> dict[str, Any]:
         store = self._usage
         return usage.read(content or "", str(file_name or "usage.csv")[:200], options,
-                          known_keys=store.keys(), imports=store.summaries())
+                          known_keys=store.keys(), known_slots=store.slots(), imports=store.summaries())
 
     def usage_preview(self, file_name: str, content: str, options: dict[str, Any] | None = None) -> dict[str, Any]:
         """What importing a usage file would add, without saving anything."""

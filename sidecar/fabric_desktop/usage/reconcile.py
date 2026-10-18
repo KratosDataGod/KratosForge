@@ -77,14 +77,16 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
             start, end = ms.parse_time(p["start"]), ms.parse_time(p["end"])
             if r.get("start"):
                 if start and since <= start < until:
-                    rows.append(r | {"_import": imp["id"], "_start": start, "_end": end or start})
+                    rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                     "_start": start, "_end": end or start})
             elif start and end and since <= start and end <= until:
-                rows.append(r | {"_import": imp["id"], "_start": start, "_end": end})
+                rows.append(r | {"_import": imp["id"], "_imported_at": imp.get("imported_at") or "",
+                                 "_start": start, "_end": end})
             elif start and end and start < until and since < end:
                 outside += 1  # a period total that only partly falls in the period can't be split
         sources[imp["id"]] = imp.get("imported_at") or ""
 
-    billed_rows = [r for r in rows if r.get("level") == "capacity"]
+    billed_rows = _latest(r for r in rows if r.get("level") == "capacity")
     rows = [r for r in rows if r.get("level") != "capacity"]
 
     app_runs = []
@@ -175,6 +177,18 @@ def reconcile(imports: list[dict[str, Any]], runs: list[dict[str, Any]], estimat
         "tolerance_s": TOLERANCE_S,
         "billed": billed(billed_rows, capacity_envs or {}),
     }
+
+
+def _latest(rows: Any) -> list[dict[str, Any]]:
+    """Cost rows with one row per capacity, meter, day and charge: when several imports have the
+    same one (month-to-date exports repeat earlier days), the one imported last counts. Imports
+    come newest first (Store.all), so on a tie in import time the first one seen is kept."""
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        slot = r.get("slot") or r["key"]
+        if slot not in out or (r.get("_imported_at") or "") > (out[slot].get("_imported_at") or ""):
+            out[slot] = r
+    return list(out.values())
 
 
 def billed(rows: list[dict[str, Any]], capacity_envs: dict[str, list[str]]) -> list[dict[str, Any]]:

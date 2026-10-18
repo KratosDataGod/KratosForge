@@ -77,6 +77,8 @@ Only rows of a Fabric capacity are kept (a ResourceId of type `Microsoft.Fabric/
 - its **cost**, in its own billing currency, before credits and taxes. Amounts in different currencies are never added together;
 - its **CU hours**, only for a compute meter (Microsoft names them "... Capacity Usage CU") billed in hours. Storage meters and a reservation's own meter carry cost only.
 
+Month-to-date exports repeat the earlier days of the month, and their last day may still be growing. A row for a capacity, meter, day and charge type that an earlier import already has replaces it: the export imported last counts, and the preview says how many rows it replaces. An identical row is skipped as already imported. Import the newest export last.
+
 The card's **Billed per capacity** table shows each capacity, the days covered, the compute CU hours billed and the cost per currency, and which of your environments use that capacity (from the last capacity reading on this PC; see [Capacity of each environment](capacity.md)). These figures are for the whole capacity, so they are never matched to single runs or added to the Capacity Metrics figures.
 
 ## On this PC

@@ -12,6 +12,7 @@ Record, contract 1::
     {"contract": 1, "kind": "agent_status", "agent": "etl-01", "host": "srv-etl-01", "version": "0.21.0",
      "owner": "Sales data team" | null,                    # agent.owner in agent.toml, as written
      "identity": "service_principal" | "managed_identity" | "user",  # auth.type; no ids or secrets
+     "credential": {"kind", "expires_at", "last_token_at", "last_token_error"},  # facts only (credential_facts.py)
      "state": "running" | "stopping" | "stopped", "env": "prod", "environments": ["test", "prod"],
      "started_at": "...Z", "heartbeat_at": "...Z", "stale_after": "...Z", "status_seconds": 60,
      "concurrency": 1, "pipeline": {"enabled": true, "entities": [...], "allow_backfill": false},
@@ -28,8 +29,8 @@ Record, contract 1::
 A reader treats an agent whose ``stale_after`` has passed as offline: it stopped without saying
 so (a crash, a power cut, a lost network). ``stopped`` means it shut down cleanly. Fields may be
 added within contract 1; readers should ignore fields they don't know, and read a field an older
-agent leaves out as unknown (``owner``, ``identity``, and a schedule's ``entities`` and ``when``
-arrived after the first agents shipped). A schedule's empty ``entities`` means every entity.
+agent leaves out as unknown (``owner``, ``identity``, ``credential``, and a schedule's ``entities``
+and ``when`` arrived after the first agents shipped). A schedule's empty ``entities`` means every entity.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ import os
 import socket
 from typing import Any
 
-from . import __version__
+from . import __version__, credential_facts
 
 CONTRACT = 1
 RECENT = 10
@@ -64,6 +65,7 @@ def record(agent: Any, env: str, state: str = "running") -> dict[str, Any]:
         "contract": CONTRACT, "kind": "agent_status", "agent": cfg.name, "host": socket.gethostname(),
         "pid": os.getpid(), "version": __version__, "owner": cfg.owner or None,
         "identity": cfg.auth.get("type"), "state": state, "env": env,
+        "credential": credential_facts.facts(cfg.auth, getattr(agent.runtime, "_credential", None)),
         "environments": list(cfg.environments), "started_at": _iso(agent.started_at),
         "heartbeat_at": _iso(now), "stale_after": _iso(now + 3 * cfg.status_seconds),
         "status_seconds": cfg.status_seconds, "concurrency": cfg.concurrency,

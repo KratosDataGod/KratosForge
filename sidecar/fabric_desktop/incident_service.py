@@ -11,7 +11,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
-from . import __version__
+from . import __version__, app_settings
 from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
@@ -20,7 +20,7 @@ from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
 from .workloads.agents import agent_state, fleet, read_status
 from .workloads.overlap import overlaps
-from .workloads import queue
+from .workloads import queue, run_as
 from .workloads.notify import Outbox, send, single
 
 
@@ -116,9 +116,22 @@ class IncidentMixin:
         except Exception:  # noqa: BLE001  # an unreadable local log of this app's Fabric jobs: none to show
             runs = []
         cached = dict(getattr(self, "_fabric_schedules", None) or {})
-        sources["fabric_schedules"] = ({"state": "not_read"} if not cached else {"state": "reading"} if cached.get("pending")
-                                       else {"state": "error", "detail": cached["error"]} if cached.get("error")
-                                       else {"state": "read", "at": cached.get("scanned")})
+        sources["fabric_schedules"] = self._schedules_source(cached)
+        rows = queue.build(by_env, pc, runs, cached.get("items") or [], self._env_of(), now, hours)
+        return {"rows": rows, "sources": sources, "hours": hours}
+
+    def run_as_list(self) -> dict[str, Any]:
+        """Who runs each workload, with what credential, and where data goes (workloads/run_as.py):
+        your sign-in, agent status records and the Fabric schedules Schedules last read. Read only,
+        no Fabric call, never a sign-in window."""
+        now = dt.datetime.now(dt.timezone.utc)
+        envs, by_env = self._agent_records()
+        cached = dict(getattr(self, "_fabric_schedules", None) or {})
+        policy = {k: app_settings.value(k) for k in ("allow_fabric_runs", "allowed_tenants", "local_retention_days")}
+        out = run_as.build(self._wl_user(), by_env, cached.get("items") or [], self._env_of(), now, policy)  # type: ignore[attr-defined]
+        return out | {"sources": {"agents": envs, "fabric_schedules": self._schedules_source(cached)}}
+
+    def _env_of(self) -> dict[str, str]:
         env_of: dict[str, str] = {}
         try:
             for env, cfg in self._project().environments.items():  # type: ignore[attr-defined]
@@ -126,8 +139,13 @@ class IncidentMixin:
                     env_of[str(cfg["workspace_id"])] = env
         except Exception:  # noqa: BLE001  # no project open: Fabric rows show no environment
             pass
-        rows = queue.build(by_env, pc, runs, cached.get("items") or [], env_of, now, hours)
-        return {"rows": rows, "sources": sources, "hours": hours}
+        return env_of
+
+    @staticmethod
+    def _schedules_source(cached: dict[str, Any]) -> dict[str, Any]:
+        return ({"state": "not_read"} if not cached else {"state": "reading"} if cached.get("pending")
+                else {"state": "error", "detail": cached["error"]} if cached.get("error")
+                else {"state": "read", "at": cached.get("scanned")})
 
     def incidents_summary(self, workload: str = "") -> dict[str, Any]:
         """Active incidents per environment, for the environment chips and a workload's page. With

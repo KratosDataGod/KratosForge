@@ -52,6 +52,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
 | [docs/teams.md](docs/teams.md) | Working across teams: roles, Git workflow, environments, shared keys |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Each error message, what it means and what to do |
+| [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
 | [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why Fabric Desktop by KratosBI is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |

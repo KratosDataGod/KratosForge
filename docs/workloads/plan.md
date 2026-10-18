@@ -311,10 +311,10 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: run, cancel, enable/disable and run-now exist on separate pages. Enhancement: offered on the workload page only where the adapter supports them for that deployment. Acceptance: no pause/resume where none exists. Validation: U, UI. PR: —
 
 **36. Concurrency coordination** · Enhance · Stage 5 · *Dep review thread (PR #54)*
-- Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: —
+- Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: 5B (Monitor > Agents warns when an agent and this PC, or two agents, schedule the same table in one environment, whatever the times; Fabric schedules not compared yet)
 
 **37. Agent enrollment and inventory** · Enhance · Stage 5 · *Dep roadmap*
-- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: #133 (version, environments, what it runs; owner and identity type need fields the status record doesn't have yet)
+- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: #133 (version, environments, what it runs), agent fields PR (owner and identity type in the status record), 5B (shown on the agent page)
 
 **38. Agent health and heartbeat** · Missing · Stage 2.3, Stage 5 · *Dep roadmap (heartbeat records)*
 - Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident), #133 (version compared with the app)
@@ -488,3 +488,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | Stage 5A (FD-122): Monitor > Agents and the agent page, read-only over the status records; mockup boards 7 and 8. Overlap warnings (item 36) and the queue view across locations (item 34) follow. |
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |
 | 2026-10-17 | #125 (2.3B), #127 (2.3C) and #133 (5A) merged. Next: overlap warning, queue view across locations, FD-124. |
+| 2026-10-17 | The roadmap thread agreed four status-record fields: `owner`, `identity`, and each schedule's `entities` (empty = every table) and `when`. Stage 5B builds "Scheduled in two places" on them (item 36). |

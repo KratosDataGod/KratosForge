@@ -3523,9 +3523,10 @@
         "preview": true
       },
       "limitations": [
-        "Moving back to LH_Keys refused once new keys are issued"
+        "Moving back to LH_Keys refused once new keys are issued",
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision"
       ],
-      "next_action": "Run on Fabric SQL database before anyone moves real keys.",
+      "next_action": "Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)",
       "backlog": [
         "PB-052"
       ]
@@ -3561,10 +3562,11 @@
       },
       "limitations": [
         "Nothing in the app writes into LH_Landing",
-        "No extractors or connectors"
+        "No extractors or connectors",
+        "Direction change (Chris's unit testing, 2026-10-18, item 24): one central landing workspace in OneLake shared by Dev, Test and Prod, optionally split by domain with separate secure zones for PII and PHI (for example HR and HR-Secure); today each environment's Platform workspace has its own LH_Landing"
       ],
       "workstream": "Staged roadmap (FD-116)",
-      "next_action": "Guided ingestion after decision D2 (FD-116).",
+      "next_action": "Enterprise governance foundation redesigns landing for one shared landing workspace with domain and secure zones (item 24); guided ingestion still waits on D2 (FD-116)",
       "backlog": [
         "PB-030"
       ]
@@ -3605,13 +3607,14 @@
         "preview": true
       },
       "limitations": [
-        "Fabric domain import needs Tenant.Read.All and its shape is unverified"
+        "Fabric domain import needs Tenant.Read.All and its shape is unverified",
+        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of Fabric Desktop's own; the built-in glossary becomes a fallback or is retired"
       ],
       "prs": [
         48,
         50
       ],
-      "next_action": "Try on a tenant (data-mesh.md: not yet).",
+      "next_action": "Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call",
       "backlog": [
         "PB-052"
       ]
@@ -4017,12 +4020,13 @@
         "docs/incidents.md"
       ],
       "ui": {
-        "surface": "Agent only; no incident screens in the app",
+        "surface": "Monitor > Incidents (Chris used it in unit testing, 2026-10-18)",
         "preview": false
       },
       "limitations": [
         "Metadata tables only",
         "workloads/plan.md describes a Delta table; code uses a JSON document",
+        "Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream",
         "Numbers, priority and SLAs are in the engine only; the list doesn't show them yet"
       ],
       "prs": [
@@ -4032,11 +4036,12 @@
         127
       ],
       "workstream": "Workloads (FD-123)",
-      "next_action": "Implementation review of PRs #125 and #127",
+      "next_action": "Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127",
       "backlog": [
         "PB-047",
         "PB-077",
-        "PB-084"
+        "PB-084",
+        "PB-105"
       ]
     },
     {
@@ -4170,13 +4175,14 @@
       },
       "limitations": [
         "Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU)",
-        "Agent runs counted as local with no measured cost"
+        "Agent runs counted as local with no measured cost",
+        "Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath"
       ],
       "prs": [
         117
       ],
       "workstream": "Administration and FinOps sprint (FINOPS-001)",
-      "next_action": "Calibrate against the Capacity Metrics app and label every number estimated (PB-050).",
+      "next_action": "Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050)",
       "backlog": [
         "PB-050",
         "PB-104"

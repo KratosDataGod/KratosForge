@@ -152,6 +152,7 @@ class CloudMixin:
                  compute: str | None = None, workspace: dict[str, str] | None = None,
                  fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+        self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
@@ -390,6 +391,7 @@ class CloudMixin:
 
     def _run_in_fabric(self, project: Any, env: str, store: Any, names: list[str] | None,
                        backfill: str | None, cascade: bool) -> list[dict[str, Any]]:
+        project = self._released(project, env, store)  # type: ignore[attr-defined]
         self._check_runnable(project, store)
         where = self._fabric_bundle(project, env, store)
         request_id = f"fd-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
@@ -437,6 +439,7 @@ class CloudMixin:
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
         store = self._store(project, env, create=env == "dev")  # type: ignore[attr-defined]
+        project = self._released(project, env, store)  # type: ignore[attr-defined]
         self._check_runnable(project, store)
         where = self._fabric_bundle(project, env, store)
         self.fabric_jobs.create_schedule(where["workspace_id"], where["runner_id"], "RunNotebook", config)  # type: ignore[attr-defined]

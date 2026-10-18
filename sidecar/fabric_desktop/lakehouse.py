@@ -27,7 +27,7 @@ from deltalake import DeltaTable
 from deltalake.exceptions import TableNotFoundError
 
 from .onelake import FileStore, TableRef, storage_options
-from .publish import publish, stage_locally
+from .publish import publish, resolve_schema_mode, stage_locally
 
 MODES = ("overwrite", "append")
 
@@ -69,6 +69,34 @@ proof: Any = None
 # previews and lookups read the real lakehouse, not the proof's view of it. Every other thread (the
 # notebook's cells and any threads they start) goes through the proof.
 proof_exempt_thread: threading.Thread | None = threading.main_thread()
+
+
+# What the notebook's cells have read since the kernel started, for replay bundles (replay.py):
+# each table's Delta version when the notebook first read it (or the version before its first
+# write), and each Files/ file's local copy, hashed only when a bundle is saved. Reads from the
+# exempt thread (the Explorer) and during a proof (which keeps its own log) aren't the cells' own.
+reads: dict[str, dict[str, dict[str, Any]]] = {"tables": {}, "files": {}}
+
+
+def reads_reset() -> None:
+    reads["tables"].clear()
+    reads["files"].clear()
+
+
+def _record(kind: str, key: str, entry: Callable[[], dict[str, Any]]) -> None:
+    if proof is not None or threading.current_thread() is proof_exempt_thread or key in reads[kind]:
+        return
+    try:
+        reads[kind][key] = entry()
+    except Exception:  # noqa: BLE001 - a replay record never fails the cell's own read
+        pass
+
+
+def _record_table(ref: TableRef, version: int | None, first: str) -> None:
+    lh = _current()
+    _record("tables", f"{ref.lakehouse_id}/{ref.schema}.{ref.table}".lower(), lambda: {
+        "table": f"{ref.schema}.{ref.table}", "version": version, "first": first,
+        "workspace_id": ref.workspace_id, "lakehouse_id": ref.lakehouse_id, "lakehouse": lh.name})
 
 
 def _proof() -> Any:
@@ -157,6 +185,12 @@ def local_path(path: str) -> Path:
     got = FileStore(lh.storage_token).download(lh.workspace_id, lh.lakehouse_id, rel, dest)
     if (p := _proof()) is not None:
         p.file_read(rel, got)
+
+    def entry() -> dict[str, Any]:
+        st = got.stat()
+        return {"path": rel, "local": str(got), "bytes": st.st_size, "mtime_ns": st.st_mtime_ns,
+                "workspace_id": lh.workspace_id, "lakehouse_id": lh.lakehouse_id, "lakehouse": lh.name}
+    _record("files", f"{lh.lakehouse_id}/{rel}".lower(), entry)
     return got
 
 
@@ -183,7 +217,9 @@ def open_table(table: str) -> DeltaTable:
             raise TableNotFoundError(str(e)) from None
     opts = storage_options(_current().storage_token())
     try:
-        return DeltaTable(ref.uri, storage_options=opts)
+        opened = DeltaTable(ref.uri, storage_options=opts)
+        _record_table(ref, opened.version(), "read")
+        return opened
     except TableNotFoundError as e:
         folder = ref.uri.split("/Tables/", 1)[1]
         raise TableNotFoundError(f"No Delta table at Tables/{folder} in {_current().name}. "
@@ -229,10 +265,14 @@ def _to_arrow(data: Any) -> pa.Table:
     return pa.table(data)
 
 
-def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
-    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``."""
+def write_table(data: Any, table: str, mode: str = "overwrite", schema_mode: str | None = "auto") -> WriteResult:
+    """Write ``data`` to the attached lakehouse as the Delta table ``schema.table``.
+
+    ``schema_mode``: "auto" (the default) replaces the schema on overwrite; None refuses a
+    different schema, as Spark does; "merge" adds new columns; "overwrite" replaces it."""
     if mode not in MODES:
         raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    resolve_schema_mode(mode, schema_mode)
     started = time.monotonic()
     lh = _current()
     ref = table_ref(table)
@@ -242,9 +282,12 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     arrow = _to_arrow(data)
     stage_locally(arrow, lh.work_dir / "staging" / lh.lakehouse_id / ref.schema / ref.table)
     if (p := _proof()) is not None:
-        return _write_proof(p, arrow, ref, mode)
-    delta = publish(arrow, ref, mode, lh.storage_token())
+        return _write_proof(p, arrow, ref, mode, schema_mode)
+    token = lh.storage_token()
+    delta = publish(arrow, ref, mode, token) if schema_mode == "auto" else publish(arrow, ref, mode, token, schema_mode=schema_mode)
     result = WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, delta.version(), ref.uri)
+    # A table the notebook writes before reading starts, for a replay, at the version before that write.
+    _record_table(ref, result.delta_version - 1 if result.delta_version > 0 else None, "write")
     if lh.history_file:
         record = {"job": f"Notebook write to {lh.name}", "table_uri": ref.uri, "mode": mode,
                   "rows": result.rows, "delta_version": result.delta_version,
@@ -256,19 +299,19 @@ def write_table(data: Any, table: str, mode: str = "overwrite") -> WriteResult:
     return result
 
 
-def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str) -> WriteResult:
+def _write_proof(proof: Any, arrow: pa.Table, ref: TableRef, mode: str, schema_mode: str | None = "auto") -> WriteResult:
     """A write during a proof: to this run's sandbox, never the shared table."""
     from deltalake import write_deltalake
 
     from . import delta_profile
 
-    def write(uri: str, data: pa.Table, how: str = "overwrite") -> DeltaTable:
+    def write(uri: str, data: pa.Table, how: str = "overwrite", schema: str | None = "auto") -> DeltaTable:
         delta_profile.check_target(uri, proof.options())
         write_deltalake(uri, data, mode=how, storage_options=proof.options(),
-                        schema_mode="overwrite" if how == "overwrite" else None)
+                        schema_mode=resolve_schema_mode(how, schema))
         table = DeltaTable(uri, storage_options=proof.options())
         delta_profile.note_after_write(table)
         return table
     uri = proof.write_location(ref.schema, ref.table, mode, write)
-    table = write(uri, arrow, mode)
+    table = write(uri, arrow, mode, schema_mode)
     return WriteResult(f"{ref.schema}.{ref.table}", arrow.num_rows, table.version(), uri)

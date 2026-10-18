@@ -18,6 +18,7 @@ from deltalake import CommitProperties, DeltaTable, write_deltalake
 from deltalake.exceptions import TableNotFoundError
 
 from .. import delta_profile
+from ..retrying import local_retry
 from ..onelake import FileStore, TableRef, storage_options
 
 META_LAKEHOUSE = "LH_Meta"
@@ -44,6 +45,10 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
                     "engine_version": pl.String, "lock_hash": pl.String, "by": pl.String,
                     "receipt_id": pl.String, "receipt": pl.String},
     "entities": {"version": pl.String, "name": pl.String, "config": pl.String, "at": pl.String},
+    # Every file of a release promoted here, base64, so the environment runs and rolls back to
+    # exactly what was released (meta/snapshot.py).
+    "release_files": {"version": pl.String, "path": pl.String, "sha256": pl.String, "content": pl.String,
+                      "at": pl.String},
     "restores": {"entity": pl.String, "env": pl.String, "from_version": pl.Int64, "to_version": pl.Int64,
                  "new_version": pl.Int64, "by": pl.String, "reason": pl.String, "at": pl.String},
     # Files an entity has loaded (path under the lakehouse's Files, size, modified time), so the next
@@ -53,7 +58,8 @@ META_SCHEMAS: dict[str, dict[str, pl.DataType]] = {
 }
 # Delta returns rows in no particular order, so every meta table is sorted by when it was written.
 _ORDER = {"run_log": "started_at", "dq_results": None, "watermarks": "at", "schema_history": "at",
-          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at"}
+          "deployments": "at", "entities": "at", "restores": "at", "loaded_files": "at",
+          "release_files": "at"}
 
 
 def ran_on(run: dict[str, Any]) -> str:
@@ -381,6 +387,22 @@ class LocalStore(Store):
 
     def uri(self, lakehouse: str, schema: str, table: str) -> str:
         return str(self.root / lakehouse / "Tables" / schema / table)
+
+    # Runs at once on this PC can hit the Windows Delta log race (retrying.windows_log_race). Each call here
+    # is safe to repeat: a read, create-if-absent, or an insert-only MERGE (a repeat after a commit
+    # that landed inserts nothing, and one pinned to a version fails with CommitFailedError instead).
+    def read(self, lakehouse: str, schema: str, table: str, version: int | None = None) -> pl.DataFrame | None:
+        return local_retry(lambda: super(LocalStore, self).read(lakehouse, schema, table, version))
+
+    def read_at(self, lakehouse: str, schema: str, table: str) -> tuple[pl.DataFrame | None, int | None]:
+        return local_retry(lambda: super(LocalStore, self).read_at(lakehouse, schema, table))
+
+    def create_if_absent(self, lakehouse: str, schema: str, table: str, columns: dict[str, pl.DataType]) -> bool:
+        return local_retry(lambda: super(LocalStore, self).create_if_absent(lakehouse, schema, table, columns))
+
+    def merge_insert(self, lakehouse: str, schema: str, table: str, df: pl.DataFrame, on: list[str],
+                     version: int | None = None) -> int:
+        return local_retry(lambda: super(LocalStore, self).merge_insert(lakehouse, schema, table, df, on, version))
 
     def files_dir(self, lakehouse: str) -> Path:
         if lakehouse == LANDING_LAKEHOUSE and self.landing is not None:

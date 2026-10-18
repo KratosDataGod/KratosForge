@@ -138,7 +138,7 @@ on quality.
 | --- | --- | --- | --- | --- | --- |
 | [FEAT-FAB-08](#feat-fab-08) | Fabric schedules | Implemented | Partially Verified | Notebook ribbon, Monitor > Schedules (Preview) | Allow editing a schedule's time; use the quiet token path in all_schedules. |
 | [FEAT-FAB-10](#feat-fab-10) | Data pipelines, Dataflows and Copy jobs authoring | Missing | Unverified | None (listed, opened in Fabric, run-now from Monitor > Schedules) | Decide scope with decision D2 (who creates landing Copy jobs) before any build (PB-030). |
-| [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Guided ingestion after decision D2 (FD-116). |
+| [FEAT-MESH-03](#feat-mesh-03) | Landing zone and source registry | Partially Implemented | Partially Verified | Platform > Landing zone (Preview) | Enterprise governance foundation redesigns landing for one shared landing workspace with domain and secure zones (item 24); guided ingestion still waits on D2 (FD-116) |
 | [FEAT-ORC-01](#feat-orc-01) | PC schedules | Partially Implemented | Partially Verified | Notebook ribbon, Data mesh, Monitor > Schedules (Preview) | Run frozen-cell rules the same as the UI; agent schedules cover Linux. |
 | [FEAT-ORC-02](#feat-orc-02) | Headless agent | Implemented | Partially Verified | CLI and agent.toml (no UI) | Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044). |
 | [FEAT-ORC-04](#feat-orc-04) | Fabric pipeline mailbox | Implemented | Partially Verified | Fabric pipeline notebook + agent (Preview) | Run once on a tenant; record the writer's identity. |
@@ -172,8 +172,8 @@ on quality.
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
-| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Run on Fabric SQL database before anyone moves real keys. |
-| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Try on a tenant (data-mesh.md: not yet). |
+| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25) |
+| [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call |
 
 ### Data Governance and Quality
 
@@ -220,9 +220,9 @@ on quality.
 | [FEAT-META-18](#feat-meta-18) | Estate X-ray and adopt | Implemented | Partially Verified | Home > Estate X-ray (Preview) | Keep. |
 | [FEAT-ORC-05](#feat-orc-05) | Agent status records | Implemented but Not Exposed | Partially Verified | None (read only by incident evaluation) | Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A) |
 | [FEAT-OPS-01](#feat-ops-01) | Workload inventory and workload page | Implemented | Partially Verified | Monitor > Workloads, Home > Your workloads (Preview) | Shared ownership (stage 2B); an 'on agents' view. |
-| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Agent only; no incident screens in the app | Implementation review of PRs #125 and #127 |
+| [FEAT-OPS-02](#feat-ops-02) | Incidents | Implemented | Partially Verified | Monitor > Incidents (Chris used it in unit testing, 2026-10-18) | Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127 |
 | [FEAT-OPS-03](#feat-ops-03) | Monitor: runs from every place | Implemented | Partially Verified | Monitor > Runs | Show worker, host and job for agent runs. |
-| [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Monitor > Cost (Preview) | Calibrate against the Capacity Metrics app and label every number estimated (PB-050). |
+| [FEAT-ADM-01](#feat-adm-01) | Cost estimates | Implemented | Partially Verified | Monitor > Cost (Preview) | Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050) |
 | [FEAT-ADM-06](#feat-adm-06) | Opt-in telemetry | Implemented | Partially Verified | None (Preview) | Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists |
 | [FEAT-ADM-07](#feat-adm-07) | Capacity of each environment | Implemented | Partially Verified | Monitor > Cost; Data mesh > Environments (Preview) | Check against a live tenant's capacities (PB-002) |
 
@@ -1472,9 +1472,9 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Moving back to LH_Keys refused once new keys are issued.
+- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision.
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Run on Fabric SQL database before anyone moves real keys.
+- **Recommended next action:** Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)
 
 ### FEAT-MESH-03
 
@@ -1487,10 +1487,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/service.py`, `app/ui/platform.js`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Nothing in the app writes into LH_Landing. No extractors or connectors.
+- **Known limitations:** Nothing in the app writes into LH_Landing. No extractors or connectors. Direction change (Chris's unit testing, 2026-10-18, item 24): one central landing workspace in OneLake shared by Dev, Test and Prod, optionally split by domain with separate secure zones for PII and PHI (for example HR and HR-Secure); today each environment's Platform workspace has its own LH_Landing.
 - **Owning workstream:** Staged roadmap (FD-116)
 - **Backlog:** [PB-030](PRODUCT_BACKLOG.md#pb-030)
-- **Recommended next action:** Guided ingestion after decision D2 (FD-116).
+- **Recommended next action:** Enterprise governance foundation redesigns landing for one shared landing workspace with domain and secure zones (item 24); guided ingestion still waits on D2 (FD-116)
 
 ### FEAT-MESH-04
 
@@ -1503,10 +1503,10 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/central/service.py`, `app/ui/mesh.js`, `app/ui/meshmap.js`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
-- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified.
+- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of Fabric Desktop's own; the built-in glossary becomes a fallback or is retired.
 - **Pull requests and issues:** [#48](https://github.com/KratosDataGod/fabric-desktop/pull/48), [#50](https://github.com/KratosDataGod/fabric-desktop/pull/50)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Try on a tenant (data-mesh.md: not yet).
+- **Recommended next action:** Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call
 
 ### FEAT-MESH-05
 
@@ -1637,16 +1637,16 @@ on quality.
 
 - **Pillar and category:** Enterprise services; Enterprise Administration and FinOps
 - **Status:** Implemented. **Verification:** Partially Verified.
-- **Where people reach it:** Agent only; no incident screens in the app
+- **Where people reach it:** Monitor > Incidents (Chris used it in unit testing, 2026-10-18)
 - **Evidence:** test: sidecar/tests/test_incidents.py::test_the_app_and_the_agent_share_one_incident_list (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: sidecar/tests/test_incidents.py::test_quiet_hours_hold_messages_until_they_end_except_critical_and_escalations; test: sidecar/tests/test_incidents.py (passed in the 2026-10-17 refresh run at 9715e28); code: app/ui/incidents.js; test: sidecar/tests/test_incident_desk.py (19 tests, Fabric faked; incidents stage 1)
 - **Source:** `sidecar/fabric_desktop/workloads/incidents.py`, `sidecar/fabric_desktop/workloads/notify.py`, `sidecar/fabric_desktop/incident_service.py`, `app/ui/incidents.js`, `sidecar/fabric_desktop/workloads/sla.py`, `sidecar/fabric_desktop/incident_desk.py`
 - **Tests:** `sidecar/tests/test_incidents.py`, `sidecar/tests/test_incident_desk.py`
 - **Docs:** [docs/agent.md](../agent.md), [docs/incidents.md](../incidents.md)
-- **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document. Numbers, priority and SLAs are in the engine only; the list doesn't show them yet.
+- **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document. Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream. Numbers, priority and SLAs are in the engine only; the list doesn't show them yet.
 - **Pull requests and issues:** [#74](https://github.com/KratosDataGod/fabric-desktop/pull/74), [#79](https://github.com/KratosDataGod/fabric-desktop/pull/79), [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125), [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
 - **Owning workstream:** Workloads (FD-123)
-- **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-084](PRODUCT_BACKLOG.md#pb-084)
-- **Recommended next action:** Implementation review of PRs #125 and #127
+- **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-084](PRODUCT_BACKLOG.md#pb-084), [PB-105](PRODUCT_BACKLOG.md#pb-105)
+- **Recommended next action:** Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127
 
 ### FEAT-OPS-03
 
@@ -1691,11 +1691,11 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/costs.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`, `sidecar/fabric_desktop/measurement.py`
 - **Tests:** `sidecar/tests/test_estate.py`, `sidecar/tests/test_measurement.py`
 - **Docs:** [docs/finops/cost-evidence.md](../finops/cost-evidence.md)
-- **Known limitations:** Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU). Agent runs counted as local with no measured cost.
+- **Known limitations:** Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU). Agent runs counted as local with no measured cost. Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath.
 - **Pull requests and issues:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
 - **Owning workstream:** Administration and FinOps sprint (FINOPS-001)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-104](PRODUCT_BACKLOG.md#pb-104)
-- **Recommended next action:** Calibrate against the Capacity Metrics app and label every number estimated (PB-050).
+- **Recommended next action:** Optimize central lakehouse builds the Cost and savings tab (PB-104) and Workload management then removes Monitor > Cost; calibrate against the Capacity Metrics app and label every number (PB-050)
 
 ### FEAT-ADM-02
 

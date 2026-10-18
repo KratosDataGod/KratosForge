@@ -101,6 +101,7 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
+| #218 | Run Fabric pipelines on this PC (ORCH-003, draft) | PASS at fdcd5cf | 9.1 | None. Notes: expression functions have no size cap, so `@range(0, 500000000)` holds gigabytes in the shared engine before it fails (`evaluate.py:471`; cap near Fabric's 100,000 ForEach items); `finish()` waits 5 s and failed once on a cold first run here (`test_pipeline_runs.py:485`), worth 30 s for Windows CI |
 | #185 | FinOps: risk check in the run dialogs (FINOPS-004 part 2) | CONDITIONAL PASS, then PASS (9.0) at e0ca2c8 | 8.5 | The risk panel and dialogs carry no Preview tag (`risk` isn't in `PREVIEW_FEATURES`) although `risk-check.md` calls it Preview and it reads capacity from Fabric. Tag it before merging |
 | #146 | Workload operations: queue, shared schedules, takeover, Run as, Monitor tabs (folded stack, with #208) | PASS | 9.0 | None. Takeover and shared schedules are off by default, Preview, and decided by If-Match / If-None-Match writes |
 | #216 | Runs > Env says why a Fabric job has no environment | PASS | 9.1 | None |

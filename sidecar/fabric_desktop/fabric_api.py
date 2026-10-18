@@ -6,6 +6,7 @@ import base64
 import re
 import time
 from typing import Any, Callable
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -50,6 +51,30 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
 
 
+# Hosts a URL Fabric hands back (continuationUri, an operation's Location) may name before the
+# token goes with it: Fabric, OneLake, Power BI, and Power BI's regional wabi-* hosts. Only the
+# public cloud: every base URL in this app is a public-cloud one.
+FOLLOW_DOMAINS = ("fabric.microsoft.com", "powerbi.com", "analysis.windows.net")
+UNTRUSTED_URL = "UntrustedUrl"
+
+
+def followable_url(url: str, came_from: str) -> str:
+    """``url`` (relative or absolute) resolved against the request it came from, if it's https on
+    that request's host or under FOLLOW_DOMAINS. Anything else raises, so the token isn't sent."""
+    full = urljoin(came_from, url)
+    parts = urlsplit(full)
+    host = (parts.hostname or "").lower()
+    same = host == (urlsplit(came_from).hostname or "").lower()
+    known = any(host == d or host.endswith(f".{d}") for d in FOLLOW_DOMAINS)
+    if parts.scheme != "https" or parts.username or parts.password:
+        raise FabricError(f"Fabric pointed to a page without a secure connection ({host or full}); Fabric Desktop "
+                          "by KratosBI didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    if not host or not (same or known):
+        raise FabricError(f"Fabric pointed to a page on another site ({host or full}); Fabric Desktop by KratosBI "
+                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    return full
+
+
 POLICY_BLOCKED = "PolicyBlocked"
 
 
@@ -91,17 +116,20 @@ class FabricClient:
 
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
+        url = url if url.startswith("http") else f"{API}{url}"
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
-            url = body.get("continuationUri")
+            nxt = body.get("continuationUri")
+            url = followable_url(nxt, url) if nxt else ""
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:
         """Follow a 202 long-running operation to its result."""
         if resp.status_code != 202:
             return resp.json() if resp.content else {}
-        location = resp.headers["Location"]
+        came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
+        location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
         deadline = time.monotonic() + self._poll_timeout
         while True:
             self._sleep(float(resp.headers.get("Retry-After", 2)))

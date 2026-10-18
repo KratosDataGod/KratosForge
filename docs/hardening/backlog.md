@@ -118,6 +118,7 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-033 | DI-5: bounded previews | Staged roadmap (FD-114) | SQL-003 #134 covers desktop SQL | S |
 | HD-034 | DI-6: fresh token before long writes (done: storage tokens have at least 30 minutes left) | Local data engine | none | S |
 | HD-035 | UI-2: bounded status polling | Prove | none | S |
+| HD-058 | EN-12: followed URLs keep the token on Fabric, OneLake and Power BI hosts (done) | Hardening | none | S |
 
 Acceptance for each P1 item is the fix and tests named in its finding. The ones that change what admins or users see:
 

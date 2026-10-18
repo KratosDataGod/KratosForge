@@ -186,9 +186,23 @@ def test_rows_match_only_the_one_run_they_can_belong_to():
 
 def test_a_row_that_fits_two_runs_isnt_given_to_either():
     r = recon(OPS, [run("j1", "nb_sales", "2026-10-16T14:00:00+00:00", "2026-10-16T14:05:00+00:00"),
-                    run("j2", "nb_sales", "2026-10-16T14:01:00+00:00", "2026-10-16T14:06:00+00:00")])
+                    run("j2", "nb_sales", "2026-10-16T14:00:01+00:00", "2026-10-16T14:06:00+00:00")])
     assert r["matched"]["runs"] == 0 and r["unmatched"]["by_reason"][rc.SEVERAL] == 2
     assert r["matched"]["measured"] is None
+
+
+def test_a_run_of_the_same_item_that_ended_just_before_isnt_counted_as_this_apps():
+    # A schedule of nb_sales ran 13:50-13:56; this app started its run at 14:00. Only the row that
+    # started inside the app's run is measured; the schedule's 9,000 CU-s stays other use.
+    text = HEAD + """
+Sales Dev,Notebook,nb_sales,Notebook run,10/16/2026 1:50:00 PM,10/16/2026 1:56:00 PM,Succeeded,sched@contoso.com,360,"9,000.0",1,Billable,op-s
+Sales Dev,Notebook,nb_sales,Notebook run,10/16/2026 2:00:05 PM,10/16/2026 2:04:00 PM,Succeeded,ana@contoso.com,235,"1,200.0",0.65,Billable,op-1
+"""
+    r = recon(text, [run("j1", "nb_sales", "2026-10-16T14:00:00+00:00", "2026-10-16T14:05:00+00:00")])
+    cu_s = lambda m: ms.convert(m["value"], m["unit"], ms.CU_SECONDS)  # noqa: E731
+    assert r["matched"]["runs"] == 1 and cu_s(r["matched"]["measured"]) == pytest.approx(1200, abs=0.01)
+    assert "start time" in r["by_run"][0]["measured"]["method"]
+    assert cu_s(r["unmatched"]["measured"]) == pytest.approx(9000, abs=0.01) and r["unmatched"]["by_reason"][rc.NO_RUN] == 1
 
 
 def test_runs_inside_an_import_without_a_row_are_told_apart_from_runs_no_import_covers():

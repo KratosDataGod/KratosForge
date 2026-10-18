@@ -300,7 +300,7 @@ function capacityStrip(doc) {
 // ---------- measured usage imported from a Capacity Metrics app export (FINOPS-003) ----------
 
 const USAGE_STATE = {
-  matched: ["Measured", "pass", "Imported rows matched this run by workspace, item and time."],
+  matched: ["Matched by name and time", "pass", "Imported rows with this run's workspace and item name that started while it ran. Likely this run's use, not proven: names and times are all an export has."],
   no_row: ["No row", "wrn", "An import covers this workspace and time, but no row matched: the export may be sampled or filtered."],
   not_covered: ["Not covered", "neu", "No import covers this run's workspace and time."],
   no_item_name: ["Can't match", "neu", "This kind of run doesn't record the item it ran, so it can't be matched."],

@@ -163,7 +163,7 @@ Kept for the record; that program's plan is the source of truth and supersedes 9
 
 *Merged in [PR #66](https://github.com/KratosDataGod/fabric-desktop/pull/66).* Contract 1 records go to `agents/<name>.json` every `agent.status_seconds`. Each record has `stale_after` (three beats) for offline detection and `running`/`stopping`/`stopped`, and it covers only its own environment's jobs, so one workspace's readers never see another's work. 6 tests; 362 passed in all.
 
-**7.3 Multiple workers (FD-12).** Built by the Workload management program as FD-124 ([design](workloads/multi-worker.md)): shared schedules and `claim = "when_free"` through the mailbox, takeover of a stale agent's request next. Additive within mailbox contract 1; untested on a tenant until 7.1 has run there.
+**7.3 Multiple workers (FD-12).** Built by the Workload management program as FD-124 (design in `docs/workloads/multi-worker.md`, PR #146): shared schedules and `claim = "when_free"` through the mailbox, takeover of a stale agent's request next. Additive within mailbox contract 1; untested on a tenant until 7.1 has run there.
 
 ### Capability 5: Git and release
 

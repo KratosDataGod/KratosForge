@@ -11,7 +11,7 @@ This page takes you from nothing to a running app on one Windows PC. There is no
 | Windows 10 or 11 (64-bit) | The desktop app is Windows only. The [headless agent](agent.md) also runs on Linux. |
 | Microsoft Edge WebView2 Runtime | The app's window is WebView2. It is already on every up-to-date Windows 11 and most Windows 10 PCs. If the app opens a blank window, install it from [Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/). |
 | A work account with Microsoft Fabric | You sign in with the same account you use at `app.fabric.microsoft.com`. |
-| A Fabric capacity on your workspaces | Only for creating lakehouses and for the features that run in Fabric. Work that runs on your PC uses no capacity. |
+| A Fabric capacity on your workspaces | Only for creating lakehouses and for the features that run in Fabric. Work that runs on your PC starts no Fabric job; only its OneLake reads and writes use capacity. |
 | Disk space | The engine takes several hundred MB, plus local copies of the tables you work on. |
 
 You do **not** need Python, Spark, Java or admin rights on the PC. The app brings its own engine.

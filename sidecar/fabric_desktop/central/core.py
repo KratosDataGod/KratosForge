@@ -333,6 +333,10 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     return {"keys": out, "inserted": len(new)}
 
 
+# SQL Server takes at most 2,100 parameters in one statement, and three go in per key.
+TSQL_ROWS_PER_INSERT = 500
+
+
 def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[str, Any]:
     """Copy existing keys in with the same numbers ([[sk, bk, create_date], ...]): moving from LH_Keys.
 
@@ -360,8 +364,8 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
         raise PlatformError(f"keys.{name}: can't copy without renumbering: " + "; ".join(clashes[:5]))
     if new:
         if db.tsql:
-            for i in range(0, len(new), 1000):
-                chunk = new[i:i + 1000]
+            for i in range(0, len(new), TSQL_ROWS_PER_INSERT):
+                chunk = new[i:i + TSQL_ROWS_PER_INSERT]
                 values = ", ".join("(?, ?, ?)" for _ in chunk)
                 db.run(f"SET IDENTITY_INSERT {t} ON; INSERT INTO {t} ({name}_sk, {name}_bk, create_date) VALUES {values}; "
                        f"SET IDENTITY_INSERT {t} OFF;", [v for row in chunk for v in row])

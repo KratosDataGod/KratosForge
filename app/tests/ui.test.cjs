@@ -677,3 +677,83 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+// A notebook that can't be saved is never reported as saved, closed or replaced (QA-002).
+test("a failed save says so and keeps the notebook open and dirty", async () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const fn = (name) => src.match(new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const toasts = [];
+  const calls = [];
+  const ctx = {
+    toast: (text, error) => toasts.push([text, !!error]), friendlyError: (e) => ({ text: String(e.message) }),
+    rpc: async (method) => { calls.push(method); if (method === "save_notebook") throw new Error("disk full"); return { name: "other", cells: [] }; },
+    clearTimeout: () => {}, renderChrome: () => {}, setComputeCheck: () => {}, loadIntoState: () => { calls.push("load"); },
+    go: () => {}, closeDialog: () => {}, markDirty: () => {}, saveTimer: null,
+  };
+  vm.runInNewContext(["attempt", "notebookPayload", "saveNotebook", "openNotebook", "newNotebook"].map(fn).join("\n") +
+    "; this.saveNotebook = saveNotebook; this.openNotebook = openNotebook; this.newNotebook = newNotebook;", ctx);
+  const nb = { name: "nb", cells: [], dirty: true, lakehouse: null };
+  ctx.state = { notebook: nb };
+  assert.strictEqual(await ctx.saveNotebook(), false);
+  await ctx.openNotebook("other");
+  await ctx.newNotebook();
+  assert.strictEqual(ctx.state.notebook, nb);
+  assert.strictEqual(nb.dirty, true);
+  assert.deepStrictEqual(calls, ["save_notebook", "save_notebook", "save_notebook"]);
+  assert.ok(toasts.length === 3 && toasts.every(([t, err]) => err && t.includes("disk full")));
+  // Ctrl+S and closing the notebook use the result.
+  assert.match(src, /saveNotebook\(\)\.then\(\(ok\) => \{ if \(ok\) toast\("Saved"\); \}\)/);
+  assert.match(src, /state\.notebook\?\.dirty && !\(await saveNotebook\(\)\)\) return false;/);
+  assert.match(src, /if \(await onClose\(\) === false\) return;/);
+  // A save that works still clears dirty.
+  ctx.rpc = async () => ({});
+  assert.strictEqual(await ctx.saveNotebook(), true);
+  assert.strictEqual(nb.dirty, false);
+});
+
+// The Schedule dialog opens on Fabric when the current environment runs on Fabric (it once read
+// state.env, which is never set, so it always opened on This PC).
+test("Schedule follows the current environment's Runs on", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
+  const opened = [];
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
+  const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
+  for (const env of ["dev", "prod"]) {
+    ctx.state = { notebook: { name: "nb", lakehouse: { lakehouse_id: "l" } }, meta: { env, project: { environments } } };
+    ctx.scheduleNotebook();
+  }
+  ctx.state = { notebook: { name: "nb", compute: "local", lakehouse: { lakehouse_id: "l" } }, meta: { env: "prod", project: { environments } } };
+  ctx.scheduleNotebook();
+  assert.deepStrictEqual(opened, ["pc", "fabric", "pc"]);
+});
+
+test("with platform keys, no Keys button makes a project key table", () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  assert.strictEqual([...src.matchAll(/newKeyTableDialog\(/g)].length, 2, "newKeyTableDialog is reached only through addKeyTableButton");
+  const opened = [];
+  const ctx = { btn: (label, _icon, onClick) => ({ label, onClick }),
+    useKeyTableDialog: () => opened.push("use"), newKeyTableDialog: () => opened.push("new") };
+  vm.runInNewContext(`${src.match(/function addKeyTableButton\([\s\S]*?\n}\n/)[0]}; this.addKeyTableButton = addKeyTableButton;`, ctx);
+  const platform = ctx.addKeyTableButton({ central_key_tables: [{ name: "customer" }] }, () => {}, "x");
+  const local = ctx.addKeyTableButton({ central_key_tables: null }, () => {}, "x");
+  platform.onClick(); local.onClick();
+  assert.deepStrictEqual([platform.label, local.label, ...opened], ["Use a key table", "New key table", "use", "new"]);
+});
+
+test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const features = read("features.js");
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+    assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
+    assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
+  }
+  // A marked step keeps working when someone hides preview features; it only loses the tag.
+  const ctx = { PREVIEW_FEATURES: { promote: "Promote" }, shown: true, previewTag: () => "tag" };
+  vm.runInNewContext(`const previewShown = () => this.shown; ${features.match(/function previewMarked\([\s\S]*?\n}\n/)[0]}; this.previewMarked = previewMarked;`, ctx);
+  const node = () => { const n = { kids: [], append: (x) => n.kids.push(x) }; return n; };
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
+  ctx.shown = false;
+  assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, []);
+});

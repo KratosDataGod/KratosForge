@@ -1255,6 +1255,19 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .release-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; }
 .release-row > span:last-child { overflow-wrap: anywhere; }
+.rollback-view { display: flex; flex-direction: column; gap: 12px; }
+.rollback-releases { min-width: 0; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; overflow-x: auto; }
+.rollback-releases legend { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+.rollback-row { display: grid; grid-template-columns: 24px 90px 150px minmax(160px, 1fr) 130px; gap: 12px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--border); min-width: 600px; font-size: 13px; }
+.rollback-row:last-child { border-bottom: 0; }
+.rollback-row.off { color: var(--muted); }
+.rollback-row:has(input:checked) { background: var(--hover); }
+.rollback-what { display: flex; flex-direction: column; gap: 8px; }
+.rollback-list { border: 1px solid var(--border); border-radius: 6px; }
+.rollback-entity { display: grid; grid-template-columns: 180px 120px minmax(0, 1fr); gap: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); align-items: start; font-size: 13px; }
+.rollback-entity:last-child { border-bottom: 0; }
+.rollback-entity .gate-list { margin: 0; }
+.rollback-warn { background: #fff4d6; border: 1px solid #f1d58a; border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; color: #5c3a00; font-size: 13px; }
 .lineage-view { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: 1; }
 .lineage-split { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
 .lineage-cols { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
@@ -1266,4 +1279,5 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 @media (max-width: 640px) {
   .lineage-split { grid-template-columns: 1fr; overflow-y: auto; }
   .release-row { grid-template-columns: 1fr; gap: 0; }
+  .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }

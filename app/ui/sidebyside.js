@@ -216,7 +216,7 @@ function sbsResult(nb, s) {
       h("div", { class: "sbs-side" },
         h("span", { class: "muted" }, `This PC${m.cores ? ` · ${m.cores} cores` : ""}${m.memory_gb ? ` · ${m.memory_gb} GB` : ""}`),
         h("b", { class: "sbs-big" }, sbsTime(local.seconds)), sideStatus(local.status, local.failed_cell),
-        h("span", {}, "No wait to start"), h("span", { class: "muted" }, "No Fabric capacity used"), bar(local.seconds, "pc")),
+        h("span", {}, "No wait to start"), h("span", { class: "muted", title: "Its OneLake reads and writes still use some capacity." }, "No Fabric job"), bar(local.seconds, "pc")),
       h("div", { class: "sbs-side" },
         h("span", { class: "muted" }, `Fabric · ${s.workspace_name || ""} · ${f.engine === "python" ? "Python" : "Spark"} notebook`),
         h("b", { class: "sbs-big" }, sbsTime(f.total_seconds)), sideStatus(f.status),

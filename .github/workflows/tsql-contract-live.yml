@@ -24,6 +24,8 @@ jobs:
     # Create this environment with required reviewers (Settings > Environments) before setting
     # the variables: every run, scheduled ones too, then waits for a person to approve it, since
     # each run uses Fabric capacity. GitHub would otherwise create it on first use with no rules.
+    # FABRIC_TSQL_CLIENT_SECRET belongs to this environment, not the repository, so only an
+    # approved run can read it.
     environment: tsql-contract-live
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -14,4 +14,4 @@ Release assets are replaced in place on each promotion, so only the newest build
 
 | Since | Commit | What's on it that Stable doesn't have |
 | --- | --- | --- |
-| 2026-10-18 00:45 UTC | `3bee0db` | #135 (release readiness: the engine serves a local API when Integrations is on) and #136 (workload docs). Both docs only. Checksums verified: exe `1a011f7e…`, engine `f5c7ba84…` |
+| 2026-10-18 09:46 UTC | `68198a4` | The hardening audit batch (#138, #152, #154 to #159, #162, #179, #180, #157), #140 and #184 since `9715e28`, besides #135 and #136. Checksums verified: engine `44eefec5…`; engine `client_id` empty |

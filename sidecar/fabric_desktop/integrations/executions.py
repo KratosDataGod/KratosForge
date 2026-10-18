@@ -23,6 +23,10 @@ What code an external tool runs can do is limited on purpose:
 - Other notebooks can't be run from it (``%run``, ``notebookutils.notebook.run``): their code
   wasn't shown to the person. The app's own kernels still run them.
 - Output is capped, images and HTML are left out, and every string has secrets removed.
+- The kernel's environment has only the variables Python needs to start (kernel_proc.EXTERNAL_ENV_ALLOW:
+  PATH, the Windows system folders, temp, home, locale), so a secret in an environment variable
+  isn't visible to the code. It isn't a sandbox: the code runs as the person and can read their
+  files, including the token cache, until that cache is encrypted (HD-013).
 
 The person approves every Python and notebook run in the app, with the code shown; a notebook run
 is bound to the SHA-256 of the cells shown and runs exactly those (services.bind_notebook).
@@ -148,7 +152,7 @@ class ExecutionManager:
 
     def _new_kernel(self) -> Any:
         from .. import lakehouse
-        from ..kernel_proc import ProcessKernel
+        from ..kernel_proc import ProcessKernel, external_environment
 
         class ExternalKernel(ProcessKernel):
             def _sync_lakehouse(self) -> None:
@@ -160,7 +164,8 @@ class ExecutionManager:
                 finally:
                     lakehouse.write_guard = saved
 
-        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command)
+        kernel = ExternalKernel(token=self._token, load_notebook=self._other_notebook, command=self.kernel_command,
+                                env=external_environment)
         kernel.calls["write_guard"] = lambda name, schema, table: WRITE_REFUSED
         return kernel
 

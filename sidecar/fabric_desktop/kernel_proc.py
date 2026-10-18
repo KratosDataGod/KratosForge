@@ -35,6 +35,41 @@ STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables w
 WATCH_SECONDS = 1.0
 TIME_GRACE_SECONDS = 30.0
 
+# The environment of a kernel that runs code for an external AI tool (HD-012): nothing from the
+# engine's environment but these, so a token or secret someone put in an environment variable
+# (an agent's client secret, a CI token) never reaches the tool's code. This is not a sandbox:
+# the code still runs as the person and can read their files, the token cache included (HD-013).
+# Matched without regard to case, as Windows does. Each one is here because Python or the
+# libraries a cell uses need it:
+EXTERNAL_ENV_ALLOW = (
+    "PATH",          # finding programs and the DLLs native packages load
+    "PATHEXT",       # Windows: which extensions are programs (shutil.which, subprocess)
+    "SYSTEMROOT",    # Windows: Python's sockets, random numbers and DLL loading fail without it
+    "WINDIR",        # Windows: same folder as SYSTEMROOT; some native libraries read this name
+    "COMSPEC",       # Windows: the shell for subprocess(shell=True) and os.system
+    "TEMP", "TMP",   # tempfile, DuckDB and Arrow spill files; otherwise they fall back to the current folder
+    "TMPDIR",        # the same on Linux and macOS
+    "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there
+    "HOME",          # the same on Linux and macOS
+    "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
+)
+EXTERNAL_ENV_PREFIXES = ("LC_",)
+# Set by the engine itself, never copied from its environment.
+EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH")
+
+
+def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment for a kernel that runs an external tool's code: only the allowlisted
+    variables of ``parent`` (the engine's environment), plus what the engine sets itself."""
+    parent = dict(os.environ if parent is None else parent)
+    allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
+    env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    # The kernel imports the engine's own code from where this engine runs it (a source checkout in
+    # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONUNBUFFERED"] = "1"
+    return env
+
 
 class KernelGone(RuntimeError):
     """The kernel's process ended or stopped answering."""
@@ -45,7 +80,7 @@ class ProcessKernel:
                  load_notebook: Callable[[str], list[dict[str, Any]]] | None = None,
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None,
                  proof_options: Callable[[], dict[str, str]] | None = None,
-                 command: list[str] | None = None):
+                 command: list[str] | None = None, env: Callable[[], dict[str, str]] | None = None):
         self.calls: dict[str, Callable[..., Any]] = {
             "token": token or _no("tokens"),
             "load_notebook": load_notebook or _no("other notebooks"),
@@ -55,6 +90,9 @@ class ProcessKernel:
         }
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
+        # The child's environment, made at each start. The person's own kernels get theirs, as
+        # they expect; an external tool's kernel passes external_environment (HD-012).
+        self.env = env or (lambda: dict(os.environ, PYTHONUNBUFFERED="1"))
         self.notebook_name = ""
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
@@ -82,7 +120,7 @@ class ProcessKernel:
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
-                                    env=dict(os.environ, PYTHONUNBUFFERED="1"))
+                                    env=self.env())
             ready = threading.Event()
             self._waiting["ready"] = {"done": ready}
             threading.Thread(target=self._read, args=(proc,), daemon=True, name="kernel-reader").start()

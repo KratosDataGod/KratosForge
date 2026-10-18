@@ -54,6 +54,18 @@ def test_cells_run_in_another_process_with_the_same_kernel(kernel):
     assert out["outputs"] == [{"type": "text", "text": "'token-for-storage'"}]
 
 
+def test_the_persons_own_kernel_keeps_their_environment(monkeypatch):
+    """Only external-tool runs get the allowlisted environment (HD-012); the person's own
+    notebooks see the variables they set, as they expect."""
+    monkeypatch.setenv("FABRIC_DESKTOP_TEST_SECRET", "theirs")
+    k = ProcessKernel()
+    try:
+        out = k.run("import os\nos.environ.get('FABRIC_DESKTOP_TEST_SECRET')")
+    finally:
+        k.close()
+    assert out["outputs"] == [{"type": "text", "text": "'theirs'"}]
+
+
 def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     kernel.run("kept = 1")
     kernel.start("import time\nwhile True:\n    time.sleep(0.05)")

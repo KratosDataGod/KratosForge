@@ -159,8 +159,10 @@ def initialize(lake: Any, installation: Installation, approve: bool = False, fam
                   [{"record_id": f"v{m.version}", "version": m.version, "description": m.description,
                     "applied_at": now()}], m.version, family)
     if family.default_config:
+        # Another family's keys carry its prefix, so two families' settings never share a row.
+        keys = [(k if family is CORE else family.prefix + k, v) for k, v in family.default_config]
         write(lake, installation, "config", [{"record_id": f"default:{k}", "key": k, "value": v, "at": now()}
-                                             for k, v in family.default_config])
+                                             for k, v in keys])
     action = "upgrade" if before["state"] == UPGRADE else "initialize"
     write(lake, installation, "audit", [{"record_id": f"{installation.id}:{action}:{family.prefix}:{now()}",
                                          "at": now(), "action": action,

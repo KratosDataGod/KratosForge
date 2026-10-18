@@ -173,7 +173,9 @@ def test_other_features_reach_the_central_lakehouse_for_their_own_tables(svc, mo
     svc.optimize_create("w1", workspace_name="Platform")
     conn = svc.central_lakehouse()
     assert conn["lakehouse_name"] == "FabricDesktop_Central" and conn["access"] == "write"
-    lake, me = svc.central_family(fam)
+    with pytest.raises(PermissionError, match="Confirm"):
+        svc.central_family(fam)  # adding a family's tables asks first
+    lake, me = svc.central_family(fam, approve=True)
     setup.write(lake, me, "event", [{"record_id": "e1", "what": "opened"}], family=fam)
     assert lake.rows("fdtst_event")["what"].to_list() == ["opened"]
     svc.optimize_registry.add(dict(conn, access="read"))

@@ -4,7 +4,7 @@ Fabric Desktop keeps one central lakehouse per organization (default ``FabricDes
 Its tables come in families, each with its own prefix, migrations and schema version: Optimize's
 ``fdopt_`` tables (which also hold the installations, audit and config every family shares), and
 any family another feature registers with ``register`` (for example ``fdacc_`` for the access cache).
-A family never reads or writes another family's tables. Every table sits in ``dbo`` (or directly
+A family may read another family's tables but never writes to or migrates them. Every table sits in ``dbo`` (or directly
 under Tables in a lakehouse without schemas). The rules that let many installations write to the
 same tables at once:
 
@@ -127,7 +127,7 @@ def expected(version: int | None = None) -> dict[str, dict[str, pl.DataType]]:
 
 # ---------- table families ----------
 
-# fd + 2 to 8 lowercase letters + underscore: fdopt_, fdacc_, fdset_ ...
+# fd + 2 to 8 lowercase letters + underscore: fdopt_, fdacc_, fdcap_ ...
 PREFIX_RULE = re.compile(r"^fd[a-z]{2,8}_$")
 
 
@@ -136,7 +136,8 @@ class Family:
     ``<prefix>schema_version``. Every table gets the PROVENANCE columns and ``record_id`` as its key.
 
     ``title`` names the owner as people see it ("Optimize", "Access cache"). ``migrations`` is the
-    list, or a function returning it. ``default_config`` rows go to fdopt_config on initialize."""
+    list, or a function returning it. ``default_config`` rows go to fdopt_config on initialize, their
+    keys prefixed with the family's prefix (Optimize's aren't)."""
 
     def __init__(self, prefix: str, title: str, migrations: list[Migration] | Callable[[], list[Migration]],
                  default_config: tuple[tuple[str, str], ...] = ()):

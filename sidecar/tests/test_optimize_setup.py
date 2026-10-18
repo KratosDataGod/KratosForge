@@ -382,6 +382,14 @@ def test_a_newer_family_is_read_only_without_touching_optimize(tmp_path, lake, i
     assert setup.inspect(lake)["state"] == setup.READY
 
 
+def test_a_familys_default_settings_carry_its_prefix(tmp_path, lake, monkeypatch):
+    fam = schema.Family("fdtst_", "Test", [schema.Migration(1, "Create", INCIDENTS_V1)], (("retention_days", "30"),))
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    setup.initialize(lake, pc(tmp_path), approve=True, family=fam)
+    rows = dict(zip(*lake.rows("fdopt_config").select("key", "value").to_dict(as_series=False).values()))
+    assert rows["retention_days"] == "365" and rows["fdtst_retention_days"] == "30"
+
+
 def test_family_registration_rules(incidents):
     m1 = [schema.Migration(1, "Create", INCIDENTS_V1)]
     for prefix in ("fdopt_", "inc_", "fdINC_", "fd_"):

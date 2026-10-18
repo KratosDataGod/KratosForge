@@ -149,12 +149,14 @@ class OptimizeMixin:
         conn = self.optimize_registry.active()
         return dict(conn) if conn else None
 
-    def central_family(self, family: schema.Family) -> tuple[Any, Installation]:
+    def central_family(self, family: schema.Family, approve: bool = False) -> tuple[Any, Installation]:
         """The central lakehouse and this installation, ready for ``family``'s tables: write with
         setup.write(lake, installation, name, rows, family=family), read with
-        lake.rows(family.table(name)). Creates the family's missing tables first (it only adds, beside
-        tables that are already there). Raises when there's no central lakehouse, this person can only
-        read it, or the family's tables there are newer or not the family's."""
+        lake.rows(family.table(name)). When the family's tables (or Optimize's shared ones) are missing,
+        unfinished or older, it sets them up only with ``approve``, which the caller passes after the
+        person confirmed; without it, it raises with what setting up would do. Raises when there's no
+        central lakehouse, this person can only read it, or the tables there are newer or not the
+        family's."""
         self._optimize_allowed()
         conn = self.optimize_registry.active()
         if not conn:
@@ -163,11 +165,15 @@ class OptimizeMixin:
             raise PermissionError("You can read the central lakehouse but not write to it. "
                                   "Ask for Contributor on its workspace.")
         lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
-        state = setup.inspect(lake, family)
-        if state["state"] != setup.READY:
+        for fam in (setup.CORE, family):
+            state = setup.inspect(lake, fam)
+            if state["state"] == setup.READY:
+                continue
             if state["state"] not in setup.CAN_INITIALIZE:
                 raise PermissionError(state["message"])
-            setup.initialize(lake, self.optimize_installation, approve=True, family=family)
+            if not approve:
+                raise PermissionError(f"{state['message']} Confirm to continue.")
+            setup.initialize(lake, self.optimize_installation, approve=True, family=fam)
         return lake, self.optimize_installation
 
     def _optimize_workspaces(self) -> set[str]:

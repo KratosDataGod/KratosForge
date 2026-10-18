@@ -97,12 +97,13 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | --- | --- | --- |
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
 | `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
-| `fdset_` | Enterprise readiness and FinOps (planned) | Tenant and capacity setting history |
+| `fdcap_` | FinOps (planned) | Capacity setting history |
+| `fdten_` | Enterprise readiness (planned) | Tenant setting history |
 | `fdinc_` | Incident management (planned) | Incident history |
 
-Every family follows the same rules: insert-only rows with a `record_id`, provenance on every row, upgrades that only add, and a newer schema opening that family read-only (the others keep working). A family never reads or writes another family's tables. The first time a feature writes to a connected central lakehouse, it adds its own tables beside the others; nothing that is already there changes. Tables that name people, such as the access cache, also get their own OneLake security role at table level, set up by the feature that adds them.
+Every family follows the same rules: insert-only rows with a `record_id`, provenance on every row, upgrades that only add, and a newer schema opening that family read-only (the others keep working). A family never writes to or migrates another family's tables; reading them, for example a view that combines two families, is fine. Each family has one owner, so two features that store rows of the same shape still use two families (and can share the column definitions). The first time a feature writes to a connected central lakehouse, it asks you, then adds its own tables beside the others; nothing that is already there changes. Tables that name people, such as the access cache, also get their own OneLake security role at table level, set up by the feature that adds them.
 
-For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family)` returns the connected lakehouse with the family's tables in place; write with `setup.write(..., family=family)`.
+For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
 
 ## For IT admins
 

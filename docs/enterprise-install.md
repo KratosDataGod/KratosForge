@@ -46,18 +46,18 @@ With `"auto_update": false` the startup window says "Your organization rolls out
 
 ## Keep the exe and the engine in step
 
-The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a release only keeps its newest build. So in the managed model:
+The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a channel's release only holds its newest build. So in the managed model:
 
 - Deploy the exe that is the **current** release of the channel your policy names. After each **Promote to stable**, deploy the new Stable exe.
 - If the release has moved on and you haven't deployed the new exe yet, a person whose engine isn't installed yet (a new user or PC) is told the engine and app builds differ and to ask IT for the current exe. People whose engine is already installed are not affected.
 
-This is a known gap: releases don't keep older builds yet, so you can't pin a build indefinitely.
+Each build is also kept as its own release, `build-<first 12 characters of its commit>`, for a while (the newest 20, and every Stable build). You can download a specific exe from there ([pinning a build](release-management/README.md#pinning-a-build)). The app still downloads its engine from the channel's current release, so a pinned exe only runs on PCs whose engine for that build is already installed.
 
 ## Roll back
 
 There is no one-click rollback yet.
 
-- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer has to promote an older build to Stable again.
+- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
 - **Managed:** deploying an older exe works only while its engine is still installed on that PC. A PC that has to download the engine gets the release's current engine, which doesn't match. Keep a copy of each exe and engine zip you deploy; installing the engine from your own copy is not supported yet.
 
 ## If an update fails

@@ -104,13 +104,13 @@ Complexity is S (under a day, one module), M (a few modules, new tests), L (cros
 | HD-017 | EP-3: audit chain safe across processes; head checkpoint | Hardening | open stack (`audit.py`) | S |
 | HD-020 | SH-1, UI-1: Content Security Policy; notebook output on its own origin | Hardening | a manual Windows check before merge | L |
 | HD-021 | SH-2: fail unsigned releases; verify signatures in CI and on the client | Hardening | **Chris: Trusted Signing account (D-C3)** | M |
-| HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts | Hardening | open stack (`app.js`) | M |
-| HD-023 | SH-7: promote a named commit, re-check hashes, protected environment | Hardening | #132 (`promote.yml`) | S |
+| HD-022 | SH-5: no downgrades; keep the previous exe until the new one starts. Must still let a Stable PC follow a deliberate rollback (an earlier build promoted to Stable, HD-028) | Hardening | open stack (`app.js`) | M |
+| HD-023 | SH-7: promote a named commit, re-check hashes, protected environment. Named commit and hash re-check come with HD-028's `build` input; the protected environment and copying the SBOMs remain | Hardening | #132 (`promote.yml`) | S |
 | HD-024 | SH-8: pin actions in `codex-review.yml` and `docs.yml`; scope permissions | Hardening | Chris's review (workflow) | S |
 | HD-025 | SH-9: agent installers use constraints; ProgramData ACL | Hardening | a Windows host to verify the ACL | S |
 | HD-026 | SH-10: no bare `python` fallback in release builds | Hardening | none | S |
 | HD-027 | SH-12: navigation filter for the Fabric view | Hardening | manual Windows check | S |
-| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md) | Hardening | Chris's review (workflow) | M |
+| HD-028 | Per-build release assets, so a build can be pinned and rolled back (known gap in release-readiness.md). **Partly done:** CI keeps each published build as a `build-<sha>` release (newest 20, plus every Stable build); Promote to stable takes a `build` input, so Stable rolls back by promoting an earlier build. Remaining: the app can't name a build for its engine download, and rollback hasn't been run end to end | Hardening | Chris's review (workflow); a first rollback drill on `main` | M |
 | HD-029 | Live verification (gate G1): run the existing harness on a designated non-production workspace | Chris | **Chris: workspace and OK** | S |
 | HD-030 | EP-5: separation of duties by Entra id; switch from policy or versioned files | Staged roadmap | open stack (`meta_service.py`) | M |
 | HD-031 | EP-6: label "Block" as not enforced until GOV-002 | Governance | none | S |

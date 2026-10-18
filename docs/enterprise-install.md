@@ -82,10 +82,13 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
+| `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |
+| Your Git hosts (`dev.azure.com`, `github.com`, `gitlab.com`, `bitbucket.org` or your own server) | Only if people connect notebooks to a repository |
+| `*.vault.azure.net` | Only if notebook code reads Key Vault secrets with `notebookutils.credentials.getSecret` |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |
 | The `IngestionEndpoint` host of the usage data connection string, such as `westeurope-5.in.applicationinsights.azure.com` | Only if usage data is on ([Usage data](telemetry.md)). `"telemetry": false` in the policy file turns it off for everyone |
 
-The list comes from the hosts named in the source code. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
+The list comes from the hosts named in the source code. Notebooks run on the PC, so any host their own code calls is reached from the PC too. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 
 ## Uninstall
 

@@ -204,9 +204,16 @@ def test_a_cell_past_the_time_limit_is_interrupted_and_keeps_variables(kernel, q
 
 def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_limits):
     kernel.run("kept = 1")
-    kernel.time_limit = 0.5
     pid = kernel.pid
-    kernel.start("import time\ntime.sleep(600)")  # one long call: the interrupt waits for it
+    # One long call: the interrupt waits for it. The limit is set only once the cell is inside it,
+    # or a slow machine could interrupt the bytecode before the call, and the cell would just stop.
+    kernel.time_limit = 0
+    kernel.start("import time\nprint('in', flush=True)\ntime.sleep(600)")
+    deadline = time.monotonic() + 30
+    while "in" not in text(kernel.poll(-1, 0.2)) and time.monotonic() < deadline:
+        pass
+    time.sleep(0.3)
+    kernel.time_limit = 0.5
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
     out = kernel.run("'kept' in dir()")

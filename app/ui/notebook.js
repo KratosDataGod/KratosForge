@@ -363,6 +363,8 @@ function cellResults(cell) {
   } else {
     cell.outputs.forEach((o) => parts.push(renderOutput(o, cell)));
   }
+  const offer = replayOffer(cell);  // replay.js
+  if (offer) parts.push(offer);
   const hidden = cell.status === "running" ? null : dbgCellWarning(cell);  // debugging.js
   if (hidden) parts.push(hidden);
   return parts;

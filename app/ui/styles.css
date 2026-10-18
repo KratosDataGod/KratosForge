@@ -1247,6 +1247,16 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .dbg-watch .warn { color: #8a5300; overflow-wrap: anywhere; }
 .dbg-hidden-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
+/* Failure replay bundles (replay.js): the offer under a failed cell and the Save dialog. */
+.replay-offer { display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.replay-dialog { display: flex; flex-direction: column; max-width: 560px; font-size: 13px; }
+.replay-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
+.replay-row input { margin-top: 3px; }
+.replay-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.replay-what > span { overflow-wrap: anywhere; }
+.replay-limits { padding: 8px 0 0; border-top: 1px solid var(--border); }
+.replay-limits ul { margin: 4px 0 0; padding-left: 18px; }
+
 /* Release records on the promote card, and the column lineage dialog. */
 .release-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .release-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 8px; align-items: baseline; }

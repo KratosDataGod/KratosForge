@@ -175,7 +175,7 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Agents ([user guide](user-guide.md#agents-preview)) read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |
@@ -332,7 +332,7 @@ shared = true
 - **Same times on every agent.** An every-N-minutes shared schedule runs on multiples of its interval, counted in UTC (every hour on the hour, for example), so every agent computes the same due times. Daily and weekly times are each machine's local time, so agents sharing them must use the same time zone.
 - **No late runs.** A slot's request has a deadline: its next slot, at most 6 hours on. An agent that comes up after that doesn't create it. An unclaimed request past its deadline is `expired`. With `claim = "when_free"`, if every agent stays busy until the deadline, that due time expires without running. That is by design, not a lost run: the next due time runs as normal.
 - **Requirements.** A shared schedule needs `[pipeline] enabled = true` for its environment, its id is at most 40 characters, and an every-N-minutes shared schedule uses whole minutes, at least 1. With `pipeline.entities`, it must name entities the allowlist takes. A shared backfill needs `pipeline.allow_backfill`.
-- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
+- **Not yet.** A request claimed by an agent that then stops reporting waits for that agent, unless the others have `take_over = true` (below). Monitor > Operations > Agents doesn't warn about a schedule that agents share this way. A late or expired shared due time doesn't open an incident yet.
 
 ### Taking over from a lost agent (Preview)
 
@@ -367,5 +367,5 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
 - Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
-- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
+- Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Operations > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

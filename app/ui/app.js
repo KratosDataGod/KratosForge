@@ -580,8 +580,8 @@ async function renderMonitor() {
     render();
   };
   const note = h("div", { class: "muted-text small" });
-  // Workloads and Incidents take the whole page; Fabric's hub comes back with the other panels.
-  const wide = ["workloads", "incidents", "agents"].includes(monitorPage.panel);
+  // Only Runs shares the page with Fabric's hub; a list under it gets too little room (#190).
+  const wide = monitorPage.panel !== "runs";
   const fabricShown = monitorPage.showFabric && !wide;
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
@@ -601,7 +601,7 @@ async function renderMonitor() {
           : monitorPage.panel === "schedules" ? "Every schedule, on this PC and in Fabric, with how its last run went"
           : "Everything this app ran or started, in every environment, on this PC and in Fabric", " ", learnMore(monitorPage.panel === "workloads" ? "workloads-preview" : monitorPage.panel === "incidents" ? "incidents-preview" : monitorPage.panel === "agents" ? "agents-preview" : "monitor")),
         h("span", { class: "spacer" }),
-        wide ? null : btn("Refresh", "sync", () => render(), "tool outline")),
+        ["workloads", "incidents", "agents"].includes(monitorPage.panel) ? null : btn("Refresh", "sync", () => render(), "tool outline")),
       monitorPage.panel !== "runs" ? null : h("div", { class: "monitor-filters" },
         h("div", { class: "row", role: "group", "aria-label": "Environment" },
           chip("env", "all", "All"), Object.entries(ENV_LABEL).map(([id, label]) => chip("env", id, label))),

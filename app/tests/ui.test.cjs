@@ -646,3 +646,8 @@ test("a watch keeps its last few values and marks a change", () => {
   assert.strictEqual(t.length, 5);
   assert.strictEqual(t[t.length - 1].n, 11);
 });
+
+test("only Monitor > Runs shares the page with Fabric's hub, so Schedules and Cost get the whole page (#190)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(src, /const wide = monitorPage\.panel !== "runs";/);
+});

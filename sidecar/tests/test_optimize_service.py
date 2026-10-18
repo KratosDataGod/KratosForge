@@ -212,8 +212,9 @@ def test_central_restrict_keeps_a_family_from_default_reader_after_asking(svc, m
     monkeypatch.setattr(svc.auth, "signed_in_tenant", lambda: "tenant", raising=False)
     svc.optimize_create("w1", workspace_name="Platform")
     lake, _me = svc.central_family(fam, approve=True)
-    with pytest.raises(PermissionError, match="DefaultReader no longer reads /Tables/access.*later.*Confirm"):
+    with pytest.raises(PermissionError, match="DefaultReader no longer reads /Tables/access.*later.*Confirm") as asked:
         svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])
+    assert asked.value.changes[1] == "New role AccessCacheReaders reads /Tables/access"
     assert puts == []  # asking changes nothing
     with pytest.raises(PermissionError, match="changed since you looked"):  # not what the person was shown
         svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=["something else"])
@@ -223,7 +224,7 @@ def test_central_restrict_keeps_a_family_from_default_reader_after_asking(svc, m
         svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
     del api.list_data_access_roles_tagged
     assert puts == []
-    out = svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
+    out = svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=asked.value.changes)
     assert out["changed"] and out["default_reader_paths"] == ["/Tables/dbo", "/Files"]
     assert [r["name"] for r in puts[0]] == ["DefaultReader", "AccessCacheReaders"]
     audit = lake.rows("fdopt_audit").filter(pl.col("action") == "restrict")

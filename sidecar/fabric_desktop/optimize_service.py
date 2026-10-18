@@ -212,7 +212,9 @@ class OptimizeMixin:
         if not found["changes"]:
             return summary | {"changed": False}
         if not approve:
-            raise PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask = PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask.changes = found["changes"]  # type: ignore[attr-defined]  # pass back as shown=
+            raise ask
         found = plan()  # read again just before writing: the roles may have changed since the person looked
         if not found["changes"]:
             return summary | {"changes": [], "changed": False}

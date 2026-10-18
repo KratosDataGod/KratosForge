@@ -98,7 +98,7 @@ def test_saving_a_model_stops_when_the_list_fails():
     c, s = client([Resp(503, {"error": {"code": "ServiceUnavailable", "message": "busy"}})])
     with pytest.raises(Exception):
         c.save_semantic_model("ws1", "SM_Gold", {"definition.pbism": "{}"})
-    assert [m for m, *_ in s.calls] == ["GET"]  # no create over a model that may exist
+    assert {m for m, *_ in s.calls} == {"GET"}  # no create over a model that may exist (the list may be retried)
 
 
 # ---- a lakehouse whose layout can't be read isn't written (QA-007)

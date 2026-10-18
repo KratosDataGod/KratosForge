@@ -59,6 +59,7 @@ nav = [
   ] },
   { "Servers" = [
     { "Headless agent" = "agent.md" },
+    { "Incidents and your service desk" = "incidents.md" },
   ] },
   { "Project" = [
     { "Why Fabric Desktop by KratosBI" = "why-fabric-desktop.md" },

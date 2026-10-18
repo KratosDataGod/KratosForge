@@ -55,6 +55,9 @@ Keys:
                      and IT can fix it either way (default false)
     telemetry_connection_string  IT only: an Application Insights connection string, so usage data
                      goes to the organization's own Azure Monitor instead of KratosBI's
+    incident_sla     IT only: minutes to acknowledge and resolve an incident, per priority:
+                     {"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}; 0 for no target
+                     (default: workloads/sla.py DEFAULT_TARGETS)
 
 policy_problems() says what in the policy file was ignored and why, so a typo doesn't fail silently.
 """
@@ -97,6 +100,10 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
+
+# Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
+DEFAULTS["incident_sla"] = {}
+TYPES["incident_sla"] = dict
 
 
 def policy_path() -> Path:
@@ -166,6 +173,9 @@ def policy_problems() -> list[str]:
                             "(InstrumentationKey=...;IngestionEndpoint=https://...)")
         elif key == "allowed_tenants" and not all(isinstance(t, str) and valid_client_id(t) for t in value):
             problems.append("allowed_tenants must list tenant ids, like 00000000-0000-0000-0000-000000000000")
+        elif key == "incident_sla":
+            from .workloads.sla import targets
+            problems.extend(targets(value)[1])
     return problems
 
 

@@ -825,9 +825,23 @@ def ensure_source_ids(db: Db) -> list[str]:
     return added
 
 
+def _with_source_ids(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The schema 5 fields as ensure_source_ids would set them, worked out without writing: a read
+    never migrates the catalog (that's Finish or repair, or the next change to a source)."""
+    used = [int(s["source_id"]) for s in sources if str(s.get("source_id") or "").isdigit()]
+    nxt = max(used, default=0) + 1
+    for s in sorted(sources, key=lambda s: s["name"]):
+        if not str(s.get("source_id") or "").isdigit():
+            s["source_id"], nxt = str(nxt), nxt + 1
+        s["code"] = s.get("code") or s["name"].upper()
+        s["system_type"] = s.get("system_type") or ""
+        if s.get("active") in (None, ""):
+            s["active"] = "1"
+    return sources
+
+
 def list_sources(db: Db) -> list[dict[str, Any]]:
-    ensure_source_ids(db)
-    sources = db.rows(f"SELECT * FROM {db.t('catalog', 'source')}")
+    sources = _with_source_ids(db.rows(f"SELECT * FROM {db.t('catalog', 'source')}"))
     readers = db.rows(f"SELECT * FROM {db.t('catalog', 'reader')}")
     for src in sources:
         src["connections"] = json.loads(src["connections"] or "{}")

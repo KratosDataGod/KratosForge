@@ -29,6 +29,16 @@ def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
 
 
+def _preview(store: Any, lakehouse: str, schema: str, table: str, limit: int) -> dict[str, Any] | None:
+    """The first ``limit`` rows and the row count from the Delta log: only those rows are read,
+    however large the table (HD-033). None when there's no table."""
+    lf = store.scan(lakehouse, schema, table)
+    if lf is None:
+        return None
+    df = lf.head(limit).collect()
+    return {"columns": df.columns, "rows": json.loads(df.write_json()), "total": store.count(lakehouse, schema, table)}
+
+
 def _toml(v: Any) -> str:
     """A TOML value; tables are written inline: { ingest = { id = "...", name = "..." } }."""
     if isinstance(v, dict):
@@ -273,10 +283,8 @@ class MetaMixin:
             store = self._store(project, env)
             log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
-            df = store.read(project.layer(e.layer).lakehouse, e.schema, e.table) \
-                if e.layer in project.layer_names() else None
-            if df is not None:
-                preview = {"columns": df.columns, "rows": json.loads(df.head(50).write_json()), "total": df.height}
+            if e.layer in project.layer_names():
+                preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
@@ -428,10 +436,8 @@ class MetaMixin:
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:
         project = self._project()
         e = project.entities[name]
-        df = self._store(project, env).read(project.layer(e.layer).lakehouse, e.schema, e.table)
-        if df is None:
-            return {"columns": [], "rows": [], "total": 0}
-        return {"columns": df.columns, "rows": json.loads(df.head(limit).write_json()), "total": df.height}
+        out = _preview(self._store(project, env), project.layer(e.layer).lakehouse, e.schema, e.table, limit)
+        return out or {"columns": [], "rows": [], "total": 0}
 
     # ---- promote
 

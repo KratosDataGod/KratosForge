@@ -99,6 +99,10 @@ No new Fabric permission or sign-in scope is needed: policies use the same `UDF_
 
 Admins see **New policy**, **Edit draft**, **Publish**, **Deprecate** and **Retire**. **Save and publish** saves the draft and publishes it in one step.
 
+## When the platform can't be reached
+
+Checks that depend on the platform fail closed: when a rule can't be read, Fabric Desktop by KratosBI stops the action and says why, rather than acting as if there were no rule. Today that covers the [shortcut rules](shortcuts.md#shortcut-rules), and who-can-read lists, which say **Not complete** when a lakehouse's data access roles can't be read. Policy checks (GOV-002 onward) will follow the same rule.
+
 ## Storage
 
 Policies are four tables in the platform's catalog, next to domains and the glossary (no second database):

@@ -1320,6 +1320,18 @@ test("confirms that delete or overwrite something pass danger", () => {
   assert.deepStrictEqual(missing, []);
 });
 
+// QA-032: X-ray's Optimize asks first, says it runs in Fabric and uses capacity, and shows the risk check.
+test("Estate X-ray's Optimize confirms with the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function optimizeDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /showDialog\(`Optimize \$\{label\}\?`/);
+  assert.match(dialog, /runs in Fabric[\s\S]*uses capacity/);
+  assert.match(dialog, /rpc\("xray_optimize_check"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /result === "blocked"/);
+  assert.ok(dialog.indexOf('rpc("xray_optimize_check"') > -1 && !/optimize: \(\) => btn\("Optimize", "sync", async/.test(xray),
+    "the line's button opens the dialog instead of starting the job");
+});
+
 test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
   const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
   const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
@@ -1354,6 +1366,7 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
+  assert.match(how, /each asks first/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
@@ -1375,4 +1388,14 @@ test("Workspaces, the catalog and data products have a How this works panel that
   assert.match(products, /records your project as a reader/);
   assert.match(products, /adds a request/);
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});
+
+// QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
+test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
+  const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
+  assert.ok(!/shortcut_preflight[\s\S]{0,200}\.catch\(\(\) => \(\{ blocked: \[\]/.test(shortcuts), "a failed preflight reads as no rules");
+  assert.match(shortcuts, /unchecked: true \}\)\)/);
+  assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  assert.match(estate, /res\.partial \?/);
 });

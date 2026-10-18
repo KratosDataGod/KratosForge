@@ -35,12 +35,12 @@ Vacuum deletes files for good, so Fabric Desktop by KratosBI never guesses how m
 
 **Why it matters.** Every query opens every file. Hundreds of small files make Spark, the SQL analytics endpoint and Direct Lake slower, and cost more capacity, than a few large ones holding the same rows.
 
-**What Optimize does.** It runs Fabric's own table maintenance job on the table, on your Fabric capacity:
+**What Optimize does.** It first asks, naming the table and saying that it runs in Fabric and uses capacity, with the [risk check](finops/risk-check.md) for the workspace's capacity: blocked (a paused capacity, no sign-in, or a policy that keeps work off Fabric) has no **Optimize** button. Then it runs Fabric's own table maintenance job on the table, on your Fabric capacity:
 
 1. `OPTIMIZE` with V-Order: rewrites the small files into large ones, sorted and compressed the way Direct Lake and the SQL endpoint read fastest.
-2. `VACUUM` keeping 7 days: deletes files no version from the last 7 days needs.
+2. `VACUUM` keeping at least 7 days (or the history the table's layer or its own setting promises, as [Vacuum](#needs-vacuum) does): deletes files no version from that time needs.
 
-Follow the job in **Monitor**. Old versions within those 7 days stay readable (time travel and restore still work).
+Follow the job in **Monitor**. Old versions within that time stay readable (time travel and restore still work).
 
 **By hand.** In Fabric, open the lakehouse, select **...** next to the table, then **Maintenance**. Tick **Run OPTIMIZE command** and **Apply V-Order**, tick **Run VACUUM command** with a retention of 7 days, and select **Run now**. Or in a notebook:
 

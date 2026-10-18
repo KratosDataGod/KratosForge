@@ -471,12 +471,18 @@ async function renderDataProducts() {
   const pp = productsPage;
   const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
-  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(),
+  setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },
       h("div", { class: "monitor-band" }, h("h2", {}, "Data products"),
         h("span", { class: "muted-text" }, "What every team shares, from the platform's catalog"), h("span", { class: "spacer" }), search,
         btn("Refresh", "sync", () => render(), "tool outline")),
-      list)));
+      list),
+    howItWorks("onelake.products", {
+      reads: "Every team's published data products, their ports and readers, from the platform's catalog (SQL_Platform in Fabric, or the file on this PC). It reads when the tab opens and when you press Refresh.",
+      changes: "Link writes a link file in your open metadata project on this PC and records your project as a reader in the platform's catalog. Request access adds a request to the platform's catalog for the product's owner. Neither touches the product's tables in OneLake, and nothing else here writes.",
+      results: "The product's owner sees your request on Platform > Requests and decides it, and sees your project among the product's readers. A link shows on your project's Links tab.",
+      anchor: "data-products-preview",
+    }))));
   const out = await platformCall("platform_products", {}, "Could not read the catalog");
   if (!out || state.view !== "onelake" || catalogPage.tab !== "products") return;
   const domains = [...new Set(out.products.map((p) => p.domain_id).filter(Boolean))].sort();

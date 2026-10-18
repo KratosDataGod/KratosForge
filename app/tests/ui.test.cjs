@@ -1332,3 +1332,17 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   assert.match(fabric, /withHowItWorks\(/);
   assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
 });
+
+// Testing item 18: Workspaces, the OneLake catalog and Data products each say how they work, naming every write.
+test("Workspaces, the catalog and data products have a How this works panel that names their writes", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
+  const ws = panel(app, "workspaces");
+  assert.match(ws, /New lakehouse creates a lakehouse in Fabric/);
+  assert.match(panel(app, "onelake.catalog"), /changes: "Nothing in Fabric or OneLake/);
+  const products = panel(platform, "onelake.products");
+  assert.match(products, /records your project as a reader/);
+  assert.match(products, /adds a request/);
+  for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});

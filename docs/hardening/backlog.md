@@ -143,7 +143,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy | Hardening | M |
 | HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
-| HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths | Hardening | M |
+| HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths; refuse `..` and empty OneLake file paths | Hardening | M |
 | HD-054 | TS-2: T-SQL contract harness; scheduled live job once a test workspace exists | Hardening | M |
 
 ## P3

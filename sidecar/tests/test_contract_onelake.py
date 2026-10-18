@@ -13,8 +13,8 @@ network or a tenant. The contracts:
 * the read-only and dry-run paths (probe, list, the live test's plan and --dry-run, the readiness
   write test refused for a production workspace) send no mutating request;
 * every request stays under https://onelake.dfs.fabric.microsoft.com/<workspace>/<lakehouse>/.
-  Two cases where it doesn't today are marked xfail(strict=True) and reported (see HD-053 notes):
-  a path containing ``..`` and an empty path.
+  A path with a ``..`` segment and an empty path to upload or delete are refused (onelake.item_path):
+  requests resolves ``..`` before sending, and an empty delete path would remove the lakehouse's root.
 """
 
 from __future__ import annotations
@@ -254,8 +254,6 @@ def _inside_item(r) -> bool:
     return r.host == DFS_HOST and r.path.startswith(f"/{WS}/{LH}/") and r.path != f"/{WS}/{LH}/"
 
 
-@pytest.mark.xfail(strict=True, reason="HD-053 finding: FileStore doesn't reject '..', and requests "
-                   "resolves it, so the write lands in another lakehouse or workspace")
 @pytest.mark.parametrize("path", ["Files/../../" + "55555555-5555-5555-5555-555555555555/Files/x",
                                   "Files/../../../66666666-6666-6666-6666-666666666666/lh/Files/x"])
 def test_a_dot_dot_path_cannot_write_outside_the_lakehouse(path):
@@ -263,17 +261,33 @@ def test_a_dot_dot_path_cannot_write_outside_the_lakehouse(path):
     try:
         fs.upload(WS, LH, path, b"x")
     except ValueError:
-        pass  # refusing the path is the fix
-    assert all(_inside_item(r) for r in t.sent)
+        pass  # refused before anything is sent
+    else:
+        raise AssertionError("the path was accepted")
+    assert t.sent == []
 
 
-@pytest.mark.xfail(strict=True, reason="HD-053 finding: delete('') or delete('/') sends a recursive "
-                   "DELETE for the lakehouse item's root")
 @pytest.mark.parametrize("path", ["", "/"])
 def test_an_empty_path_cannot_delete_the_whole_lakehouse(path):
     fs, t = store([Reply(200)])
     try:
         fs.delete(WS, LH, path)
     except ValueError:
-        pass  # refusing the path is the fix
-    assert all(_inside_item(r) for r in t.sent)
+        pass  # refused before anything is sent
+    else:
+        raise AssertionError("the path was accepted")
+    assert t.sent == []
+
+
+@pytest.mark.parametrize("path", ["Files/%2e%2e/%2E%2E/other/Files/x", "Files\\..\\..\\other\\x", "./Files/x"])
+def test_encoded_and_backslash_dot_segments_are_refused(path):
+    fs, t = store([])
+    with pytest.raises(ValueError):
+        fs.upload(WS, LH, path, b"x")
+    assert t.sent == []
+
+
+def test_a_folder_name_with_dots_is_still_a_path():
+    fs, t = store([Reply(201), Reply(202), Reply(200)])
+    fs.upload(WS, LH, "Files/v1..2/..hidden/x.parquet", b"x")
+    assert all(_inside_item(r) for r in t.sent) and len(t.sent) == 3

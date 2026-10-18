@@ -1376,3 +1376,13 @@ test("Workspaces, the catalog and data products have a How this works panel that
   assert.match(products, /adds a request/);
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
+
+// QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
+test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
+  const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
+  assert.ok(!/shortcut_preflight[\s\S]{0,200}\.catch\(\(\) => \(\{ blocked: \[\]/.test(shortcuts), "a failed preflight reads as no rules");
+  assert.match(shortcuts, /unchecked: true \}\)\)/);
+  assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  assert.match(estate, /res\.partial \?/);
+});

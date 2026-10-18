@@ -3,8 +3,11 @@
 OneLake security adds up what every role permits, so a family's tables can't be hidden with a role
 of their own: DefaultReader has to stop reaching them. ``restrict_plan`` works out the new role list
 from the current one: DefaultReader keeps its members and every path an admin gave it, except that
-"*" (or "/Tables") becomes every other schema and Files, so tables added later to dbo stay readable;
-the family gets one reader role on its schema; every other role is left as it is. It refuses rather
+"*" (or "/Tables") becomes every schema that isn't a family's own, and Files, so tables added later to
+dbo stay readable. Every family schema is left out, not just this one: once "*" is gone, a schema
+DefaultReader doesn't list is hidden from it, so leaving them all out keeps each family free to be
+restricted later. The family gets one reader role on its schema; every other role is left as it is,
+and a role that already reads the family's schema for the same people isn't rewritten. It refuses rather
 than guess: no DefaultReader, a DefaultReader it can't edit safely, a path that grants part of the
 family's schema, or a role name already used for something else. Pure: it calls nothing.
 """
@@ -33,6 +36,16 @@ def _path_rule(role: dict[str, Any]) -> dict[str, Any]:
     return paths[0]
 
 
+def _same(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Do two roles read the same paths for the same people? Fields Fabric adds (id, eTag) don't count."""
+    def key(role: dict[str, Any]) -> tuple[Any, ...]:
+        members = role.get("members") or {}
+        entra = sorted(m.get("objectId") or "" for m in members.get("microsoftEntraMembers") or [])
+        items = sorted(repr(sorted(m.items())) for m in members.get("fabricItemMembers") or [])
+        return sorted(access._paths(role)), entra, items
+    return key(a) == key(b)
+
+
 def restrict_plan(roles: list[dict[str, Any]], family: schema.Family, role_name: str, members: list[str],
                   tenant_id: str, schemas: list[str]) -> dict[str, Any]:
     """The roles after keeping ``family``'s schema from DefaultReader and giving ``members`` the
@@ -48,7 +61,8 @@ def restrict_plan(roles: list[dict[str, Any]], family: schema.Family, role_name:
                               "Check its roles in OneLake > Access.")
     new_reader = copy.deepcopy(reader)
     rule = _path_rule(new_reader)
-    others = [f"/Tables/{s}" for s in sorted(set(schemas) | {schema.SCHEMA}) if s != family.schema]
+    family_schemas = (set(schema.schemas()) | {family.schema}) - {schema.SCHEMA}
+    others = [f"/Tables/{s}" for s in sorted(set(schemas) | {schema.SCHEMA}) if s not in family_schemas]
     paths: list[str] = []
     for p in rule.get("attributeValueIncludedIn") or []:
         p = p if p == "*" else "/" + p.strip("/")
@@ -65,14 +79,17 @@ def restrict_plan(roles: list[dict[str, Any]], family: schema.Family, role_name:
     changes = []
     if paths != (rule.get("attributeValueIncludedIn") or []):
         rule["attributeValueIncludedIn"] = paths
-        changes.append(f"DefaultReader no longer reads {family_path}; it keeps its members and everything else it read")
+        changes.append(f"DefaultReader no longer reads {family_path}; it keeps its members and everything else it "
+                       "read, but schemas created later stay hidden from it until someone adds them")
     existing = next((r for r in roles if r.get("name") == role_name), None)
     if existing is not None and access._paths(existing) != [family_path]:
         raise ValueError(f"There is already a role named {role_name} that reads something else. Pick another name.")
     own = access.make_role(role_name, [family_path], members, tenant_id, existing)
     if existing is None:
         changes.append(f"New role {role_name} reads {family_path}")
-    elif own != existing:
+    elif _same(own, existing):
+        own = existing
+    else:
         changes.append(f"{role_name} gets the members you chose")
     out = [new_reader if r is reader else own if r is existing else r for r in roles]
     if existing is None:

@@ -54,3 +54,24 @@ def test_it_refuses_rather_than_guess():
         plan([reader(["*"]), dict(reader(["/Files"]), name="AccessCacheReaders")])
     with pytest.raises(ValueError, match="schema of its own"):
         roles.restrict_plan([reader(["*"])], schema.OPTIMIZE, "X", ["o"], "t", ["dbo"])
+
+
+def test_a_second_family_can_be_restricted_after_the_first(monkeypatch):
+    other = schema.Family("fdtwo_", "Second", FAM.migrations, schema="second")
+    monkeypatch.setitem(schema.FAMILIES, FAM.prefix, FAM)
+    monkeypatch.setitem(schema.FAMILIES, other.prefix, other)
+    lake = ["dbo", "access", "second", "sales"]
+    first = plan([reader(["*"])], schemas=lake)
+    assert paths_of(first["roles"][0]) == ["/Tables/dbo", "/Tables/sales", "/Files"]  # no family schema
+    second = roles.restrict_plan(first["roles"], other, "SecondReaders", ["obj-2"], "tenant", lake)
+    assert paths_of(second["roles"][0]) == ["/Tables/dbo", "/Tables/sales", "/Files"]
+    assert [r["name"] for r in second["roles"]] == ["DefaultReader", "AccessCacheReaders", "SecondReaders"]
+    assert second["changes"] == ["New role SecondReaders reads /Tables/second"]
+
+
+def test_fields_fabric_adds_dont_count_as_a_change():
+    out = plan([reader(["*"])])
+    listed = [dict(r, id=f"id-{i}", eTag=f'"e{i}"') for i, r in enumerate(out["roles"])]  # as List returns them
+    again = plan(listed)
+    assert again["changes"] == []
+    assert again["roles"][1] is listed[1]  # the role is left exactly as Fabric returned it

@@ -69,3 +69,29 @@ Every review says which tests were actually run in this review. "Static review o
 ## Reviews
 
 PR reviews start after this baseline merges and are added below, newest first.
+
+### Merge set of 2026-10-18 (Release management's chain for 17:00Z)
+
+Reviewed against `main` 52ff52d. Each PR was reviewed on its own commits only: chained PRs against the PR before them, and the cancel-race fix that appears in #169, #148 and #139 once, under #169. For every PR, the PR's own test files and `node --test app/tests/ui.test.cjs` were run on its head (Python 3.13, Linux). Every FAIL below was reproduced with a script on the PR head, and re-run independently. Nothing was run against Fabric.
+
+| PR | Title | Decision | Score | Blocking finding or condition |
+| --- | --- | --- | --- | --- |
+| #170 | Schedule dialog opens on Fabric when the environment runs on Fabric | PASS | 9.3 | None |
+| #169 | Preview tags for promote, sync keys, variable library, replay | CONDITIONAL PASS | 8.2 | With Preview off, `previewMarked` (`features.js:90`) shows the four untested writes untagged, while Settings (`settings.js:246`) and `user-guide.md` say the switch hides them. Align the behavior or the text before the next Stable promote |
+| #171 | Command bar, help links; `confirmDialog` danger mode | CONDITIONAL PASS | 8.9 | No caller passes `{danger}` yet; about 20 destructive confirmations are still primary. Describe it as "confirmDialog gains a danger mode" and track the call sites under UX-018 |
+| #173 | Sign-in errors say what happened (UX-003) | CONDITIONAL PASS | 8.7 | `attempt()` (`app.js:79`) is silent for any error with empty friendly text, not only a cancel (QA-013). Mark the cancel explicitly and test it |
+| #142 | Prove: save failure replay bundles | CONDITIONAL PASS | 8.35 | Unticking IDs leaves workspace and lakehouse IDs in `abfss` URIs inside error text (`replay.py:115`) while the dialog says the bundle is safe to share |
+| #148 | Prove: open and replay failure bundles | **FAIL** | 7.35 | Bundle table names aren't validated (`prove_service.py:371-372`): `../../../../../../Tables/dbo.evil` with "Use the bundle's sample" writes a Delta table outside the replay sandbox. Also no cap on `bundle.json`'s uncompressed size |
+| #139 | Local data: write Delta tables from SQL (FD-LDE-005) | **FAIL** | 7.75 | `_as_write` (`localdata/engine.py:600`) treats any `WITH` statement as a SELECT, so `write_delta(..., "WITH c AS (SELECT 1) DELETE FROM plain", dry_run=True)` deletes every row. A dry run must not mutate (AGENTS.md) |
+| #150 | ORCH-002 activity compatibility registry | CONDITIONAL PASS | 8.6 | Control flow, Wait, Web and Webhook are marked `fabric_capacity="not_required"`, and a pipeline that only runs in Fabric reports "Needs Fabric capacity: None" (QA-008) |
+| #153 | FINOPS-003 import measured CU | **FAIL** | 7.1 | Rows are matched by time overlap ±300 s (`usage/reconcile.py:98`): an adjacent scheduled run of the same notebook is added, giving 10,200 "measured" CU-s for a 1,200 CU-s run. The docs say a row matches only when it can't belong to anything else |
+| #167 | FINOPS-003b Cost Management import | **FAIL** | 7.3 | Two overlapping month-to-date exports double count (`cost_management.py:113-116`, `usage/__init__.py:122`): 212 CU h / $38.16 against a true 192 / $34.56 |
+| #174 | FINOPS-004 part 1 risk check | CONDITIONAL PASS | 8.0 | "Blocked" doesn't stop the run and `require_acknowledgement` has no effect yet; say "reports only" in the docs, MCP description and payload, and hide the setting until it works. Waits for #153 and #167 |
+| #194 | Remember a passed write test (#191) | **FAIL** | 6.7 | The remembered pass (`settings.js` `rememberWrite`) has no tenant, lakehouse or expiry, hides Retest, and isn't cleared by a refused test, so Home says "Ready to work" without checking (UX-014). The head also carries 14 other unmerged commits |
+| #195 | Monitor: Schedules and Cost get the whole page (#190) | CONDITIONAL PASS | 8.2 | Reduce the head to its own two commits (it carries the #194 stack). Follow-up: the "None" environment tooltip is wrong for Fabric runs |
+| #197 | Product records: unit-testing direction and incident management | PASS | 9.2 | None (docs only; `product_data.py` reports consistent) |
+| #198 | Release readiness: what's missing for an enterprise-approved app | CONDITIONAL PASS | 8.75 | Stable releases get no SBOMs (`promote.yml` uploads three files); #165, #181 and #182 are listed as open but merged; the open High security findings SH-1, SH-2 and EN-1 are left out |
+
+Totals: 2 PASS, 8 CONDITIONAL PASS, 5 FAIL. All FAILs went to Release management through the coordinator, with the owner and fix.
+
+What the set says about the baseline: the five FAILs are the patterns the [findings](findings.md) describe, appearing in new code. Unvalidated names building paths (QA-025), a heuristic labelled as measured (QA-008), success shown without checking (UX-014), and dry-run classification by text prefix. No PR reintroduced a silent overwrite, and every PR's new tests failed on its parent's code, which is the evidence the gate asks for.

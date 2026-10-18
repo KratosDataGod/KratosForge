@@ -296,7 +296,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 ### D. Cross-location execution management
 
 **31. Execution location directory** · Missing · Stage 1 (this PC and Fabric workspaces), Stage 5 (agents) · *Dep roadmap (agent records)*
-- Enhancement: locations from deployments now; agents from `agents/<name>.json` later. Acceptance: an agent with no recent heartbeat shows "last seen", not "online". Validation: U, UI. PR: 5A (Monitor > Agents)
+- Enhancement: locations from deployments now; agents from `agents/<name>.json` later. Acceptance: an agent with no recent heartbeat shows "last seen", not "online". Validation: U, UI. PR: #133 (Monitor > Agents)
 
 **32. Placement recommendations** · Missing · Stage 8 · *Dep Prove (placement)*
 - Enhancement: show Prove's recommendation with its evidence on the workload page. PR: —
@@ -314,10 +314,10 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Today: schedule locks, agent leases, version-checked commits. Enhancement: warn when one entity is scheduled on two locations with overlapping windows. Validation: U. PR: —
 
 **37. Agent enrollment and inventory** · Enhance · Stage 5 · *Dep roadmap*
-- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: 5A (version, environments, what it runs; owner and identity type need fields the status record doesn't have yet)
+- Today: `agent.toml`, `fabric-desktop agent status` on the server. Enhancement: agents' identity, capabilities, version, environments and owner in the app. Validation: U, UI, L. PR: #133 (version, environments, what it runs; owner and identity type need fields the status record doesn't have yet)
 
 **38. Agent health and heartbeat** · Missing · Stage 2.3, Stage 5 · *Dep roadmap (heartbeat records)*
-- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident), 5A (version compared with the app)
+- Enhancement: missing heartbeat opens an incident; version mismatch and degraded capability shown. Validation: U. PR: #79 (agent-offline incident), #133 (version compared with the app)
 
 **39. Execution recovery guidance** · Enhance · Stage 1 (failed runs), Stage 5
 - Today: the agent recovers jobs whose worker died (`jobqueue.recover`); PC schedules skip when locked. Enhancement: guided retry for failed runs now; PC shutdown, agent loss, expired credentials and interrupted Fabric runs in stage 5. Validation: U. PR: —
@@ -340,7 +340,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 - Enhancement: the agent evaluates on a timer; the app evaluates when open; same rules. Validation: U, L. Needs: none new. PR: #74 (agent timer, opt-in; app on request)
 
 **45. Incident lifecycle** · Missing · Stage 2.1, 2.3
-- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs), #79 (escalation, likely category), #125 (screens), 2.3C (freshness alerts as incidents)
+- Enhancement: detection, acknowledgement, ownership, mitigation, recovery, resolution in the environment's incident log. Depends: W2. Validation: U, M. PR: #74 (engine and RPCs), #79 (escalation, likely category), #125 (screens), #127 (freshness alerts as incidents)
 
 **46. Alert correlation** · Missing · Stage 2.3, Stage 6
 - Enhancement: group symptoms by shared upstream, environment or location, saying "likely" and listing evidence. Validation: U. PR: —
@@ -487,3 +487,4 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 | 2026-10-17 | #79 (2.3A) merged. 2.3B built after Chris's go: Monitor > Incidents, incident page, incidents on the workload page; agents publish their incident settings (no webhooks) in their status records. Moving the app's own freshness alerts onto incidents is split out as 2.3C. |
 | 2026-10-17 | Stage 5A (FD-122): Monitor > Agents and the agent page, read-only over the status records; mockup boards 7 and 8. Overlap warnings (item 36) and the queue view across locations (item 34) follow. |
 | 2026-10-17 | #125 ready for review. 2.3C built: the app checks incidents only for environments no running agent checks, so one late table raises one alert. |
+| 2026-10-17 | #125 (2.3B), #127 (2.3C) and #133 (5A) merged. Next: overlap warning, queue view across locations, FD-124. |

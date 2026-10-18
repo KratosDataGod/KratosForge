@@ -18,7 +18,7 @@ A snapshot from the release manager's last integration cycle. GitHub is the sour
 | What conflicts? | #150 and #139 both add names to the same line of `audit.py` `READ_ONLY`; whichever merges second needs `main` merged in, keeping both sets of names. #131 conflicts with `main` in `app/tests/ui.test.cjs`, `docs/user-guide.md`, `docs/metadata-guide.md` |
 | Are builds passing? | `main` CI green at `3bee0db` (run 452). Every non-draft PR whose CI has finished is green apart from the Codex `review` check, which fails on quota and is not required |
 | Do the PRs pass together? | Trial of 17 PRs merged onto `3bee0db`: UI tests 55 of 55 passed; engine suite result below |
-| What blocks the next Stable release? | Nothing beyond Chris's go, if the bar is "no worse than current Stable". For an enterprise pilot, the [readiness checklist](../hardening/readiness-checklist.md) is failing (signing, live tenant test, rollback) |
+| What blocks the next Stable release? | QA-001 and QA-002 from the [engineering quality baseline](https://github.com/KratosDataGod/fabric-desktop/pull/176), both already in Stable: the local Spark writer ignores `.option()`/`.options()`, so a `replaceWhere` overwrite replaces the whole OneLake table and reports success (Critical, data loss), and a failed notebook save still says Saved (High). Owner: Prove. The next Stable promotion should carry both fixes. For an enterprise pilot, the [readiness checklist](../hardening/readiness-checklist.md) is failing too (signing, live tenant test, rollback) |
 | Is the release process healthy? | Partly. See risks below |
 
 ## Integration trial
@@ -55,6 +55,7 @@ Smallest blast radius first, stacks in order, CI still running last. Chris's go 
 | RM-007 | No rollback: one build per channel, engine always from the channel's current release | Hardening (HD-028) | Tracked there; manual procedure in [rollback today](README.md#rollback-today) |
 | RM-008 | Unsigned builds; Smart App Control blocks the engine on many PCs | Chris (Trusted Signing account, D-C3) | Tracked as readiness gate 4 |
 | RM-009 | Learn more links open docs from `main` (`open_doc` in `app/src-tauri/src/main.rs`), so a Stable PC can read about Preview-only features (UX-007 in the UX audit) | Shell owner, as UX-007 | Open `blob/<FABRIC_RELEASE_COMMIT>/docs/...` when the build carries its commit, `main` otherwise |
+| RM-010 | Stable `9715e28` carries a Critical data-loss defect (QA-001) and a High lost-work defect (QA-002). Rolling Stable back doesn't help: every earlier Stable build has them too | Prove (fixes); Chris (when to promote) | Promote to Stable as soon as both fixes are merged and on Preview; say in the release notes what was fixed |
 
 ## Held PRs and what they wait on
 

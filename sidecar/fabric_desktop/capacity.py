@@ -26,6 +26,7 @@ from typing import Any, Callable
 
 from . import costs
 from . import measurement as ms
+from .retrying import TRANSIENT_STATUS
 
 MAX_AGE_S = 3600
 SOURCE = "Fabric REST API (GET /workspaces/{id}, GET /capacities)"
@@ -86,8 +87,8 @@ def classify_error(exc: BaseException) -> str:
         return "workspace_no_access"
     if status == 404 or code in ("WorkspaceNotFound", "EntityNotFound", "ItemNotFound"):
         return "workspace_not_found"
-    if isinstance(exc, (ConnectionError, TimeoutError, OSError)) or "ConnectionError" in type(exc).__name__ \
-            or "Timeout" in type(exc).__name__:
+    if status in TRANSIENT_STATUS or isinstance(exc, (ConnectionError, TimeoutError, OSError)) \
+            or "ConnectionError" in type(exc).__name__ or "Timeout" in type(exc).__name__:
         return "offline"
     return "error"
 

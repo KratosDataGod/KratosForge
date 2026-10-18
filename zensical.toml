@@ -77,6 +77,12 @@ nav = [
     { "Enterprise backlog" = "product/enterprise-backlog.md" },
     { "Enterprise decisions" = "product/implementation-decisions.md" },
     { "Release readiness" = "product/release-readiness.md" },
+    { "Hardening audit" = [
+      { "Scorecard and assessment" = "hardening/README.md" },
+      { "Findings register" = "hardening/findings.md" },
+      { "Hardening backlog" = "hardening/backlog.md" },
+      { "Readiness checklist" = "hardening/readiness-checklist.md" },
+    ] },
     { "Product management" = [
       { "Process" = "product/PRODUCT_MANAGEMENT_PROCESS.md" },
       { "Feature inventory" = "product/FEATURE_INVENTORY.md" },

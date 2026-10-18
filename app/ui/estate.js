@@ -363,7 +363,7 @@ function usageImportsList(imports) {
       h("td", { class: "n" }, plural(i.rows, "row")),
       h("td", { class: "small muted-text" }, "Imported ", when(i.imported_at)),
       h("td", {}, btn("Remove", "delete", async () => {
-        if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove ${i.file_name}?`, "Its rows are removed from this PC. Your exported file isn't touched, and you can import it again.", "Remove", { danger: true }))) return;
         if (await attempt(() => rpc("usage_import_delete", { import_id: i.id }), "Not removed")) render();
       }, "tool outline small")))))));
 }
@@ -673,7 +673,7 @@ function lakehouseAccessBody(a, lh, redraw) {
         h("td", {}, r.entra.map((o) => h("div", { class: "small" }, names[o] || o)), r.item_members.map((m) => h("div", { class: "muted-text small" }, `Everyone with ${m} permission`))),
         h("td", { class: "actions" }, btn("Edit", null, () => roleDialog(a, lh, r, redraw), "tool small link"),
           btn("Delete", "delete", async () => {
-            if (!(await confirmDialog(`Delete role ${r.name}?`, r.name === "DefaultReader" ? "DefaultReader is what lets people with read permission see every table. Without it they only see what other roles give them." : "Its members lose what this role let them read.", "Delete"))) return;
+            if (!(await confirmDialog(`Delete role ${r.name}?`, r.name === "DefaultReader" ? "DefaultReader is what lets people with read permission see every table. Without it they only see what other roles give them." : "Its members lose what this role let them read.", "Delete", { danger: true }))) return;
             const res = await attempt(() => rpc("access_delete_role", { workspace_id: lh.workspace_id, item_id: lh.item_id, name: r.name }), "Role not deleted");
             if (res) { accessPage.lh = res; toast(`Deleted role ${r.name}`, false, { log: true }); redraw(); }
           }, "tool small link"))))))

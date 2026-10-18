@@ -161,7 +161,7 @@ function sourceDetail(s, l, rerender) {
     h("div", { class: "row" }, h("h2", { class: "flush" }, s.title || s.name), h("span", { class: "spacer" }),
       adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender), "tool outline small")),
       adminOnly(s.registered ? btn("Remove", "delete", async () => {
-        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_delete_source", { name: s.name }, "Not removed")) rerender();
       }, "tool outline small") : null)),
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
@@ -353,7 +353,7 @@ async function platformDomainsTab(body) {
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
-            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete"))) return;
+            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger"))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")));
@@ -414,7 +414,7 @@ async function platformSettingsTab(body) {
       h("td", {}, h("b", {}, a.user_name), a.user_name === me.user ? h("span", { class: "muted-text" }, " (you)") : null),
       h("td", { class: "muted-text small" }, `Added ${relTime(a.added_at)}${a.added_by && a.added_by !== a.user_name ? ` by ${a.added_by}` : ""}`),
       h("td", {}, adminOnly(btn("Remove", null, async () => {
-        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_remove_admin", { user: a.user_name }, "Not removed")) rerender();
       }, "tool small danger")))))))
       : null,

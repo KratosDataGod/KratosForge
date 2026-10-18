@@ -510,7 +510,7 @@ class EstateMixin:
         cfg = project.environments.get(env, {})
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
+            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
                                             "Source system connections, managed by Fabric Desktop by KratosBI")

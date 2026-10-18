@@ -132,7 +132,7 @@ class MetaMixin:
             return LocalStore(project.local_data / env, env, landing=self._landing_dir(env))
         ws = cfg.get("workspace_id")
         if not ws:
-            raise LookupError(f"Assign a workspace to {env.title()} first (Metadata > Environments and promote).")
+            raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
         spaces = cfg.get("workspaces") or {}
@@ -172,7 +172,7 @@ class MetaMixin:
             return LocalStore(project.local_data / f"keys-{env}", env)
         ws = cfg.get("keys_workspace_id")
         if not ws:
-            raise LookupError(f"Pick a Keys workspace for {env.title()} first (Metadata > Surrogate keys).")
+            raise LookupError(f"Pick a Keys workspace for {env.title()} first (Data mesh > Design > Surrogate keys).")
         fabric = self.fabric  # type: ignore[attr-defined]
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
@@ -446,7 +446,7 @@ class MetaMixin:
         cfg = project.environments.get(target, {})
         if (project.key_tables or project.source_systems) and cfg.get("target", "onelake") != "local" \
                 and not cfg.get("keys_workspace_id") and not self._keys_in_platform(project, target):
-            errors.append(f"Pick a Keys workspace for {target.title()} first (Metadata > Surrogate keys)")
+            errors.append(f"Pick a Keys workspace for {target.title()} first (Data mesh > Design > Surrogate keys)")
         errors += self._product_gate(project)
         breaking, notes = self._breaking_gate(project, target)
         errors += breaking

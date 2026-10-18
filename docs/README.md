@@ -48,7 +48,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [finops/risk-check.md](finops/risk-check.md) | Engineers, FinOps, IT | What the risk check before a run looks at, its results, settings and acknowledgements |
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The shared optimization lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
-| [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Monitor > Cost figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
+| [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
@@ -118,8 +118,8 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Failure replay bundles (save, open and replay) | Under a cell that failed on this PC; Create > Open replay bundle |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Cost | Monitor |
-| Capacity status | Monitor > Cost, Data mesh > Environments |
-| Measured usage import | Monitor > Cost |
+| Capacity status | Optimize > Cost and savings, Data mesh > Environments |
+| Measured usage import | Optimize > Cost and savings |
 | OneLake shortcuts | OneLake |
 | OneLake access | OneLake |
 | Table history and restore | Entity page |
@@ -132,6 +132,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 | Data products for everyone | OneLake > Data products |
 | Data mesh (domains from Fabric, products, links, glossary, About, the map on Home) | Data mesh > Domains, Platform > Domains, Home, entity page |
 | Workloads (inventory, health, ownership, the workload page, Your workloads) | Monitor > Operations > Workloads, Home |
+| Incidents (numbers, priorities, SLAs, reported incidents, your service desk) | Monitor > Operations > Incidents ([incidents.md](incidents.md)) |
 
 **Local data projects** (Preview) run on your PC and don't call Fabric. Their tests use real files, DuckDB and Delta tables on every build; there are no screens for them yet ([local-data.md](local-data.md)).
 

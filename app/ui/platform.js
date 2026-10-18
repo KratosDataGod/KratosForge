@@ -40,7 +40,9 @@ async function renderPlatform() {
   setView(h("div", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
-      h("div", { class: "head-actions" }, ["landing", "keys", "overview"].includes(p.tab) ? envSeg : null,
+      // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
+      // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
       h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
@@ -80,17 +82,18 @@ async function platformOverviewTab(body) {
   if (!o || !stillHere("overview")) return;
   const c = o.counts;
   const late = (o.landing.sources || []).filter((s) => s.late);
-  const health = h("table", { class: "list" },
-    h("thead", {}, h("tr", {}, ["", ...MESH_ENVS.map((e) => ENV_LABEL[e])].map((x) => h("th", {}, x)))),
-    h("tbody", {}, h("tr", {}, h("td", {}, h("b", {}, "Platform")), ...MESH_ENVS.map((env) => {
-      const e = o.status.environments[env];
-      return h("td", {}, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC"));
-    }))));
-  body.replaceChildren(...[
+  // One row per environment, so the card stays narrow enough to sit beside the landing zone.
+  const health = h("table", { class: "list" }, h("tbody", {}, MESH_ENVS.map((env) => {
+    const e = o.status.environments[env];
+    return h("tr", {}, h("td", {}, h("b", {}, ENV_LABEL[env])),
+      h("td", { class: "grow" }, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC")),
+      h("td", {}, e.kind === "fabric" ? null : adminOnly(btn("Set up in Fabric", null, () => goPlatform("settings"), "tool link small"))));
+  })));
+  body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
-      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomains` : "", () => goPlatform("domains")),
-      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : ""),
+      platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
+      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : "joined to a domain"),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
       platStat(c.products, "Data products", `${c.published} published`, () => go("onelake")),
       platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
@@ -99,7 +102,10 @@ async function platformOverviewTab(body) {
         requestTable(o.me.admin || o.needs_you.length ? o.needs_you : o.mine, () => render(), true),
         h("b", {}, "Each environment's platform"), health),
       h("div", { class: "card pad" },
-        h("div", { class: "row" }, h("b", { class: "grow" }, `Landing zone in ${ENV_LABEL[o.env]}`), btn("Open", null, () => goPlatform("landing"), "tool link small")),
+        h("div", { class: "row" }, h("b", { class: "grow" }, "Landing zone"),
+          h("div", { class: "seg small", role: "group", "aria-label": "Landing zone environment" }, MESH_ENVS.map((env) =>
+            h("button", { class: platformPage.env === env ? "on" : null, onclick: () => { platformPage.env = env; render(); } }, ENV_LABEL[env]))),
+          btn("Open", null, () => goPlatform("landing"), "tool link small")),
         late.length ? h("p", { class: "fail-text small" }, `${late.map((s) => s.name).join(", ")} ${late.length === 1 ? "is" : "are"} late.`) : null,
         (o.landing.sources || []).length ? h("table", { class: "list" },
           h("thead", {}, h("tr", {}, ["Source", "Last file", "Read by"].map((x) => h("th", {}, x)))),
@@ -109,10 +115,23 @@ async function platformOverviewTab(body) {
             h("td", {}, s.readers.length ? `${s.readers.length} project${s.readers.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
           : h("p", { class: "muted-text" }, "No sources in the landing zone yet."),
         h("b", {}, "Recent changes"),
-        auditList(o.recent)))].filter(Boolean));
+        auditList(o.recent, true)))].filter(Boolean),
+  howItWorks("platform.overview", {
+    reads: "Each environment's platform: its catalog in SQL_Platform in Fabric, or a file on this PC until that environment has a platform. It reads when the page opens and when you press Refresh.",
+    changes: "Requests waiting for you can be approved or declined here; approving a shortcut request creates it in OneLake. Domains, key tables and sources change on their own tabs, and only platform admins can change them.",
+    results: "Everyone who uses this platform sees the same counts, requests and recent changes. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
-function auditList(rows) {
+// compact: two lines per change, for a narrow card (Overview); the Audit tab keeps the table.
+function auditList(rows, compact = false) {
+  if (compact) {
+    return rows.length ? h("div", { class: "audit-compact" }, rows.map((a) => h("div", { class: "audit-row" },
+      h("div", { class: "audit-what" }, a.action, " ", h("span", { class: "mono small", title: a.target }, a.target)),
+      h("div", { class: "muted-text small" }, a.by_user || "someone", " · ", when(a.at)))))
+      : h("p", { class: "muted-text" }, "Nothing yet.");
+  }
   return rows.length ? h("table", { class: "list" }, h("tbody", {}, rows.map((a) => h("tr", {},
     h("td", { class: "muted-text small" }, when(a.at)), h("td", {}, a.by_user || h("span", { class: "muted-text" }, "someone")),
     h("td", {}, a.action), h("td", { class: "mono small" }, a.target)))))
@@ -161,7 +180,7 @@ function sourceDetail(s, l, rerender) {
     h("div", { class: "row" }, h("h2", { class: "flush" }, s.title || s.name), h("span", { class: "spacer" }),
       adminOnly(btn(s.registered ? "Edit" : "Register", null, () => sourceDialog(s, rerender), "tool outline small")),
       adminOnly(s.registered ? btn("Remove", "delete", async () => {
-        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove source ${s.name}?`, "Only the registration goes; files in the landing zone stay. A source a project still reads can't be removed.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_delete_source", { name: s.name }, "Not removed")) rerender();
       }, "tool outline small") : null)),
     h("p", { class: "muted-text small" }, s.description || "", s.owner ? ` Owner ${s.owner}.` : ""),
@@ -353,7 +372,7 @@ async function platformDomainsTab(body) {
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
-            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete"))) return;
+            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger"))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")));
@@ -414,7 +433,7 @@ async function platformSettingsTab(body) {
       h("td", {}, h("b", {}, a.user_name), a.user_name === me.user ? h("span", { class: "muted-text" }, " (you)") : null),
       h("td", { class: "muted-text small" }, `Added ${relTime(a.added_at)}${a.added_by && a.added_by !== a.user_name ? ` by ${a.added_by}` : ""}`),
       h("td", {}, adminOnly(btn("Remove", null, async () => {
-        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove"))) return;
+        if (!(await confirmDialog(`Remove ${a.user_name} as a platform admin?`, "They keep reading everything and can still send requests.", "Remove", { danger: true }))) return;
         if (await platformCall("platform_remove_admin", { user: a.user_name }, "Not removed")) rerender();
       }, "tool small danger")))))))
       : null,

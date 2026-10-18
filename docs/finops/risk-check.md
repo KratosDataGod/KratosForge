@@ -7,7 +7,7 @@ It runs for actions that start work on a notebook, a metadata entity or a Fabric
 ## Where you see it
 
 - **Workloads.** The run dialog shows the result under what the run will do. A pass folds its checks away under **Show checks**. Warnings and blocks are shown with their evidence, and the other checks fold away below them.
-- **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or can't be checked, and the run starts as before. With warnings or a block, a dialog shows them first. **Run all** in Data mesh checks each entity and shows them in one dialog.
+- **Notebook > Run in Fabric** and **Data mesh > Run.** These have no dialog of their own, so the check stays quiet when it passes or can't be checked, and the run starts as before. With warnings or a block, a dialog shows them first. **Run all** in Data mesh checks each entity and shows them in one dialog. If you go ahead with some entities blocked, they still start and are refused or fail when they run.
 - **Check again** reads the capacity again instead of using the last reading.
 - **Blocked** has no way to run anyway. In a notebook whose cells don't need Fabric, **Run on this PC** runs it here instead. The run still reads and writes OneLake, which uses some capacity.
 - **Warning** lets you go ahead. Going ahead is recorded (see below). When the settings ask for it, you tick **I've looked at these and want to run anyway** first.

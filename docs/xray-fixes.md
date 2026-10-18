@@ -82,11 +82,11 @@ The X-ray can only read roles in workspaces where you are Admin.
 
 ## Cost
 
-**What it means.** A notebook this app ran in Fabric used enough capacity in the last 30 days to be worth noticing. The estimate comes from the run times in Monitor's **Cost** panel and your capacity price (set in **Monitor > Cost**).
+**What it means.** A notebook this app ran in Fabric used enough capacity in the last 30 days to be worth noticing. The estimate comes from the run times in **Optimize > Cost and savings** and your capacity price (set there under **Prices**).
 
 **Why it matters.** Run on this PC, the same notebook does its processing here, with no Spark session in Fabric. OneLake reads and writes it makes still count against the workspace's capacity.
 
-**What the buttons do.** **Open notebook** opens it here (when the notebook is on this PC); set **Runs on** to **This PC** in the ribbon and later runs cost nothing. **See cost** opens **Monitor > Cost** with every item's numbers.
+**What the buttons do.** **Open notebook** opens it here (when the notebook is on this PC); set **Runs on** to **This PC** in the ribbon and later runs start no Fabric job (their OneLake reads and writes still use some capacity). **See cost** opens **Optimize > Cost and savings** with every item's numbers.
 
 **By hand.** Nothing to do in Fabric. If the notebook must stay in Fabric, look for a smaller Spark pool or a shorter session timeout in its environment.
 

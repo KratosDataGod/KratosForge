@@ -1173,7 +1173,7 @@ async function renderModelTab(body) {
       const c = res.confirm;
       if (await confirmDialog(`Replace ${c.name}?`,
         `${c.name} already exists in ${c.workspace_name || plan.workspace_name || "the workspace"}. Its definition will be replaced by this layer's tables and relationships; measures, tables and relationships added to it in Fabric are lost.`,
-        `Replace ${c.name}`)) build(true);
+        `Replace ${c.name}`, { danger: true })) build(true);
       return;
     }
     toast(`${res.created ? "Created" : "Updated"} ${res.name}`);

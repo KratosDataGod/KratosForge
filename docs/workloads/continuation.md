@@ -6,25 +6,16 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Field | Value |
 | --- | --- |
-| Last updated | 2026-10-17 |
-| Base | `main` at `9715e28` |
-| Stage | Stages 0, 1, 2 (2.1 to 2.3C) and 5A merged. #125 (2.3B), #127 (2.3C) and #133 (5A) merged on 2026-10-17. Next: the rest of stage 5. |
+| Last updated | 2026-10-18 |
+| Base | `main` after #146 (the folded FD-124, Queue, Run as, UX-010 and UX-014 stack) and Optimize #200 |
+| Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-management-plan-4su03b` | #136 | Status update after #125, #127 and #133 merged | Docs only, ready |
-| `claude/workload-agent-fields-4su03b` | agent fields | `owner`, `identity`, and each schedule's `entities` and `when` in agent status records (agreed with the roadmap thread) | Ready, on #136 |
-| `claude/workload-overlap-4su03b` | 5B | "Scheduled in two places" on Monitor > Agents; owner, identity and each schedule's tables on the agent page | Draft, on the fields PR |
-| `claude/workload-queue-4su03b` | 5C | Monitor > Queue: running, queued and next work across this PC, agents and Fabric, with the owning scheduler (item 34, board 9) | Draft, on 5B |
-| `claude/workload-multi-worker-4su03b` | FD-124 part 1 | Shared schedules through the mailbox and `claim = "when_free"`, off by default, untested on a tenant | Draft, on 5C |
-| `claude/workload-run-as-ui-4su03b` | 9A screen | Monitor > Run as (board 10), read only | Draft, on 9A engine |
-| `claude/workload-run-as-4su03b` | 9A engine | Agents publish `credential` facts (certificate expiry, last token request); `run_as_list` (items 71, 78, 79), read only | Draft, on step 4 |
-| `claude/workload-shared-labels-4su03b` | FD-124 step 4 | Queue shows a shared schedule as one row naming its agents; agent page tags it Shared | Draft, on part 2 |
-| `claude/workload-home-unknown-4su03b` | #168 | UX-014: Home says what it couldn't check instead of "Nothing needs your attention" | Ready, on 9A screen |
-| `claude/workload-monitor-ops-4su03b` | UX-010 | Monitor has four tabs (Runs, Schedules, Operations, Cost); Operations holds Workloads, Queue, Agents, Run as, Incidents | Ready, on #168 |
-| `claude/workload-takeover-4su03b` | FD-124 part 2 | `take_over = true`: take over requests from an agent past `stale_after`, with `If-Match`; a returning agent stands down before its next table | Draft, on part 1 |
+| `claude/workload-drop-monitor-cost-4su03b` | drop Cost | Monitor loses its Cost tab; old links and the X-ray "See cost" open Optimize > Cost and savings | Ready |
+| `claude/workload-agents-guide-4su03b` | #199 | Agents guidance panel (testing feedback) | To retarget to `main` |
 
 ## Completed backlog items
 

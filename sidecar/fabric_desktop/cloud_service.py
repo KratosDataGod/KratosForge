@@ -352,7 +352,7 @@ class CloudMixin:
                 client = keys_store.client
                 if not getattr(client, "functions_id", ""):
                     raise ValueError(f"{env.title()}'s keys are in the platform on this PC, which Fabric can't reach. "
-                                     "Create or join a platform in Fabric first (Settings > Platform).")
+                                     "Create or join a platform in Fabric first (Platform > Settings).")
                 config["platform_keys"] = {"workspace_id": client.workspace_id, "functions_id": client.functions_id}
         if project.links:  # where each link points in this environment, resolved now for the runner
             resolve = self._link_table(project, env)  # type: ignore[attr-defined]

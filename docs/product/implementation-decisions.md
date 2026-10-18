@@ -36,7 +36,7 @@ Chris chose telemetry over none (D-C1). It goes to Azure Monitor Application Ins
 
 ## D-E9: A broken policy file keeps the last copy that could be read (2026-10-18)
 
-Chris chose "last known good" for HD-010. A policy file that exists but can't be read is replaced by the last copy each PC read successfully, as Windows Group Policy keeps its last applied settings, so one bad push by IT doesn't stop sign-in for everyone. Only a PC that has never read a valid file fails closed (no sign-in, no runs in Fabric, Preview and AI tools off). Settings > Help and about says when the copy is in use. The copy lives in the person's profile; editing it only matters while the real file is broken.
+Chris chose "last known good" for HD-010. A policy file that exists but can't be read is replaced by the last copy each PC read successfully, as Windows Group Policy keeps its last applied settings, so one bad push by IT doesn't stop sign-in for everyone. Only a PC that has never read a valid file fails closed (no runs in Fabric, Preview, telemetry and AI tools off). On 2026-10-18 Chris chose that sign-in still works there, so one typo never stops people working on their PCs; `allowed_tenants` isn't enforced on such a PC until the file is fixed. Settings > Help and about says when the copy is in use. The copy lives in the person's profile; editing it only matters while the real file is broken.
 
 ## Decisions waiting on Chris
 

@@ -988,3 +988,17 @@ test("deleting an entity, key table or source system and discarding quarantine r
     for (const c of calls) assert.match(c, new RegExp(`"${verb}", \\{ danger: true \\}\\)`), c);
   }
 });
+
+test("Runs > Env says why a row has no environment, for this PC and for Fabric (testing item 32)", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = { ENV_LABEL: { dev: "Dev", prod: "Prod" }, h: (tag, attrs, text) => ({ tag, attrs, text }) };
+  vm.runInNewContext(`${src.match(/function runEnvCell\([\s\S]*?\n}\n/)[0]}; this.runEnvCell = runEnvCell;`, ctx);
+  assert.strictEqual(ctx.runEnvCell({ env: "prod", where: "fabric" }), "Prod");
+  const pc = ctx.runEnvCell({ env: "", where: "local" });
+  assert.strictEqual(pc.text, "None");
+  assert.match(pc.attrs.title, /this PC's schedules/);
+  const fabric = ctx.runEnvCell({ env: "", where: "fabric" });
+  assert.strictEqual(fabric.text, "None");
+  assert.match(fabric.attrs.title, /Fabric workspace/);
+  assert.doesNotMatch(fabric.attrs.title, /this PC/);
+});

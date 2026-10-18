@@ -677,7 +677,7 @@ async function renderMonitor() {
       h("td", {}, statusPill(r.status)),
       h("td", {}, h("div", {}, h("b", {}, r.activity)), h("div", { class: "muted-text small" }, [r.kind, r.note].filter(Boolean).join(" · ")),
         r.reason ? h("div", { class: "reason" }, r.reason) : null),
-      h("td", {}, ENV_LABEL[r.env] || r.env || h("span", { class: "muted-text", title: "Notebook writes and this PC's schedules aren't tied to an environment" }, "None")), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
+      h("td", {}, runEnvCell(r)), h("td", {}, r.ranOn || (r.where === "fabric" ? "Fabric" : "This PC")),
       h("td", {}, when(r.at)), h("td", { class: "n" }, took(r.seconds)), h("td", { class: "n" }, r.rows ?? ""),
       h("td", { class: "n" }, r.open ? h("span", { class: "link-text" }, "Details") : null)))))) :
     h("p", { class: "muted-text monitor-empty" }, monitorPage.env !== "all" || monitorPage.where !== "any"
@@ -685,6 +685,15 @@ async function renderMonitor() {
 }
 
 // Fabric job states, shown with the same pills as local runs.
+// Runs > Env for a row with no environment, saying why there isn't one (testing item 32).
+function runEnvCell(r) {
+  if (r.env) return ENV_LABEL[r.env] || r.env;
+  const why = r.where === "fabric"
+    ? "Started in a Fabric workspace (named under the activity), not from one of the project's environments"
+    : "Notebook writes and this PC's schedules aren't tied to an environment";
+  return h("span", { class: "muted-text", title: why }, "None");
+}
+
 function fabricStatus(status) {
   return { Completed: "ok", Failed: "failed", Cancelled: "skipped", Deduped: "skipped" }[status] || "running";
 }

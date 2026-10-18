@@ -289,3 +289,27 @@ def test_queries_without_delta_still_take_the_plain_path(engine):
     with pytest.raises(QueryCancelled):
         engine.cancel("q1", not_started=True)
         engine.execute("SELECT 1", query_id="q1")
+
+
+@pytest.mark.parametrize("rows_sql", [
+    "WITH c AS (SELECT 1) DELETE FROM plain",
+    "WITH c AS (SELECT 9 AS a) INSERT INTO plain SELECT * FROM c",
+    "WITH c AS (SELECT 1) UPDATE plain SET a = 0",
+    "SELECT 1 AS a; DELETE FROM plain",
+])
+def test_rows_to_write_only_ever_come_from_a_select(engine, rows_sql):
+    engine.execute("CREATE TABLE plain AS SELECT * FROM range(3) t(a)")
+    for dry_run in (True, False):
+        with pytest.raises(ValueError, match="one query"):
+            engine.write_delta("dry1", rows_sql, dry_run=dry_run)
+    engine.execute("CREATE TABLE own USING DELTA AS SELECT 1 AS a")
+    # The same through SQL that writes a Delta table. A script with ";" is two statements there, the
+    # second an ordinary one the user asked for, so only a CTE that starts DML is checked here.
+    if rows_sql.startswith("WITH"):
+        with pytest.raises(ValueError, match="one query"):
+            engine.execute(f"CREATE TABLE dry2 USING DELTA AS {rows_sql}")
+        with pytest.raises(ValueError, match="one query"):
+            engine.execute(f"INSERT INTO own {rows_sql}")
+    assert rows(engine, "SELECT count(*), sum(a)::INT FROM plain") == [[3, 3]]
+    assert not folder(engine, "dry1").exists() and not folder(engine, "dry2").exists()
+    assert DeltaTable(str(folder(engine, "own"))).version() == 0

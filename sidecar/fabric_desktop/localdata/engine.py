@@ -597,9 +597,8 @@ class LocalEngine:
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
 
     def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write") -> dict[str, Any]:
-        if len(steps) != 1 or steps[0]["write"] is not None or steps[0]["kind"] != "select":
-            raise ValueError("The rows to write come from one query (SELECT, WITH or FROM ...), with no other "
-                             "statements.")
+        if len(steps) != 1 or steps[0]["write"] is not None:
+            raise ValueError(_ONE_QUERY)
         write.query = steps[0]["sql"]
         return {"sql": "", "write": write, "as_of": steps[0]["as_of"], "kind": "write delta"}
 
@@ -757,6 +756,7 @@ class LocalEngine:
                                  "Fabric.") from None
             out["version"] = current.version()
 
+        _only_reads(con, w.query)  # before anything runs, dry run or not
         result = con.execute(w.query)
         if not result.description:
             raise ValueError("The query returns no rows to write.")
@@ -916,6 +916,21 @@ class LocalEngine:
 
 class QueryCancelled(RuntimeError):
     pass
+
+
+_ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, FROM or VALUES), with no "
+              "other statements.")
+
+
+def _only_reads(con: duckdb.DuckDBPyConnection, sql: str) -> None:
+    """Refuse rows to write that come from anything but one SELECT, as DuckDB itself reads it: a
+    CTE can start a DELETE, INSERT or UPDATE (WITH c AS (...) DELETE FROM t)."""
+    try:
+        statements = con.extract_statements(sql)
+    except duckdb.Error as exc:
+        raise ValueError(_short(exc)) from None
+    if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
+        raise ValueError(_ONE_QUERY)
 
 
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)

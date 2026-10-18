@@ -411,6 +411,9 @@ h2.flush { margin: 0; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
 .info p { margin: 0; }
 .tool.danger { color: var(--danger); }
+.tool.danger-solid { background: var(--danger); border-color: var(--danger); color: #fff; }
+.tool.danger-solid:hover:not(:disabled) { background: #8e0b16; }
+.tool.danger-solid:disabled { background: var(--border); border-color: var(--border); color: var(--muted); }
 .list select { min-height: 28px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
 .page h1 .mono { font-size: 21px; }
 .mini td.n { white-space: nowrap; }

@@ -249,7 +249,8 @@ async function renderSettings() {
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
     settingRow("Show features in preview",
-      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.values(PREVIEW_FEATURES).join(", ")}.`,
+      `These work but haven't been tried on many Fabric tenants yet, so they may change: ${Object.entries(PREVIEW_FEATURES).filter(([id]) => !PREVIEW_ALWAYS_SHOWN.includes(id)).map(([, name]) => name).join(", ")}. `
+        + `${PREVIEW_ALWAYS_SHOWN.map((id) => PREVIEW_FEATURES[id]).join(", ")} are core steps: they stay visible, tagged Preview, either way.`,
       h("label", { class: "switch" }, h("input", { type: "checkbox", checked: previewShown() ? true : null, disabled: locked("show_preview") ? true : null,
         onchange: async (e) => { if (await saveSettings({ show_preview: e.target.checked })) render(); } }), h("span", {}, previewShown() ? "On" : "Off")),
       s.show_preview.source === "policy" ? "policy" : null),

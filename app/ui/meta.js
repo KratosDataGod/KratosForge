@@ -399,7 +399,7 @@ function keysCard(e) {
     h("div", { class: "row wrap" }, h("b", {}, "Cell 1: surrogate keys"),
       h("span", { class: "muted-text" }, e.surrogate_keys.map((k) => `${k.column} from sk.${k.table} on ${k.business_key.join(" + ")}`).join(" · ")),
       h("span", { class: "spacer" }),
-      e.keys_sql ? btn("Copy", null, () => attempt(() => navigator.clipboard.writeText(e.keys_sql), "Could not copy").then(() => toast("Copied")), "tool outline small") : null,
+      e.keys_sql ? btn("Copy", null, () => copyText(e.keys_sql, "Key SQL"), "tool outline small") : null,
       e.keys_sql ? btn("Create template notebook", "notebook", async () => {
         const res = await metaCall("meta_key_notebook", { name: e.name, env: state.meta.env }, "No notebook created");
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
@@ -669,7 +669,7 @@ async function renderEnvTab(body, p) {
           if (res) { toast(`${ENV_LABEL[target]} is now on metadata ${res.version}`, false, { log: true }); render(); }
         }, "tool primary small")),
       h("p", { class: "muted-text" }, "Needs the project to pass the save gate, its tests to pass, and every table's last run here to be green on this exact metadata version. Lakehouses that don't exist yet are created."),
-      box, promoteImpact(source, target), lastRelease(target));
+      box, promoteImpact(source, target), lastRelease(target, render));
   };
   body.replaceChildren(h("div", { class: "env-cards" }, ["dev", "test", "prod"].map(card)),
     promoteRow("dev", "test"), promoteRow("test", "prod"));

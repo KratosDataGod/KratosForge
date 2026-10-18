@@ -307,6 +307,18 @@ The record goes into the target's `meta.deployments` row:
 
 Rows written before this existed have these columns empty.
 
+### Released files and rollback
+
+*Preview.* A promote also keeps every file of the metadata version (configs, transforms, tests: the files the version is a hash of, without `environments.toml` and `.local`) in the target's `meta.release_files`. Test and Prod then run those files, wherever the run happens: on this PC, on an agent, or in Fabric. Editing your project folder changes what Dev runs, never what Test or Prod run, until you promote again. The first run after a release writes its files once to `.local/releases/<env>/<version>/` in the project folder and reuses them. An environment last promoted before releases kept their files runs your folder as before, and only while the folder is on that release.
+
+**Roll back...** on a Test or Prod **Last release** card puts that environment back on an earlier release it kept. It lists every release to the environment, shows what goes back entity by entity, and then:
+
+- puts the environment on the earlier release's files, exactly as that environment kept them. Nothing is read from Git, Dev or your folder, and files that don't match their recorded hashes are refused
+- records the rollback as a new release in `meta.deployments`, with a release record of its own whose `rollback` section names the release it replaced and the one it went back to
+- uploads the earlier files for Fabric runs when the environment runs in Fabric
+
+Tables keep their rows. A table whose logic changes asks whether to rebuild on its next run; to put its rows back now, restore it from **History**. Rolling back checks your workspace roles there, as a promote does. It doesn't apply `separate_promoter`, because it only goes back to a release that was already promoted. Releases promoted before this version can't be rolled back to: promote them again instead.
+
 Each promote card shows the **Last release** to its target: the metadata version, the commit and whether it was pushed, the engine, who promoted it and when, and whether the stored record still matches its id (**checks out**). **Copy record** copies the whole record.
 
 If the files can't be named by a pushed commit (uncommitted changes, unpushed commits, no upstream branch, or no Git), the promote still goes ahead and the promote card says so. To require a pushed commit instead, set `require_commit = true` for that environment in `environments.toml`:

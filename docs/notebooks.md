@@ -1,6 +1,6 @@
 # Notebooks and SQL
 
-Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake, so your work uses no Fabric capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
+Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake. A run on this PC starts no Fabric job, but its OneLake reads and writes still use the workspace's capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
 
 ## Your first notebook
 
@@ -68,6 +68,9 @@ from pyspark.sql import functions as F
 
 - `spark.read.csv/parquet/json/load("Files/...")`, `spark.read.table`, `spark.sql`, `saveAsTable`, temp views and `pyspark.sql.functions` work.
 - `%%sql` cells use the same session, so they see temp views. `CREATE TABLE ... AS SELECT` and `INSERT INTO` write lakehouse tables. As in Fabric, `CREATE TABLE` stops if the table already exists (`IF NOT EXISTS` leaves it as it is); use `CREATE OR REPLACE TABLE` or `INSERT OVERWRITE` to replace it.
+- **Writing tables follows Delta's rules, as in Fabric.** An overwrite or append whose columns don't match the table stops with nothing written. Add `.option("overwriteSchema", "true")` to an overwrite to replace the schema, or `.option("mergeSchema", "true")` to add new columns. `insertInto` writes to an existing table, matches columns by position, and appends unless you pass `overwrite=True`; SQL `INSERT` matches by position too.
+- **Writer options:** `overwriteSchema`, `mergeSchema` and, for CSV files, `header` are honored. `optimizeWrite`, `maxRecordsPerFile` and `compression` only change file layout and are skipped with a note. Any other option stops the cell before anything is written. In particular, `replaceWhere`, `partitionOverwriteMode`, `INSERT ... PARTITION` and `INSERT ... REPLACE WHERE` replace part of a table, and ignoring them would replace all of it, so they run in Fabric only.
+- **`read.schema(...)`** takes a `StructType`. CSV columns get its names and types by position; Parquet and JSON columns are matched by name. A value that doesn't fit the type becomes null, as in Spark's default mode. A schema on a table, a Delta path or text files stops the cell.
 - **Not available on this PC:** RDDs, UDFs, streaming, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
 
 **`notebookutils` (and `mssparkutils`)** cover:
@@ -75,7 +78,7 @@ from pyspark.sql import functions as F
 | Area | What works here |
 | --- | --- |
 | `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths |
-| `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC |
+| `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
@@ -172,7 +175,7 @@ How it is published:
 
 | Choice | What happens |
 | --- | --- |
-| **This PC** | Every cell runs in the kernel on your PC. No capacity used. |
+| **This PC** | Every cell runs in the kernel on your PC. No Fabric job starts; OneLake reads and writes still use some capacity. |
 | **Fabric** (Preview) | Run all publishes the notebook and runs the whole thing on its workspace's Fabric capacity. Single cells can't run in Fabric; switch back to This PC to run one cell. Cell output shows in Fabric, and the bell tells you when it finishes. |
 | **Same as Dev** (default) | Follows the environment picked on the Data mesh pages and where that environment runs. |
 

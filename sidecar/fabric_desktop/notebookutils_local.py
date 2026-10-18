@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import time
 import types
 from dataclasses import dataclass
 from pathlib import Path
@@ -306,6 +307,44 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
                                  help=lambda *_a: print("notebookutils.credentials on this PC: getToken, getSecret"))
 
 
+_ACTIVITY_KEYS = {"name", "path", "args", "dependencies", "retry", "retryIntervalInSeconds", "timeoutPerCellInSeconds"}
+
+
+def _activities(dag: Any) -> list[dict[str, Any]]:
+    """runMultiple's activities in an order that runs each after its dependencies. Anything the
+    PC can't honor (an unknown key, a missing or circular dependency) is an error before any run."""
+    if isinstance(dag, (list, tuple)):
+        return [{"name": p, "path": p, "args": {}, "dependencies": [], "retry": 0, "retry_interval": 0} for p in dag]
+    if not isinstance(dag, dict) or not isinstance(dag.get("activities"), list):
+        raise TypeError("runMultiple takes a list of notebook names or a DAG: {\"activities\": [...]}.")
+    unknown = set(dag) - {"activities", "timeoutInSeconds", "concurrency"}
+    if unknown:
+        raise NotImplementedError(f"runMultiple on this PC doesn't support {', '.join(sorted(unknown))}.")
+    out: dict[str, dict[str, Any]] = {}
+    for a in dag["activities"]:
+        extra = set(a) - _ACTIVITY_KEYS
+        if extra:
+            raise NotImplementedError(f"runMultiple on this PC doesn't support {', '.join(sorted(extra))} in an activity.")
+        name = a.get("name") or a.get("path")
+        if not a.get("path") or name in out:
+            raise ValueError(f"Every runMultiple activity needs a path and a unique name ({name!r}).")
+        out[name] = {"name": name, "path": a["path"], "args": dict(a.get("args") or {}),
+                     "dependencies": list(a.get("dependencies") or []), "retry": int(a.get("retry") or 0),
+                     "retry_interval": float(a.get("retryIntervalInSeconds") or 0)}
+    ordered: list[dict[str, Any]] = []
+    done: set[str] = set()
+    while len(ordered) < len(out):
+        ready = [a for a in out.values() if a["name"] not in done and all(d in done for d in a["dependencies"])]
+        if not ready:
+            missing = sorted({d for a in out.values() for d in a["dependencies"] if d not in out})
+            raise ValueError(f"runMultiple: unknown dependency {', '.join(missing)}." if missing
+                             else "runMultiple: the dependencies form a cycle.")
+        for a in ready:
+            ordered.append(a)
+            done.add(a["name"])
+    return ordered
+
+
 def _make_notebook(host: Host) -> types.SimpleNamespace:
     def run(path: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None, **_kw: Any) -> Any:
         if host.run_notebook is None:
@@ -315,9 +354,40 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
     def exit(value: Any = "") -> None:  # noqa: A001
         raise NotebookExit(value)
 
-    def runMultiple(dag: Any, *_a: Any, **_kw: Any) -> dict[str, Any]:  # noqa: N802
-        names = dag if isinstance(dag, list) else [a.get("path") for a in dag.get("activities", [])]
-        return {n: {"exitVal": run(n), "exception": None} for n in names}
+    def runMultiple(dag: Any, timeout_seconds: int | None = None, **_kw: Any) -> dict[str, Any]:  # noqa: N802
+        """Fabric's runMultiple, one notebook at a time: each activity gets its ``args``, runs after
+        its ``dependencies``, and is retried ``retry`` times. An activity whose dependency failed is
+        skipped. Every result is kept; if any activity failed, a RuntimeError lists them after all
+        have run, with the results on its ``results`` attribute."""
+        activities = _activities(dag)
+        notes = sorted({k for a in activities for k in ("timeoutPerCellInSeconds",) if a.get(k)}
+                       | {k for k in ("timeoutInSeconds", "concurrency") if isinstance(dag, dict) and dag.get(k)}
+                       | ({"timeout_seconds"} if timeout_seconds else set()))
+        if notes:
+            print(f"Note: {', '.join(notes)} isn't enforced on this PC; the notebooks run one at a time.")
+        results: dict[str, Any] = {}
+        failed: list[str] = []
+        for a in activities:
+            blocked = [d for d in a["dependencies"] if d in failed]
+            if blocked:
+                results[a["name"]] = {"exitVal": None, "exception": f"Skipped: {', '.join(blocked)} failed."}
+                failed.append(a["name"])
+                continue
+            for attempt in range(a["retry"] + 1):
+                try:
+                    results[a["name"]] = {"exitVal": run(a["path"], arguments=a["args"]), "exception": None}
+                    break
+                except Exception as exc:  # noqa: BLE001 - recorded per activity, as Fabric does
+                    results[a["name"]] = {"exitVal": None, "exception": f"{type(exc).__name__}: {exc}"}
+                    if attempt < a["retry"]:
+                        time.sleep(a["retry_interval"])
+            if results[a["name"]]["exception"]:
+                failed.append(a["name"])
+        if failed:
+            error = RuntimeError("runMultiple: " + "; ".join(f"{n}: {results[n]['exception']}" for n in failed))
+            error.results = results  # type: ignore[attr-defined]
+            raise error
+        return results
 
     return types.SimpleNamespace(run=run, exit=exit, runMultiple=runMultiple,
                                  help=lambda *_a: print("notebookutils.notebook on this PC: run, exit, runMultiple"))

@@ -349,7 +349,7 @@ async function renderEntity() {
           h("span", { class: "mono" }, e.path))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
-          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete"))) return;
+          if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
           const res = await metaCall("meta_delete_entity", { name: e.name }, "Not deleted");
           if (res) { toast(`Deleted ${e.name}`); goMeta("entities"); }
         }, "tool outline"),
@@ -446,8 +446,9 @@ async function runEntities(names, opts = {}) {
   const p = state.meta.project;
   const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
+  if (inFabric(p, env) && !state.user && !(await signIn())) return;
+  if (!(await metaRiskGate(p, names || p.entities.map((e) => e.name), env, label))) return;
   if (inFabric(p, env)) {
-    if (!state.user && !(await signIn())) return;
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
@@ -459,6 +460,37 @@ async function runEntities(names, opts = {}) {
   logRunActivity(`${names ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
   render();
+}
+
+// The risk check (FINOPS-004) for each entity in the run, shown as one dialog when anything should
+// stop or slow it. When every entity is blocked there is no way to run anyway; when only some are,
+// the run can go ahead and the blocked ones are refused or fail as they would without the check.
+async function metaRiskGate(p, names, env, label) {
+  const wid = (n) => `meta:${p.project?.name || "project"}:${n}`;
+  const checks = await Promise.all(names.map((n) => rpc("risk_check", { id: wid(n), action: "run", env })
+    .then((r) => [n, r]).catch(() => null)));
+  const found = checks.filter((c) => c && (c[1].result === "warning" || c[1].result === "blocked"));
+  if (!found.length) return true;
+  const blocked = found.filter(([, r]) => r.result === "blocked").length;
+  const allBlocked = blocked === names.length;
+  return new Promise((resolve) => {
+    const boxes = new Map(found.map(([n, r]) => [n, riskAckBox(r)]));
+    const go_ = async () => {
+      for (const [n, r] of found) {
+        if (!(await riskProceed({ id: wid(n), action: "run", env }, r, boxes.get(n)))) return;
+      }
+      closeDialog();
+      resolve(true);
+    };
+    showDialog(`Run ${label} in ${ENV_LABEL[env]}?`, h("div", { class: "wl-confirm" },
+      found.map(([n, r]) => [found.length > 1 || names.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
+      blocked && !allBlocked ? h("p", { class: "text" }, `${blocked} of ${names.length} can't start; the others run if you go ahead.`) : null,
+      h("p", { class: "muted-text small" }, found[0][1].note)),
+    allBlocked
+      ? [btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
+      : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
+        btn("Run anyway", null, go_, "tool primary")]);
+  });
 }
 
 // One tray entry for a finished batch: how many succeeded, and the results to reopen.
@@ -878,7 +910,7 @@ function keyTableDetail(t, k, rerender) {
   return h("div", { class: "card pad side-panel" },
     h("div", { class: "row" }, h("h2", { class: "flush mono" }, t.table), h("span", { class: "spacer" }),
       btn("Delete", "delete", async () => {
-        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete"))) return;
+        if (!(await confirmDialog(`Delete key table ${t.name}?`, "The definition file is removed. The table stays in LH_Keys, so no key is lost.", "Delete", { danger: true }))) return;
         const res = await metaCall("meta_delete_key_table", { name: t.name, env: k.env }, "Not deleted");
         if (res) { toast(`Deleted ${t.name}`); state.meta.keyTable = null; rerender(); }
       }, "tool outline small", { disabled: t.used_by.length ? true : null, title: t.used_by.length ? "Tables still use it" : "Delete" })),
@@ -1022,7 +1054,7 @@ async function renderSourcesTab(body) {
       m.source === "new" ? null : btn(fromPlatform ? "Stop reading" : "Delete", "delete", async () => {
         if (!(await confirmDialog(fromPlatform ? `Stop reading ${current.code}?` : `Delete ${current.code}?`,
           `It is removed from source_systems.toml${fromPlatform ? " with this project's connection; the platform keeps the source" : ""}. Sync to remove it from LH_Keys too.`,
-          fromPlatform ? "Stop reading" : "Delete"))) return;
+          fromPlatform ? "Stop reading" : "Delete", { danger: !fromPlatform }))) return;
         const res = await metaCall("meta_delete_source_system", { id: current.id, env: m.env }, "Not deleted");
         if (res) { toast(`Deleted ${current.code}`); pick(null); }
       }, "tool outline small"),

@@ -95,6 +95,14 @@ What only someone else may give is asked for, not taken:
 
 Each request records who sent it, why, who decided and a note. A request can be withdrawn while it waits. A product owner can take access away again; existing links stay in the project but no new link is allowed.
 
+### Notices to Teams (Preview)
+
+A request waiting on someone, a decision or withdrawal, and a shortcut that breaks or is fixed can each be posted to a Teams channel through a Teams Workflows webhook. Each change is posted once: a shortcut that stays broken isn't posted again, and its fix is posted only if its break was. Routes send some kinds of notice, or some domains, to their own channel; everything else goes to the route named `default`. Quiet hours hold notices until they end, and a notice Teams doesn't take waits on this PC and goes out on the next try, marked as delayed.
+
+People are named by their UPN. A request's reason is never put in a Teams message, which anyone in the channel can read: the message names the request and says where to open it in the app. Webhook addresses work like passwords: the app never shows them again after they're saved, leaves them out of the audit log, and leaves them out of backups.
+
+The requests and shortcut pages don't send notices yet, and there is no settings page for the routes yet. Email isn't supported.
+
 ## One landing zone
 
 Raw data from every source lands once, in `LH_Landing`, organized by source system: `Files/erp/customers/2026-10-16.csv`. **Only the central team writes there**, with pipelines or copy jobs it owns; nobody lands the same source twice. Platform admins register each source on **Platform > Landing zone** with its owner, how often it should arrive, and the name of the Key Vault secret its connection uses per environment (secrets themselves never go in the platform). A domain team that needs a new source requests it.

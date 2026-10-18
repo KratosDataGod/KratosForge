@@ -23,6 +23,7 @@ from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta.project import ENVIRONMENTS
+from .workloads.notify import failure
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -309,7 +310,7 @@ class DataOpsMixin:
         try:
             post_teams(url, f"{len(lines)} table{'s' if len(lines) != 1 else ''} need attention", lines)
         except Exception as exc:  # the app still shows them; try again on the next check
-            return 0, f"{type(exc).__name__}: {exc}"
+            return 0, failure(exc)
         now = dt.datetime.now(dt.timezone.utc).isoformat()
         sent.update({k: now for k in keys})
         (self.root / "freshness_alerts.json").write_text(json.dumps(sent, indent=1), encoding="utf-8")  # type: ignore[attr-defined]

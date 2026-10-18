@@ -93,6 +93,11 @@ class CheckStop(Exception):
     pass
 
 
+class Abandoned(Exception):
+    """Raised by a ``table_lock`` to stop a run without writing or recording the table: the work
+    was handed to another worker (the agent's mailbox takeover), which runs it instead."""
+
+
 class NothingNew(Exception):
     """The source has nothing this run hasn't loaded already (every file is loaded)."""
 
@@ -331,6 +336,8 @@ class Engine:
                     self._write(e, df, res, backfill)
                 self._flush_quarantine(res)
                 self._record_files(e, res)
+        except Abandoned:
+            raise  # nothing was written; the worker that has the work now records its own run
         except NothingNew as ex:  # nothing to do is a successful run
             res.steps.append(Step("read", 0, 0.0, str(ex)))
         except DecisionNeeded as ex:

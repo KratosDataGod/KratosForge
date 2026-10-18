@@ -43,7 +43,7 @@ SQLITE_SUFFIXES = {".sqlite", ".sqlite3", ".db"}
 SQLITE_HEADER = b"SQLite format 3\x00"
 SQLITE_COMPANIONS = ("-wal", "-shm", "-journal")  # SQLite replays these onto the database they sit beside
 TEXT_SUFFIXES = {".json", ".jsonl", ".toml", ".ipynb", ".sql", ".py", ".md", ".txt", ".csv", ".yaml", ".yml"}
-SECRET_KEYS = {"teams_webhook"}
+SECRET_KEYS = {"teams_webhook", "platform_notify"}  # platform_notify holds webhook addresses
 AGENT_FILES = ("queue.sqlite3", "alerts.sqlite3")
 
 

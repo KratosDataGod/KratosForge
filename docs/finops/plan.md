@@ -38,7 +38,25 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 | PR | Feature | Status |
 | --- | --- | --- |
 | 1 | FINOPS-001 Unified CU measurement and cost evidence framework | Merged (#117) |
-| 2 | FINOPS-002 Capacity inventory and health diagnostics ([capacity.md](capacity.md)) | Open for review |
-| 3 | FINOPS-003 Measured CU import and reconciliation foundation | Not started (source decision first) |
-| 4 | FINOPS-004 Predeployment capacity and CU risk analyzer | Not started |
+| 2 | FINOPS-002 Capacity inventory and health diagnostics ([capacity.md](capacity.md)) | Merged (#123) |
+| 3 | FINOPS-003 Measured CU import and reconciliation foundation ([usage-import.md](usage-import.md)) | Open for review (#153) |
+| 3b | FINOPS-003 second provider: Azure Cost Management exports, billed per capacity ([usage-import.md](usage-import.md#billed-per-capacity-from-azure-cost-management)) | Open for review |
+| 4 | FINOPS-004 Predeployment capacity and CU risk analyzer, part 1: the risk service ([risk-check.md](risk-check.md)) | Open for review |
+| 4b | FINOPS-004 part 2: findings in the run dialogs, acknowledgement, settings ([risk-check.md](risk-check.md#where-you-see-it)) | Open for review |
 | 5 | FINOPS-005 Local vs Fabric execution advisor | Not started |
+
+## FINOPS-003 usage source decision
+
+Researched on Microsoft Learn on 2026-10-17; Chris chose "both, Capacity Metrics app first" on 2026-10-18. Nothing was called on a tenant.
+
+| Source | Supported for this use? | Who can get it | Granularity | Decision |
+| --- | --- | --- | --- | --- |
+| Capacity Metrics app semantic model (DAX or XMLA) | No: "only supported for use by the reports provided in the app" | Capacity admins | Item and operation | Never used |
+| Capacity Metrics app, exported data (CSV) | Yes, as a file; exports can be sampled | Capacity admins, who can hand the file over | Per operation with start, end and Total CU (s) (Timepoint page), or per item over a period (Compute page) | **First provider** (FINOPS-003) |
+| Azure Cost Management exports | Yes | Cost Management Reader on the capacity's subscription | Per capacity, meter and day, in CU hours and money | **Second provider** (FINOPS-003b), for billed totals; never matched to runs |
+| Chargeback app export | Yes, as a file; its semantic model has the same rule | Capacity admins | Per workspace, item, user and day | Not planned |
+| Real-Time hub capacity overview events | Documented, but needs a capacity admin or contributor and an Eventstream that uses capacity | Capacity admins or contributors | Whole capacity every 30 seconds | Not used |
+| Fabric REST job API | Yes | Every developer | Job times and status, no CU | Already used for estimates |
+
+So no supported live API gives a developer measured CU per run: measured CU comes from files a capacity admin or finance exports. The import is provider independent (`sidecar/fabric_desktop/usage/`), keeps everything on the PC, and never needs admin rights from the developer.
+

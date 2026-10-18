@@ -152,6 +152,7 @@ class CloudMixin:
                  compute: str | None = None, workspace: dict[str, str] | None = None,
                  fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+        self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]

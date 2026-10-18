@@ -599,3 +599,18 @@ def test_the_app_checks_only_environments_no_running_agent_checks(tmp_path, monk
     assert dev["mode"] == "agent" and dev["agents"] == ["etl-01"] and "changes" not in dev
     assert [i["kind"] for i in dev["incidents"]] == ["run_failed"]  # recovery is the agent's to record
     assert len(posted) == 1
+
+
+def test_an_agents_failed_job_alert_logs_no_webhook_signature(monkeypatch):
+    import types
+    from fabric_desktop.agent import Agent
+
+    def down(url, title, lines):
+        raise ConnectionError(f"Max retries exceeded with url: {url.split('.com', 1)[1]}")
+    monkeypatch.setattr("fabric_desktop.agent.post_teams", down)
+    logged = []
+    fake = types.SimpleNamespace(
+        config=types.SimpleNamespace(teams_webhook="https://x.webhook.office.com/workflows/a/invoke?sv=1.0&sig=SECRET123", name="etl-01"),
+        log=types.SimpleNamespace(warning=lambda msg, extra=None: logged.append(extra)))
+    Agent._alert(fake, {"id": "j1", "payload": {"env": "prod"}, "source": "schedule"}, "boom")
+    assert logged and "SECRET123" not in str(logged) and "sig=[removed]" in str(logged)

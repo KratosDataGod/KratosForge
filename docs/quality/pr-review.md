@@ -101,7 +101,7 @@ What the set says about the baseline: the five FAILs are the patterns the [findi
 
 | PR | Title | Decision | Score | Blocking finding or condition |
 | --- | --- | --- | --- | --- |
-| #185 | FinOps: risk check in the run dialogs (FINOPS-004 part 2) | CONDITIONAL PASS | 8.5 | The risk panel and dialogs carry no Preview tag (`risk` isn't in `PREVIEW_FEATURES`) although `risk-check.md` calls it Preview and it reads capacity from Fabric. Tag it before merging |
+| #185 | FinOps: risk check in the run dialogs (FINOPS-004 part 2) | CONDITIONAL PASS, then PASS (9.0) at e0ca2c8 | 8.5 | The risk panel and dialogs carry no Preview tag (`risk` isn't in `PREVIEW_FEATURES`) although `risk-check.md` calls it Preview and it reads capacity from Fabric. Tag it before merging |
 | #200 | Optimize page in the rail; Fabric portal becomes a Workspaces tab | CONDITIONAL PASS | 8.9 | "What running on this PC saved" (`user-guide.md:275`) and "never shown as saved unless measured" (`optimize.js:99`) describe the avoided figure, which is a Scenario (`costs.py:76`). Reword before merging (QA-008) |
 | #196 | Settings note when sign-in isn't Microsoft's own client | PASS | 9.2 | None |
 | #215 | Keep webhook signatures out of freshness and agent alert errors (QA-031) | PASS | 9.2 | None. Closes QA-031 |

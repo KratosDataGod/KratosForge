@@ -33,7 +33,7 @@ Severity:
 | QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
 | QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
 | QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06 |
-| QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07 |
+| QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07; partly fixed by #263 (HD-055: CI blocks do-nothing handlers, 56 now log); 51 handlers that only set a default remain (101 on main by this definition) |
 | QA-014 | Medium | Architecture | `Service` is 347 public methods and 385 `type: ignore`; clients built at 43 sites; private `_token` is the real API | PR-QA-08 |
 | QA-015 | Medium | Architecture | Three hand-kept method lists make every feature PR touch the same files | PR-QA-09 |
 | QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06 |

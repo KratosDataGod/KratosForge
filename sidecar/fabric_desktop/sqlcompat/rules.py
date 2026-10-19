@@ -517,6 +517,26 @@ def _spark_syntax(s: Stmt):
     for i, t in enumerate(s.toks):
         if t.type == TokenType.DCOLON:
             yield _hit("SYN-009", t, construct="The :: cast", fix="Use CAST(value AS type).")
+    for i in _spark_types(s):
+        t = s.toks[i]
+        yield _hit("SYN-009", t, construct=f"The {t.raw.upper()} type", fix=f"Use {_SPARK_TYPES[t.kw]}.")
+
+
+_SPARK_TYPES = {"STRING": "varchar(n)", "BOOLEAN": "bit"}  # Spark SQL types T-SQL doesn't have: T-SQL alternative
+
+
+def _spark_types(s: Stmt) -> Iterator[int]:
+    """Where a Spark SQL type is used: CAST(x AS string), CONVERT(string, x), or a column definition."""
+    toks = s.toks
+    for i, t in enumerate(toks):
+        if t.kw not in _SPARK_TYPES or not i:
+            continue
+        prev, after = toks[i - 1], toks[i + 1] if i + 1 < len(toks) else None
+        cast = prev.kw == "AS" and after is not None and after.type == TokenType.R_PAREN
+        convert = prev.type == TokenType.L_PAREN and i >= 2 and toks[i - 2].kw in ("CONVERT", "TRY_CONVERT")
+        if cast or convert:
+            yield i
+    yield from (j for j, _ in _column_defs(s) if toks[j].kw in _SPARK_TYPES)
 
 
 @check

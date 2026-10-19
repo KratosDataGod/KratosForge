@@ -1,6 +1,6 @@
 # Running pipelines on your PC (Preview)
 
-Fabric Desktop by KratosBI can run a Microsoft Fabric Data Factory pipeline on your PC, so you can test its control flow (dependencies, conditions, loops, variables, failure handling and child pipelines) without a Fabric run. A local run never calls Fabric or OneLake, so it starts no Fabric job and meters no activity runs.
+KratosForge can run a Microsoft Fabric Data Factory pipeline on your PC, so you can test its control flow (dependencies, conditions, loops, variables, failure handling and child pipelines) without a Fabric run. A local run never calls Fabric or OneLake, so it starts no Fabric job and meters no activity runs.
 
 This is Preview. The behaviour follows Microsoft's Data Factory documentation and is tested with hand-built pipelines; it hasn't been compared with a run in Fabric yet. Every run record says `verified_against_fabric: false`.
 
@@ -65,7 +65,7 @@ Known differences, or things not yet compared with Fabric:
 
 Each run is saved as one file under `pipeline_runs` in the app's data folder (`%LOCALAPPDATA%\FabricDesktop` on Windows), written as the run goes, and the last 200 are kept. A record has the run's state, parameters (secure ones hidden), options, every activity run (state, status, how it ran, timings, attempts, output, error, the branch an If Condition or Switch took, ForEach and Until iteration counts, and a child pipeline's whole run), the final variables and the pipeline return value.
 
-If Fabric Desktop by KratosBI stops while a run is going, the record is marked `interrupted` the next time it opens. The run isn't resumed: activities that were running may have done part of their work, so running it again is your decision.
+If KratosForge stops while a run is going, the record is marked `interrupted` the next time it opens. The run isn't resumed: activities that were running may have done part of their work, so running it again is your decision.
 
 ## Using it
 

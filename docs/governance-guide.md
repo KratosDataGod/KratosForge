@@ -1,6 +1,6 @@
 # Governance: how it works and what can be enforced
 
-**Preview.** This guide walks through governance in Fabric Desktop by KratosBI from start to finish, with three worked examples, and says plainly what can and can't be enforced. The reference for every field and rule is [Governance policies](governance.md).
+**Preview.** This guide walks through governance in KratosForge from start to finish, with three worked examples, and says plainly what can and can't be enforced. The reference for every field and rule is [Governance policies](governance.md).
 
 ## The short version
 
@@ -79,13 +79,13 @@ The save gate already requires an owner for custom code (see the table below), s
 
 There are three kinds of enforcement, and they differ in what each can stop:
 
-- **Fabric Desktop blocks:** the app refuses its own step (save, run, promote, deploy, shortcut, request approval). This holds for anything done through Fabric Desktop. It can't stop someone working in the Fabric portal directly.
+- **KratosForge blocks:** the app refuses its own step (save, run, promote, deploy, shortcut, request approval). This holds for anything done through KratosForge. It can't stop someone working in the Fabric portal directly.
 - **Detect and warn:** the app reads what's in Fabric and reports what breaks the standard, including items made outside the app. It can't prevent them.
-- **Fabric, Purview or Entra only:** only the Microsoft service can enforce it, for everyone. Fabric Desktop can show the state and link to the right place.
+- **Fabric, Purview or Entra only:** only the Microsoft service can enforce it, for everyone. KratosForge can show the state and link to the right place.
 
 "Today" means what runs in the current build. "With policies" means what GOV-002 and GOV-003 add.
 
-| Category | Fabric Desktop blocks | Detect and warn | Fabric, Purview or Entra only |
+| Category | KratosForge blocks | Detect and warn | Fabric, Purview or Entra only |
 | --- | --- | --- | --- |
 | **Naming** | Today: entity and key table names must be valid when saved. With policies: naming rules on entities, layers and products at save and promote | With policies: names of items made in Fabric outside the app | Workspace and item names in the Fabric portal |
 | **Schema** | Today: the save gate checks every column exists upstream and shows what a rename or delete breaks; drift settings per layer decide whether a new column is accepted | Today: schema drift is recorded in `meta.schema_history` and shown for review | Table schemas changed directly in a lakehouse |
@@ -95,7 +95,7 @@ There are three kinds of enforcement, and they differ in what each can stop:
 | **Data contracts** | With policies: block a promote that breaks a published product's port (a removed or renamed column) | Today: product deprecations carry a date, and the catalog lists every consumer. With policies: consumers reading outside a link | Access to the tables themselves (OneLake security roles, workspace roles) |
 | **Deployment readiness** | Today: the promote gate (save gate, tests, green last run) and, when set, a separate promoter for Prod; shortcut rules on shortcuts made in the app | Today: Health flags shortcuts that break the rules when made outside the app | Who may write to a workspace (Fabric workspace roles); tenant settings (Fabric admin) |
 
-Two things no Fabric Desktop setting can do: stop a workspace Contributor from making changes directly in the Fabric portal, and replace Fabric or Entra permissions. To make sure only release managers change Prod, give only them Contributor or higher on the Prod workspaces.
+Two things no KratosForge setting can do: stop a workspace Contributor from making changes directly in the Fabric portal, and replace Fabric or Entra permissions. To make sure only release managers change Prod, give only them Contributor or higher on the Prod workspaces.
 
 ## Exceptions
 
@@ -103,4 +103,4 @@ When a standard genuinely doesn't fit, an exception records why, who approved it
 
 ## When the platform can't be reached
 
-Checks that depend on the platform fail closed. When a rule can't be read, Fabric Desktop stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).
+Checks that depend on the platform fail closed. When a rule can't be read, KratosForge stops the step and says why instead of acting as if there were no rule (see [Governance policies](governance.md)).

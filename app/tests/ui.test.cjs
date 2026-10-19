@@ -66,7 +66,7 @@ test("an engine ended for not answering says so, and that variables were cleared
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
-  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const raw = "The engine stopped answering, so KratosForge restarted it. poll_cell had no answer after 60 seconds.";
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
@@ -305,7 +305,7 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
   return ctx;
 }
 
@@ -359,6 +359,9 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+  // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
+  assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
+  assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
 });
 
 test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
@@ -567,13 +570,14 @@ test("compatibility findings land where the engine says, even after characters o
 });
 
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
-  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  const page = fs.readFileSync(path.join(ui, "query.js"), "utf8");
   assert.ok(!page.includes('h("textarea"'), "no textarea editor");
   assert.match(page, /createSqlEditor\(/);
   assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("query.js"));
+  // app.js registers renderQuery when it loads, so query.js must come first (HD-056).
+  assert.ok(html.indexOf('src="query.js"') < html.indexOf('src="app.js"'));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
     "linter", "lintGutter", "forceLinting", "StateEffect"]) {
@@ -1106,7 +1110,7 @@ test("Schedule follows the current environment's Runs on", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
   const opened = [];
-  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod", nbLakehouse: (nb) => nb.lakehouse };
   vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
   const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
   for (const env of ["dev", "prod"]) {
@@ -1390,6 +1394,16 @@ test("Workspaces, the catalog and data products have a How this works panel that
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
 
+test("repositories are grouped by what they hold, unsorted ones last", () => {
+  const { gitGroupRepos } = gitHelpers();
+  const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
+  const groups = gitGroupRepos([{ name: "a", kind: "platform" }, { name: "b", kind: null }, { name: "c", kind: "notebooks" },
+    { name: "d", kind: "platform" }], kinds);
+  assert.strictEqual(JSON.stringify(groups.map((g) => [g.label, g.repos.map((r) => r.name).join()])),
+    JSON.stringify([["Notebooks", "c"], ["Platform", "a,d"], ["Not yet sorted", "b"]]));
+  assert.strictEqual(gitGroupRepos([], kinds).length, 0);
+});
+
 // QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
 test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
   const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
@@ -1398,4 +1412,65 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
   const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
   assert.match(estate, /res\.partial \?/);
+});
+
+// The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
+test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div class="brand">\s*<img src="wolf-forge-emblem\.png"/);
+  assert.match(html, /rel="icon" href="wolf-forge-emblem-32\.png"/);
+  assert.ok(!html.includes("kratosbi-mark.svg"));
+  for (const f of ["wolf-forge-emblem.png", "wolf-forge-emblem-32.png"]) assert.ok(fs.existsSync(path.join(ui, f)), f);
+  const ico = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "icons", "icon.ico"));
+  const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
+  for (const s of [16, 24, 32, 48, 256]) assert.ok(sizes.includes(s), `icon.ico has ${s}px`);
+});
+
+// Item 37, stage 2: a notebook in a notebooks repository follows the environment's location.
+test("a notebook's data: its own lakehouse first, then its repository's location for the environment", () => {
+  const { nbData, nbDataText } = gitHelpers();
+  const own = { lakehouse_id: "own", name: "LH_Mine", workspace_id: "w" };
+  const testRef = { lakehouse_id: "lt", name: "LH_Silver", workspace_id: "wt", workspace_name: "Sales Test" };
+  const nb = { place: { root: "/r", label: "sales-notebooks" },
+    locations: { envs: { dev: { this_pc: true, lakehouse: null }, test: { lakehouse: testRef }, prod: null } } };
+  const pick = (env, n = nb) => { const d = nbData(n, env); return [d.from, d.ref?.lakehouse_id || null, nbDataText(d)]; };
+  assert.strictEqual(JSON.stringify(pick("test")), JSON.stringify(["locations", "lt", "Data: LH_Silver"]));
+  assert.strictEqual(JSON.stringify(pick("dev")), JSON.stringify(["this_pc", null, "Data: nothing attached in Dev"]));
+  assert.strictEqual(JSON.stringify(pick("prod")), JSON.stringify(["unset", null, "No location for Prod"]));
+  assert.strictEqual(JSON.stringify(pick("test", { ...nb, lakehouse: own })), JSON.stringify(["notebook", "own", "Data: LH_Mine (this notebook)"]));
+  assert.strictEqual(nbData({ name: "home" }, "test").from, null, "notebooks in the app's own folder are unchanged");
+});
+
+test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
+  for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
+    assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
+  }
+});
+
+// Fabric Desktop is now KratosForge: every name a person sees changed; identifiers that installed
+// copies, notebooks and workspaces depend on did not. The announcement shows once, before What's new.
+test("the app is called KratosForge everywhere people read it, and identifiers stay", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<title>KratosForge<\/title>/);
+  assert.match(html, /<img class="brand-name" src="kratosforge-lettering\.png"[^>]*alt="KratosForge">/);
+  assert.ok(!/by <b>KratosBI<\/b>/.test(html));
+  assert.ok(fs.existsSync(path.join(ui, "kratosforge-lettering.png")));
+  for (const f of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    assert.ok(!fs.readFileSync(path.join(ui, f), "utf8").includes("Fabric Desktop by KratosBI"), f);
+  }
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.strictEqual(conf.app.windows[0].title, "KratosForge");
+  assert.strictEqual(conf.identifier, "com.kratosbi.fabricdesktop", "a new identifier would stop installed copies updating");
+  assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\)/);
+  assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
+  assert.match(settings, /label: "About the new name: KratosForge"/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
 });

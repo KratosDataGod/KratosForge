@@ -275,5 +275,5 @@ jobs:
             gh release edit latest --notes "$BODY"
           else
             gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
-              --title "Fabric Desktop by KratosBI (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
+              --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi

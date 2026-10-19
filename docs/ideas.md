@@ -1,6 +1,6 @@
 # Submitting ideas
 
-Fabric Desktop by KratosBI is shaped by the people who use it. Ideas are collected in one public place, the **[Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas)** in this repository's GitHub Discussions. Everyone can see every idea, vote for the ones they want, and follow what happens to them.
+KratosForge is shaped by the people who use it. Ideas are collected in one public place, the **[Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas)** in this repository's GitHub Discussions. Everyone can see every idea, vote for the ones they want, and follow what happens to them.
 
 This page explains how to submit a good idea, how voting works, and how ideas are prioritized and turned into features.
 
@@ -17,7 +17,7 @@ This page explains how to submit a good idea, how voting works, and how ideas ar
 2. **If it's there, vote and add your case.** Click the **upvote arrow** on the idea, and comment only if you have something new: a different situation, a number ("we'd save 3 hours a week"), or a constraint nobody mentioned. A comment that just says "+1" doesn't count for more than the vote.
 3. **Keep it public-safe.** The forum is public. Don't post tenant names, workspace or item IDs, data, connection strings, or screenshots with data in them. Describe the shape of the problem instead.
 
-You need a free GitHub account to post or vote. If your organization prefers, your Fabric Desktop by KratosBI platform team can collect ideas internally and post them for you; say how many people asked in the post.
+You need a free GitHub account to post or vote. If your organization prefers, your KratosForge platform team can collect ideas internally and post them for you; say how many people asked in the post.
 
 ## Posting an idea
 
@@ -82,8 +82,8 @@ Ideas that aren't chosen stay open and keep collecting votes. Nothing is lost by
 
 Some things have been looked at and decided against, so ideas about them will be closed with a pointer here:
 
-- **A phone or mobile app.** Fabric Desktop by KratosBI is a desktop and server tool.
-- **Replacing Fabric.** Fabric Desktop by KratosBI runs data engineering work locally and stores everything in Fabric. Features that only make sense without Fabric (a different storage layer, a different reporting tool) don't fit.
+- **A phone or mobile app.** KratosForge is a desktop and server tool.
+- **Replacing Fabric.** KratosForge runs data engineering work locally and stores everything in Fabric. Features that only make sense without Fabric (a different storage layer, a different reporting tool) don't fit.
 - **Storing secrets.** Passwords and keys stay in Azure Key Vault; the app only holds a vault URL and secret name.
 
 ## For maintainers

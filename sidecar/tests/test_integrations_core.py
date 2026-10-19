@@ -235,7 +235,7 @@ def test_projects_list_the_notebook_folder_without_a_metadata_project(svc):
 
 def test_status_never_starts_a_sign_in(svc):
     out = services.get_status(svc, ctx())
-    assert out["product"] == "Fabric Desktop by KratosBI" and out["caller"]["channel"] == "test"
+    assert out["product"] == "KratosForge" and out["caller"]["channel"] == "test"
     assert "token" not in json.dumps(out).lower()
 
 

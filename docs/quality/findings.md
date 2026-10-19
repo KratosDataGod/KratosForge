@@ -25,7 +25,7 @@ Severity:
 | QA-002 | High | Hidden failure | A failed notebook save shows "Saved"; close and switch then drop the edits | PR-QA-02 |
 | QA-003 | High | Hidden failure | VACUUM falls back to Fabric's 7 days when the project or table setting can't be read | PR-QA-03 |
 | QA-004 | High | Hidden failure | Create model can overwrite an existing semantic model and silently leave tables out | PR-QA-03 |
-| QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04 |
+| QA-005 | High | Fail open | Shortcut rules and the access review treat a failed call as "nothing to enforce" and "no readers" | PR-QA-04; fix #247 (PASS), closed once merged |
 | QA-006 | High | Duplication | A Fabric 503 or 429 isn't retryable to the agent; five transient-error rules disagree | PR-QA-05 |
 | QA-007 | Medium | Hidden failure | A failed lakehouse lookup guesses "schemas on", sending writes to the wrong folder | PR-QA-03 |
 | QA-008 | Medium | Overclaim | "0 CU-s, measured" and "no Fabric capacity used" for runs that read and write OneLake | PR-QA-10 |
@@ -33,7 +33,7 @@ Severity:
 | QA-010 | Medium | Overclaim | X-ray marks a finding fixed when the job is submitted and hides it for good | PR-QA-03 |
 | QA-011 | Medium | Duplication | 9 atomic-write copies; settings and schedules are rewritten non-atomically and read a torn file as empty | PR-QA-06 |
 | QA-012 | Medium | Duplication | Two audit-chain writers; the app's caches the chain head across processes | PR-QA-06 |
-| QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07 |
+| QA-013 | Medium | Error handling | 237 broad exception handlers, 98 silent; "not set up" and "the call failed" share one branch | PR-QA-07; partly fixed by #263 (HD-055: CI blocks do-nothing handlers, 56 now log); 51 handlers that only set a default remain (101 on main by this definition) |
 | QA-014 | Medium | Architecture | `Service` is 347 public methods and 385 `type: ignore`; clients built at 43 sites; private `_token` is the real API | PR-QA-08 |
 | QA-015 | Medium | Architecture | Three hand-kept method lists make every feature PR touch the same files | PR-QA-09 |
 | QA-016 | Medium | Duplication | Four redactors; the shared one passes a token embedded in a URL | PR-QA-06 |
@@ -51,6 +51,8 @@ Severity:
 | QA-028 | Low | Configuration | Windows-only dependencies aren't pinned in `constraints.txt` | PR-QA-06 |
 | QA-029 | Low | Dead code | A dead redaction fallback, unused symbols and production code only tests call | PR-QA-09 |
 | QA-030 | Low | Architecture | Domain modules import the service layer; six cycles through function-level imports | PR-QA-08 |
+| QA-032 | Medium | Unconfirmed write | Estate X-ray's Optimize starts a Fabric compaction job on click, with no confirm or risk check | Owner: Optimize; fix #231 (PASS) |
+| QA-033 | Medium | Unsafe retry | `meta/engine.py` `_after_commit` (main :367-381) repeats run_log, dq_results, schema_history, quarantine and watermark appends on any exception, so an append that committed and then raised (lost response, timeout after commit) writes the rows twice. Retry only errors that prove nothing was written (e.g. CommitFailedError), or make the append idempotent by run id | Owner: Hardening (found grading #256; pre-existing) |
 
 ## Details
 
@@ -319,3 +321,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 **Evidence: Code.** Domain modules import the service layer: `agent.py:30,36` (`dataops_service.post_teams`, `runtime`), `sql_exec.py:554` (`service._json_value`), `integrations/http_server` and `mcp_server` (`service`). No module-level cycles, but six through function-level imports: `app_settings`, `auth` and `telemetry`; `lakehouse` and `sql`; four `integrations` modules; three `meta` modules; `sqlcompat.analyzer` and `rules`; `service` and `sql_exec`. 110 imports sit inside functions.
 
 **Fix.** PR-QA-08 moves `post_teams` and `_json_value` down to domain modules. **Verify:** an import-graph test that `*_service` modules are imported only by `service.py`, `server.py`, `cli.py` and the integrations host.
+
+### QA-032 X-ray Optimize starts a Fabric job without asking (Medium)
+
+`xray.js:162` calls `xray_optimize` as soon as **Optimize** is pressed. That starts a Fabric table maintenance job (`fabric_api.run_table_maintenance`), which rewrites the table's files in OneLake and uses capacity. The table's rows and history are unchanged, so no data is lost, but it is a OneLake write and a capacity spend with no confirmation and no FinOps risk check, unlike Vacuum (preview, then confirm) and the run dialogs. AGENTS.md asks for confirmation before OneLake writes. Fix: a plain (not danger) confirm that names the table, says it runs in Fabric and uses capacity, and goes through the risk check like other Fabric runs. Found grading #230, whose panel describes the behavior correctly.
+

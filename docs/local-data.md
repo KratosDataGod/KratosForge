@@ -1,6 +1,6 @@
 # Local data projects (Preview)
 
-A local data project is a SQL database on your PC that reads the data files in folders you register. Point it at a folder of CSV, JSON and Parquet files and every file is a table you can query straight away. Tables and views you create are kept, so you can close Fabric Desktop by KratosBI, open it again and carry on. The project can also write Delta tables, laid out as a Fabric lakehouse lays them out, and read any Delta table as it was at an earlier version. Nothing here signs in to Fabric or uses capacity.
+A local data project is a SQL database on your PC that reads the data files in folders you register. Point it at a folder of CSV, JSON and Parquet files and every file is a table you can query straight away. Tables and views you create are kept, so you can close KratosForge, open it again and carry on. The project can also write Delta tables, laid out as a Fabric lakehouse lays them out, and read any Delta table as it was at an earlier version. Nothing here signs in to Fabric or uses capacity.
 
 This is the first part of the [local data engine program](local-data-engine-plan.md). The engine works now; the screens for it come next, after the mockup is agreed. Until then the engine is reached through its calls (below), which is also how tests and external tools use it.
 
@@ -89,7 +89,7 @@ Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or on
 | `tmp\` | Data DuckDB spills to disk under a memory limit |
 | `Tables\<schema>\<table>\` | The project's Delta tables. Tables copied in here are picked up when the project opens or is refreshed. |
 
-Only one program can write to a project's database at a time. If another Fabric Desktop window or a notebook has it open, the project says so instead of risking the file; close it there (or close the project) and try again.
+Only one program can write to a project's database at a time. If another KratosForge window or a notebook has it open, the project says so instead of risking the file; close it there (or close the project) and try again.
 
 ## Engine calls
 

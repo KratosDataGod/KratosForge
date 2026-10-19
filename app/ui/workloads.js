@@ -118,7 +118,7 @@ async function loadWorkloads(box, refresh) {
   const empty = {
     attention: "Nothing needs attention. Failing, late and stuck workloads show here.",
     mine: data.user ? `Nothing is owned by ${data.user}. Owners come from project files or are assigned on a workload's page.`
-      : "Sign in so Fabric Desktop by KratosBI knows who you are.",
+      : "Sign in so KratosForge knows who you are.",
     unowned: "Every workload has an owner.",
   }[wlPage.view] || (state.query ? "No workloads match your search." : "No workloads yet. Notebooks, metadata entities and Fabric items in your workspaces show here.");
   box.replaceChildren(
@@ -199,7 +199,7 @@ async function renderWorkload() {
       h("section", { class: "card pad" }, h("h2", {}, "What changed"), timeline(w)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is affected"), affected(w))),
     h("section", { class: "card pad" }, h("h2", {}, "Recent runs"), runsTable(w)),
-    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from Fabric Desktop by KratosBI"), actionsTable(w)) : null));
+    (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from KratosForge"), actionsTable(w)) : null));
 }
 
 function backToWorkloads() {
@@ -383,7 +383,7 @@ function affected(w) {
 
 function runsTable(w) {
   const runs = w.runs || [];
-  if (!runs.length) return h("p", { class: "muted-text" }, "No runs recorded where Fabric Desktop by KratosBI can read them.");
+  if (!runs.length) return h("p", { class: "muted-text" }, "No runs recorded where KratosForge can read them.");
   return h("table", { class: "mini" },
     h("thead", {}, h("tr", {}, ["Status", "When", "Environment", "Ran on", "Took", "Rows", ""].map((c) => h("th", {}, c)))),
     h("tbody", {}, runs.slice(0, 20).map((r) => h("tr", r.open || w.definition?.url ? { class: "click", onclick: () => openRun(r.open, w) } : {},
@@ -462,7 +462,7 @@ function confirmLink(w) {
   const link = w.link;
   if (!link) return;
   showDialog(`Link ${w.name} to its Fabric item?`, h("div", {},
-    h("p", { class: "text" }, `Fabric Desktop by KratosBI found a notebook named ${w.name} in ${link.workspace_name || "a workspace"} and matched it by name. `,
+    h("p", { class: "text" }, `KratosForge found a notebook named ${w.name} in ${link.workspace_name || "a workspace"} and matched it by name. `,
       "Linking keeps it by its id, so renaming either one won't break the link."),
     h("p", { class: "muted-text small" }, "Nothing changes in Fabric. The link is kept on this PC.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Link", null, async () => {
@@ -509,7 +509,7 @@ function yourWorkloadsCard() {
     const next = h("div", {},
       h("p", { class: "muted-text small" }, data.user
         ? `You own ${data.total}: declared in project files or assigned on this PC.`
-        : "Sign in so Fabric Desktop by KratosBI knows which workloads are yours."),
+        : "Sign in so KratosForge knows which workloads are yours."),
       rows.length ? h("div", { class: "row wrap wl-counts" }, order.filter((k) => counts[k]).map((k) =>
         h("button", { class: "chip", onclick: () => { wlPage.view = k === "unknown" || k === "healthy" || k === "idle" ? "mine" : "attention"; wlPage.offset = 0; backToWorkloads(); } },
           `${counts[k]} ${labels[k]}`))) : null,

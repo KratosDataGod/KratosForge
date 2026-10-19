@@ -71,3 +71,12 @@ def for_support(text: str) -> str:
     text = _WIN_USER_PATH.sub(r"\1[user]", text)
     text = _UNIX_USER_PATH.sub(r"\1[user]", text)
     return _GUID.sub("[id]", text)
+
+
+def describe(exc: BaseException) -> str:
+    """``exc`` as one log-safe line, ``TypeName: message``, with anything credential-shaped removed."""
+    try:
+        text = str(exc)
+    except Exception:  # noqa: BLE001 - an exception whose message can't be read still gets its type logged
+        text = "(message unreadable)"
+    return f"{type(exc).__name__}: {secrets(text)}" if text else type(exc).__name__

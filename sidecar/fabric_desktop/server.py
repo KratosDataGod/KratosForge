@@ -7,6 +7,7 @@ Response: {"id": 1, "result": [...]}  or  {"id": 1, "error": "message"}
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -78,7 +79,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log",
+           "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
+           "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
            "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
@@ -180,6 +182,23 @@ def _log_file() -> IO[str]:
     return open(os.path.join(base, "FabricDesktop", "sidecar.log"), "a", encoding="utf-8", buffering=1)
 
 
+class _SafeFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return secrets(super().format(record))
+
+
+def _log_to_stderr() -> None:
+    """The engine's ``fabric_desktop.*`` log lines (INFO and up) go to stderr, which the shell keeps
+    in sidecar.log, with anything credential-shaped removed. Without a handler they went nowhere."""
+    logger = logging.getLogger("fabric_desktop")
+    if logger.handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_SafeFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -191,6 +210,7 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
+    _log_to_stderr()
     _refresh_integration_launcher()
     service = Service()
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()

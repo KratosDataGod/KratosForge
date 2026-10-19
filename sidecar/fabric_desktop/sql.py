@@ -26,10 +26,12 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
-        raise ValueError(f"{chosen['label']} can't run on this PC. Fabric Desktop by KratosBI checks and formats "
+        raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
+        if chosen["id"] == "spark":
+            statements = [_spark_dates(s) for s in statements if s is not None]
     except ParseError as first_error:
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
@@ -41,6 +43,27 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+# Spark's date and time unit names that DuckDB doesn't know ('MM' is minutes to DuckDB if anything).
+_SPARK_UNITS = {"YYYY": "YEAR", "YY": "YEAR", "MON": "MONTH", "MM": "MONTH", "DD": "DAY"}
+
+
+def _spark_dates(statement: exp.Expression) -> exp.Expression:
+    """Keep Spark's date results where sqlglot's DuckDB SQL differs: date_add and date_sub return
+    a date (DuckDB's date + INTERVAL is a timestamp), trunc(date, 'MM') returns a date, and Spark's
+    unit spellings ('MM', 'YYYY') become ones DuckDB reads."""
+    for node in list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc)):
+        if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+            unit = node.args.get("unit")
+            spark_trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
+            name = unit.name.upper() if unit is not None else ""
+            if name in _SPARK_UNITS:
+                node.set("unit", exp.Literal.string(_SPARK_UNITS[name]) if spark_trunc else exp.var(_SPARK_UNITS[name]))
+            if not spark_trunc:
+                continue
+        node.replace(exp.cast(node.copy(), exp.DataType.Type.DATE))
+    return statement
 
 
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],

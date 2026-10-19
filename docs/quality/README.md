@@ -1,6 +1,6 @@
 # Engineering quality baseline
 
-An independent review of whether Fabric Desktop by KratosBI is built like one coherent product: no duplicated services, no functionality that only looks real, no errors that disappear, no tests that prove only their own fakes. Reviewed at `main` **3bee0db** (2026-10-18, "Merge pull request #136"); line numbers refer to that commit.
+An independent review of whether KratosForge is built like one coherent product: no duplicated services, no functionality that only looks real, no errors that disappear, no tests that prove only their own fakes. Reviewed at `main` **3bee0db** (2026-10-18, "Merge pull request #136"); line numbers refer to that commit.
 
 This review builds on two earlier ones and doesn't repeat them:
 
@@ -133,3 +133,4 @@ The UX audit owns workflows and navigation. At component level this review found
 | Date | Commit | Overall | Decision | Note |
 | --- | --- | --- | --- | --- |
 | 2026-10-18 | 3bee0db | 5.9 | FAIL | Baseline; QA-001 and QA-002 block |
+| 2026-10-18 | 52ff52d | not re-scored | n/a | QA-001 (#177), QA-002 (#178), QA-012 (#182), QA-016 (#181) and QA-006 fixed on main; 15-PR merge set reviewed: 2 PASS, 8 CONDITIONAL, 5 FAIL ([reviews](pr-review.md#reviews)) |

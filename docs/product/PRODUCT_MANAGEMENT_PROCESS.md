@@ -1,6 +1,6 @@
 # Product management process
 
-How Fabric Desktop by KratosBI decides what to build, builds it, and decides whether it worked. The
+How KratosForge decides what to build, builds it, and decides whether it worked. The
 cycle repeats for every development cycle. Several Claude threads and people contribute; one role,
 the master product manager, keeps the result coherent.
 

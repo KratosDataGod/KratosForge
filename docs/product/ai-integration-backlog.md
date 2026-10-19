@@ -1,6 +1,6 @@
 # AI integration backlog
 
-The universal AI integration program: twelve pull requests that let any external AI tool use Fabric Desktop by KratosBI through MCP or a local API, with no AI inside the app. Architecture: [ai-integration.md](../architecture/ai-integration.md).
+The universal AI integration program: twelve pull requests that let any external AI tool use KratosForge through MCP or a local API, with no AI inside the app. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 
 Status values: COMPLETE (already in the code), PARTIAL (some of it exists), MISSING, BLOCKED, DUPLICATE, UNVERIFIED. Discovery classified each item against `main` at `882438f` on 2026-10-17. The PR column is filled in as each pull request opens.
 

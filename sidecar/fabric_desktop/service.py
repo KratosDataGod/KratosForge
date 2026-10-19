@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import math
 import platform
@@ -16,6 +17,7 @@ import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
@@ -50,9 +52,11 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .validate_service import ValidateMixin
 from .kernel_proc import ProcessKernel
-from .notebook import Kernel, NotebookStore, check_watches
+from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+
+_log = logging.getLogger(__name__)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -70,7 +74,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self.kernel = self._new_kernel()
-        self.notebooks = NotebookStore(self.root / "notebooks")
+        self.notebooks = NotebookShelf(self.root / "notebooks", self._notebook_places)
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
@@ -130,8 +134,8 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception:  # no client ID yet, or offline: the UI offers sign-in
-            pass
+        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+            _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:
@@ -338,7 +342,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         """Endorsement needs Fabric's admin scan and an admin-only permission, which Fabric Desktop
         doesn't ask for; Fabric's own catalog, embedded on the same page, shows it."""
         return {"pending": False, "available": False, "items": {},
-                "reason": "Endorsement shows in Fabric's catalog below. Fabric Desktop by KratosBI doesn't ask for admin permissions."}
+                "reason": "Endorsement shows in Fabric's catalog below. KratosForge doesn't ask for admin permissions."}
 
     @property
     def favorites_file(self) -> Path:
@@ -653,13 +657,30 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self) -> dict[str, Any]:
-        return self.notebooks.new()
+    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
+        return self._with_place(self.notebooks.new(place=place))
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
-        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                     "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+
+    def _with_place(self, nb: dict[str, Any]) -> dict[str, Any]:
+        """Adds where the notebook is saved and, in a notebooks repository, where its data is per
+        environment (the repository's locations.toml). A lakehouse attached to the notebook wins."""
+        place = self.notebooks.place_of(nb["name"])
+        return nb | {"place": place, "locations": self._git_locations_of(place["root"]) if place else None}
+
+    def notebook_places(self) -> dict[str, Any]:
+        """Where a notebook can be saved: the app's own folder and each notebooks repository."""
+        return {"places": [{"root": None, "label": "This PC"}] +
+                [{"root": p["root"], "label": p["label"]} for p in self.notebooks.places()]}
+
+    def move_notebook(self, name: str, place: str | None) -> dict[str, Any]:
+        """Moves a notebook's file into a notebooks repository (or back to the app's own folder).
+        The moved file shows as a change in that repository; nothing is committed."""
+        return self.notebooks.move(name, place)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
@@ -692,13 +713,14 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         return {"deleted": name}
 
     def publish_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                         compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                         compute: str | None = None, workspace: dict[str, str] | None = None,
+                         location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Save the notebook, then create or update it as a notebook item in its workspace: the one
         picked for it (saved with the notebook), else the attached lakehouse's workspace.
 
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
-        return self._publish(name, cells, lakehouse_ref, compute, workspace)
+        return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
 
 
 def _json_value(value: Any) -> Any:

@@ -54,7 +54,7 @@ function renderNotebook() {
   const scroller = document.querySelector(".cells");
   const scrollTop = scroller ? scroller.scrollTop : 0;
   const busy = state.kernel === "busy";
-  if (nb.lakehouse) loadTableNames(nb.lakehouse);
+  if (nbLakehouse(nb)) loadTableNames(nbLakehouse(nb));
 
   const tabs = ["home", "edit", "run", "view"].map((t) => h("button", {
     class: `tab${state.ribbonTab === t ? " active" : ""}`, role: "tab", "aria-selected": String(state.ribbonTab === t),
@@ -79,7 +79,7 @@ function renderNotebook() {
 
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
-      h("div", { class: "spacer" }), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
+      h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -121,7 +121,7 @@ function renderNotebook() {
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
-  const lh = nb.lakehouse;
+  const lh = nbLakehouse(nb);
   setView(
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
@@ -172,7 +172,8 @@ function enterEditMode(cell = selectedCell()) {
 // ---------- Explorer: data items, outline, resources ----------
 
 function renderExplorer() {
-  const lh = state.notebook.lakehouse;
+  const lh = nbLakehouse(state.notebook);
+  const fromLocations = nbData(state.notebook).from === "locations";
   const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
     onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
   const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"));
@@ -188,13 +189,14 @@ function renderExplorer() {
     const tree = h("div");
     content.append(
       h("div", { class: "lh-head" }, icon("lakehouse", 18), h("span", { class: "name", title: `${lh.name} in ${lh.workspace_name}` }, lh.name),
-        h("span", { class: "badge" }, "Default"),
+        h("span", { class: "badge", title: fromLocations ? "From this repository's locations for the environment in the top bar" : null },
+          fromLocations ? `${nbData(state.notebook).envLabel} location` : "Default"),
         h("button", { class: "tool small", title: "Refresh", "aria-label": "Refresh", onclick: () => {
           Object.keys(state.tree).filter((k) => k.startsWith(lh.lakehouse_id)).forEach((k) => delete state.tree[k]);
           delete state.nbTables[lh.lakehouse_id];
           renderNotebook();
         } }, icon("restart", 14)),
-        h("button", { class: "tool small", title: "Remove lakehouse", "aria-label": "Remove lakehouse", onclick: detachLakehouse }, icon("dismiss", 14))),
+        fromLocations ? null : h("button", { class: "tool small", title: "Remove lakehouse", "aria-label": "Remove lakehouse", onclick: detachLakehouse }, icon("dismiss", 14))),
       tree,
       btn("Add data items", "add", openDataItems, "tool link", { style: "margin-top:12px" }));
     renderTree(tree, lh, insertCell);
@@ -1112,7 +1114,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
   let last = null;
   try {
     const watches = await dbgWatches(state.notebook);  // debugging.js
-    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: state.notebook.lakehouse, notebook: state.notebook.name,
+    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;

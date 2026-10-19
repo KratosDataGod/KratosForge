@@ -9,7 +9,8 @@ from typing import Any, Callable
 
 import requests
 
-from .retrying import TRANSIENT_STATUS
+from . import http_session
+from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
 POWERBI_ADMIN = "https://api.powerbi.com/v1.0/myorg/admin"
@@ -57,22 +58,15 @@ def _check_fabric_runs_allowed(what: str) -> None:
     """The organization's policy can keep work off Fabric capacity (allow_fabric_runs: false)."""
     from . import app_settings
     if not app_settings.value("allow_fabric_runs"):
-        raise FabricError(f"Your organization doesn't allow {what} from Fabric Desktop by KratosBI, so it wasn't "
+        raise FabricError(f"Your organization doesn't allow {what} from KratosForge, so it wasn't "
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
-
-
-def _retry(method: str, status: int) -> bool:
-    """429 means Fabric refused the request unread, so any method can be sent again. Other transient
-    statuses are retried only for reads: a write that got a 5xx may have happened, and repeating it
-    could create or change something twice."""
-    return status == 429 or (method == "GET" and status in TRANSIENT_STATUS)
 
 
 class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
         self._poll_timeout = poll_timeout
 
@@ -80,11 +74,8 @@ class FabricClient:
         if not url.startswith("http"):
             url = f"{API}{url}"
         headers = {"Authorization": f"Bearer {self._token()}"}
-        for attempt in range(5):
-            resp = self._http.request(method, url, headers=headers, timeout=60, **kwargs)
-            if not _retry(method, resp.status_code) or attempt == 4:
-                break
-            self._sleep(float(resp.headers.get("Retry-After", 5)))
+        resp = send_with_retry(lambda: self._http.request(method, url, headers=headers, timeout=60, **kwargs),
+                               method, sleep=self._sleep, attempts=5, default_wait=5)
         if resp.status_code >= 400:
             raise _error(method, url, resp)
         return resp
@@ -104,7 +95,7 @@ class FabricClient:
         location = resp.headers["Location"]
         deadline = time.monotonic() + self._poll_timeout
         while True:
-            self._sleep(float(resp.headers.get("Retry-After", 2)))
+            self._sleep(retry_after(resp.headers, 2))
             resp = self._request("GET", location)
             status = resp.json().get("status")
             if status == "Succeeded":

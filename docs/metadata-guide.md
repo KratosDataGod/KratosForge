@@ -1,6 +1,6 @@
 # Metadata framework guide
 
-The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. Fabric Desktop by KratosBI runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
+The metadata framework builds and runs your medallion layers (Bronze, Silver, Gold, or any 2 to 10 layers you choose) from configuration instead of one-off notebooks. You describe each table once in a small file: where its data comes from, its columns, how to clean and check it, and how to load it. KratosForge runs every table the same way, checks it, writes it to its layer's lakehouse, and logs what happened.
 
 This guide goes from an empty folder to Prod. The [reference](#reference) at the end lists every setting.
 
@@ -294,7 +294,7 @@ Promote copies **configuration**, never data and never keys. Each environment is
 
 ### Release records
 
-*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. Fabric Desktop by KratosBI reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
+*Preview.* Every promote records which Git commit it came from, so you can tell later exactly which files are running in Test or Prod. KratosForge reads Git with the `git` installed on your PC: it never signs in, never fetches and never stores a remote's address. "Not pushed" and "behind" are counted against your upstream branch as of your last fetch.
 
 The record goes into the target's `meta.deployments` row:
 
@@ -403,9 +403,9 @@ lib.CRM_server_host
 - Relationships come from the metadata: a fact's `[[lookup]]` names the dimension and key, and any other column named like a dimension's surrogate key joins to it.
 - Surrogate keys, `_run_id` and `_loaded_at` are hidden.
 - **Create model** makes `SM_<Layer>` in the environment's workspace (rename it if you like). **Update model** updates it in place and keeps every lineage tag, so reports built on it keep working.
-- If a model with that name already exists (for example after a rename), Fabric Desktop by KratosBI asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
+- If a model with that name already exists (for example after a rename), KratosForge asks first: the confirmation names the model and says its definition will be replaced, including measures, tables and relationships added to it in Fabric. Nothing is written until you confirm.
 
-**When Fabric can't be read.** Fabric Desktop by KratosBI doesn't guess whether a model exists or what a table holds:
+**When Fabric can't be read.** KratosForge doesn't guess whether a model exists or what a table holds:
 
 - If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
 - A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
@@ -543,7 +543,7 @@ A [job file](notebooks.md) run with `fabric-desktop run job.toml` can't write a 
 
 ### Column lineage (Preview)
 
-Fabric Desktop by KratosBI works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
+KratosForge works out where every column comes from by reading the project's files, without running anything. Each column is one of: read from the source (by the same name, or through `rename`), a `[[derive]]` expression and the columns it uses, a `[[lookup]]` of a dimension's key, a `[[keys]]` surrogate key, or added by the framework. Each is labelled **declared** when a file states the link (a rename, an expression, a lookup, a key) or **inferred** when it is assumed from a matching name. Columns your Python adds (`[hooks] adds`, or every column of a `[step] custom`) are **opaque**: they're never guessed. Columns a hook runs after are flagged, because a hook can change any column. For one column, lineage follows the steps back to the landing files and finds every column built from it further on. On an entity's page, **Columns** in the Lineage card lists every column with how it's made and its label; pick one to see where it comes from and what reads it.
 
 ### Columns and tables the framework adds
 

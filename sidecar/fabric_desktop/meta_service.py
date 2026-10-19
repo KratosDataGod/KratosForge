@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,9 @@ from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
+from .redact import describe as describe_error
+
+_log = logging.getLogger(__name__)
 
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -156,8 +160,8 @@ class MetaMixin:
         owner = ""
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception:  # not signed in: the owner can be filled in later
-            pass
+        except Exception as exc:  # not signed in: the owner can be filled in later
+            _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
         init_project(Path(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -197,7 +201,7 @@ class MetaMixin:
             for name, space in where.items():
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
-                        space, name, "Managed by Fabric Desktop by KratosBI's metadata framework")["id"]
+                        space, name, "Managed by KratosForge's metadata framework")["id"]
         # The organization's landing zone is the platform's, never created here.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
@@ -228,7 +232,7 @@ class MetaMixin:
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
             existing[keys_mod.KEYS_LAKEHOUSE] = fabric.create_lakehouse(
-                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop by KratosBI")["id"]
+                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by KratosForge")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
 
@@ -300,7 +304,7 @@ class MetaMixin:
         if not name:
             raise ValueError("Give the workspace a name.")
         ws = self.fabric.create_workspace(  # type: ignore[attr-defined]
-            name, capacity_id, f"{env.title()} environment, managed by Fabric Desktop by KratosBI's metadata framework")
+            name, capacity_id, f"{env.title()} environment, managed by KratosForge's metadata framework")
         return self.meta_set_environment(env, ws["id"], ws.get("displayName") or name) | {
             "created": {"id": ws["id"], "displayName": ws.get("displayName") or name}}
 
@@ -542,7 +546,7 @@ class MetaMixin:
         if project.products:
             try:  # so other teams' links find this environment's tables
                 result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
-            except Exception as exc:  # the promote itself worked; publish again from Mesh > Data products
+            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Domains > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version
@@ -803,8 +807,8 @@ class MetaMixin:
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
         keys_mod.write_key_table(project.root, name, owner, description)
         return self.meta_keys(env)
 

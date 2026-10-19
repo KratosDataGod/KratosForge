@@ -1,6 +1,6 @@
 # Pipeline activity compatibility (Preview)
 
-Fabric Desktop by KratosBI keeps a versioned registry of Fabric Data Factory pipeline activity types. For each type it says what this version can do with it on your PC, what is only planned, which properties it can't use, what running it needs and changes, and whether it can only ever run in Fabric. Fabric meters every activity run, control flow included, so any activity that can't run on your PC uses capacity when the pipeline runs in Fabric. A compatibility report applies the registry to one pipeline. Producing the registry or a report reads the definition only: nothing runs, no Fabric call is made and no capacity is used.
+KratosForge keeps a versioned registry of Fabric Data Factory pipeline activity types. For each type it says what this version can do with it on your PC, what is only planned, which properties it can't use, what running it needs and changes, and whether it can only ever run in Fabric. Fabric meters every activity run, control flow included, so any activity that can't run on your PC uses capacity when the pipeline runs in Fabric. A compatibility report applies the registry to one pipeline. Producing the registry or a report reads the definition only: nothing runs, no Fabric call is made and no capacity is used.
 
 This is Preview. Nothing in the registry has been compared against a run in Fabric yet. Control-flow activities and child pipelines run on your PC in a [local run](local-runs.md); data and compute activities need a mock there.
 
@@ -72,3 +72,4 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | --- | --- |
 | 1 | First registry (ORCH-002): 28 types, all `static` or `cloud`. Unknown types are `unsupported`. |
 | 2 | ORCH-003: Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute Pipeline and Invoke Pipeline are `local`, with adapters and tests. Notebook's planned local support moved to a later stage. |
+| 3 | Wording only: the product is now called KratosForge in limitations and notes. No classification changed. |

@@ -26,8 +26,9 @@ from typing import Any, Callable
 
 import requests
 
-from . import lakehouse
+from . import http_session, lakehouse
 from .onelake import FileStore
+from .retrying import send_with_retry
 
 
 class NotebookExit(Exception):
@@ -295,8 +296,10 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
 
     def getSecret(akvName: str, secret: str, linkedService: str | None = None) -> str:  # noqa: N802, N803, ARG001
         vault = akvName if akvName.startswith("https://") else f"https://{akvName}.vault.azure.net"
-        resp = requests.get(f"{vault.rstrip('/')}/secrets/{secret}", params={"api-version": "7.4"},
-                            headers={"Authorization": f"Bearer {getToken('keyvault')}"}, timeout=30)
+        headers = {"Authorization": f"Bearer {getToken('keyvault')}"}
+        resp = send_with_retry(lambda: http_session.session().get(f"{vault.rstrip('/')}/secrets/{secret}",
+                                                    params={"api-version": "7.4"}, headers=headers, timeout=30),
+                               "GET")
         if resp.status_code in (401, 403):
             raise PermissionError(f"Key Vault {vault} refused access to {secret!r} for your account. "
                                   f"You need the Key Vault Secrets User role on it.")

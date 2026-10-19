@@ -1,6 +1,6 @@
 # Release readiness
 
-What must be true before Fabric Desktop by KratosBI goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
+What must be true before KratosForge goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
 Last updated 2026-10-18 at `main` a346145. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
@@ -10,7 +10,7 @@ Last updated 2026-10-18 at `main` a346145. The current gate status, with accepta
 
 ## What's missing for an enterprise-approved app
 
-An enterprise security or IT team approving Fabric Desktop by KratosBI would ask for each of these. Asked by Chris in unit testing on 2026-10-18 (item 38).
+An enterprise security or IT team approving KratosForge would ask for each of these. Asked by Chris in unit testing on 2026-10-18 (item 38).
 
 | # | Missing | Why an enterprise needs it | Waits on |
 | --- | --- | --- | --- |

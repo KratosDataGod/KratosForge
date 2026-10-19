@@ -22,6 +22,7 @@ Results go to ``<out>/<run id>/result.json`` and ``summary.md``. Neither holds a
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -35,6 +36,8 @@ import requests
 from . import redact
 from .fabric_api import FabricError
 from .onelake import FileStore, TableRef, storage_options
+
+_log = logging.getLogger(__name__)
 
 MARKER = "fabric-desktop-live-test"
 PREFIX = "fdlt_"
@@ -378,13 +381,14 @@ _AFTER_LAKEHOUSE = [("fabric.get_lakehouse", "Read the lakehouse's properties"),
 def _safe(fn: Callable[[], Any]) -> str:
     try:
         return str(fn() or "")
-    except Exception:
+    except Exception as exc:
+        _log.info("Couldn't read a live-test detail: %s", redact.describe(exc))
         return ""
 
 
 def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped"}
-    lines = [f"# Fabric Desktop by KratosBI live test {result['run_id']}", "",
+    lines = [f"# KratosForge live test {result['run_id']}", "",
              f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['name'] or result['workspace']['id']}, "
              f"started {result['started_at']}.", ""]
     if result["refused"]:

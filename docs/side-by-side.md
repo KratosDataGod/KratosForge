@@ -23,7 +23,7 @@ Run all goes through three steps, shown in a panel above the cells:
 2. **Run in Fabric.** The notebook is published to its workspace (the same as **Publish to OneLake**) and started with Fabric's job scheduler, as **Run in Fabric** does. It shows in **Monitor** and in Fabric's Monitoring hub. The published copy gets two extra cells, one first and one last, that time the notebook's own cells inside Fabric. They aren't added to your notebook on this PC, and the next ordinary publish removes them.
 3. **Check the outputs.** Every table either run wrote is compared.
 
-Before a notebook that writes tables runs, Fabric Desktop by KratosBI lists the tables it writes (read from the code) and asks you to confirm, because both runs replace what's in them. If a cell does something reading the code can't follow (`exec`, `%run`, `import *`), it says so and asks too. **Use Prove instead** runs both sides from the same table versions with their writes kept in a sandbox, so your tables don't change; see [Prove this notebook](notebooks.md#prove-this-notebook-preview).
+Before a notebook that writes tables runs, KratosForge lists the tables it writes (read from the code) and asks you to confirm, because both runs replace what's in them. If a cell does something reading the code can't follow (`exec`, `%run`, `import *`), it says so and asks too. **Use Prove instead** runs both sides from the same table versions with their writes kept in a sandbox, so your tables don't change; see [Prove this notebook](notebooks.md#prove-this-notebook-preview).
 
 The runs go one after the other, not at the same moment, so they never write the same table at once. You can leave the page: the bell tells you when the comparison is ready, and the last comparison shows again when you reopen the notebook. **Cancel** stops whichever run is going.
 
@@ -48,7 +48,7 @@ A table's result is one of:
 
 ### How tables are checked
 
-Fabric Desktop by KratosBI notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
+KratosForge notes the Delta version of every table in the lakehouse before the PC run, after it, and after the Fabric run. A table whose version moved was written by that run, and Delta keeps each version, so both outputs can be read afterwards exactly as each run left them.
 
 For each table on each side it computes:
 
@@ -115,7 +115,7 @@ These runs follow TPC-H's data and queries but are not audited TPC-H results, an
 
 - Both runs use the same lakehouse, so anything else writing to it during the comparison (another notebook, a schedule) shows up as a difference. Run comparisons in a lakehouse nobody else is writing to.
 - The comparison doesn't look at files under `Files/`, only tables.
-- Before, between and after the runs, Fabric Desktop by KratosBI reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
+- Before, between and after the runs, KratosForge reads the version of every table in the lakehouse. In a lakehouse with hundreds of tables that adds a wait (it isn't counted in either run's time); a lakehouse just for benchmarks keeps it short.
 - Cell output from the Fabric run stays in Fabric; the panel links to it.
 - Only notebooks can run side by side. Metadata runs load incrementally (the second run would find nothing new to load), so they aren't compared this way.
 - While a comparison runs, the notebook's kernel is busy, so its cells can't be run one by one until it finishes or is cancelled.

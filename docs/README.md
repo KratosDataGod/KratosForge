@@ -1,6 +1,8 @@
-# Fabric Desktop by KratosBI documentation
+# KratosForge documentation
 
-Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+KratosForge runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+
+Formerly Fabric Desktop: [what changed with the new name, and what didn't](kratosforge.md).
 
 ## Start here
 
@@ -92,7 +94,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 
 ## What is tested and what isn't
 
-Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
+KratosForge is new, and it's honest about what has been proven.
 
 **Tested on every build**, by automated tests on Windows and Linux, against local Delta tables:
 

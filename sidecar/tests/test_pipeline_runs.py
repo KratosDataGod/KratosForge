@@ -502,6 +502,22 @@ def finish(svc, run_id, limit=30.0):
     raise AssertionError("run didn't finish")
 
 
+def saved(folder, run_id, limit=30.0):
+    """The run's record on disk once it's final. Status reads the live run, which turns final
+    just before the background thread's last save, so the file can still say running."""
+    path = folder / "pipeline_runs" / f"{run_id}.json"
+    end = time.monotonic() + limit
+    while time.monotonic() < end:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if record.get("state") not in (None, "pending", "running"):
+            return record
+        time.sleep(0.02)
+    raise AssertionError("run record wasn't saved as finished")
+
+
 def test_service_start_status_runs_and_record_on_disk(tmp_path):
     svc = Svc(tmp_path)
     assert svc.pipeline_run_check(path=str(REFERENCE))["ok"] is False
@@ -510,7 +526,7 @@ def test_service_start_status_runs_and_record_on_disk(tmp_path):
     assert started["ok"] is True
     record = finish(svc, started["run_id"])
     assert record["state"] == "succeeded"
-    on_disk = json.loads((tmp_path / "pipeline_runs" / f"{started['run_id']}.json").read_text(encoding="utf-8"))
+    on_disk = saved(tmp_path, started["run_id"])
     assert on_disk["state"] == "succeeded" and on_disk["return_value"]["rows"] == 120
     lean = svc.pipeline_run_status(started["run_id"], values=False)
     assert "variables" not in lean and all("output" not in a for a in lean["activities"])

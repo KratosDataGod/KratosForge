@@ -17,12 +17,16 @@ column.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import polars as pl
 
+from ..redact import describe
 from . import keys as keys_mod
 from .project import SCD2_COLUMNS, Entity, Project
+
+_log = logging.getLogger(__name__)
 
 RUN_COLUMNS = ("_run_id", "_loaded_at")
 
@@ -30,7 +34,8 @@ RUN_COLUMNS = ("_run_id", "_loaded_at")
 def _expr_columns(expr: str) -> list[str] | None:
     try:
         return list(dict.fromkeys(pl.sql_expr(expr).meta.root_names()))
-    except Exception:  # noqa: BLE001 - an expression the save gate would refuse anyway
+    except Exception as exc:  # noqa: BLE001 - an expression the save gate would refuse anyway
+        _log.info("Couldn't parse an expression's columns: %s", describe(exc))
         return None
 
 

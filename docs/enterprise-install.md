@@ -1,6 +1,6 @@
 # Enterprise install
 
-This page is for IT teams that roll Fabric Desktop by KratosBI out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
+This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
 
 > **What has been tested:** the policy keys on this page are covered by automated tests on every build. The deployment steps below have **not** been tried in an Intune or Configuration Manager tenant yet. Try them on a pilot group first.
 
@@ -30,7 +30,7 @@ With `"auto_update": false` the startup window says "Your organization rolls out
 1. Download `fabric-desktop.exe` from the release you want: [Stable](https://github.com/KratosDataGod/fabric-desktop/releases/tag/stable) unless your pilot group follows Preview.
 2. Check the download before you package it ([Install: Check a download yourself](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/install.md#check-a-download-yourself)).
 3. Package it as a Win32 app (Intune) or an application (Configuration Manager) that copies the exe into the folder from the table above and adds a Start menu shortcut. Detection rule: the file exists with the size you packaged.
-4. Push `policy.json` to `%ProgramData%\FabricDesktop\`. A typical managed file:
+4. Push `policy.json` to `%ProgramData%\FabricDesktop\` so that only administrators can change it. Intune and Group Policy write it as SYSTEM, which does that. Create the folder from the same push, because a folder someone made first themselves stays theirs. **Settings > Help and about** says when the person using the PC can change the file. A typical managed file:
 
    ```json
    {

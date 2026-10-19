@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/KratosDataGod/fabric-desktop/docs/product/schema/product-backlog.schema.json",
-  "title": "Fabric Desktop by KratosBI consolidated product backlog",
+  "title": "KratosForge consolidated product backlog",
   "description": "The machine-readable backlog. docs/product/PRODUCT_BACKLOG.json is the source of truth; scores and priorities are computed by docs/product/tools/product_data.py from the inputs here, using the model in PRIORITIZED_ROADMAP.md.",
   "type": "object",
   "required": [

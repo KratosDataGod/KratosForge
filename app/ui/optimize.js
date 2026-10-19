@@ -40,7 +40,7 @@ async function renderOptimize() {
   if (!status?.active) {
     fill(body, h("p", { class: "muted-text" }, status && !status.allowed
       ? "Your organization has turned off shared optimization lakehouses."
-      : "Connect an optimization lakehouse to see what every Fabric Desktop by KratosBI installation found, and act on it together. Cost and savings works without one."));
+      : "Connect an optimization lakehouse to see what every KratosForge installation found, and act on it together. Cost and savings works without one."));
     return;
   }
   fill(body, h("p", { class: "muted-text" }, "Reading shared results..."));

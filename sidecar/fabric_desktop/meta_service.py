@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,9 @@ from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
+from .redact import describe as describe_error
+
+_log = logging.getLogger(__name__)
 
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -156,8 +160,8 @@ class MetaMixin:
         owner = ""
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception:  # not signed in: the owner can be filled in later
-            pass
+        except Exception as exc:  # not signed in: the owner can be filled in later
+            _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
         init_project(Path(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -803,8 +807,8 @@ class MetaMixin:
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
         keys_mod.write_key_table(project.root, name, owner, description)
         return self.meta_keys(env)
 

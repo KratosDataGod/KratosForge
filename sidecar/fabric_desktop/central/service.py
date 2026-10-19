@@ -11,6 +11,7 @@ Mesh: the open project's domain, data products, links and catalog text.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,12 @@ from ..meta import keys as keys_mod
 from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
+from ..redact import describe
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .migrate import migrate
+
+_log = logging.getLogger(__name__)
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
@@ -45,7 +49,8 @@ class PlatformMixin:
     def _user(self) -> str:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - offline: changes are recorded without a name
+        except Exception as exc:  # noqa: BLE001 - offline: changes are recorded without a name
+            _log.info("Signed-in user unknown; recording the change without a name: %s", describe(exc))
             return ""
 
     def _platform(self, env: str) -> LocalPlatform | FabricPlatform:

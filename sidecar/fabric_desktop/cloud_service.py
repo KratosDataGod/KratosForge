@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +30,9 @@ from .meta.project import ENVIRONMENTS, GateError, validate
 from .meta import keys as keys_mod
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 NOTEBOOK_JOB = "RunNotebook"
 FABRIC_APP = "https://app.fabric.microsoft.com"
@@ -87,7 +91,8 @@ class CloudMixin:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""
         try:
             token = self.auth.silent_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
-        except Exception:  # no client ID configured
+        except Exception as exc:  # no client ID configured
+            _log.info("No silent Fabric token for Monitor: %s", describe(exc))
             return None
         return FabricClient(lambda: token) if token else None
 
@@ -275,8 +280,9 @@ class CloudMixin:
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
-                except Exception:  # noqa: BLE001 - the maintenance job still runs with the right retention
-                    pass
+                except Exception as exc:  # noqa: BLE001 - the maintenance job still runs with the right retention
+                    _log.warning("Couldn't set Delta retention before table maintenance; the job still sets it: %s",
+                                 describe(exc))
                 ws = store.workspace_of(t["lakehouse"])
                 job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
                     ws, lh_id, t["table"], t["schema"], vacuum_retention=maintenance.fabric_retention(days))

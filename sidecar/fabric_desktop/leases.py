@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import socket
 import threading
@@ -36,7 +37,10 @@ import requests
 
 from . import http_session
 from .onelake import DFS_HOST
+from .redact import describe
 from .retrying import send_with_retry
+
+_log = logging.getLogger(__name__)
 
 LEASE_DIR = "Files/_fabric_desktop/leases"
 
@@ -319,8 +323,8 @@ class Held:
         if not self.lost:
             try:
                 self.leases.backend.delete(self.key, self.etag)
-            except Exception:  # it expires on its own
-                pass
+            except Exception as exc:  # it expires on its own
+                _log.warning("Couldn't release the lease; it expires on its own: %s", describe(exc))
 
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:

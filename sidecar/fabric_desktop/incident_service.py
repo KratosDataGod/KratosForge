@@ -9,6 +9,7 @@ it does when asked (``incidents_evaluate``), so nothing polls a tenant in the ba
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Any
 
 from . import __version__, app_settings
@@ -16,12 +17,15 @@ from .auth import STORAGE_SCOPES
 from .dataops_service import post_teams
 from .meta.project import ENVIRONMENTS
 from .meta import mesh as mesh_mod
+from .redact import describe
 from .workloads import evaluate, model
 from .workloads.incidents import KIND_LABELS, IncidentLog
 from .workloads.agents import agent_state, fleet, read_status
 from .workloads.overlap import overlaps
 from .workloads import queue, run_as
 from .workloads.notify import Outbox, send, single
+
+_log = logging.getLogger(__name__)
 
 
 class IncidentMixin:
@@ -137,8 +141,8 @@ class IncidentMixin:
             for env, cfg in self._project().environments.items():  # type: ignore[attr-defined]
                 if cfg.get("workspace_id"):
                     env_of[str(cfg["workspace_id"])] = env
-        except Exception:  # noqa: BLE001  # no project open: Fabric rows show no environment
-            pass
+        except Exception as exc:  # noqa: BLE001  # no project open: Fabric rows show no environment
+            _log.info("No metadata project; Fabric rows show no environment: %s", describe(exc))
         return env_of
 
     @staticmethod
@@ -188,8 +192,8 @@ class IncidentMixin:
         try:
             signals += evaluate.agent_signals(read_status(log.backend), env)
             evaluated.add("agent_offline")
-        except Exception:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
-            pass
+        except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
+            _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
         changes = log.sync(signals, evaluated=evaluated, by=f"Fabric Desktop by KratosBI ({self._incident_user()})")
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}

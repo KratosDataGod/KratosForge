@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import math
 import platform
@@ -16,6 +17,7 @@ import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
@@ -52,6 +54,8 @@ from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+
+_log = logging.getLogger(__name__)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -129,8 +133,8 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception:  # no client ID yet, or offline: the UI offers sign-in
-            pass
+        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+            _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:

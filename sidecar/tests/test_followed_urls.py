@@ -139,7 +139,8 @@ def test_other_hosts_and_schemes_are_refused(url):
 @pytest.mark.parametrize("url", ["https://evil.example\\.fabric.microsoft.com/v1/workspaces?ct=2",
                                  "https://evil.example\\@api.fabric.microsoft.com/v1/workspaces",
                                  "https://api.fabric.microsoft.com\t.evil.example/v1/workspaces",
-                                 "https://api.fabric.microsoft.com\n.evil.example/v1/workspaces"])
+                                 "https://api.fabric.microsoft.com\n.evil.example/v1/workspaces",
+                                 "https://evil.example\uff0f.fabric.microsoft.com/v1/workspaces"])
 def test_addresses_read_differently_by_the_sender_are_refused_and_not_requested(url):
     # urlsplit reads the first as a fabric.microsoft.com subdomain, but requests connects to evil.example.
     c, s = client([Resp(200, {"value": [{"id": "a"}], "continuationUri": url}), Resp(200, {"value": [{"id": "b"}]})])

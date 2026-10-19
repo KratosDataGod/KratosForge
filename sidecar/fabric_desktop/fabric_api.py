@@ -71,15 +71,15 @@ def followable_url(url: str, came_from: str) -> str:
     """``url`` (relative or absolute) resolved against the request it came from, if it's https on
     that request's host or under FOLLOW_DOMAINS. Anything else raises, so the token isn't sent.
     Returns the URL exactly as it will be sent, so the host checked is the host contacted."""
-    full = urljoin(came_from, url)
-    if "\\" in full or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in full):
-        raise FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
-                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    unreadable = FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
+                             "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
     try:
+        full = urljoin(came_from, url)
+        if "\\" in full or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in full):
+            raise unreadable
         parts, origin = _sent_to(full), _sent_to(came_from)
     except (requests.RequestException, ValueError) as exc:
-        raise FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
-                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL) from exc
+        raise unreadable from exc
     host = (parts.host or "").lower()
     same = host == (origin.host or "").lower()
     known = any(host == d or host.endswith(f".{d}") for d in FOLLOW_DOMAINS)

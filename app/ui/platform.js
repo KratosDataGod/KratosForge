@@ -42,7 +42,7 @@ async function renderPlatform() {
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
       // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
       // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
-      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) ? envSeg : null,
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
       h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
@@ -235,13 +235,18 @@ async function platformKeysTab(body) {
   if (!k || !stillHere("keys")) return;
   const rerender = () => platformKeysTab(body);
   const admin = platformPage.me?.admin;
+  if (!!k.shared !== !!platformPage.keysShared) { platformPage.keysShared = !!k.shared; render(); return; }  // one list: no environment picker
   body.replaceChildren(h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
-      admin ? btn("New key table", "add", () => keyTableDialog(rerender), "tool primary small")
+    h("div", { class: "row" }, h("b", { class: "grow" }, k.shared ? "Key tables in SQL_Keys" : `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
+      k.shared ? h("span", { class: "pill-s pass" }, "Shared by Dev, Test and Prod") : null,
+      admin ? btn("New key table", "add", () => keyTableDialog(rerender, k.shared), "tool primary small")
         : btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool primary small")),
-    h("p", { class: "muted-text small" }, "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
-      admin ? "A new key table is made in Dev, Test and Prod at once." : "Only platform admins add key tables; ask for one and it appears here once approved.",
+    h("p", { class: "muted-text small" }, k.shared
+      ? "One key per business key, everywhere: customer C-10442 has the same key in Dev, Test and Prod. Test runs that meet new customers use up key numbers here too. "
+      : "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
+      admin ? (k.shared ? "A new key table is made once." : "A new key table is made in Dev, Test and Prod at once.") : "Only platform admins add key tables; ask for one and it appears here once approved.",
       " Projects pick from this list in Data mesh > Surrogate keys."),
+    !k.shared && admin ? h("p", { class: "muted-text small" }, "To give every environment the same keys, use Move keys in, in Settings under Platform.") : null,
     k.key_tables.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Key table", "Business key", "Description", "Keys", "Next key", "Created"].map((x) => h("th", {}, x)))),
       h("tbody", {}, k.key_tables.map((t) => h("tr", {},
@@ -255,14 +260,14 @@ async function platformKeysTab(body) {
     k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null));
 }
 
-function keyTableDialog(done) {
+function keyTableDialog(done, shared = false) {
   const name = h("input", { placeholder: "supplier" });
   const bk = h("input", { placeholder: "supplier_id" });
   const description = h("input", { placeholder: "A supplier, from any source" });
   showDialog("New key table", h("div", {},
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Business key column", bk),
     h("label", { class: "field" }, "Description", description),
-    h("p", { class: "muted-text small" }, "Creates sk.<name> in every environment's SQL_Platform with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.")), [
+    h("p", { class: "muted-text small" }, `Creates sk.<name> ${shared ? "once, in SQL_Keys," : "in every environment's SQL_Platform"} with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.`)), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Create", "add", async () => {
       if (!name.value.trim()) { name.focus(); return; }

@@ -145,7 +145,7 @@ Projects that already issue keys in `LH_Keys` keep them there until you move the
 ## One keys database for Dev, Test and Prod
 
 !!! note "Preview"
-    Built and tested against SQLite, not yet on a live tenant. The screens for it come next; until then these are platform calls (`platform_keys_setup`, `platform_keys_join`, `platform_share_keys`, `platform_cancel_share_keys`).
+    Built and tested against SQLite, not yet on a live tenant. It's in **Settings > Platform**, on the **Keys** row: **Create** or **Join existing** for the Keys workspace, then **Move keys in**.
 
 A business key can have **one** surrogate key everywhere: Customer ABC is key 123 in Dev, Test and Prod. The keys then live in a dedicated **Keys workspace**, named `KratosForge Keys` unless you choose another name:
 
@@ -156,7 +156,7 @@ A business key can have **one** surrogate key everywhere: Customer ABC is key 12
 
 Setting it up creates only those two items and makes you its first admin. Nothing moves until a platform admin moves the keys in.
 
-**First, a preview.** Move keys in lists every key table in every environment, how many keys each holds, and how many Dev and Test keys would get a different number. It writes nothing until you confirm.
+**First, a preview.** **Move keys in** lists every key table in every environment, how many keys each holds, and how many Dev and Test keys would get a different number. It writes nothing until you confirm.
 
 **Then the move:**
 
@@ -177,7 +177,7 @@ In Fabric, each Platform workspace needs **Finish or repair** once after this up
 From then on:
 
 - A key issued by a run in Dev is the same key in Prod. A test run that meets new business keys uses up key numbers in the shared database.
-- **New key table** makes it once, in the keys database.
+- **New key table** makes it once, in the keys database. **Platform > Business keys** shows that one list, with no environment picker.
 - A project's own `LH_Keys` moves with **Move keys** as before. Prod keeps its numbers. Dev and Test take the shared database's numbers, and the result says how many changed.
 - Dev runs on this PC ask the keys database in Fabric for keys, so they need you signed in. Until the Keys workspace is in Fabric, the shared keys live in `%LOCALAPPDATA%\FabricDesktop\platform\keys.sqlite`.
 

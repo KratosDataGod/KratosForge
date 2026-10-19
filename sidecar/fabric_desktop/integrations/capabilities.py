@@ -159,6 +159,18 @@ def register_core(reg: Registry) -> None:
                    ["result", "findings"], extra=True),
             "READ_METADATA", services.check_run_risk, status="preview", limitations=FABRIC_LIMIT + (
                 "Reads the capacity's state; how busy a capacity is isn't available to developers.",), timeout=60),
+        Capability(
+            "fabric_desktop_placement_advice", "Advise where to run a notebook",
+            "Whether a notebook is better run on this PC or in Fabric (pc, fabric, either or unknown), with the "
+            "evidence: which cells stop it in either place, the newest proof of its current code (verdict and "
+            "verification level as recorded), the proof's measured time and the Fabric job CU of its Fabric run with "
+            "that figure's classification. A proof of older code doesn't count. Advice only: it changes nothing "
+            "and starts nothing; CU is capacity use, not money saved.",
+            schema({"name": NAME}, ["name"]),
+            schema({"place": {"enum": ["pc", "fabric", "either", "unknown"]}, "headline": STR,
+                    "reasons": {"type": "array"}}, ["place", "reasons"], extra=True),
+            "READ_METADATA", services.get_placement_advice, status="preview", artifact_types=("Notebook",),
+            timeout=60),
     ]
     caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions()
     for cap in caps:

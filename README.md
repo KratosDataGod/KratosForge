@@ -42,6 +42,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
+| [docs/finops/placement-advice.md](docs/finops/placement-advice.md) | Where to run a notebook, on this PC or in Fabric, and the evidence for it (Preview) |
 | [docs/finops/usage-import.md](docs/finops/usage-import.md) | Measured CU from an imported Capacity Metrics app export, matched to this app's runs beside their estimates, and billed CU hours and cost per capacity from an Azure Cost Management export |
 | [docs/optimize/README.md](docs/optimize/README.md) | Optimize and the central lakehouse (Preview): one lakehouse for every installation, permissions, what is written and who can see it |
 | [docs/finops/cost-evidence.md](docs/finops/cost-evidence.md) | Where each capacity and cost figure in Optimize > Cost and savings comes from: measured, estimated, scenario or unknown, and how to see how it was worked out |

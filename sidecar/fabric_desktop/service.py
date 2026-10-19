@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import math
 import platform
@@ -12,9 +13,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
@@ -40,16 +43,19 @@ from .incident_service import IncidentMixin
 from .incident_desk import IncidentDeskMixin
 from .platform_notify_service import PlatformNotifyMixin
 from .git_service import GitMixin
-from .pipeline_service import PipelineMixin
+from .pipeline_service import PipelineMixin, PipelineRunMixin
 from .integrations.app_service import IntegrationsMixin
 from .localdata_service import LocalDataMixin
 from .risk_service import RiskMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
+from .tenant_history_service import TenantHistoryMixin
 from .kernel_proc import ProcessKernel
-from .notebook import Kernel, NotebookStore, check_watches
+from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+
+_log = logging.getLogger(__name__)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -60,14 +66,14 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self.kernel = self._new_kernel()
-        self.notebooks = NotebookStore(self.root / "notebooks")
+        self.notebooks = NotebookShelf(self.root / "notebooks", self._notebook_places)
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
@@ -127,8 +133,8 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception:  # no client ID yet, or offline: the UI offers sign-in
-            pass
+        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+            _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:
@@ -397,7 +403,7 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
 
     def run_job(self, path: str) -> dict[str, Any]:
         record = run_job(Job.load(path), self.fabric, self.auth.storage_token,
-                         work_dir=self.root, history_file=self.history_file)
+                         work_dir=self.root, history_file=self.history_file, guard=self._job_guard)
         return record.__dict__
 
     def history(self, limit: int = 50) -> list[dict[str, Any]]:
@@ -591,11 +597,11 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
                 sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)
         started = time.monotonic()
-        result = sql.run(query, dialect, sandbox=sandbox)
-        columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
+        result, row_count = sql.head(query, dialect, sandbox=sandbox, limit=limit)  # only the first rows are kept
+        columns = [c.to_pylist() for c in result.columns]  # by position: names can repeat
         return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
                 "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
-                "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
+                "row_count": row_count, "seconds": round(time.monotonic() - started, 2)}
 
     def save_sql(self, query: str, lakehouse_ref: dict[str, str], table: str, mode: str = "new",
                  dialect: str = "spark") -> dict[str, Any]:
@@ -610,14 +616,18 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         return {"table": written.table, "rows": written.rows, "message": repr(written)}
 
     def export_sql_csv(self, query: str, lakehouse_ref: dict[str, str], dialect: str = "spark") -> dict[str, Any]:
-        """Write the full result to the Downloads folder."""
+        """Write the full result to the Downloads folder, a batch at a time (sql.Stream)."""
         self._attach(lakehouse_ref)
-        result = sql.run(query, dialect)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
-        pa_csv.write_csv(result, str(path))
-        return {"path": str(path), "rows": result.num_rows}
+        rows = 0
+        with sql.Stream(query, dialect) as result:
+            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+                for batch in result:
+                    out.write_batch(batch)
+                    rows += batch.num_rows
+        return {"path": str(path), "rows": rows}
 
     def table_columns(self, lakehouse_ref: dict[str, str], table: str) -> list[dict[str, str]]:
         self._attach(lakehouse_ref)
@@ -646,13 +656,30 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self) -> dict[str, Any]:
-        return self.notebooks.new()
+    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
+        return self._with_place(self.notebooks.new(place=place))
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
-        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                     "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+
+    def _with_place(self, nb: dict[str, Any]) -> dict[str, Any]:
+        """Adds where the notebook is saved and, in a notebooks repository, where its data is per
+        environment (the repository's locations.toml). A lakehouse attached to the notebook wins."""
+        place = self.notebooks.place_of(nb["name"])
+        return nb | {"place": place, "locations": self._git_locations_of(place["root"]) if place else None}
+
+    def notebook_places(self) -> dict[str, Any]:
+        """Where a notebook can be saved: the app's own folder and each notebooks repository."""
+        return {"places": [{"root": None, "label": "This PC"}] +
+                [{"root": p["root"], "label": p["label"]} for p in self.notebooks.places()]}
+
+    def move_notebook(self, name: str, place: str | None) -> dict[str, Any]:
+        """Moves a notebook's file into a notebooks repository (or back to the app's own folder).
+        The moved file shows as a change in that repository; nothing is committed."""
+        return self.notebooks.move(name, place)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
@@ -685,13 +712,14 @@ class Service(PipelineMixin, GitMixin, IncidentDeskMixin, IncidentMixin, Platfor
         return {"deleted": name}
 
     def publish_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                         compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                         compute: str | None = None, workspace: dict[str, str] | None = None,
+                         location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Save the notebook, then create or update it as a notebook item in its workspace: the one
         picked for it (saved with the notebook), else the attached lakehouse's workspace.
 
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
-        return self._publish(name, cells, lakehouse_ref, compute, workspace)
+        return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
 
 
 def _json_value(value: Any) -> Any:

@@ -27,6 +27,7 @@ nav = [
     { "Configure Azure and Fabric" = "azure-setup.md" },
     { "Permissions" = "permissions.md" },
     { "Security model" = "security.md" },
+    { "Security evidence pack" = "evidence-pack.md" },
     { "Usage data" = "telemetry.md" },
   ] },
   { "Use the app" = [
@@ -47,10 +48,12 @@ nav = [
     { "Working across teams" = "teams.md" },
     { "The platform" = "platform.md" },
     { "Governance policies" = "governance.md" },
+    { "Governance guide" = "governance-guide.md" },
     { "Data mesh" = "data-mesh.md" },
     { "Shortcuts" = "shortcuts.md" },
     { "Pipeline definitions" = "orchestration/pipeline-definitions.md" },
     { "Pipeline activity compatibility" = "orchestration/activity-registry.md" },
+    { "Running pipelines on your PC" = "orchestration/local-runs.md" },
     { "Troubleshooting" = "troubleshooting.md" },
     { "Live testing on your tenant" = "live-testing.md" },
     { "Estate X-ray fixes" = "xray-fixes.md" },
@@ -140,8 +143,8 @@ extra_css = ["stylesheets/extra.css"]
 
 [project.theme]
 language = "en"
-logo = "brand/kratosbi-mark.svg"
-favicon = "brand/kratosbi-mark.svg"
+logo = "brand/wolf-forge-emblem.png"
+favicon = "brand/wolf-forge-emblem-32.png"
 features = [
   "content.action.edit",
   "content.action.view",

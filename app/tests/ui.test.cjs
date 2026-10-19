@@ -305,7 +305,7 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
   return ctx;
 }
 
@@ -359,6 +359,9 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+  // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
+  assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
+  assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
 });
 
 test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
@@ -567,13 +570,14 @@ test("compatibility findings land where the engine says, even after characters o
 });
 
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
-  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  const page = fs.readFileSync(path.join(ui, "query.js"), "utf8");
   assert.ok(!page.includes('h("textarea"'), "no textarea editor");
   assert.match(page, /createSqlEditor\(/);
   assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("query.js"));
+  // app.js registers renderQuery when it loads, so query.js must come first (HD-056).
+  assert.ok(html.indexOf('src="query.js"') < html.indexOf('src="app.js"'));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
     "linter", "lintGutter", "forceLinting", "StateEffect"]) {
@@ -1014,6 +1018,40 @@ test("a failed save says so and keeps the notebook open and dirty", async () => 
   assert.strictEqual(nb.dirty, false);
 });
 
+// UX-009: domains, the glossary and platform setup each have one home, on the Platform page.
+test("domains, the glossary and platform setup are edited only on the Platform page", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const groups = meta.match(/const META_TAB_GROUPS = \[[\s\S]*?\n\];/)[0];
+  assert.ok(!/"glossary"/.test(groups), "Data mesh still has a Glossary tab");
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const domainsTab = mesh.match(/async function renderMeshDomainsTab\([\s\S]*?\n}\n/)[0];
+  for (const edit of ["domainDialog(", "importFabricDomains(", "platform_delete_domain"]) {
+    assert.ok(!domainsTab.includes(edit), `Data mesh > Domains still calls ${edit}`);
+  }
+  assert.match(domainsTab, /goPlatform\("domains"\)/);
+  assert.match(domainsTab, /goPlatform\("glossary"\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /importFabricDomains\(rerender\)/);
+  assert.match(platform, /platformSection\(\)/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.ok(!settings.includes("platformSection("), "Settings still sets up the platform");
+  assert.match(settings, /goPlatform\("settings"\)/);
+});
+
+// UX-009: a project's source systems come from the platform's one list when Preview is on.
+test("a project reads source systems from the platform's list and can move its own there", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const tab = meta.match(/async function renderSourcesTab\([\s\S]*?\n}\n/)[0];
+  assert.match(tab, /meta_keys", \{ env: m\.env, platform: previewShown\(\) \}/);
+  assert.match(tab, /"Add a source this project reads"/);
+  assert.match(tab, /"Move sources to the platform"/);
+  assert.match(tab, /"New source system"/, "without the platform the project keeps its own list");
+  assert.match(meta, /metaCall\("meta_source_read"/);
+  assert.match(meta, /metaCall\("meta_sources_move"/);
+  const server = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "server.py"), "utf8");
+  for (const m of ["meta_source_read", "meta_sources_move"]) assert.ok(server.includes(`"${m}"`), `${m} isn't allowed by the engine`);
+});
+
 // The template gallery filters by group and search, and the review step names every table's contract.
 test("the template gallery filters templates and the review states each contract", () => {
   const src = fs.readFileSync(path.join(ui, "wizard.js"), "utf8");
@@ -1072,7 +1110,7 @@ test("Schedule follows the current environment's Runs on", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
   const opened = [];
-  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod", nbLakehouse: (nb) => nb.lakehouse };
   vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
   const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
   for (const env of ["dev", "prod"]) {
@@ -1203,7 +1241,7 @@ test("Monitor > Agents explains agents beside the list, with links to sections o
   const linked = [...src.matchAll(/agDoc\("([^"]+)"/g)].map((m) => m[1]);
   assert.ok(linked.length >= 6);
   for (const a of linked) assert.ok(anchors.has(a), `agent.md has a section #${a}`);
-  assert.match(src, /return h\("div", \{ class: "sc-two ag-two" \}, box, agGuide\(\)\);/);
+  assert.match(src, /return h\("div", \{ class: "mon-how" \}, withHowItWorks\(box, agGuide\(\)\)\);/);
 });
 
 test("deleting an entity, key table or source system and discarding quarantine rows use the danger confirm (UX-018)", () => {
@@ -1286,15 +1324,129 @@ test("confirms that delete or overwrite something pass danger", () => {
   assert.deepStrictEqual(missing, []);
 });
 
+// QA-032: X-ray's Optimize asks first, says it runs in Fabric and uses capacity, and shows the risk check.
+test("Estate X-ray's Optimize confirms with the risk check before starting a Fabric job", () => {
+  const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
+  const dialog = /async function optimizeDialog\([\s\S]*?\n\}/.exec(xray)[0];
+  assert.match(dialog, /showDialog\(`Optimize \$\{label\}\?`/);
+  assert.match(dialog, /runs in Fabric[\s\S]*uses capacity/);
+  assert.match(dialog, /rpc\("xray_optimize_check"[\s\S]*riskPanel\(p\.risk/);
+  assert.match(dialog, /result === "blocked"/);
+  assert.ok(dialog.indexOf('rpc("xray_optimize_check"') > -1 && !/optimize: \(\) => btn\("Optimize", "sync", async/.test(xray),
+    "the line's button opens the dialog instead of starting the job");
+});
+
+test("Monitor > Workloads and Agents carry the shared How this works panel, each linked to its guide section (testing item 18)", () => {
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const slug = (t) => t.toLowerCase().replace(/[^a-z0-9 -]/g, "").replace(/ /g, "-");
+  const anchors = new Set([...guide.matchAll(/^#+ (.+)$/gm)].map((m) => slug(m[1])));
+  const seen = {};
+  const ctx = {
+    h: (tag, attrs, ...children) => ({ tag, attrs, children }),
+    howItWorks: (id, parts) => { seen[id] = parts; return { panel: id }; },
+    withHowItWorks: (main, panel) => ({ main, panel }),
+    agDoc: (anchor) => ({ doc: anchor }),
+    loadWorkloads: () => {}, loadAgents: () => {},
+  };
+  const grab = (file, name) => {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    return src.match(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  };
+  vm.runInNewContext(`${grab("workloads.js", "workloadsPanel")}${grab("agents.js", "agentsPanel")}${grab("agents.js", "agGuide")}
+    this.out = [workloadsPanel(), agentsPanel()];`, ctx);
+  for (const [i, id] of [[0, "monitor.workloads"], [1, "monitor.agents"]]) {
+    assert.deepStrictEqual(ctx.out[i].children[0].panel, { panel: id }, `${id} sits beside its list`);
+    const p = seen[id];
+    for (const k of ["reads", "changes", "results"]) assert.ok(String(p[k]).length > 20, `${id} says ${k}`);
+    assert.ok(anchors.has(p.anchor), `user-guide.md has #${p.anchor}`);
+  }
+  assert.match(seen["monitor.agents"].changes, /^Nothing\./);
+  assert.match(seen["monitor.workloads"].reads, /Never your whole tenant/);
+});
+
 // Testing item 18: Estate X-ray and Workspaces > Fabric portal say how they work, naming every write.
 test("Estate X-ray and the Fabric portal tab have How this works panels that name their writes", () => {
   const xray = fs.readFileSync(path.join(ui, "xray.js"), "utf8");
   const how = /function xrayHow\(\) \{[\s\S]*?\n\}/.exec(xray)[0];
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
+  assert.match(how, /each asks first/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
   assert.match(fabric, /withHowItWorks\(/);
   assert.match(fabric, /howItWorks\("workspaces\.fabric"[\s\S]*changes: "Nothing by itself/);
+});
+
+// Testing item 18: Workspaces, the OneLake catalog and Data products each say how they work, naming every write.
+test("Workspaces, the catalog and data products have a How this works panel that names their writes", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  const panel = (src, id) => src.match(new RegExp(`howItWorks\\("${id.replace(".", "\\.")}", \\{[\\s\\S]*?\\n    \\}\\)`))?.[0] || "";
+  const ws = panel(app, "workspaces");
+  assert.match(ws, /changes: "Nothing in Fabric or OneLake. Open in notebook[^"]*makes a new notebook on this PC/);
+  const catalog = panel(app, "onelake.catalog");
+  assert.match(catalog, /changes: "Nothing in Fabric or OneLake/);
+  assert.match(catalog, /Open in notebook makes a new notebook on this PC/);
+  const products = panel(platform, "onelake.products");
+  assert.match(products, /records your project as a reader/);
+  assert.match(products, /adds a request/);
+  for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});
+
+test("repositories are grouped by what they hold, unsorted ones last", () => {
+  const { gitGroupRepos } = gitHelpers();
+  const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
+  const groups = gitGroupRepos([{ name: "a", kind: "platform" }, { name: "b", kind: null }, { name: "c", kind: "notebooks" },
+    { name: "d", kind: "platform" }], kinds);
+  assert.strictEqual(JSON.stringify(groups.map((g) => [g.label, g.repos.map((r) => r.name).join()])),
+    JSON.stringify([["Notebooks", "c"], ["Platform", "a,d"], ["Not yet sorted", "b"]]));
+  assert.strictEqual(gitGroupRepos([], kinds).length, 0);
+});
+
+// QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
+test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
+  const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
+  assert.ok(!/shortcut_preflight[\s\S]{0,200}\.catch\(\(\) => \(\{ blocked: \[\]/.test(shortcuts), "a failed preflight reads as no rules");
+  assert.match(shortcuts, /unchecked: true \}\)\)/);
+  assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  assert.match(estate, /res\.partial \?/);
+});
+
+// The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
+test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div class="brand">\s*<img src="wolf-forge-emblem\.png"/);
+  assert.match(html, /rel="icon" href="wolf-forge-emblem-32\.png"/);
+  assert.ok(!html.includes("kratosbi-mark.svg"));
+  for (const f of ["wolf-forge-emblem.png", "wolf-forge-emblem-32.png"]) assert.ok(fs.existsSync(path.join(ui, f)), f);
+  const ico = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "icons", "icon.ico"));
+  const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
+  for (const s of [16, 24, 32, 48, 256]) assert.ok(sizes.includes(s), `icon.ico has ${s}px`);
+});
+
+// Item 37, stage 2: a notebook in a notebooks repository follows the environment's location.
+test("a notebook's data: its own lakehouse first, then its repository's location for the environment", () => {
+  const { nbData, nbDataText } = gitHelpers();
+  const own = { lakehouse_id: "own", name: "LH_Mine", workspace_id: "w" };
+  const testRef = { lakehouse_id: "lt", name: "LH_Silver", workspace_id: "wt", workspace_name: "Sales Test" };
+  const nb = { place: { root: "/r", label: "sales-notebooks" },
+    locations: { envs: { dev: { this_pc: true, lakehouse: null }, test: { lakehouse: testRef }, prod: null } } };
+  const pick = (env, n = nb) => { const d = nbData(n, env); return [d.from, d.ref?.lakehouse_id || null, nbDataText(d)]; };
+  assert.strictEqual(JSON.stringify(pick("test")), JSON.stringify(["locations", "lt", "Data: LH_Silver"]));
+  assert.strictEqual(JSON.stringify(pick("dev")), JSON.stringify(["this_pc", null, "Data: nothing attached in Dev"]));
+  assert.strictEqual(JSON.stringify(pick("prod")), JSON.stringify(["unset", null, "No location for Prod"]));
+  assert.strictEqual(JSON.stringify(pick("test", { ...nb, lakehouse: own })), JSON.stringify(["notebook", "own", "Data: LH_Mine (this notebook)"]));
+  assert.strictEqual(nbData({ name: "home" }, "test").from, null, "notebooks in the app's own folder are unchanged");
+});
+
+test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
+  for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
+    assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
+  }
 });

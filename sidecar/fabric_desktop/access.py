@@ -105,6 +105,29 @@ def covers(path: str, table: str) -> bool:
     return table == path or table.startswith(path + "/")
 
 
+# Fabric's answers that mean OneLake security isn't turned on for the lakehouse: then there are no
+# data access roles and the workspace roles decide. Any other failure (no rights, throttling, the
+# network) means the roles are unknown, and a list of readers without them is incomplete.
+SECURITY_OFF_CODES = ("OneLakeSecurityNotEnabled", "DataAccessRolesNotEnabled", "FeatureNotAvailable",
+                      "UniversalSecurityFeatureNotEnabled")
+
+
+def security_off(exc: BaseException) -> bool:
+    code = str(getattr(exc, "code", "") or "")
+    return code in SECURITY_OFF_CODES or "onelake security is not enabled" in str(exc).lower()
+
+
+def read_roles(list_roles: Any) -> tuple[list[dict[str, Any]], str | None]:
+    """A lakehouse's data access roles and, when they couldn't be read, why. ``list_roles`` is a
+    callable that returns them. OneLake security being off is not a failure: no roles."""
+    try:
+        return list_roles(), None
+    except Exception as exc:  # noqa: BLE001 - reported to the caller as an incomplete answer
+        if security_off(exc):
+            return [], None
+        return [], f"The lakehouse's data access roles couldn't be read: {exc}"
+
+
 def who_can_read(table: str, assignments: list[dict[str, Any]], roles: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """Everyone who can read one table of a lakehouse, and why."""
     out: dict[str, dict[str, Any]] = {}

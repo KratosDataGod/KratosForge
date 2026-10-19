@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 from typing import Any
 
 import polars as pl
@@ -23,7 +24,10 @@ from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta.project import ENVIRONMENTS
+from .redact import describe
 from .workloads.notify import failure
+
+_log = logging.getLogger(__name__)
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -154,8 +158,8 @@ class DataOpsMixin:
         try:
             h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
             history = _rows(h, 10)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
     def meta_drift_apply(self, name: str, add: dict[str, str] | None = None, retype: dict[str, str] | None = None,

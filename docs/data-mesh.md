@@ -18,6 +18,14 @@ Fabric Desktop by KratosBI lets many teams build on one platform without steppin
 
 All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Domains** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
+## From domains to tables
+
+**Data mesh > Overview** is where the page opens. It reads the platform's catalog and changes nothing:
+
+1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
+2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
+3. **A layer.** The layer's tables. Pick one to see what it comes from, which tables and products read it, and **Open in Design** to edit it.
+
 ## The pieces
 
 | Piece | What it is | Where it's kept |
@@ -64,7 +72,8 @@ How the import works:
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in Fabric Desktop by KratosBI. Owners and description are the platform's and stay as you set them.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
-- **New domain** still works for organizations that don't use Fabric domains; those show as "Only here".
+- **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".
+- Domains are created, imported and edited only on **Platform > Domains**. **Data mesh > Domains** lists them, read only, with **Manage in Platform**.
 
 ## Workspaces by designation
 
@@ -155,7 +164,7 @@ description = "Primary email address"
 classification = "confidential"
 ```
 
-**Glossary** (Data mesh > Domains > Glossary) holds shared terms like *Active customer*. It also shows recent changes in the catalog and who made them.
+**Glossary** (**Platform > Glossary**) holds shared terms like *Active customer*. Platform admins keep shared terms and a domain's owners keep their domain's. Tag a table or column with terms on the entity's About tab. Recent changes in the catalog, and who made them, are on **Platform > Audit**.
 
 ## At scale
 

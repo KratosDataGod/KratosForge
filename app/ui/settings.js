@@ -107,7 +107,7 @@ function redactReport(text, level = "support") {
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
     .replace(/\bxox[abposr]-[A-Za-z0-9\-]{10,}\b/g, "[removed]")
-    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token|id_token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
+    .replace(/\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token|api[_-]?key|secret)("?\s*[=:]\s*"?)[^\s"'&;,]+/gi, "$1$2[removed]");
   if (level !== "support") return out;
   return out
     .replace(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)+/g, "[email]")
@@ -331,17 +331,19 @@ async function renderSettings() {
       h("button", { class: `tab${tab === id ? " active" : ""}`, onclick: () => { state.settingsTab = id; render(); } },
         label, id === "integrations" ? previewTag() : null))) : null;
   const integrations = h("div", { class: "integrations" });
+  // The platform is set up in one place, Platform > Settings (UX-009); Settings only points there.
+  const platform = previewShown() ? h("section", { class: "card pad platform-link" },
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("h2", {}, "Platform ", previewTag()),
+      h("p", { class: "muted-text small" }, "The central team's workspace for every project is set up, joined and repaired on Platform > Settings.")),
+    btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
   }
-  // The platform's status comes from the engine; it fills in after the page shows.
-  const platform = await platformSection();
-  if (state.view === "settings" && previewShown()) notify.before(platform);
   const optimize = previewShown() ? await optimizeSettingsSection() : null;
   if (state.view === "settings" && optimize) notify.before(optimize);
 }

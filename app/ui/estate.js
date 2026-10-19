@@ -478,6 +478,7 @@ function costBody(r) {
         stat(measureFigure(`Share of ${e.capacity || "the"} capacity`, e.capacity_share_evidence, cur), `of ${e.capacity || "the"} capacity (${e.sku})`, `${ENV_LABEL[e.env] || e.env}'s Fabric runs`))),
     capacityStrip(r.capacities),
     usageCard(r.usage, cur),
+    t.uncalibrated_runs ? h("p", { class: "muted-text small" }, `${t.uncalibrated_runs === 1 ? "1 run" : `${t.uncalibrated_runs} runs`} on this PC had no comparable Fabric run of the same table (same definition, last 90 days), so what ${t.uncalibrated_runs === 1 ? "it" : "they"} avoided isn't known and is left out, not counted as 0.`) : null,
     t.unknown_runs ? h("p", { class: "muted-text small" }, `${t.unknown_runs === 1 ? "1 run's" : `${t.unknown_runs} runs'`} capacity use isn't known (still running, or no run time recorded). They are left out of the totals, not counted as 0.`) : null,
     r.by_item.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["What ran", "Env", "Runs", "Time", "Fabric", "Avoided on this PC"].map((c) => h("th", {}, c)))),
@@ -489,7 +490,7 @@ function costBody(r) {
         h("td", { class: "n" }, x.local_runs ? measureFigure(`${x.name || x.kind}: Fabric use avoided on this PC`, x.evidence.avoided_cost, cur) : "")))))
       : h("p", { class: "muted-text" }, `Nothing ran in the last ${r.days} days.`),
     h("p", { class: "muted-text small" }, "Estimated: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
-      "Scenario: what runs on this PC would have used as Python notebooks in Fabric. Session start-up in Fabric and OneLake reads and writes aren't counted. Click a figure to see how it was worked out; Fabric's Capacity Metrics app has the CU your capacity recorded.",
+      "Avoided on this PC: estimated from the same table's runs in Fabric (their run time times the configured CUs), never from how long it took here. OneLake reads and writes from this PC still use capacity and aren't counted. Click a figure to see how it was worked out; Fabric's Capacity Metrics app has the CU your capacity recorded.",
       unavailable.length ? ` Left out: ${unavailable.map(([env, why]) => `${ENV_LABEL[env]} (${why})`).join(", ")}.` : ""),
   ];
 }
@@ -651,9 +652,13 @@ function lakehouseAccessBody(a, lh, redraw) {
   tableSel.addEventListener("change", async () => {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
-    const list = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (list) fill(who, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
-      : [h("p", { class: "muted-text small" }, "Only workspace admins.")]));
+    const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
+    if (!res) return;
+    const list = res.readers;
+    // Without the data access roles the list misses everyone they let in: say so (QA-005).
+    const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;
+    fill(who, partial, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
+      : [h("p", { class: "muted-text small" }, res.partial ? "No one found so far." : "Only workspace admins.")]));
   });
   const whoBox = h("div", { class: "card pad who-reads" }, h("b", {}, "Who can read a table"), h("label", { class: "field" }, "Table", tableSel), who);
   if (!a.enabled) {

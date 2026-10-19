@@ -321,8 +321,8 @@ function renderChrome() {
 
   const crumbs = [];
   if (state.view === "notebook" && state.notebook) {
-    const lh = state.notebook.lakehouse;
-    crumbs.push(h("span", {}, lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
+    const lh = nbLakehouse(state.notebook);
+    crumbs.push(h("span", {}, state.notebook.place ? state.notebook.place.label : lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
     crumbs.push(h("button", { class: "current", title: "Rename notebook", onclick: renameNotebook },
       state.notebook.name + (state.notebook.dirty ? " •" : "")));
   } else if (state.view === "workspace" && state.openWorkspace) {
@@ -461,9 +461,10 @@ async function renderHome() {
     notebookCount = (notebooks || []).length;
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Modified"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
       h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
         h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
+        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
         h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
@@ -798,7 +799,12 @@ async function renderWorkspaces() {
   setView(h("div", { class: "page" }, h("h1", {}, "Workspaces"), workspacesTabs("workspaces"),
     h("p", { class: "sub" }, "Your Fabric workspaces. Expand one to see its items, star your favorites and pin the ones you use most. ",
       previewing ? "Click an item to preview it. " : "", learnMore("workspaces")),
-    signInCallout(), chips, previewing ? previewLayout(body, () => draw()) : body));
+    signInCallout(), withHowItWorks([chips, previewing ? previewLayout(body, () => draw()) : body], howItWorks("workspaces", {
+      reads: "Your Fabric workspaces and their items, from Fabric with your sign-in, when the page opens and when you expand a workspace. Item previews read only the item you click.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook, in an item's preview, makes a new notebook on this PC that reads the table. Stars and pins are kept on this PC, not in Fabric.",
+      results: "Only you see your stars, pins and new notebooks. Clicking a workspace opens its own page, where New lakehouse creates a lakehouse in Fabric after you name it.",
+      anchor: "workspaces",
+    }))));
   if (!state.user) return;
   const [workspaces, marks] = await Promise.all([loadWorkspaces(),
     wp.marks ? wp.marks : rpc("workspace_marks").catch(() => ({ favorites: [], pins: [] }))]);
@@ -1088,7 +1094,14 @@ async function renderOneLake() {
         h("span", { class: "muted-text" }, "Every item in every workspace you can open"), h("span", { class: "spacer" }), note, search,
         btn("Refresh", "sync", () => { cp.data = null; render(); }, "tool outline"),
         btn("Open Fabric's catalog", "open", () => openInFabric("catalog"), "tool outline")),
-      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list)))));
+      h("div", { class: "catalog-body" }, nav, h("section", { class: "catalog-main" }, head, list))),
+    // Under the catalog, not beside it: the table needs the page's full width for its row actions.
+    howItWorks("onelake.catalog", {
+      reads: "Every item in every workspace you can open, and each lakehouse's table names, from Fabric with your sign-in. It reads when the page opens and when you press Refresh.",
+      changes: "Nothing in Fabric or OneLake. Open in notebook makes a new notebook on this PC that reads the table; SQL query reads it without changing it. Stars are kept on this PC.",
+      results: "Only you see your stars. The list shows only what your own Fabric permissions let you open.",
+      anchor: "catalog",
+    })));
   if (!state.user) return;
 
   const here = () => state.view === "onelake" && list.isConnected;
@@ -1346,523 +1359,6 @@ function renderLakehouse() {
   draw();
 }
 
-// ---------- SQL query page ----------
-
-// SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
-const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
-const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
-const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
-
-function openSqlQuery(ref) {
-  if (sqlPage.ref?.lakehouse_id !== ref.lakehouse_id) {
-    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {} });
-  }
-  go("query");
-}
-
-function queryTabsKey(ref) {
-  return `fabric-desktop.sql.${ref.lakehouse_id}`;
-}
-
-function loadQueryTabs(ref) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
-    if (Array.isArray(saved) && saved.length) {
-      return saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
-    }
-  } catch { /* no saved tabs */ }
-  return [{ name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
-}
-
-function saveQueryTabs() {
-  try {
-    localStorage.setItem(queryTabsKey(sqlPage.ref),
-      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark" }))));
-    return true;
-  } catch { return false; /* storage unavailable: tabs last for this session */ }
-}
-
-// The SQL editor's completion provider for one lakehouse (the shape is described in sqleditor.js).
-// Tables are the ones the page already listed; each table's columns are asked for once.
-function lakehouseSqlProvider(p, ref, changed) {
-  const key = (t) => sqlTableName(t.schema, t.name);
-  return {
-    id: `lakehouse:${ref.lakehouse_id}`,
-    label: ref.name,
-    tables: () => Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((name) => ({ schema, name }))),
-    cachedColumns: (t) => p.cols[key(t)] || undefined,
-    columns(t) {
-      const k = key(t);
-      if (p.cols[k]) return Promise.resolve(p.cols[k]);
-      if (!p.pending[k]) {
-        p.pending[k] = rpc("table_columns", { lakehouse_ref: ref, table: k })
-          .then((cols) => { p.cols[k] = cols || []; changed(); return p.cols[k]; })
-          .catch(() => { p.cols[k] = []; return []; });  // offline or no access: no column names, ask again after Refresh
-      }
-      return p.pending[k];
-    },
-  };
-}
-
-// A managed run's state on the Results band: [pill class, label].
-const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
-  completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
-
-// Follow a run until it finishes. Polls quickly at first, then once a second; stops following when
-// the tab starts another run.
-async function followRun(tab, status) {
-  let wait = 150;
-  while (["queued", "running", "cancelling"].includes(status.state)) {
-    await new Promise((r) => setTimeout(r, wait));
-    wait = Math.min(1000, wait * 1.5);
-    const next = await rpc("sql_status", { execution: status.id });
-    if (tab.exec?.id !== status.id) return null;
-    tab.exec = status = next;
-    sqlPage.redraw?.();
-  }
-  return status;
-}
-
-async function loadPage(tab, offset) {
-  try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
-    if (page.rerun_needed) { tab.result = null; tab.error = page.message; return; }
-    tab.result = page;
-  } catch (err) {
-    tab.error = String(err);
-  }
-}
-
-function cellText(v) {
-  if (v === null || v === undefined) return "NULL";
-  return typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(v);
-}
-
-function renderQuery() {
-  const p = sqlPage;
-  const ref = p.ref;
-  if (!ref) return go("onelake");
-  if (!p.tabs[p.active]) p.active = 0;
-  const tab = p.tabs[p.active];
-  tab.dialect = sqlDialect(tab.dialect);
-  const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
-  const runsHere = () => SQL_DIALECTS[tab.dialect].runsHere;
-
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
-  p.editor?.destroy();
-  const editor = p.editor = createSqlEditor({
-    doc: tab.sql,
-    dialect: tab.dialect,
-    provider: lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
-    on: {
-      change: setSql,
-      run: () => run(),
-      save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
-      format: () => formatSql(),
-    },
-    check: (text, dialect) => checkSql(text, dialect),
-  });
-  const insertAtCursor = (text) => editor.insert(text);
-
-  // SQL-002: the compatibility check, run by the editor shortly after typing stops. It reads the SQL
-  // with the chosen engine's documented rules; nothing runs and nothing is sent to Fabric.
-  async function checkSql(text, dialect) {
-    tab.compatLong = text.length > SQL_AUTO_CHECK_LIMIT && !tab.checkLong;
-    if (!text.trim() || tab.running || tab.compatLong) {
-      if (!text.trim()) tab.compat = null;
-      if (here()) drawCompat();
-      return null;
-    }
-    tab.checkLong = false;
-    let report;
-    try {
-      report = await rpc("sql_analyze", { query: text, target: dialect });
-    } catch (err) {
-      report = { failed: String(err).replace(/^Error: /, "") };
-    }
-    if (!here() || editor.text() !== text) return null;
-    tab.compat = report;
-    tab.compatText = text;
-    drawCompat();
-    return report.failed ? null : report;
-  }
-
-  // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
-  // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
-  // the run's snapshot, so a large result is never loaded whole.
-  async function run(query = editor.chosen(), allow = []) {
-    if (!query.trim() || tab.running) return;
-    if (!runsHere()) {
-      toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
-      return;
-    }
-    tab.running = true;
-    Object.assign(tab, { error: null, result: null, exec: null, ranNotice: "" });
-    drawResults();
-    let status;
-    try {
-      status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
-      Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
-      status = await followRun(tab, status);
-    } catch (err) {
-      tab.error = String(err);
-    }
-    if (status?.state === "completed") await loadPage(tab, 0);
-    tab.running = false;
-    if (status?.refused?.permission === "local_mutation" && !allow.length) {
-      sqlPage.redraw?.();
-      const ok = await confirmDialog("Let this query change its own session?",
-        `Statement ${status.refused.statement} ${status.refused.label}: a temp view, a table made in the query, a cache. ` +
-        "Only this run's own DuckDB session on this PC changes; no lakehouse table, file or Fabric item does. Nothing has run yet.", "Run");
-      if (ok) return run(query, ["local_mutation"]);
-    }
-    if (status?.state === "completed") {
-      tab.ranNotice = localNotice(query);
-      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
-    } else if (status) {
-      tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
-    }
-    sqlPage.redraw?.();
-    if (here()) editor.recheck();
-  }
-
-  async function stop() {
-    if (!tab.exec) return;
-    const out = await attempt(() => rpc("sql_cancel", { execution: tab.exec.id }), "Could not stop the query");
-    if (out) { tab.exec = out; sqlPage.redraw?.(); }
-  }
-
-  async function goPage(offset) {
-    if (!tab.result || tab.paging) return;
-    tab.paging = true;
-    await loadPage(tab, Math.max(0, offset));
-    tab.paging = false;
-    sqlPage.redraw?.();
-  }
-
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
-  async function exportResult(format) {
-    if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
-    if (!out) return;
-    if (out.rerun_needed) {
-      const again = await confirmDialog("Run the query again?",
-        `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
-      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
-      return;
-    }
-    tab.exporting = out;
-    sqlPage.redraw?.();
-    let st = out;
-    while (st.state === "running") {
-      await new Promise((r) => setTimeout(r, 300));
-      try { st = await rpc("sql_export_status", { export: out.id }); } catch (err) { st = { ...st, state: "failed", error: String(err) }; }
-      tab.exporting = st;
-      sqlPage.redraw?.();
-    }
-    tab.exporting = null;
-    sqlPage.redraw?.();
-    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}`);
-    else if (st.state === "cancelled") toast("Export stopped. No file was left behind.");
-    else toast(`Could not export: ${st.error}`, true);
-  }
-
-  // After a run on this PC: say when the check found differences from Fabric, without blocking the run.
-  function localNotice(query) {
-    const r = tab.compat;
-    if (!r?.diagnostics || tab.compatText === undefined || !tab.compatText.includes(query.trim())) return "";
-    const local = r.diagnostics.filter((d) => d.category === "local" && d.rule !== "LOC-008").length;
-    const engine = tab.dialect === "duckdb" ? "No Fabric engine runs DuckDB SQL as written"
-      : `${local} finding${local === 1 ? "" : "s"} say Fabric Spark may give different results`;
-    if (tab.dialect !== "duckdb" && !local) return "";
-    return `Ran on this PC with DuckDB, not in Fabric. ${engine}; see Compatibility. A warning doesn't mean the query is wrong.`;
-  }
-
-  // Format the selection, or everything. The engine leaves the SQL alone and says why when it can't keep its meaning.
-  async function formatSql() {
-    const { from, to } = editor.selection();
-    const whole = to <= from;
-    const text = whole ? editor.text() : editor.text().slice(from, to);
-    if (!text.trim()) return;
-    const out = await attempt(() => rpc("sql_format", { query: text, dialect: tab.dialect }), "Could not format the SQL");
-    if (!out || !here()) return;
-    if (out.warning) toast(out.warning, true);
-    else if (out.changed && editor.text().slice(whole ? 0 : from, whole ? undefined : to) === text) {
-      editor.replace(out.sql, whole ? 0 : from, whole ? editor.text().length : to);
-    }
-  }
-
-  async function saveAsTable() {
-    const query = editor.chosen();
-    if (!query.trim()) return;
-    const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
-    if (!name) return;
-    toast(`Writing ${name}...`);
-    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
-    if (out?.exists) {
-      const replace = await confirmDialog("Replace the table?",
-        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
-        "Could not save the table");
-    }
-    if (out) {
-      toast(out.message);
-      delete state.tree[treeKey(ref, "tables")];
-      p.tables = null;
-      if (here()) drawTables();
-    }
-  }
-
-  async function openInNotebook() {
-    const query = editor.chosen().trim();
-    await newNotebook(ref);
-    if (!state.notebook) return;
-    const cell = state.notebook.cells[0];
-    setSource(cell, cell.source + `\ndf = lakehouse.sql("""\n${query.replace(/"""/g, '\\"\\"\\"')}\n""")\ndf\n`);
-    markDirty();
-    renderNotebook();
-  }
-
-  async function copyRows() {
-    const r = tab.result;
-    if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
-  }
-
-  // Explorer: click a table to query it, a column to type its name.
-  const tablesBox = h("div", { class: "explorer-content" });
-  function queryTable(name) {
-    const text = tab.dialect === "spark" || tab.dialect === "duckdb" ? `SELECT *\nFROM ${name}\nLIMIT 100;` : `SELECT TOP (100) *\nFROM ${name};`;
-    if (!tab.sql.trim() || tab.sql === QUERY_HINT) {
-      editor.replace(text);
-      run(text);
-    } else {
-      p.tabs.push({ name: nextTabName(), sql: text, dialect: tab.dialect, autorun: true });
-      p.active = p.tabs.length - 1;
-      saveQueryTabs();
-      renderQuery();
-    }
-  }
-  async function toggleColumns(t, name) {
-    p.open[name] = !p.open[name];
-    if (p.open[name] && !p.cols[name]) {
-      drawTables();
-      const cols = await lakehouseSqlProvider(p, ref, () => {}).columns(t);
-      if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
-    }
-    if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
-  }
-  function drawTables() {
-    if (!p.tables) {
-      tablesBox.replaceChildren(h("div", { class: "tree-row muted" }, "Loading tables..."));
-      return;
-    }
-    const rows = [];
-    for (const [schema, names] of Object.entries(p.tables)) {
-      const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
-      if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
-      if (!names.length) rows.push(h("div", { class: "tree-row muted", style: "padding-left:28px" }, "No tables"));
-      for (const t of names) {
-        const name = sqlTableName(schema, t);
-        const open = !!p.open[name];
-        rows.push(h("div", { class: "sql-table-row" },
-          h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
-            style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns({ schema, name: t }, name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)) },
-            icon("table", 15), h("span", { class: "label" }, t))));
-        if (open) {
-          if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));
-          for (const c of p.cols[name] || []) {
-            rows.push(h("button", { class: "tree-row sql-col", title: `Insert ${c.name}`,
-              onclick: () => insertAtCursor(sqlQuoteIdent(c.name, tab.dialect)) },
-            h("span", { class: "label" }, c.name), h("span", { class: "hint" }, c.type)));
-          }
-        }
-      }
-    }
-    tablesBox.replaceChildren(...rows);
-  }
-
-  const band = h("div", { class: "sql-band" });
-  const grid = h("div", { class: "sql-grid" });
-  function drawResults() {
-    const r = tab.result;
-    const ex = tab.exec;
-    const busy = tab.running;
-    const st = busy && !ex ? "queued" : ex?.state;
-    const pill = st ? SQL_STATE[st] : ["", "Not run"];
-    let msg = "Press Run to see results";
-    if (st === "queued" && !ex) msg = "Starting on this PC...";
-    else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
-    else if (st === "completed" && !r && busy) msg = "Reading the first page...";
-    else if (st === "running" || st === "cancelling") {
-      msg = `${ex.seconds} s on this PC${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
-    } else if (r) {
-      const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s on this PC`;
-      if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
-    }
-    const x = tab.exporting;
-    const exportMenu = h("details", { class: "sql-export" },
-      h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
-        onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
-      h("div", { class: "sql-export-menu", role: "menu" },
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
-    band.replaceChildren(...[h("span", { style: "font-weight:600" }, "Results"),
-      h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
-      ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
-      tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
-      h("span", { class: "spacer" }),
-      x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
-      x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
-      r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
-        { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
-      r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
-        { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
-      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
-    if (tab.error) {
-      grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
-    } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
-    } else {
-      grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
-        r ? "The query ran and returned no columns." : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
-    }
-  }
-  sqlPage.redraw = () => { if (here()) drawResults(); };
-
-  const nextTabName = () => {
-    let n = p.tabs.length + 1;
-    while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
-    return `Query ${n}`;
-  };
-  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
-        onclick: () => { p.active = i; renderQuery(); },
-        ondblclick: async () => {
-          const name = await askText("Rename query", "Name", t.name, "Rename");
-          if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
-
-  const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
-    title: "The SQL you are writing and the engine it's checked against. It sets highlighting, suggestions, formatting and the compatibility check; only Spark SQL and DuckDB run on this PC.",
-    onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
-  Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
-  const actions = h("div", { class: "sql-actions" });
-  function drawActions() {
-    const local = runsHere();
-    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local }),
-      h("span", { class: "muted-text" }, local ? "Ctrl+Enter, or select text to run just that"
-        : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
-      h("span", { class: "sql-sep", "aria-hidden": "true" }),
-      dialectPick,
-      btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-      h("span", { class: "spacer" }),
-      btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
-      btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
-  }
-  drawActions();
-
-  // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
-  const compat = h("aside", { class: "sql-compat", "aria-label": "Compatibility" });
-  const compatBody = h("div", { class: "sql-compat-body" });
-  compat.append(compatBody);
-  async function exportCompat() {
-    const out = await attempt(() => rpc("sql_compat_export", { query: editor.text(), target: tab.dialect, name: tab.name }),
-      "Could not export the report");
-    if (out) toast(`Saved the compatibility report to ${out.path}`);
-  }
-  function drawCompat() {
-    const r = tab.compat;
-    const label = SQL_DIALECTS[tab.dialect].label;
-    const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Compatibility"), previewShown() ? previewTag() : null,
-      btn("Export JSON", null, exportCompat, "tool outline small", { disabled: !r || !!r.failed || !editor.text().trim(),
-        title: "Save this report, with the SQL it checked, as a JSON file in Downloads" }));
-    if (tab.compatLong) {
-      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
-        `This query is long (${editor.text().length.toLocaleString()} characters), so it's checked when you ask.`),
-      btn("Check now", null, () => { tab.checkLong = true; editor.recheck(); }, "tool outline small"));
-      return;
-    }
-    if (!r) {
-      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
-        `Write SQL to check it against ${label}. Nothing runs and nothing is sent to Fabric.`));
-      return;
-    }
-    if (r.failed) {
-      compatBody.replaceChildren(head, h("p", { class: "output error" }, `Could not check the SQL: ${r.failed}`));
-      return;
-    }
-    const c = r.counts;
-    const chip = (n, one, many, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${n === 1 ? one : many}`);
-    const list = r.diagnostics.map((d) => h("button", { class: `sql-finding ${d.severity}`,
-      title: `${d.message} ${d.action}`,
-      onclick: () => {
-        const text = editor.text();
-        if (text === tab.compatText) editor.reveal(sqlUtf16Offset(text, d.from), sqlUtf16Offset(text, d.to));
-        tab.compatPicked = d;
-        drawCompat();
-      } },
-    h("b", {}, SQL_SEVERITY_LABEL[d.severity]), ` · Ln ${d.line} · ${d.title}`));
-    const picked = tab.compatPicked && r.diagnostics.includes(tab.compatPicked) ? tab.compatPicked : null;
-    compatBody.replaceChildren(...[head,
-      h("div", { class: "muted-text" }, `${label} · rules ${r.rule_version} · ${r.statements.toLocaleString()} statement${r.statements === 1 ? "" : "s"}`),
-      h("div", { class: "sql-chips" }, chip(c.error, "error", "errors", "error"), chip(c.warning, "warning", "warnings", "warning"),
-        chip(c.information, "note", "notes", "information"), chip(c.unverified, "unverified", "unverified", "unverified")),
-      h("div", { class: `sql-outcome ${r.outcome.status}`, role: "status" }, r.outcome.text),
-      picked ? h("div", { class: "sql-finding-detail" },
-        h("b", {}, `${picked.rule} · ${picked.title}`), h("div", {}, picked.message), h("div", {}, picked.action),
-        h("div", { class: "muted-text" }, `Confidence: ${picked.confidence} · `,
-          h("a", { href: "#", onclick: (e) => { e.preventDefault(); attempt(() => invoke("open_link", { url: picked.doc }), "Could not open the link"); } },
-            "Source"))) : null,
-      list.length ? h("div", { class: "sql-findings" }, list) : null,
-      r.truncated ? h("p", { class: "muted-text" }, `Showing the first ${r.diagnostics.length.toLocaleString()} findings; the counts include all of them.`) : null,
-      h("p", { class: "muted-text sql-compat-note" }, "Static check: the SQL was read, not run. No findings isn't proof it runs in Fabric.")]
-      .filter(Boolean));
-  }
-  drawCompat();
-
-  const edit = h("div", { class: "sql-edit" });
-  edit.append(editor.view.dom);
-  setView(h("div", { class: "sql-page" },
-    h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", addTab),
-      btn("New notebook", "notebook", () => newNotebook(ref)),
-      btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
-      h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
-    h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
-          h("span", { class: "label" }, ref.name)),
-        tablesBox),
-      h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid)))));
-  drawResults();
-  drawTables();
-  if (tab.autorun) { delete tab.autorun; run(tab.sql); }
-  if (!p.tables) {
-    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
-      .then((t) => { p.tables = t; })
-      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); } });
-  }
-  editor.focus();
-}
-
 // Fabric's rule for lakehouse names (the engine checks the same): letters, numbers and
 // underscores, starting with a letter, at most 256 characters.
 function lakehouseNameProblem(name) {
@@ -2012,7 +1508,7 @@ function cellFrom(c) {
 function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
-  state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
+  state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
     compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
   if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
   state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
@@ -2030,7 +1526,9 @@ async function openNotebook(name) {
 
 async function newNotebook(lakehouse) {
   if (state.notebook?.dirty && !(await saveNotebook())) return;
-  const nb = await attempt(() => rpc("new_notebook"), "Could not create a notebook");
+  const place = await nbChoosePlace();  // only asks when there are notebooks repositories
+  if (place === undefined) return;
+  const nb = await attempt(() => rpc("new_notebook", { place }), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
   loadIntoState(nb);
@@ -2047,6 +1545,13 @@ async function newNotebook(lakehouse) {
 function notebookPayload() {
   return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta, cell_id: c.cell_id })),
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
+}
+
+// For publishing and Fabric runs: also the repository location's lakehouse, which Fabric gets
+// when the notebook has none of its own. It isn't saved into the notebook.
+function publishPayload() {
+  const data = nbData(state.notebook);
+  return { ...notebookPayload(), location_ref: data.from === "locations" ? data.ref : null };
 }
 
 // True when the notebook is saved (or there is none). On a failure the error toast stays, the
@@ -2090,7 +1595,8 @@ async function renameNotebook() {
 // Run in Fabric and schedules use the same workspace.
 function publishWorkspace(nb) {
   if (nb?.workspace?.workspace_id) return nb.workspace;
-  if (nb?.lakehouse) return { workspace_id: nb.lakehouse.workspace_id, workspace_name: nb.lakehouse.workspace_name };
+  const lh = nbLakehouse(nb);
+  if (lh) return { workspace_id: lh.workspace_id, workspace_name: lh.workspace_name };
   return null;
 }
 
@@ -2102,7 +1608,8 @@ async function chooseNotebookWorkspace(nb, okLabel = "Save") {
   const workspaces = await loadWorkspaces();
   if (!workspaces.length) return null;
   const current = publishWorkspace(nb);
-  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` : "";
+  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` :
+    nbLakehouse(nb) ? ` It uses ${nbLakehouse(nb).name}, its ${nbData(nb).envLabel} location.` : "";
   const ws = await pickWorkspace(workspaces, { title: `Publish ${nb.name} to`, selected: current?.workspace_id, okLabel,
     note: `The notebook is created or updated as a Fabric notebook item in this workspace. Publish, Run in Fabric and schedules keep using it until you change it here.${lh}` });
   if (!ws || state.notebook !== nb) return null;
@@ -2127,7 +1634,7 @@ async function publishNotebook() {
   if (!nb.workspace?.workspace_id && !(await chooseNotebookWorkspace(nb, "Publish"))) return;
   const ws = nb.workspace.workspace_name;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", notebookPayload()), "Publish failed");
+  const result = await attempt(() => rpc("publish_notebook", publishPayload()), "Publish failed");
   if (result) {
     nb.dirty = false;
     renderChrome();
@@ -2142,7 +1649,7 @@ async function publishNotebook() {
 // runs the whole published notebook, so single cells only run on this PC.
 function nbWhere(nb) {
   const choice = nb?.compute || "default";
-  const ws = nb?.lakehouse ? publishWorkspace(nb).workspace_name : null;
+  const ws = nbLakehouse(nb) ? publishWorkspace(nb).workspace_name : null;
   const envFabric = envWhere(state.meta?.project, state.meta?.env).fabric;
   const fabric = choice === "fabric" || (choice === "default" && envFabric);
   const short = fabric ? (ws ? `Fabric · ${ws}` : "Fabric") : "This PC";
@@ -2158,7 +1665,7 @@ function computeMenu(nb) {
     { info: "Where Run all runs this notebook." },
     option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
-      ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
+      ? option("fabric", `Fabric${nbLakehouse(nb) ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
     { info: `Python ${state.python || "3"} on this PC. Fabric runs publish the notebook first.` },
     { label: "Restart kernel", icon: "restart", action: restartKernel },
@@ -2227,7 +1734,7 @@ const FABRIC_DONE = new Set(["Completed", "Failed", "Cancelled", "Deduped"]);
 
 async function runInFabric() {
   const nb = state.notebook;
-  if (!nb.lakehouse) {
+  if (!nbLakehouse(nb)) {
     toast("Attach a lakehouse first. The notebook runs in that lakehouse's workspace.", true);
     return;
   }
@@ -2237,7 +1744,7 @@ async function runInFabric() {
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
     runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
-  const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
+  const run = await attempt(() => rpc("run_notebook_in_fabric", publishPayload()), "Could not start the run in Fabric");
   if (!run) return;
   nb.dirty = false;
   nb.fabricRun = run;
@@ -2306,21 +1813,21 @@ async function scheduleNotebook() {
   const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
     title: `Schedule ${nb.name}`,
-    mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",
+    mode: fabricDefault && nbLakehouse(nb) ? "fabric" : "pc",
     pc: { target: { kind: "notebook", name: nb.name }, query: { kind: "notebook", name: nb.name },
           intro: "This PC runs the saved notebook, every cell in order, with its attached lakehouse. Save your changes first." },
     fabric: {
-      unavailable: nb.lakehouse ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
+      unavailable: nbLakehouse(nb) ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
       intro: `Fabric runs the published notebook in ${publishWorkspaceName(nb)} on its own capacity, even when this PC is off. Adding a schedule publishes what is on screen first.`,
       adding: `Publishing ${nb.name} and adding the schedule...`,
       added: "Scheduled. Fabric runs the published notebook on its own capacity.",
-      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace }),
+      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace }),
       add: async (schedule) => {
-        const res = await rpc("add_notebook_schedule", { ...notebookPayload(), schedule });
+        const res = await rpc("add_notebook_schedule", { ...publishPayload(), schedule });
         nb.dirty = false; renderChrome();
         return res;
       },
-      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace, schedule_id: id }),
+      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace, schedule_id: id }),
     },
   });
 }
@@ -2517,6 +2024,8 @@ registerFeature({
   id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
+    { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
+      run: () => state.notebook ? moveNotebookDialog(state.notebook) : toast("Open a notebook first.") },
     { label: "New lakehouse", icon: "lakehouse", keywords: "create", run: () => newLakehouse() },
   ],
 });

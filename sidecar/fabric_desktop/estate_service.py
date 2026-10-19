@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import os
 import re
 import threading
@@ -17,12 +18,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import polars as pl
-import requests
 from deltalake.exceptions import TableNotFoundError
 
 from . import access as access_mod
 from . import capacity as capacity_mod
 from . import costs as costs_mod
+from . import http_session
 from . import shortcuts as shortcuts_mod
 from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
 from .fabric_api import FabricClient
@@ -34,6 +35,10 @@ from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
 from .onelake import TableCatalog
+from .redact import describe
+from .retrying import send_with_retry
+
+_log = logging.getLogger(__name__)
 
 FABRIC_APP = "https://app.fabric.microsoft.com"
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -195,7 +200,8 @@ class EstateMixin:
         """Managed tables that live in this lakehouse of an environment's workspace."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No metadata project for managed tables: %s", describe(exc))
             return []
         if not any(project.environments.get(env, {}).get("workspace_id") == workspace_id for env in ENVIRONMENTS):
             return []
@@ -288,7 +294,8 @@ class EstateMixin:
             return []
         try:
             store = self._store(project, env)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No store for this environment's files: %s", describe(exc))
             return []
         if not isinstance(store, OneLakeStore):
             return []
@@ -359,7 +366,7 @@ class EstateMixin:
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
-        r = requests.post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
+        r = http_session.session().post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
                           json={"emailAddress": email, "groupUserAccessRight": role, "principalType": "User"},
                           headers={"Authorization": f"Bearer {token}"}, timeout=30)
         if r.status_code == 404:
@@ -393,14 +400,17 @@ class EstateMixin:
             raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop by KratosBI can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
-        r = requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
-                         params={"$select": "id,displayName,userPrincipalName,mail"},
-                         headers={"Authorization": f"Bearer {token}"}, timeout=30)
+        headers = {"Authorization": f"Bearer {token}"}
+        http = http_session.session()
+        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+                                                 params={"$select": "id,displayName,userPrincipalName,mail"},
+                                                 headers=headers, timeout=30), "GET")
         if r.status_code == 404:
-            r = requests.get("https://graph.microsoft.com/v1.0/users",
-                             params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
-                                     "$select": "id,displayName,userPrincipalName,mail"},
-                             headers={"Authorization": f"Bearer {token}"}, timeout=30)
+            r = send_with_retry(lambda: http.get(
+                "https://graph.microsoft.com/v1.0/users",
+                params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
+                        "$select": "id,displayName,userPrincipalName,mail"},
+                headers=headers, timeout=30), "GET")
             found = (r.json().get("value") or []) if r.ok else []
             if not found:
                 raise LookupError(f"No one with the email {text} in your organization.")
@@ -424,8 +434,8 @@ class EstateMixin:
         try:
             people = [access_mod.principal(a.get("principal") or {}) | {"role": a.get("role")}
                       for a in self.fabric.list_role_assignments(workspace_id)]  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - roles still show; names fall back to IDs
-            pass
+        except Exception as exc:  # noqa: BLE001 - roles still show; names fall back to IDs
+            _log.warning("Couldn't list the workspace's role assignments; showing IDs: %s", describe(exc))
         try:
             schemas, tables = self._lakehouse_paths(workspace_id, item_id)
         except Exception:  # noqa: BLE001
@@ -458,13 +468,15 @@ class EstateMixin:
         api.put_data_access_roles(workspace_id, item_id, [r for r in roles if r.get("name") != name])
         return self.access_lakehouse(workspace_id, item_id)
 
-    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> list[dict[str, Any]]:
+    def access_who_can_read(self, workspace_id: str, item_id: str, table: str) -> dict[str, Any]:
+        """Who can read one table: {readers, partial, problem}. When the data access roles can't be
+        read (other than OneLake security being off), the list is marked partial, never passed off
+        as complete."""
         assignments = self.fabric.list_role_assignments(workspace_id)  # type: ignore[attr-defined]
-        try:
-            roles = self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id)
-        except Exception:  # noqa: BLE001 - without OneLake security, the workspace roles decide
-            roles = None
-        return access_mod.who_can_read(table, assignments, roles)
+        roles, problem = access_mod.read_roles(
+            lambda: self._scoped(ONELAKE_SCOPES).list_data_access_roles(workspace_id, item_id))
+        return {"readers": access_mod.who_can_read(table, assignments, roles), "partial": problem is not None,
+                "problem": problem}
 
     # ---- tests that gate a promote
 
@@ -537,7 +549,8 @@ class EstateMixin:
             return None
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No metadata project for notebook variables: %s", describe(exc))
             return None
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None

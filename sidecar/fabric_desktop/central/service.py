@@ -11,6 +11,7 @@ Mesh: the open project's domain, data products, links and catalog text.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -22,9 +23,12 @@ from ..meta import keys as keys_mod
 from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
+from ..redact import describe
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .migrate import migrate
+
+_log = logging.getLogger(__name__)
 
 CATALOG_ENV = "prod"  # domains, glossary and catalog text don't depend on the environment: they live in Prod's
 
@@ -45,7 +49,8 @@ class PlatformMixin:
     def _user(self) -> str:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - offline: changes are recorded without a name
+        except Exception as exc:  # noqa: BLE001 - offline: changes are recorded without a name
+            _log.info("Signed-in user unknown; recording the change without a name: %s", describe(exc))
             return ""
 
     def _platform(self, env: str) -> LocalPlatform | FabricPlatform:
@@ -311,13 +316,15 @@ class PlatformMixin:
             elif hours and not newest:
                 late = True
             out.append({"name": name, "registered": bool(src), "title": src.get("title", name),
+                        "source_id": src.get("source_id"), "code": src.get("code") or name.upper(),
+                        "system_type": src.get("system_type", ""), "active": src.get("active", True),
                         "description": src.get("description", ""), "owner": src.get("owner", ""),
                         "expected_hours": hours or "", "readers": src.get("readers", []),
                         "connections": src.get("connections", {}), "entities": entities, "newest": newest,
                         "late": late})
         return {"env": env, "kind": "fabric" if cfg.get("landing_id") else "local",
                 "where": cfg.get("workspace_name") or str(self._landing_dir(env) / "Files"),  # type: ignore[attr-defined]
-                "sources": out, "problem": problem}
+                "sources": out, "problem": problem, "system_types": list(keys_mod.SYSTEM_TYPES)}
 
     def platform_landing_files(self, env: str, source: str, entity: str = "", limit: int = 200) -> list[dict[str, Any]]:
         prefix = f"{source}/{entity}/" if entity else f"{source}/"

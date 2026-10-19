@@ -1,10 +1,10 @@
 # Governance policies
 
-**Preview.** Fabric Desktop by KratosBI keeps your organization's governance standards in one place, the platform's catalog, so they are defined once and every project is checked against the same thing. This page covers the policy registry (GOV-001): writing, publishing and assigning policies, and how a project's policies are worked out. Checking projects against them offline (GOV-002) and the later governance features build on it.
+**Preview.** Fabric Desktop by KratosBI keeps your organization's governance standards in one place, the platform's catalog, so they are defined once and every project is checked against the same thing. This page covers the policy registry (GOV-001): writing, publishing and assigning policies, and how a project's policies are worked out. Checking projects against them offline (GOV-002) and the later governance features build on it. For a walk-through with worked examples, and what can and can't be enforced today, see the [governance guide](governance-guide.md).
 
 It complements Microsoft Fabric and Microsoft Purview rather than repeating them: Purview stays the place for sensitivity labels, data maps and tenant-wide classification, and Fabric keeps workspace roles and domains. The registry holds the engineering standards a development team works to on its own PC (naming, schemas, quality, ownership, contracts, deployment readiness) so they can be checked before anything reaches Fabric.
 
-Everything here runs against the platform you already have: `SQL_Platform` through `UDF_Platform` in Fabric, or the SQLite platform on your PC before the platform is in Fabric ([The platform](platform.md)). Working out which policies apply runs on your PC and uses no Fabric capacity.
+Everything here runs against the platform you already have: `SQL_Platform` through `UDF_Platform` in Fabric, or the SQLite platform on your PC before the platform is in Fabric ([The platform](platform.md)). Working out which policies apply runs on your PC: no Fabric job runs and no OneLake data is read. With the platform in Fabric, reading the policies is one call to `UDF_Platform` (and its `SQL_Platform` database), which uses a little capacity; with the SQLite platform it uses none.
 
 ## What a policy is
 
@@ -99,6 +99,10 @@ No new Fabric permission or sign-in scope is needed: policies use the same `UDF_
 
 Admins see **New policy**, **Edit draft**, **Publish**, **Deprecate** and **Retire**. **Save and publish** saves the draft and publishes it in one step.
 
+## When the platform can't be reached
+
+Checks that depend on the platform fail closed: when a rule can't be read, Fabric Desktop by KratosBI stops the action and says why, rather than acting as if there were no rule. Today that covers the [shortcut rules](shortcuts.md#shortcut-rules), and who-can-read lists, which say **Not complete** when a lakehouse's data access roles can't be read. Policy checks (GOV-002 onward) will follow the same rule.
+
 ## Storage
 
 Policies are four tables in the platform's catalog, next to domains and the glossary (no second database):
@@ -112,7 +116,7 @@ Policies are four tables in the platform's catalog, next to domains and the glos
 
 The platform's schema version goes from 3 to 4. The tables are created by **Finish setup** (as every platform table is), and also on the first policy call to a platform that doesn't have them yet, so existing platforms and projects keep working without a migration step. A policy's definition is stored as JSON, so new fields can be added later without changing the tables.
 
-For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Settings > Platform > Finish setup** to update the function app.
+For Fabric, `UDF_Platform` gains one function per policy operation. Re-run **Platform > Settings > Finish or repair** to update the function app.
 
 ## For developers
 

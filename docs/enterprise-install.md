@@ -30,7 +30,7 @@ With `"auto_update": false` the startup window says "Your organization rolls out
 1. Download `fabric-desktop.exe` from the release you want: [Stable](https://github.com/KratosDataGod/fabric-desktop/releases/tag/stable) unless your pilot group follows Preview.
 2. Check the download before you package it ([Install: Check a download yourself](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/install.md#check-a-download-yourself)).
 3. Package it as a Win32 app (Intune) or an application (Configuration Manager) that copies the exe into the folder from the table above and adds a Start menu shortcut. Detection rule: the file exists with the size you packaged.
-4. Push `policy.json` to `%ProgramData%\FabricDesktop\`. A typical managed file:
+4. Push `policy.json` to `%ProgramData%\FabricDesktop\` so that only administrators can change it. Intune and Group Policy write it as SYSTEM, which does that. Create the folder from the same push, because a folder someone made first themselves stays theirs. **Settings > Help and about** says when the person using the PC can change the file. A typical managed file:
 
    ```json
    {
@@ -42,7 +42,7 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    }
    ```
 
-5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric and stops every sign-in until the file is fixed ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
+5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric, Preview features, telemetry and AI tools until the file is fixed; people can still sign in and work on their PC ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
 
 ## Keep the exe and the engine in step
 
@@ -82,10 +82,13 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
+| `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |
+| Your Git hosts (`dev.azure.com`, `github.com`, `gitlab.com`, `bitbucket.org` or your own server) | Only if people connect notebooks to a repository |
+| `*.vault.azure.net` | Only if notebook code reads Key Vault secrets with `notebookutils.credentials.getSecret` |
 | Your Teams incoming webhook host | Only if someone sets up Teams alerts |
 | The `IngestionEndpoint` host of the usage data connection string, such as `westeurope-5.in.applicationinsights.azure.com` | Only if usage data is on ([Usage data](telemetry.md)). `"telemetry": false` in the policy file turns it off for everyone |
 
-The list comes from the hosts named in the source code. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
+The list comes from the hosts named in the source code. Notebooks run on the PC, so any host their own code calls is reached from the PC too. Microsoft can redirect sign-in or downloads to other hosts, so confirm with a pilot PC behind your proxy.
 
 ## Uninstall
 

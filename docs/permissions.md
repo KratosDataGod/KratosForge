@@ -36,13 +36,14 @@ With Microsoft's sign-in, Fabric Desktop by KratosBI asks each Microsoft API for
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
 | The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |
 | Importing Fabric's domains and subdomains into the platform (**Platform > Domains > Import from Fabric**) | Fabric admin API | Only for Fabric administrators, and not yet tried. Reading the domain list needs the Fabric administrator role; everyone else is refused |
+| Reading the tenant settings history (`tenant_settings_read`, Preview, engine only so far) | Fabric admin API (`GET /v1/admin/tenantsettings`) | Only for Fabric administrators, and not yet tried. Anyone else's read is recorded as unreadable. It only reads; it never changes a setting |
 | Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | The [live test](live-testing.md): creating and deleting a throwaway lakehouse, OneLake files and a Delta table in a workspace marked for tests | Fabric, OneLake (Azure Storage) | Yes. Nothing new is asked; you need Contributor or higher on the test workspace |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop by KratosBI on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in Fabric Desktop by KratosBI's own list, because it needs an admin-only permission. Fabric's domain names are the one admin-only read Fabric Desktop by KratosBI uses, and only when a Fabric administrator chooses **Import from Fabric**: the names are then kept in the platform, so nobody else needs that permission. The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in Fabric Desktop by KratosBI's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 
@@ -65,7 +66,7 @@ With your own app, Fabric Desktop by KratosBI signs in with the browser (not Win
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
 | Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
-| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**). Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop by KratosBI | Optional, when a Fabric administrator imports domains |
+| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), and reading tenant settings for the tenant settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop by KratosBI | Optional, when a Fabric administrator imports domains or reads tenant settings |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.
@@ -122,7 +123,7 @@ Four more keys are for control rather than convenience:
 | `allowed_tenants: ["<tenant id>", ...]` | Accounts from any other tenant are signed out again as soon as they sign in. With Microsoft's sign-in this is the only way to keep the app to your own tenant, because the sign-in itself is multitenant |
 | `auto_update: false` | The app never replaces itself; you roll out each build. See [Enterprise install](enterprise-install.md) |
 
-An invalid file or key fails closed: a file that can't be read leaves each PC on the last copy it could read, or, on a PC that never read a valid one, turns off runs in Fabric and stops every sign-in until it's fixed. A wrongly typed restriction takes its most restrictive value. The full table, what fails closed, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
+An invalid file or key fails closed: a file that can't be read leaves each PC on the last copy it could read, or, on a PC that never read a valid one, turns off runs in Fabric, Preview features, telemetry and AI tools until it's fixed. Sign-in still works there, and `allowed_tenants` isn't enforced until the file is fixed, so check the file on a pilot PC first. A wrongly typed restriction takes its most restrictive value. The full table, what fails closed, and how to check the file was read, is in [Configure Azure and Fabric](azure-setup.md#4-push-settings-to-everyone).
 
 **People from more than one organization, with your own app.** Make the registration multitenant. If an organization doesn't let users consent, its Microsoft Entra admin approves the app once with the link in **Settings > Account > Admin approval** (`https://login.microsoftonline.com/organizations/adminconsent?client_id=<application-client-id>`).
 

@@ -17,11 +17,13 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
 | Share optimization results across every installation in my organization | [Optimize](optimize/README.md) |
 | Build Bronze, Silver and Gold from config | [Metadata framework guide](metadata-guide.md) |
-| Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md), [Data mesh](data-mesh.md) and [Governance policies](governance.md) |
+| Set it up for several teams | [Working across teams](teams.md), [The platform](platform.md), [Data mesh](data-mesh.md), [Governance policies](governance.md) and the [governance guide](governance-guide.md) |
 | Watch and manage every OneLake shortcut: health, access, changes, requests | [Shortcut command center](shortcuts.md) |
 | Check a Fabric pipeline definition on my PC | [Pipeline definitions](orchestration/pipeline-definitions.md) |
 | See which pipeline activities need Fabric capacity | [Pipeline activity compatibility](orchestration/activity-registry.md) |
+| Test a pipeline's control flow on my PC | [Running pipelines on your PC](orchestration/local-runs.md) |
 | Fix an error | [Troubleshooting](troubleshooting.md) |
+| Review the app for security approval | [Security evidence pack](evidence-pack.md) |
 | Prove the app works with my tenant before a pilot | [Live testing](live-testing.md) |
 | Suggest a feature or vote on one | [Submitting ideas](ideas.md) |
 
@@ -35,6 +37,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [azure-setup.md](azure-setup.md) | Admins | Fabric tenant settings, sign-in policies, the optional policy file, workspaces and capacity, access, optional extras, a check that it works |
 | [permissions.md](permissions.md) | Admins | How sign-in works with no app registration; what each feature uses; an optional own app registration and its permissions, in alphabetical order; what the agent needs |
 | [telemetry.md](telemetry.md) | Everyone, admins | Opt-in usage data: every field sent, what is never sent, where it goes, the policy keys |
+| [evidence-pack.md](evidence-pack.md) | Security reviewers, IT | Everything a security review needs in one place: data flows, documents, build and release evidence, and what is still open |
 | [security.md](security.md) | Admins, security reviewers | The threat model: what is protected, trust boundaries, how updates are checked, and what is still open |
 | [hardening/README.md](hardening/README.md) | Security reviewers, platform owners | The enterprise hardening audit: scorecard, [findings](hardening/findings.md), [backlog](hardening/backlog.md) and [release gates](hardening/readiness-checklist.md) |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
@@ -52,11 +55,13 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
 | [governance.md](governance.md) | Platform owners, team leads | Governance policies (Preview): the policy registry, drafts and versions, enterprise to entity scopes, mandatory policies, governance.toml, who can change what |
+| [governance-guide.md](governance-guide.md) | Platform owners, team leads | Governance guide (Preview): draft to result, worked examples (naming, classification, ownership), what can be enforced and by whom |
 | [data-mesh.md](data-mesh.md) | Team leads, engineers | Domains, workspace designations, data products, links between teams, catalog text |
 | [shortcuts.md](shortcuts.md) | Engineers, platform owners | The shortcut command center: health checks, who can read a shortcut, shortcut rules, change history with undo, repointing, requests |
 | [source-control.md](source-control.md) | Engineers, analysts | Source control (Preview): clone, diffs, branches, commit, pull and push, the secret check, what it doesn't do yet |
 | [orchestration/pipeline-definitions.md](orchestration/pipeline-definitions.md) | Engineers | Reading, checking and converting Fabric pipeline definitions on your PC (Preview) |
 | [orchestration/activity-registry.md](orchestration/activity-registry.md) | Engineers | Which pipeline activities run on your PC, are only checked, or need Fabric capacity (Preview) |
+| [orchestration/local-runs.md](orchestration/local-runs.md) | Engineers | Running a pipeline's control flow on your PC with mocks; no capacity used (Preview) |
 | [teams.md](teams.md) | Team leads, platform owners | Roles, Git workflow, environments and workspaces, shared keys, feedback at scale |
 | [troubleshooting.md](troubleshooting.md) | Everyone | Each error message, what it means and what to do |
 | [release-management/README.md](release-management/README.md) | Maintainers, platform owners | How builds reach Preview and Stable, who approves each step, the integration cycle for parallel PRs, promoting, per-build releases, rollback and pinning, versioning ([status](release-management/release-status.md), [history](release-management/release-history.md)) |
@@ -136,7 +141,7 @@ Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
 
 **Source control** (Preview) is Git on your PC and doesn't call Fabric. Its tests run real Git against local repositories on every build; it hasn't yet been tried with Git Credential Manager and SSH on many PCs and servers ([source-control.md](source-control.md)).
 
-**Pipeline definitions** (Preview) are read and checked on your PC and don't call Fabric. Their tests use hand-built definitions in Microsoft's documented formats; reading real exports from a tenant hasn't been tried yet ([pipeline-definitions.md](orchestration/pipeline-definitions.md)). The **activity compatibility registry** (Preview) is tested the same way; no activity runs on your PC yet and no entry has been compared against Fabric ([activity-registry.md](orchestration/activity-registry.md)).
+**Pipeline definitions** (Preview) are read and checked on your PC and don't call Fabric. Their tests use hand-built definitions in Microsoft's documented formats; reading real exports from a tenant hasn't been tried yet ([pipeline-definitions.md](orchestration/pipeline-definitions.md)). The **activity compatibility registry** (Preview) is tested the same way; no entry has been compared against Fabric ([activity-registry.md](orchestration/activity-registry.md)). **Local pipeline runs** (Preview) run control flow and child pipelines on your PC with mocks for data activities; they follow Data Factory's documentation and haven't been compared with Fabric runs ([local-runs.md](orchestration/local-runs.md)).
 
 The headless agent hasn't run against a live tenant either ([agent.md](agent.md#verify-on-your-tenant)). Promote to Test and Prod creates lakehouses and writes through the same calls as the features above; try it on a non-production workspace first.
 

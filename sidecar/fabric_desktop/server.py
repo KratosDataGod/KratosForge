@@ -7,6 +7,7 @@ Response: {"id": 1, "result": [...]}  or  {"id": 1, "error": "message"}
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -38,7 +39,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_new_entity", "meta_delete_entity", "meta_set_layers", "meta_run", "meta_preflight", "meta_runs", "meta_runs_all", "meta_run_detail",
            "meta_preview", "meta_promote_check", "meta_promote", "meta_git_status", "meta_last_release", "meta_releases", "meta_rollback_preview", "meta_rollback", "meta_diff", "notebook_diff", "meta_lineage", "meta_keys", "meta_set_keys_workspace",
            "meta_new_key_table", "meta_delete_key_table", "meta_key_lookup", "meta_save_source_system",
-           "meta_delete_source_system", "meta_keys_sync", "meta_key_notebook",
+           "meta_delete_source_system", "meta_source_read", "meta_sources_move", "meta_keys_sync", "meta_key_notebook",
            "run_notebook_in_fabric", "fabric_runs", "cancel_fabric_run", "notebook_schedules", "add_notebook_schedule",
            "delete_notebook_schedule", "meta_health", "meta_optimize", "meta_set_maintenance", "meta_model_plan",
            "meta_build_model", "meta_profile", "meta_profile_preview", "meta_add_rules",
@@ -58,14 +59,14 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
            "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "all_schedules",
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
-           "xray", "xray_pause", "xray_optimize", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
+           "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
            "workload_preflight", "workload_act", "workload_actions",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
-           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority",
+           "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
            "notebook_environment", "receipts_list", "receipt_get", "receipt_export", "receipt_redactions",
            "prove_check", "prove_start", "prove_status", "prove_list", "prove_cancel", "prove_verify",
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
@@ -78,9 +79,11 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log",
+           "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
+           "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
+           "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
            "git_path_info", "git_notebook_info", "audit_log", "telemetry_status", "telemetry_new_install_id"}
 
 
@@ -98,6 +101,10 @@ METHODS |= LOCAL_DATA_METHODS
 from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 
 METHODS |= OPTIMIZE_METHODS
+
+from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
+
+METHODS |= TENANT_HISTORY_METHODS
 
 # Governance's request and shortcut notices to Teams (platform_notify_service.py).
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402
@@ -170,6 +177,23 @@ def _log_file() -> IO[str]:
     return open(os.path.join(base, "FabricDesktop", "sidecar.log"), "a", encoding="utf-8", buffering=1)
 
 
+class _SafeFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return secrets(super().format(record))
+
+
+def _log_to_stderr() -> None:
+    """The engine's ``fabric_desktop.*`` log lines (INFO and up) go to stderr, which the shell keeps
+    in sidecar.log, with anything credential-shaped removed. Without a handler they went nowhere."""
+    logger = logging.getLogger("fabric_desktop")
+    if logger.handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_SafeFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -181,6 +205,7 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
+    _log_to_stderr()
     _refresh_integration_launcher()
     service = Service()
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()

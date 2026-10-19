@@ -68,7 +68,7 @@ Restrictions fail closed. A policy file that exists but can't be read is replace
 that could be read (policy-last-good.json next to the user's settings), as Group Policy keeps its
 last applied settings; with no copy, and for a restriction with the wrong kind of value, that
 restriction takes its most restrictive value (RESTRICTED here, and integrations/policy.py's for its
-keys) rather than the default. A missing file means no policy, and deletes the copy.
+keys) rather than the default, except that an unreadable file with no copy doesn't stop sign-in. A missing file means no policy, and deletes the copy.
 Other keys of the wrong kind are skipped, so the next place (environment, user, default) applies.
 policy_problems() says what in the policy file was ignored or restricted and why, so a typo doesn't
 fail silently.
@@ -178,8 +178,8 @@ def _policy_file() -> tuple[dict[str, Any], str | None, bool]:
         return copy, (f"{path} {reason}, so the last copy that could be read ({_saved_at(saved)}) applies "
                       "until it's fixed"), True
     return {}, (f"{path} {reason}, so none of it applies and every setting it can restrict takes its most "
-                "restrictive value until it's fixed: no runs in Fabric, no sign-in, Preview features and "
-                "external AI tools off"), False
+                "restrictive value until it's fixed: no runs in Fabric, Preview features, telemetry and "
+                "external AI tools off. Sign-in still works, and accounts from any tenant can sign in"), False
 
 
 def _save_copy(saved: Path, text: str) -> None:
@@ -204,7 +204,7 @@ def _saved_at(saved: Path) -> str:
 
 def read_policy() -> tuple[dict[str, Any], str | None]:
     """The policy file's settings, and why nothing can stand in for it when it exists but can't be
-    read (then every restriction takes its most restrictive value). A broken file is replaced by the
+    read (then every restriction but sign-in takes its most restrictive value). A broken file is replaced by the
     last copy that could be read, as Group Policy keeps its last applied settings. No file: ({}, None)."""
     data, reason, from_copy = _policy_file()
     return data, None if from_copy else reason
@@ -216,7 +216,7 @@ def _restricted(key: str, policy: dict[str, Any], error: str | None) -> bool:
     if key not in RESTRICTED:
         return False
     if error:
-        return True
+        return key != "allowed_tenants"  # people can still sign in and work on their PC (Chris, 2026-10-18)
     if key not in policy:
         return False
     v = policy[key]
@@ -244,6 +244,9 @@ def policy_problems() -> list[str]:
     if reason and not from_copy:
         return [reason]
     problems = [reason] if reason else []
+    if not from_copy and user_can_change(policy_path()):
+        problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
+                        "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
@@ -278,6 +281,55 @@ def policy_problems() -> list[str]:
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
     return problems
+
+
+def user_can_change(path: Path) -> bool:
+    """Whether the account running the app can change or replace ``path``: write it, delete it, or
+    take over its permissions or its folder's (the folder's owner can do all of these). An
+    administrator, who can change it anyway, isn't counted. Only a warning: the engine itself is in
+    the person's own profile, so the policy file stops mistakes, not someone set on getting round
+    it (security.md)."""
+    try:
+        if not path.is_file():
+            return False
+        if sys.platform == "win32":
+            return _windows_can_change(path)
+        if os.geteuid() == 0:
+            return False
+        folder = path.parent
+        return (os.access(path, os.W_OK) or os.stat(path).st_uid == os.geteuid()
+                or os.stat(folder).st_uid == os.geteuid()
+                or (os.access(folder, os.W_OK) and not os.stat(folder).st_mode & 0o1000))
+    except (OSError, AttributeError):
+        return False
+
+
+# Rights that let someone change or replace a file without writing to it first. Creating files in
+# the folder isn't one: everyone may create files under %ProgramData%, but not replace IT's file.
+_FILE_RIGHTS = (0x2, 0x10000, 0x40000, 0x80000)  # FILE_WRITE_DATA, DELETE, WRITE_DAC, WRITE_OWNER
+_FOLDER_RIGHTS = (0x40, 0x40000, 0x80000)  # FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER
+
+
+def _windows_can_change(path: Path) -> bool:
+    import ctypes
+    from ctypes import wintypes
+    if ctypes.windll.shell32.IsUserAnAdmin():
+        return False
+    create = ctypes.windll.kernel32.CreateFileW
+    create.restype = wintypes.HANDLE
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.HANDLE)
+    invalid = wintypes.HANDLE(-1).value
+
+    def opens(target: Path, access: int) -> bool:
+        # Opening only asks for the right; nothing is written. Share everything so IT's push isn't blocked.
+        handle = create(str(target), access, 0x7, None, 3, 0x02000000, None)  # OPEN_EXISTING, BACKUP_SEMANTICS
+        if handle in (None, invalid):
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    return (any(opens(path, right) for right in _FILE_RIGHTS)
+            or any(opens(path.parent, right) for right in _FOLDER_RIGHTS))
 
 
 def _typed(key: str, value: Any) -> bool:

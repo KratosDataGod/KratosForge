@@ -22,6 +22,7 @@ category, and an extension can't replace a core capability.
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import threading
@@ -31,7 +32,10 @@ from typing import Any, Callable, Iterable, Protocol
 
 from urllib.parse import quote, unquote
 
+from ..redact import describe
 from .core import CallContext, IntegrationError, error_from, redact_result, run_call, validate
+
+_log = logging.getLogger(__name__)
 
 # Permission categories, from least to most trust. Each capability needs exactly one.
 PERMISSIONS = ("READ_METADATA", "READ_DATA", "WRITE_LOCAL_FILES", "EXECUTE_LOCAL_CODE", "WRITE_ONELAKE",
@@ -240,8 +244,8 @@ class Registry:
         for listener in list(self._listeners):
             try:
                 listener()
-            except Exception:  # noqa: BLE001 - a listener problem must not break registration
-                pass
+            except Exception as exc:  # noqa: BLE001 - a listener problem must not break registration
+                _log.warning("Integration registry listener failed: %s", describe(exc))
 
     # ---- reading
 

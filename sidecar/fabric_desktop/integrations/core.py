@@ -18,15 +18,18 @@ Nothing here knows about MCP or HTTP; the transports in this package all go thro
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from ..redact import secret_key
+from ..redact import describe, secret_key
 from ..redact import secrets as redact_secrets
 from ..retrying import TRANSIENT_STATUS, status_of
+
+_log = logging.getLogger(__name__)
 
 # The codes a caller can rely on. Messages change; codes don't.
 CODES = {
@@ -246,8 +249,8 @@ class CallContext:
         if self.progress is not None:
             try:
                 self.progress(done, total, message)
-            except Exception:  # noqa: BLE001 - a progress message must never fail the work
-                pass
+            except Exception as exc:  # noqa: BLE001 - a progress message must never fail the work
+                _log.info("Progress callback failed: %s", describe(exc))
 
 
 def run_call(handler: Callable[[], Any], ctx: CallContext) -> Any:

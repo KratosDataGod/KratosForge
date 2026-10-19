@@ -116,10 +116,11 @@ The X-ray reads every lakehouse you can reach and lists what needs attention, wo
 
 - The first scan on a PC starts by itself after you sign in. After that, press **Scan again** when you want fresh results. **Pause** holds a scan where it is.
 - The card folds to one line with the totals, and stays as you left it. The list shows six findings; **Show all** opens the rest and **Show fewer** closes them again.
+- **Optimize** on a table first asks: it names the table, says it runs in Fabric and uses capacity, and shows the [risk check](finops/risk-check.md) for that workspace's capacity. A blocked check has no **Optimize** button.
 - **Vacuum** on a table first says how many old files it would delete and how much storage they take, then deletes them in Fabric. It always keeps the history the table's layer promises, so Restore keeps working.
 - **Your lakehouses** lists every lakehouse it read. **Adopt** on a lakehouse turns its tables into metadata entities, so the framework manages them from then on.
 - Every finding and its fix is explained in [xray-fixes.md](xray-fixes.md).
-- **How this works**, beside the findings, says what the scan reads and which three buttons write: **Optimize** (starts at once), **Vacuum** and **Adopt** (both ask first).
+- **How this works**, beside the findings, says what the scan reads and which three buttons write: **Optimize**, **Vacuum** and **Adopt**, each of which asks first.
 
 ## Create
 
@@ -220,14 +221,15 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in five groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in six groups:
 
 | Group | Tabs |
 | --- | --- |
+| Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see where each table comes from and what reads it. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
-| Domains (Preview) | Domain and workspaces, Data products, Links, Glossary. See [Data mesh](data-mesh.md) |
+| Domains (Preview) | Domain and workspaces, Data products, Links. Domains are created and edited on **Platform > Domains** and the glossary is on **Platform > Glossary**; this tab lists the domains and links there. See [Data mesh](data-mesh.md) |
 | Deploy | Environments and promote, Semantic model |
 
 Each entity page also has an **About** card (Preview): description, tags, classification, glossary terms and steward for the table and each column, saved in the catalog so anyone can write them without a Git change.
@@ -243,7 +245,7 @@ The Platform page (Preview) is the central data team's home, and where every oth
 | Tab | What's there |
 | --- | --- |
 | **Overview** | Counts of domains, projects, key tables, data products and waiting requests; requests that need you; each environment's platform; the landing zone's sources and which are late; recent changes |
-| **Landing zone** | Every source in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source** |
+| **Landing zone** | The one list of source systems for every project, each with its id, and what landed in `LH_Landing` for the environment picked at the top right: its entities, newest files, when it last arrived and when it's expected, and which projects read it. Admins **Add source**; others **Request a source**. Projects pick theirs on Data mesh > Source systems ([One list of source systems](platform.md#one-list-of-source-systems-preview)) |
 | **Business keys** | The platform's key tables (`sk.<name>`) with their business key and key counts. Admins choose **New key table**, which makes it in Dev, Test and Prod at once; others **Request a key table** |
 | **Domains** | Your organization's domains and subdomains, with their owners |
 | **Glossary** | Shared terms. Admins keep shared terms; a domain's owners keep their domain's terms |
@@ -275,7 +277,7 @@ What your Fabric estate could do better, what was fixed and what it could save, 
 - **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
-- **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (a scenario, not a measured saving), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
+- **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (estimated from Fabric runs of the same table, never from their time on this PC; Not known when the table hasn't run in Fabric in the last 90 days), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
 
 ## Monitor
 
@@ -297,6 +299,8 @@ Monitor has two halves.
 ### Workloads (Preview)
 
 A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). Fabric Desktop by KratosBI never reads your whole tenant.
+
+**How this works**, beside the list, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
 
 **The list.** Views across the top: **Needs attention**, **Mine**, **Unowned**, **On this PC**, **In Fabric**, **Production** and **All**, each with its count. **Group by** Project, Owner, Environment or None. The search box filters by name, owner, environment, tag or state. Each row shows:
 
@@ -354,7 +358,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
-The panel beside the list explains what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), what the page shows, and what is coming: shared schedules and takeover (Preview, off by default) and Run as.
+**How this works**, beside the list, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
 **The list.** The line above it says, for each environment, how many agents serve it and when it was read, or why it couldn't be read (for example, no access to its `LH_Meta`). Each row shows:
 
@@ -405,7 +409,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ## Source control (Preview)
 
-**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. The whole page is described in [Source control](source-control.md).
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. The whole page is described in [Source control](source-control.md).
 
 ## Settings
 
@@ -416,7 +420,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
-| **Platform** (Preview) | Create or join the [platform](platform.md) of each environment: one key system and one landing zone for every team. The same section is on **Platform > Settings**, with the platform's admins. See [Platform](#platform). |
+| **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
 | **Optimize lakehouses** (Preview) | The optimization lakehouse this PC shares results through: **Switch to**, **Check** (your access and its schema) and **Disconnect...** (its data stays). **Advanced** has this installation's random ID, **New installation ID**, and an optional name everyone on the lakehouse sees. See [Optimize](optimize/README.md). |
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
@@ -426,7 +430,7 @@ Anything your organization has set shows "Set by your organization" and can't be
 
 ### Platform settings
 
-Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
+On **Platform > Settings**. Each environment shows whether it uses a Platform workspace in Fabric or, until there is one, a file on this PC. **Create** makes the Platform workspace (LH_Landing, LH_Meta, SQL_Platform, UDF_Platform, VL_Platform) and reports each step; **Finish or repair** runs the steps again; **Join existing** picks a Platform workspace the central team already made; **Forget** stops using it on this PC without deleting anything. Details in [The platform](platform.md).
 
 ### External AI tools
 

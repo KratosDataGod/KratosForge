@@ -160,7 +160,7 @@ function agGuide() {
     changes: "Nothing. Nothing here starts, stops or changes an agent.",
     results: ["Nothing is stored. An agent that misses its promised report shows Stopped reporting, with its last report as it was. ", agDoc("status-records", "Status records")],
     more: [
-      ["What an agent is", ["Fabric Desktop by KratosBI running on a server of yours, with no one signed in. It runs a metadata project's tables on their schedules, and the runs Fabric pipelines ask it for, so work keeps going when your PC is off. It signs in as a service principal or a managed identity, never as you. ", agDoc("what-it-does", "What it does")]],
+      ["What an agent is", ["KratosForge running on a server of yours, with no one signed in. It runs a metadata project's tables on their schedules, and the runs Fabric pipelines ask it for, so work keeps going when your PC is off. It signs in as a service principal or a managed identity, never as you. ", agDoc("what-it-does", "What it does")]],
       ["Setting one up", ["Give it an identity with access to the environment's workspaces (", agDoc("set-up-the-identity", "Identity"),
         "), write agent.toml with the project, environments and schedules (", agDoc("configure", "Configure"),
         "), install it as a service on Windows or Linux or run the container (", agDoc("install", "Install"),
@@ -203,7 +203,7 @@ async function loadAgents(box) {
         h("td", {}, agChecks(a)),
         h("td", {}, agVersion(a)))))))
       : h("p", { class: "muted-text monitor-empty" }, state.query ? "No agents match your search."
-        : "No agents serve these environments. An agent runs Fabric Desktop by KratosBI on your own server; see Learn more to set one up."),
+        : "No agents serve these environments. An agent runs KratosForge on your own server; see Learn more to set one up."),
     h("p", { class: "muted-text small inc-foot" }, "An agent counts as stopped reporting once the time it promised to report again has passed. Its last report is shown as it was."));
 }
 

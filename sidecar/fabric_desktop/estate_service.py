@@ -397,7 +397,7 @@ class EstateMixin:
         try:
             token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop by KratosBI can't look people up "
+            raise LookupError(f"{text} doesn't have a role in this workspace, and KratosForge can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
         headers = {"Authorization": f"Bearer {token}"}
@@ -525,7 +525,7 @@ class EstateMixin:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
-                                            "Source system connections, managed by Fabric Desktop by KratosBI")
+                                            "Source system connections, managed by KratosForge")
         if item.get("id"):
             fabric.set_active_value_set(ws, item["id"], varlib_mod.active_set(env))
         published = self._settings().get("varlib_published", {})  # type: ignore[attr-defined]

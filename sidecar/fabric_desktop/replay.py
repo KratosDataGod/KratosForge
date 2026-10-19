@@ -228,7 +228,7 @@ def read(path: Path) -> dict[str, Any]:
     if not isinstance(bundle, dict) or bundle.get("format") != FORMAT:
         raise ValueError(f"{path.name} isn't a replay bundle.")
     if int(bundle.get("version", 0)) > VERSION:
-        raise ValueError(f"{path.name} was saved by a newer Fabric Desktop. Update the app to open it.")
+        raise ValueError(f"{path.name} was saved by a newer KratosForge. Update the app to open it.")
     try:
         _check_names(bundle, members)
     except (TypeError, KeyError, AttributeError, ValueError) as exc:

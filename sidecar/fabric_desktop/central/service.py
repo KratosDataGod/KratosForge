@@ -646,7 +646,7 @@ class PlatformMixin:
         domain = (i["subdomain"] or i["domain"] or i["name"]).replace("-", " ").title()
         name = f"{domain} {mesh.DESIGNATION_LABELS[designation]} - {env.title()}"
         ws = self.fabric.create_workspace(name, capacity_id,  # type: ignore[attr-defined]
-                                          f"{mesh.DESIGNATION_LABELS[designation]} workspace, managed by Fabric Desktop by KratosBI")
+                                          f"{mesh.DESIGNATION_LABELS[designation]} workspace, managed by KratosForge")
         return self.meta_set_designation(env, designation, ws["id"], ws.get("displayName") or name)
 
     # ---- keys into SQL_Platform

@@ -194,14 +194,14 @@ class IncidentMixin:
             evaluated.add("agent_offline")
         except Exception as exc:  # noqa: BLE001 - agent records unreadable: their incidents stay as they are
             _log.warning("Couldn't read agent records; their incidents stay as they are: %s", describe(exc))
-        changes = log.sync(signals, evaluated=evaluated, by=f"Fabric Desktop by KratosBI ({self._incident_user()})")
+        changes = log.sync(signals, evaluated=evaluated, by=f"KratosForge ({self._incident_user()})")
         out: dict[str, Any] = {"env": env, "evaluated": bool(evaluated & evaluate.WORKLOAD_KINDS), "signals": len(signals),
                                "changes": [{"change": c["change"], "id": c["incident"]["id"], "title": c["incident"]["title"]}
                                            for c in changes]}
         if notify:
             url = self._settings().get("teams_webhook", "")  # type: ignore[attr-defined]
             outbox = Outbox(self.root / "alerts_outbox.sqlite")  # type: ignore[attr-defined]
-            out["notified"] = send(changes, single(url), outbox, "Fabric Desktop by KratosBI", post_teams)
+            out["notified"] = send(changes, single(url), outbox, "KratosForge", post_teams)
         out["at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
         return out
 

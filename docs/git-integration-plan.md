@@ -1,6 +1,6 @@
 # Git integration plan
 
-Fabric Desktop by KratosBI becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
+KratosForge becomes a Git-native place to build Fabric solutions: build locally, version with Git, validate before deployment, run and consume in Fabric. This page is the assessment that came first and the plan the four phases follow. Phase 1 (Git foundation) is built; the rest is planned.
 
 ## What exists today
 
@@ -50,7 +50,7 @@ Acceptance: clone a repository, change a project, see the differences, create a 
 
 ## Phase 2: Fabric Git awareness
 
-Fabric's own Git integration connects a workspace to a branch and folder in Azure DevOps or GitHub; Fabric Desktop shows that relationship and drives it, but never treats a push as a workspace update.
+Fabric's own Git integration connects a workspace to a branch and folder in Azure DevOps or GitHub; KratosForge shows that relationship and drives it, but never treats a push as a workspace update.
 
 Fabric REST API (Core > Git, checked 2026-10-17 on Microsoft Learn):
 

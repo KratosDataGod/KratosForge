@@ -259,7 +259,7 @@ def test_a_file_that_is_not_a_bundle_is_refused(tmp_path):
     newer = tmp_path / "newer.zip"
     with zipfile.ZipFile(newer, "w") as z:
         z.writestr("bundle.json", json.dumps({"format": replay.FORMAT, "version": replay.VERSION + 1}))
-    with pytest.raises(ValueError, match="newer Fabric Desktop"):
+    with pytest.raises(ValueError, match="newer KratosForge"):
         replay.read(newer)
 
 

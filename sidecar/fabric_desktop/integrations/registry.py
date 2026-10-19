@@ -1,4 +1,4 @@
-"""What Fabric Desktop by KratosBI can do for an external caller, in a form a machine can read.
+"""What KratosForge can do for an external caller, in a form a machine can read.
 
 Every capability is one ``Capability``: an id, plain-language text, JSON Schemas for its input and
 output, the permission category it needs, whether it changes anything, whether the person must
@@ -344,7 +344,7 @@ class Registry:
         ctx.started = time.monotonic()  # the time limit is for the work, not for the approval wait
         ctx.timeout = min(ctx.timeout, cap.timeout) if ctx.timeout else cap.timeout
         if cap.needs_service and service is None:
-            raise IntegrationError("unavailable", "The Fabric Desktop by KratosBI engine isn't running here.")
+            raise IntegrationError("unavailable", "The KratosForge engine isn't running here.")
         started = time.monotonic()
         result = run_call(lambda: cap.handler(service, ctx, **args), ctx)
         ctx.seconds = round(time.monotonic() - started, 3)
@@ -353,7 +353,7 @@ class Registry:
     @staticmethod
     def _bind(service: Any, cap: Capability, args: dict[str, Any]) -> dict[str, Any]:
         if service is None:
-            raise IntegrationError("unavailable", "The Fabric Desktop by KratosBI engine isn't running here.")
+            raise IntegrationError("unavailable", "The KratosForge engine isn't running here.")
         try:
             derived = cap.bind(service, dict(args))  # type: ignore[misc]
         except Exception as exc:  # noqa: BLE001 - the engine's message, as for a handler

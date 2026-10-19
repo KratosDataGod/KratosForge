@@ -1,6 +1,6 @@
 # Workload operations: program plan and backlog
 
-How Fabric Desktop by KratosBI becomes the place where a data engineer manages the workloads they build and run on their PC, on their own servers and in Microsoft Fabric: what they own, what runs where and as whom, what needs attention, what changed, what it affects, and what they can safely do next. Chris asked for it on 2026-10-16 with a 100-capability backlog. This page is the source of truth for that program; [continuation.md](continuation.md) is the handoff note every PR updates.
+How KratosForge becomes the place where a data engineer manages the workloads they build and run on their PC, on their own servers and in Microsoft Fabric: what they own, what runs where and as whom, what needs attention, what changed, what it affects, and what they can safely do next. Chris asked for it on 2026-10-16 with a 100-capability backlog. This page is the source of truth for that program; [continuation.md](continuation.md) is the handoff note every PR updates.
 
 Assessed against `main` at `af11938` (sidecar 0.19.0, PR #53 merged; 322 tests pass, 2 skipped, on Linux). Nothing here has run against a live Fabric tenant unless it says so.
 
@@ -379,7 +379,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 **58. Rollback planning** · Enhance · Stage 7 · *Dep roadmap 5.3*. Today: per-table restore. PR: —
 
 **59. Progressive rollout management** · Not doing (now)
-- Fabric Desktop by KratosBI deploys a whole project per environment, and Test before Prod is already the staged path. Pilot groups need several production destinations for one project, which the deployment model does not have. Revisit when multi-worker agents (roadmap 7.3) exist.
+- KratosForge deploys a whole project per environment, and Test before Prod is already the staged path. Pilot groups need several production destinations for one project, which the deployment model does not have. Revisit when multi-worker agents (roadmap 7.3) exist.
 
 **60. Release calendar** · Missing · Stage 7 (with maintenance windows, 20). PR: —
 

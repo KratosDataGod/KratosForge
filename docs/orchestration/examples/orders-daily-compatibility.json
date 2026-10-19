@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "2",
+  "registry_version": "3",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -757,7 +757,7 @@
       ],
       "checked_properties": [],
       "limitations": [
-        "Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop by KratosBI may know it; otherwise it has to run in Fabric."
+        "Kept exactly as it is in the definition, but not checked or run. A newer KratosForge may know it; otherwise it has to run in Fabric."
       ],
       "problems": [
         "unknown_activity_type"

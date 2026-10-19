@@ -260,7 +260,7 @@ function gitKindBanner(st) {
   if (r.kind || !Object.keys(kinds).length) return null;
   const order = Object.keys(kinds).sort((a, b) => (b === r.suggested) - (a === r.suggested));
   return h("div", { class: "callout git-kind" }, icon("info", 20),
-    h("span", {}, "What does this repository hold? Fabric Desktop keeps each kind in its own repository. Choosing adds ",
+    h("span", {}, "What does this repository hold? KratosForge keeps each kind in its own repository. Choosing adds ",
       h("code", {}, "fabric-desktop.repo.toml"), " as a change you commit; nothing else changes."),
     h("span", { class: "spacer" }),
     h("div", { class: "row wrap" }, order.map((k) => btn(kinds[k].label, null, () => gitSetKind(st.root, k),

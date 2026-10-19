@@ -32,7 +32,7 @@ KINDS: dict[str, dict[str, str]] = {
                  "holds": "Which workspaces sit on which capacity, and the settings each capacity should have."},
 }
 
-_GITIGNORE = """# Fabric Desktop by KratosBI: never commit local data, caches or sign-in files
+_GITIGNORE = """# KratosForge: never commit local data, caches or sign-in files
 .local/
 __pycache__/
 .ipynb_checkpoints/
@@ -43,7 +43,7 @@ __pycache__/
 """
 
 _LOCATIONS = """# Where these {what} find their data, per environment.
-# Workspace and item ids are what Fabric Desktop by KratosBI uses; the names are for people.
+# Workspace and item ids are what KratosForge uses; the names are for people.
 # Never put passwords, keys or connection strings here.
 
 [dev]
@@ -78,7 +78,7 @@ _PLATFORM = """# Where the platform's items live, per environment. Anything not 
 # name = "LH_Meta"
 """
 
-_CAPACITY = """# The capacities and the workspaces each should hold. Fabric Desktop by KratosBI compares
+_CAPACITY = """# The capacities and the workspaces each should hold. KratosForge compares
 # this with Fabric and reports differences; it doesn't change capacities.
 
 # [capacities.<name>]
@@ -136,7 +136,7 @@ def describe(root: str | Path) -> dict[str, Any]:
 
 
 def _marker(kind: str) -> str:
-    return (f'# Fabric Desktop by KratosBI: what this repository holds.\nkind = "{kind}"\nversion = 1\n')
+    return (f'# KratosForge: what this repository holds.\nkind = "{kind}"\nversion = 1\n')
 
 
 def create(path: str | Path, kind: str, branch: str = "main") -> Repository:
@@ -214,7 +214,7 @@ def write_locations(root: str | Path, envs: dict[str, Any]) -> dict[str, Any]:
     ``{"this_pc": true}`` means nothing is attached in that environment; an environment left out
     has no location yet. The file shows as a change to commit."""
     lines = ["# Where these notebooks find their data, per environment.",
-             "# Workspace and item ids are what Fabric Desktop by KratosBI uses; the names are for people.",
+             "# Workspace and item ids are what KratosForge uses; the names are for people.",
              "# Never put passwords, keys or connection strings here.", ""]
     for env in ENVS:
         loc = envs.get(env) or {}

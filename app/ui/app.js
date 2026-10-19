@@ -424,7 +424,7 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
-      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
       stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
     summary,
     readinessCard(),
@@ -603,7 +603,7 @@ const MONITOR_OPS = [
   { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
     text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
   { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
-    text: "Fabric Desktop by KratosBI on your own servers, from the status they report" },
+    text: "KratosForge on your own servers, from the status they report" },
   { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
     text: "Which identity runs your workloads in each place, and with what credential" },
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
@@ -638,7 +638,7 @@ async function renderMonitor() {
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
-        h("h2", {}, "From Fabric Desktop by KratosBI"),
+        h("h2", {}, "From KratosForge"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
           segment(monitorPage.panel === "runs", "Runs", show("runs")),
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
@@ -936,7 +936,7 @@ function renderFabric() {
       slot),
     howItWorks("workspaces.fabric", {
       reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
-        + "Fabric Desktop doesn't read anything from it.",
+        + "KratosForge doesn't read anything from it.",
       changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
         + "with Fabric's own prompts; this app adds no confirmation of its own there.",
       results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
@@ -2135,7 +2135,7 @@ async function checkComponents(afterInstall = false) {
   const dialog = h("div", { class: "overlay" },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
-      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
+      h("div", { class: "startup-rows" }, row("app", "KratosForge"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));
   let dialogShown = false;
   function show() {
@@ -2165,7 +2165,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop by KratosBI needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2225,7 +2225,7 @@ async function checkComponents(afterInstall = false) {
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
         ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
-        : "Restart Fabric Desktop by KratosBI to update it."));
+        : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }
@@ -2279,7 +2279,7 @@ checkComponents().finally(() => {
     state.user = env.user;
     state.tenant = env.tenant;
     await loadSettings();
-    showWhatsNew();
+    showRenameSplash(() => showWhatsNew());
     // The environment pill needs the metadata project; there may not be one yet.
     state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
     render();

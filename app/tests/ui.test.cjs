@@ -66,7 +66,7 @@ test("an engine ended for not answering says so, and that variables were cleared
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
-  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const raw = "The engine stopped answering, so KratosForge restarted it. poll_cell had no answer after 60 seconds.";
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
@@ -1449,4 +1449,28 @@ test("the location's lakehouse is used to run and publish but never saved into t
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
   }
+});
+
+// Fabric Desktop is now KratosForge: every name a person sees changed; identifiers that installed
+// copies, notebooks and workspaces depend on did not. The announcement shows once, before What's new.
+test("the app is called KratosForge everywhere people read it, and identifiers stay", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<title>KratosForge<\/title>/);
+  assert.match(html, /<img class="brand-name" src="kratosforge-lettering\.png"[^>]*alt="KratosForge">/);
+  assert.ok(!/by <b>KratosBI<\/b>/.test(html));
+  assert.ok(fs.existsSync(path.join(ui, "kratosforge-lettering.png")));
+  for (const f of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    assert.ok(!fs.readFileSync(path.join(ui, f), "utf8").includes("Fabric Desktop by KratosBI"), f);
+  }
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.strictEqual(conf.app.windows[0].title, "KratosForge");
+  assert.strictEqual(conf.identifier, "com.kratosbi.fabricdesktop", "a new identifier would stop installed copies updating");
+  assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\)/);
+  assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
+  assert.match(settings, /label: "About the new name: KratosForge"/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
 });

@@ -388,7 +388,7 @@ def _safe(fn: Callable[[], Any]) -> str:
 
 def summary(result: dict[str, Any]) -> str:
     mark = {"passed": "Passed", "failed": "**Failed**", "skipped": "Skipped"}
-    lines = [f"# Fabric Desktop by KratosBI live test {result['run_id']}", "",
+    lines = [f"# KratosForge live test {result['run_id']}", "",
              f"Outcome: **{result['outcome']}**. Workspace {result['workspace']['name'] or result['workspace']['id']}, "
              f"started {result['started_at']}.", ""]
     if result["refused"]:

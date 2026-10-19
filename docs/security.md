@@ -1,6 +1,6 @@
 # Security model
 
-How Fabric Desktop by KratosBI protects your sign-in, your data and your PC, what it trusts, and what is still open. This is the threat model for FD-102; the [enterprise backlog](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/product/enterprise-backlog.md) and the [hardening backlog](hardening/backlog.md) track the open items. It describes `main` as of 2026-10-18 (a346145); the [hardening audit](hardening/README.md) checked it at 1248ccd and its fixes are reflected here. The [security evidence pack](evidence-pack.md) collects this page with the rest of what a reviewer needs.
+How KratosForge protects your sign-in, your data and your PC, what it trusts, and what is still open. This is the threat model for FD-102; the [enterprise backlog](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/product/enterprise-backlog.md) and the [hardening backlog](hardening/backlog.md) track the open items. It describes `main` as of 2026-10-18 (a346145); the [hardening audit](hardening/README.md) checked it at 1248ccd and its fixes are reflected here. The [security evidence pack](evidence-pack.md) collects this page with the rest of what a reviewer needs.
 
 ## What it protects
 

@@ -567,7 +567,7 @@ class Repository:
             raise err
         stashed = False
         if st["dirty"] and mode == "stash":
-            label = f"Fabric Desktop: changes on {st['branch'] or 'detached HEAD'} before switching to {name}"
+            label = f"KratosForge: changes on {st['branch'] or 'detached HEAD'} before switching to {name}"
             self.git(*_STASH, "push", "--include-untracked", "-m", label)
             stashed = True
             if self.status()["dirty"]:  # something didn't go aside: put it all back rather than half-switch

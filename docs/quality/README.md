@@ -1,6 +1,6 @@
 # Engineering quality baseline
 
-An independent review of whether Fabric Desktop by KratosBI is built like one coherent product: no duplicated services, no functionality that only looks real, no errors that disappear, no tests that prove only their own fakes. Reviewed at `main` **3bee0db** (2026-10-18, "Merge pull request #136"); line numbers refer to that commit.
+An independent review of whether KratosForge is built like one coherent product: no duplicated services, no functionality that only looks real, no errors that disappear, no tests that prove only their own fakes. Reviewed at `main` **3bee0db** (2026-10-18, "Merge pull request #136"); line numbers refer to that commit.
 
 This review builds on two earlier ones and doesn't repeat them:
 

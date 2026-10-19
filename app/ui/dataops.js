@@ -154,7 +154,7 @@ function lastRelease(env, onChange = null) {
         env !== "dev" ? preview("rollback", btn("Roll back...", "history", () => rollbackDialog(env, onChange), "tool link small")) : null),
       row("Metadata version", h("span", { class: "mono" }, r.version || "")),
       row("Code", releaseCommitText(r)),
-      r.engine_version ? row("Engine", `Fabric Desktop by KratosBI ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
+      r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
       row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
         h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
       row("Record", record)));

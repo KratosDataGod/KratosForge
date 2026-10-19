@@ -330,7 +330,7 @@ class WorkloadMixin:
         for a in actions:
             events.append({"at": a["at"], "kind": "action", "state": a["status"],
                            "text": f"{_ACTION_LABELS.get(a['action'], a['action'])} by {a['by'] or 'you'} · {a['status']}",
-                           "source": "actions from Fabric Desktop by KratosBI"})
+                           "source": "actions from KratosForge"})
         for h in w.get("assignment_history") or []:
             events.append({"at": h["at"], "kind": "ownership", "state": "ok",
                            "text": f"{model.ROLE_LABELS.get(h['field'], h['field'].title())}: "

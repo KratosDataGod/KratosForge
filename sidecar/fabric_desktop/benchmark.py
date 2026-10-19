@@ -843,7 +843,7 @@ Loads the `tpch` tables (from **TPC-H data**), runs the 22 TPC-H queries with Du
 `bench.q01` ... `bench.q22` (`bench_q01` ... in a lakehouse without schemas).
 
 To compare this PC with Fabric, turn on **Side by side** in the ribbon and choose **Run all**. The notebook runs here,
-then in Fabric, and Fabric Desktop checks that both wrote the same answers. The timings table at the end shows each
+then in Fabric, and KratosForge checks that both wrote the same answers. The timings table at the end shows each
 step; the one from Fabric is in the notebook's run in Fabric.
 """),
         _code(f'''

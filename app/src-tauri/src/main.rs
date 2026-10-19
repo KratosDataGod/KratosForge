@@ -16,7 +16,7 @@ mod watchdog;
 use watchdog::Reply;
 
 const SIDECAR_EXITED: &str = "The Python sidecar stopped. It will restart on the next action.";
-const SIDECAR_STUCK: &str = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it.";
+const SIDECAR_STUCK: &str = "The engine stopped answering, so KratosForge restarted it.";
 
 /// Startup check and updater, run with the user's Python before the sidecar starts.
 const UPDATER: &str = include_str!("updater.py");
@@ -479,7 +479,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let info: Value = std::fs::read_to_string(staging.join("engine.json"))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
-        .ok_or("The engine download has no engine.json, so it is not a Fabric Desktop by KratosBI engine.")?;
+        .ok_or("The engine download has no engine.json, so it is not a KratosForge engine.")?;
     let commit = info["commit"].as_str().unwrap_or_default().to_string();
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         let _ = std::fs::remove_dir_all(&staging);
@@ -990,7 +990,7 @@ fn main() {
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Fabric Desktop");
+        .expect("error while running KratosForge");
 }
 
 #[cfg(test)]

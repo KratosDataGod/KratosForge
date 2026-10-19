@@ -184,7 +184,7 @@ class Authenticator:
                                          and int(fresh.get("expires_in") or min_seconds) < min_seconds)
                     result = fresh
         if not result and not self.interactive:
-            raise RuntimeError("Your Fabric sign-in has expired. Open Fabric Desktop by KratosBI and sign in, "
+            raise RuntimeError("Your Fabric sign-in has expired. Open KratosForge and sign in, "
                                "and scheduled runs will work again.")
         if not result:
             if self.broker:

@@ -1,6 +1,6 @@
 # AI tool test checklist
 
-How to try one AI tool with Fabric Desktop by KratosBI and record the result, so its row in [compatibility](ai-integration-compatibility.md) can change from **Untested** to **Tested**. Run it on a PC with a non-production Fabric workspace. A tool counts as tested only when every step below passes, with the tool's name and version, the Fabric Desktop by KratosBI build and the date written down.
+How to try one AI tool with KratosForge and record the result, so its row in [compatibility](ai-integration-compatibility.md) can change from **Untested** to **Tested**. Run it on a PC with a non-production Fabric workspace. A tool counts as tested only when every step below passes, with the tool's name and version, the KratosForge build and the date written down.
 
 What the automated tests already cover is listed at the end; this checklist covers what only a real tool can show: whether it reads the setup, shows the tools and prompts, waits for approvals and handles refusals.
 
@@ -16,7 +16,7 @@ What the automated tests already cover is listed at the end; this checklist cove
 | # | Do this in the AI tool | It passes when |
 | --- | --- | --- |
 | 1 | Open the tool's list of MCP servers or tools | `fabric-desktop` is listed and connected; **Test connection** in Settings also passes |
-| 2 | Ask "What can you do in Fabric Desktop?" | It calls `fabric_desktop_get_status` or `fabric_desktop_list_capabilities` and lists tools that only read |
+| 2 | Ask "What can you do in KratosForge?" | It calls `fabric_desktop_get_status` or `fabric_desktop_list_capabilities` and lists tools that only read |
 | 3 | Ask for the lakehouses in a workspace, then the tables in one | It calls `fabric_desktop_list_workspaces`, `fabric_desktop_list_artifacts` and `fabric_desktop_list_tables`, and the names match the app |
 | 4 | Ask for a table's columns | It calls `fabric_desktop_get_table_schema` and shows no rows |
 | 5 | Ask it to show rows from the table | It is refused (the tool has no **Read data**) and says so, without trying another way |
@@ -34,7 +34,7 @@ For the **local HTTP API** (scripts and tools that call HTTP), do steps 2 to 9 a
 
 ## Record the result
 
-Add or change the tool's row in [compatibility](ai-integration-compatibility.md): status **Tested** (or **Partly works** with what failed), transport, the tool's version, the Fabric Desktop by KratosBI build, the date, and the step numbers that failed, if any. Open an issue for each failure with what the tool did.
+Add or change the tool's row in [compatibility](ai-integration-compatibility.md): status **Tested** (or **Partly works** with what failed), transport, the tool's version, the KratosForge build, the date, and the step numbers that failed, if any. Open an issue for each failure with what the tool did.
 
 ## What the automated tests cover
 

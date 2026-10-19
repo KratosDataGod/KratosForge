@@ -1,6 +1,6 @@
 # Configure Azure and Fabric
 
-Fabric Desktop by KratosBI needs no app registration: it signs people in as themselves through Microsoft's own Fabric sign-in, the same one Fabric CLI uses. What's left to set up is a few Fabric settings, and workspaces with capacity. This page walks through it in order. It is written for whoever administers Fabric in your organization. Most of it is done once.
+KratosForge needs no app registration: it signs people in as themselves through Microsoft's own Fabric sign-in, the same one Fabric CLI uses. What's left to set up is a few Fabric settings, and workspaces with capacity. This page walks through it in order. It is written for whoever administers Fabric in your organization. Most of it is done once.
 
 Everything about sign-in and permissions, including how to use your own app registration if your organization requires one, is in **[permissions.md](permissions.md)**.
 
@@ -21,12 +21,12 @@ In the **Fabric admin portal** (`app.fabric.microsoft.com` > gear > **Admin port
 
 | Setting | Where | Needed for |
 | --- | --- | --- |
-| **Users can access data stored in OneLake with apps external to Fabric** | OneLake settings | Everything that reads or writes tables and files. Fabric Desktop by KratosBI talks to OneLake from outside Fabric, so if this is off every read and write is refused. |
+| **Users can access data stored in OneLake with apps external to Fabric** | OneLake settings | Everything that reads or writes tables and files. KratosForge talks to OneLake from outside Fabric, so if this is off every read and write is refused. |
 | **Users can create Fabric items** | Microsoft Fabric | Creating lakehouses, notebooks, variable libraries and semantic models. |
 | **Create workspaces** | Workspace settings | Only if people will create Dev, Test or Prod workspaces from the app. |
 | **Service principals can use Fabric APIs** | Developer settings | Only for the [headless agent](agent.md). Enable it for a security group that contains the agent's identity. |
 
-Settings can be on for the whole organization or for named security groups. If you limit them to groups, make sure Fabric Desktop by KratosBI's users are in them.
+Settings can be on for the whole organization or for named security groups. If you limit them to groups, make sure KratosForge's users are in them.
 
 ## 2. Check sign-in policies
 
@@ -35,7 +35,7 @@ There is no app to register and no consent to grant. People sign in with their w
 Two Conditional Access policies can still get in the way:
 
 - **"Require a compliant or managed device"**: works on PCs your organization manages, because Windows sign-in proves the device. Unmanaged PCs are refused, as they are for Fabric in the browser.
-- **Policies that block Microsoft's developer tools** (Azure CLI, Fabric CLI) for some users: Fabric Desktop by KratosBI signs in through the Fabric CLI app, so those users are refused too. Exclude the Fabric CLI app for Fabric Desktop by KratosBI's users, or use step 3.
+- **Policies that block Microsoft's developer tools** (Azure CLI, Fabric CLI) for some users: KratosForge signs in through the Fabric CLI app, so those users are refused too. Exclude the Fabric CLI app for KratosForge's users, or use step 3.
 
 [permissions.md](permissions.md#microsofts-fabric-sign-in-what-it-may-need-to-check) has the details and which features each Microsoft API covers.
 
@@ -91,7 +91,7 @@ A key that is misspelled is ignored. An invalid file or key fails closed for any
 - **A restriction has the wrong kind of value** (`"false"` in quotes instead of `false`): that key takes its most restrictive value. `allow_fabric_runs`, `show_preview`, `telemetry`, `integrations` and `integrations_http` become `false`; `allowed_tenants` lets no account sign in; `integrations_max_permissions` and `integrations_extensions` allow none; `receipt_redactions` leaves out every part.
 - **Any other key has the wrong kind of value**: it's ignored, and the person's own choice or the default applies.
 
-With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what Fabric Desktop by KratosBI did about it. Check there after you push a new file.
+With no policy file at all, nothing is restricted. **Settings > Help and about** lists every problem in the file and what KratosForge did about it. Check there after you push a new file.
 
 `auto_update` and `channel` are also read by the app's updater, which still treats an unreadable file or a wrongly typed `auto_update` as no setting, so the app keeps updating itself on the channel chosen in Settings (Stable unless someone picked Preview).
 
@@ -117,7 +117,7 @@ Things to know:
 
 ## 6. Give people access
 
-Fabric Desktop by KratosBI never gets more access than the person using it. It uses their own Fabric workspace roles.
+KratosForge never gets more access than the person using it. It uses their own Fabric workspace roles.
 
 | Person | Role they need | On |
 | --- | --- | --- |
@@ -142,7 +142,7 @@ Using security groups for these roles makes [working across teams](teams.md) muc
 
 Have one person do this on a PC with the app installed:
 
-1. Start Fabric Desktop by KratosBI and **Sign in**. Expected: Home says "Welcome back".
+1. Start KratosForge and **Sign in**. Expected: Home says "Welcome back".
 2. Open **Workspaces**. Expected: the workspaces they can open in Fabric. If it's empty, they have no workspace roles yet.
 3. Open **OneLake**, expand a lakehouse, and choose **SQL query**. Run `SELECT * FROM <a table> LIMIT 10`. Expected: rows. This proves OneLake access from outside Fabric works.
 4. **Create > Notebook**, **Add data items**, attach a lakehouse they can write to, and run:

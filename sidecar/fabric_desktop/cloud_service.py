@@ -555,7 +555,7 @@ class CloudMixin:
         name = (name or f"SM_{layer.title()}").strip()
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
-                                               f"Direct Lake over {lakehouse}, built by Fabric Desktop by KratosBI from the metadata project",
+                                               f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",
                                                replace=replace)
         except FileExistsError as exc:  # it exists and the user hasn't confirmed replacing it
             return {"confirm": {"name": name, "id": exc.args[1] if len(exc.args) > 1 else "",

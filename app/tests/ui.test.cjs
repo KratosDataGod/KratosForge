@@ -567,13 +567,14 @@ test("compatibility findings land where the engine says, even after characters o
 });
 
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
-  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  const page = fs.readFileSync(path.join(ui, "query.js"), "utf8");
   assert.ok(!page.includes('h("textarea"'), "no textarea editor");
   assert.match(page, /createSqlEditor\(/);
   assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("query.js"));
+  // app.js registers renderQuery when it loads, so query.js must come first (HD-056).
+  assert.ok(html.indexOf('src="query.js"') < html.indexOf('src="app.js"'));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
     "linter", "lintGutter", "forceLinting", "StateEffect"]) {

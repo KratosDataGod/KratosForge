@@ -42,6 +42,8 @@ Each table's result has a **level**:
 | `timestamps` | `us` | Compare timestamps to the microsecond, millisecond (`ms`) or second (`s`). Timestamps are compared in UTC. |
 | `limit_rows` | 5,000,000 | Above this, compare fingerprints only. |
 
+A column of whole numbers on one side and decimals on the other (for example an average one engine returns as an integer type) is compared as numbers under these tolerances, and the result notes it. Any other type difference makes the table differ.
+
 Rules can be set for all tables and per table. A finished proof can be verified again under other rules without running anything (`prove_verify`), for example to see whether a difference is within a tolerance; that check can be saved as its own receipt pointing at the proof's.
 
 ## Scorecard

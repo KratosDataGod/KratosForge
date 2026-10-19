@@ -32,6 +32,7 @@ import pyarrow as pa
 DEFAULTS: dict[str, Any] = {"keys": [], "ignore": [], "abs": 0.0, "rel": 1e-9, "columns": {}, "timestamps": "us",
                             "limit_rows": 5_000_000, "examples": 50}
 _TS_UNITS = {"us": "microseconds", "ms": "milliseconds", "s": "seconds"}
+_NUMERIC = {"integer", "number"}
 
 
 def rules(given: dict[str, Any] | None) -> dict[str, Any]:
@@ -84,16 +85,22 @@ def _norm(expr: str, kind: str, r: dict[str, Any], digits: int | None = None) ->
 
 
 def _columns(schema_a: pa.Schema, schema_b: pa.Schema, r: dict[str, Any]) -> dict[str, Any]:
-    """Columns matched by name (case-insensitive) less the ignored ones, and what doesn't line up."""
+    """Columns matched by name (case-insensitive) less the ignored ones, and what doesn't line up.
+    A column of whole numbers on one side and decimals on the other is ``widened``, not a type
+    difference: engines differ there (an average, a cast), and its values are compared as numbers."""
     ignore = {c.lower() for c in r["ignore"]}
     a = {f.name.lower(): f for f in schema_a if f.name.lower() not in ignore}
     b = {f.name.lower(): f for f in schema_b if f.name.lower() not in ignore}
     common = [n for n in a if n in b]
-    return {"common": [(a[n].name, b[n].name, _kind(a[n].type), _kind(b[n].type)) for n in common],
+    kinds = {n: (_kind(a[n].type), _kind(b[n].type)) for n in common}
+    widened = [n for n in common if kinds[n][0] != kinds[n][1] and set(kinds[n]) == _NUMERIC]
+    return {"common": [(a[n].name, b[n].name, *(("number", "number") if n in widened else kinds[n])) for n in common],
             "only_pc": sorted(a[n].name for n in a if n not in b),
             "only_fabric": sorted(b[n].name for n in b if n not in a),
-            "types": sorted(f"{a[n].name} ({_kind(a[n].type)} vs {_kind(b[n].type)})" for n in common
-                            if _kind(a[n].type) != _kind(b[n].type))}
+            "types": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in common
+                            if kinds[n][0] != kinds[n][1] and n not in widened),
+            "widened": sorted(f"{a[n].name} ({kinds[n][0]} vs {kinds[n][1]})" for n in widened),
+            "numbers": frozenset(widened)}
 
 
 def _tolerance(r: dict[str, Any], column: str) -> tuple[float, float]:
@@ -120,10 +127,14 @@ def compare(pc: Any, fabric: Any, given_rules: dict[str, Any] | None = None, off
         rows_a = _count(con, "SELECT count(*) FROM a")
         rows_b = _count(con, "SELECT count(*) FROM b")
         out: dict[str, Any] = {"rules": r, "pc": {"rows": rows_a}, "fabric": {"rows": rows_b},
-                               "columns": {k: cols[k] for k in ("only_pc", "only_fabric", "types")}, "limitations": []}
+                               "columns": {k: cols[k] for k in ("only_pc", "only_fabric", "types", "widened")},
+                               "limitations": []}
+        if cols["widened"]:
+            out["limitations"].append(f"Whole numbers on one side and decimals on the other: {', '.join(cols['widened'])}. "
+                                      "Their values were compared as numbers.")
         schema_same = not (cols["only_pc"] or cols["only_fabric"] or cols["types"])
         if max(rows_a, rows_b) > int(r["limit_rows"]):
-            fa, fb = fingerprint(pc), fingerprint(fabric)
+            fa, fb = fingerprint(pc, cols["numbers"]), fingerprint(fabric, cols["numbers"])
             same = schema_same and fa["rows"] == fb["rows"] and fa["checksum"] == fb["checksum"]
             out |= {"level": "fingerprint", "method": "checksum", "result": "match" if same else "differs"}
             out["limitations"].append(

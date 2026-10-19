@@ -51,6 +51,12 @@ def test_a_name_read_only_inside_a_function_body_is_read_when_the_function_is_ca
     assert [g["severity"] for g in findings(out, "defined_later")] == ["error"]
 
 
+def test_a_name_used_above_its_definition_in_the_same_cell_is_an_error():
+    [f] = findings(validate.check([code("x = y + 1\ny = 2")], None), "defined_later")
+    assert f["severity"] == "error" and f["title"] == "Cell 1 uses y before defining it"
+    assert f["fix"] == "Define y above the line that uses it."
+
+
 def test_a_cell_that_does_not_parse_is_an_error():
     out = validate.check([code("x = (1,")], None)
     [f] = findings(out, "syntax")

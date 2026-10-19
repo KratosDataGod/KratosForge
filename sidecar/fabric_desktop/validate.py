@@ -73,7 +73,13 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
         dynamic = any(not d["text"].startswith("doesn't parse") for d in info.get("dynamic", []))
         for u in info.get("unresolved", []):
             later = re.search(r"later cell \((\d+)\)", u["text"])
-            if later and u["name"] in info.get("deferred", []):
+            if later and int(later.group(1)) == n:
+                out.append(finding(
+                    "error", "defined_later", f"Cell {n} uses {u['name']} before defining it",
+                    f"{u['name']} is defined further down the same cell. If the kernel has it now, it's left over from "
+                    "an earlier run, so the cell fails in Fabric, in a schedule and after a restart.",
+                    f"Define {u['name']} above the line that uses it.", n, cells))
+            elif later and u["name"] in info.get("deferred", []):
                 m = int(later.group(1))
                 out.append(finding(
                     "info", "defined_later", f"Cell {n} has a function that uses a name defined later",

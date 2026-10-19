@@ -26,12 +26,13 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from . import envprofile, lakehouse, receipts, redact, validate
+from . import cleanup, envprofile, lakehouse, receipts, redact, validate
 from .kernel_proc import ProcessKernel
 from .proof_runtime import PROOF_ROOT
 
 METHODS = {"notebook_validate_check", "notebook_validate_start", "notebook_validate_status",
-           "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save"}
+           "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save",
+           "notebook_cleanup_plan", "notebook_cleanup_apply"}
 
 MAX_KEPT = 100
 LIMIT_NAMES = {"time": "the cell time limit", "memory": "the notebook memory limit"}
@@ -98,6 +99,14 @@ class ValidateMixin:
         """The code checks, without running anything. ``runs_on``: "pc" (or "local"), "fabric", or None when not known."""
         out = validate.check(cells, lakehouse_ref, _runs_on(runs_on), self._fabric_observed())  # type: ignore[attr-defined]
         return {"name": name, "code": receipts.code_revision(cells), "verdict": validate.verdict(out["findings"], None)} | out
+
+    def notebook_cleanup_plan(self, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """Clean up's tidy-ups and suggestions (cleanup.py). Reads the code only."""
+        return {"code": receipts.code_revision(cells)} | cleanup.plan(cells)
+
+    def notebook_cleanup_apply(self, cells: list[dict[str, Any]], ids: list[str]) -> dict[str, Any]:
+        """The cells after the chosen tidy-ups. Nothing is saved: the app puts them in the notebook."""
+        return cleanup.apply(cells, ids)
 
     def notebook_validate_start(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                                 runs_on: str | None = None, allow_uncontained: bool = False) -> dict[str, Any]:

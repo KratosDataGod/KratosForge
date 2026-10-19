@@ -232,8 +232,9 @@ def test_access_by_email_needs_no_directory_permission(svc, monkeypatch):
             return [{"id": "a1", "role": "Viewer", "principal": {"id": "oid-ana", "displayName": "Ana", "type": "User",
                                                                   "userDetails": {"userPrincipalName": "ana@contoso.com"}}}]
     posted = []
-    monkeypatch.setattr(estate_service.requests, "post",
-                        lambda url, json, headers, timeout: posted.append((url, json)) or types.SimpleNamespace(status_code=200, ok=True))
+    http = types.SimpleNamespace(
+        post=lambda url, json, headers, timeout: posted.append((url, json)) or types.SimpleNamespace(status_code=200, ok=True))
+    monkeypatch.setattr(estate_service.http_session, "session", lambda: http)
     monkeypatch.setattr(type(svc), "fabric", property(lambda self: Fake()))
     svc._auth = Auth()
 

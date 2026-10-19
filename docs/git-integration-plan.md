@@ -78,7 +78,7 @@ Extension manifest (id, version, engine range, entry points, permissions), valid
 Each kind of definition has its own repository: notebooks (one per team or project), data mesh projects (one per domain or project), platform (one per tenant) and capacity. A `fabric-desktop.repo.toml` marker at the root says the kind. For platform definitions, Git is the source of truth and the catalog (SQL_Platform and LH_Meta) is the deployed state; drift is reported, never silently overwritten.
 
 1. **Built:** the marker and the four kinds, starting files for each, the list grouped by kind, choosing a kind for an existing repository (marker only, confirm to change), and a warning when a notebook sits in a repository of another kind.
-2. Notebooks read `locations.toml` for where their data is in each environment, so a team's notebooks can live in their own repository.
+2. **Built:** notebooks repositories are places to save notebooks (Save in, Move), and a notebook there takes its lakehouse for the current environment from `locations.toml` unless it has its own. Prove and Side by side don't read locations yet.
 3. Platform repository: export the current catalog as a commit to review, diff against the catalog, and deploy per environment. The Enterprise governance owners define the content and deploy rules.
 4. Capacity repository: read-only, with a drift report against Fabric. No writes to capacities.
 

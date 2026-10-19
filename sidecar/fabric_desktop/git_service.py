@@ -101,6 +101,37 @@ class GitMixin:
                                                     {"kind": None, "suggested": None})})
         return {"repos": repos, "current": data.get("current"), "kinds": scopes.KINDS}
 
+    def _notebook_places(self) -> list[tuple[str, str, Path]]:
+        """The notebooks repositories this PC opened, as places notebooks can be saved."""
+        out = []
+        for r in self._git_saved()["repos"]:
+            root = r.get("path")
+            if root and Path(root).is_dir() and scopes.read_kind(root) == "notebooks":
+                out.append((root, r.get("name") or Path(root).name, Path(root) / "notebooks"))
+        return out
+
+    def _git_locations_of(self, root: str) -> dict[str, Any]:
+        return scopes.read_locations(root)
+
+    def git_locations(self, repo: str) -> dict[str, Any]:
+        """Where a notebooks repository's notebooks find their data, per environment."""
+        r = self._notebooks_repo(repo)
+        return scopes.read_locations(r.root)
+
+    def git_set_locations(self, repo: str, envs: dict[str, Any]) -> dict[str, Any]:
+        """Writes the repository's locations.toml (ids and names only). It shows as a change to
+        commit; nothing in Fabric changes."""
+        r = self._notebooks_repo(repo)
+        if not isinstance(envs, dict):
+            raise GitError("Locations are given per environment.", kind="invalid")
+        return scopes.write_locations(r.root, envs) | {"status": r.status()}
+
+    def _notebooks_repo(self, repo: str) -> Repository:
+        r = self._repo(repo)
+        if scopes.read_kind(r.root) != "notebooks":
+            raise GitError("Locations belong to a notebooks repository.", kind="invalid")
+        return r
+
     def git_open(self, path: str) -> dict[str, Any]:
         """Opens the repository holding ``path`` (any folder inside it) and remembers it."""
         repo = Repository(path)

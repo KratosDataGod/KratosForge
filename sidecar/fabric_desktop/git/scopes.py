@@ -8,6 +8,8 @@ the person picks a kind. Nothing is committed for them: the new files show as ch
 
 from __future__ import annotations
 
+import os
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -45,13 +47,15 @@ _LOCATIONS = """# Where these {what} find their data, per environment.
 # Never put passwords, keys or connection strings here.
 
 [dev]
-runs_on = "this_pc"   # tables in the .local folder
+runs_on = "this_pc"   # nothing attached: the notebooks work on this PC only
 
 # [test]
 # workspace_id = ""
 # workspace_name = ""
 # lakehouse_id = ""
 # lakehouse_name = ""
+# sql_id = ""          # a Fabric SQL database, when the notebooks use one
+# sql_name = ""
 
 # [prod]
 # workspace_id = ""
@@ -166,8 +170,82 @@ def set_kind(repo: Repository, kind: str, confirm: bool = False) -> dict[str, An
         if (repo.root / MARKER).exists():
             raise GitError(f"This repository's {MARKER} isn't one this app can read. "
                            f"Confirm to replace it with {KINDS[kind]['label'].lower()}.", kind="confirm")
-    (repo.root / MARKER).write_text(_marker(kind), encoding="utf-8")
+    _replace_in(repo.root, MARKER, _marker(kind))
     return {"kind": kind, "changed": True}
+
+
+LOCATIONS = "locations.toml"
+ENVS = ("dev", "test", "prod")
+# The fields a location may hold: ids the app uses and names for people. Nothing else is kept.
+_LOCATION_FIELDS = ("workspace_id", "workspace_name", "lakehouse_id", "lakehouse_name", "sql_id", "sql_name")
+
+
+def read_locations(root: str | Path) -> dict[str, Any]:
+    """Where a notebooks repository's notebooks find their data, per environment, from its
+    ``locations.toml``: {"envs": {env: {...} | None}, "problem": str | None}. An environment with
+    no lakehouse (or ``runs_on = "this_pc"``) attaches nothing."""
+    envs: dict[str, Any] = {e: None for e in ENVS}
+    try:
+        data = tomllib.loads((Path(root) / LOCATIONS).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {"envs": envs, "problem": None, "exists": False}
+    except (OSError, ValueError) as e:
+        return {"envs": envs, "problem": f"{LOCATIONS} can't be read: {e}", "exists": True}
+    for env in ENVS:
+        raw = data.get(env)
+        if not isinstance(raw, dict):
+            continue
+        loc = {k: str(raw[k]) for k in _LOCATION_FIELDS if isinstance(raw.get(k), str) and raw[k]}
+        this_pc = raw.get("runs_on") == "this_pc" or not loc.get("workspace_id")
+        envs[env] = {**loc, "this_pc": this_pc,
+                     "lakehouse": None if this_pc or not loc.get("lakehouse_id") else {
+                         "workspace_id": loc["workspace_id"], "lakehouse_id": loc["lakehouse_id"],
+                         "name": loc.get("lakehouse_name") or "Lakehouse",
+                         "workspace_name": loc.get("workspace_name", "")}}
+    return {"envs": envs, "problem": None, "exists": True}
+
+
+def _toml_str(v: str) -> str:
+    return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def write_locations(root: str | Path, envs: dict[str, Any]) -> dict[str, Any]:
+    """Writes ``locations.toml`` from {env: {field: value} | None}. Only ids and names are kept.
+    ``{"this_pc": true}`` means nothing is attached in that environment; an environment left out
+    has no location yet. The file shows as a change to commit."""
+    lines = ["# Where these notebooks find their data, per environment.",
+             "# Workspace and item ids are what Fabric Desktop by KratosBI uses; the names are for people.",
+             "# Never put passwords, keys or connection strings here.", ""]
+    for env in ENVS:
+        loc = envs.get(env) or {}
+        if not isinstance(loc, dict):
+            raise GitError(f"The {env} location isn't valid.", kind="invalid")
+        fields = {k: loc[k].strip() for k in _LOCATION_FIELDS if isinstance(loc.get(k), str) and loc[k].strip()}
+        for k, v in fields.items():
+            if len(v) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in v):
+                raise GitError(f"The {env} {k.replace('_', ' ')} isn't valid.", kind="invalid")
+        if fields.get("workspace_id"):
+            lines += [f"[{env}]", *(f"{k} = {_toml_str(v)}" for k, v in fields.items()), ""]
+        elif loc.get("this_pc"):
+            lines += [f"[{env}]", 'runs_on = "this_pc"', ""]
+        # anything else: no location for this environment yet
+    _replace_in(Path(root), LOCATIONS, "\n".join(lines))
+    return read_locations(root)
+
+
+def _replace_in(root: Path, name: str, text: str) -> None:
+    """Replaces the file ``name`` at the repository root with ``text``. The new file is written
+    beside it and moved into place, so a link there is replaced itself and its target (which can
+    be anywhere, in a cloned repository) is never written."""
+    root = Path(root)
+    fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as out:
+            out.write(text)
+        os.replace(tmp, root / name)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def wrong_place(kind: str | None, item: str) -> str | None:

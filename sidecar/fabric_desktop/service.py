@@ -593,6 +593,22 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def sql_export_cancel(self, export: str) -> dict[str, Any]:
         return self.sql_runs.export_cancel(export)
 
+    def engine_storage_token(self) -> str:
+        """Rust SQL worker: OneLake storage token for the signed-in user."""
+        return self.auth.storage_token()
+
+    def engine_fabric_token(self) -> str:
+        """Rust Fabric REST client: Fabric API bearer token."""
+        return self.auth.fabric_token()
+
+    def engine_schemas_enabled(self, workspace_id: str, lakehouse_id: str) -> bool:
+        """Rust SQL worker: whether the lakehouse uses schema folders."""
+        return self._schemas_enabled(workspace_id, lakehouse_id)
+
+    def engine_audit_sql(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
+        """Rust SQL runs: same audit line as sql_exec.SqlExecutions."""
+        self._audit_sql_run(action, outcome, seconds, params)
+
     def run_sql(self, query: str, lakehouse_ref: dict[str, str], limit: int = 1000, dialect: str = "spark",
                 sandbox: bool = False) -> dict[str, Any]:
         self._attach(lakehouse_ref)

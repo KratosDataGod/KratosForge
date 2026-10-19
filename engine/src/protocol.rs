@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
-/// Methods handled in Rust; everything else goes to the Python sidecar.
-pub const RUST_METHODS: &[&str] = &["engine_health"];
+use crate::context::EngineContext;
+use crate::handlers::handle;
 
 pub fn parse_request(line: &str) -> Result<(Option<Value>, String, Value), String> {
     let req: Value = serde_json::from_str(line.trim()).map_err(|e| format!("invalid JSON: {e}"))?;
@@ -15,25 +15,8 @@ pub fn parse_request(line: &str) -> Result<(Option<Value>, String, Value), Strin
     Ok((id, method, params))
 }
 
-pub fn handle_rust(id: Option<Value>, method: &str, _params: &Value) -> Value {
-    match method {
-        "engine_health" => json!({
-            "id": id,
-            "result": {
-                "engine": "rust",
-                "phase": 1,
-                "version": env!("CARGO_PKG_VERSION"),
-            },
-        }),
-        _ => json!({
-            "id": id,
-            "error": format!("unknown method {method:?}"),
-        }),
-    }
-}
-
-pub fn is_rust_method(method: &str) -> bool {
-    RUST_METHODS.contains(&method)
+pub fn handle_rust(id: Option<Value>, method: &str, params: &Value, ctx: &mut EngineContext) -> Value {
+    handle(id, method, params, ctx)
 }
 
 pub fn invalid_json_reply(err: &str) -> String {
@@ -43,6 +26,7 @@ pub fn invalid_json_reply(err: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::handlers::is_rust_method;
 
     #[test]
     fn parses_a_request_line() {
@@ -54,16 +38,18 @@ mod tests {
     }
 
     #[test]
-    fn engine_health_returns_phase_one() {
-        let reply = handle_rust(Some(json!(7)), "engine_health", &json!({}));
+    fn engine_health_returns_phase_four() {
+        let mut ctx = EngineContext::new().expect("context");
+        let reply = handle_rust(Some(json!(7)), "engine_health", &json!({}), &mut ctx);
         assert_eq!(reply["id"], json!(7));
         assert_eq!(reply["result"]["engine"], "rust");
-        assert_eq!(reply["result"]["phase"], 1);
+        assert_eq!(reply["result"]["phase"], 4);
     }
 
     #[test]
-    fn rust_method_list_includes_engine_health() {
+    fn rust_method_list_includes_sql_start() {
         assert!(is_rust_method("engine_health"));
+        assert!(is_rust_method("sql_start"));
         assert!(!is_rust_method("app_settings"));
     }
 }

@@ -34,6 +34,21 @@ jobs:
           python -m pip install --no-deps --target "$RUNNER_TEMP/installed" .
           cd "$RUNNER_TEMP" && PYTHONPATH=installed python -c "import fabric_desktop.server, fabric_desktop.agent"
 
+  rust-engine:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: engine
+      - run: cargo test --locked
+        working-directory: engine
+
   ui:
     # The UI has no build step, so a syntax error would otherwise ship as a blank page.
     runs-on: ubuntu-latest

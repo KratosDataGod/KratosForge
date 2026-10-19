@@ -43,7 +43,26 @@ The repository list at the top of the page is grouped by kind. A repository that
 
 A notebook saved in a repository of another kind shows **wrong repository** next to **Save**, so it can be moved to a notebooks repository.
 
-Today the starting files are templates: the app doesn't yet read `locations.toml`, `platform.toml` or `capacity.toml`, and notebooks still save in the app's one notebooks folder. Reading notebook locations, exporting and deploying platform definitions, and the capacity drift report are the next stages in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
+### Notebooks in a notebooks repository
+
+Every notebooks repository you open here is also a place to save notebooks, next to the app's own notebooks folder (**This PC**).
+
+- **New notebook** asks where to save it once you have a notebooks repository. It goes under `notebooks/` in that repository, as a change to commit. The last choice is remembered.
+- **Move this notebook** (from the notebook's **Data** button or the command bar) moves its file to another place. The copy is checked before the original is removed, and nothing moves if a notebook with that name is already there. Nothing is committed.
+- Names stay unique across all places, so schedules, runs and published items still find a notebook by its name.
+- Home lists where each notebook is saved.
+
+**Where the data is.** A notebook in a notebooks repository has a **Data** button next to **Save**. It shows the lakehouse for the environment picked in the top bar, taken from the repository's `locations.toml`:
+
+1. A lakehouse attached to the notebook itself always wins, as before.
+2. Otherwise, the repository's location for the current environment. Switching the environment switches the lakehouse for the next run, and the Explorer marks it, for example **Test location**.
+3. Otherwise nothing is attached. **This PC** means that environment attaches nothing on purpose; an environment with no location shows **No location for Test**.
+
+Running cells, **Publish to OneLake**, **Run in Fabric** and Fabric schedules use the location's lakehouse when the notebook has none of its own. It is never saved into the notebook, so the notebook keeps following the environment. **Prove** and **Side by side** don't use locations yet; attach a lakehouse to the notebook for those.
+
+**Editing locations.** **Data locations** (next to the repository's name on this page, or **Edit locations** on the notebook's **Data** button) shows Dev, Test and Prod, each with a workspace, a lakehouse and an optional Fabric SQL database, picked from what you can see in Fabric. Saving writes `locations.toml` with workspace and item ids and their names, as a change to commit. Nothing in Fabric changes, and no passwords or keys are written.
+
+The platform and capacity starting files are still templates: exporting and deploying platform definitions, and the capacity drift report, are the next stages in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
 
 ## Changes
 
@@ -84,14 +103,14 @@ The **History** tab lists commits on the current branch. Click one for its messa
 
 ## Notebooks in a repository
 
-A notebook saved inside a repository shows its branch and whether it has uncommitted changes next to **Save**; click it to open Source control. Your notebooks folder isn't a repository unless you make it one: **Version my notebooks** makes it one, or clone a repository and save notebooks there.
+A notebook saved inside a repository shows its branch and whether it has uncommitted changes next to **Save**; click it to open Source control. Your notebooks folder isn't a repository unless you make it one: **Version my notebooks** makes it one, or save notebooks in a notebooks repository (see [Notebooks in a notebooks repository](#notebooks-in-a-notebooks-repository)).
 
 ## What it doesn't do yet
 
 - Stage single lines of a file (whole files only).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
-- Use `locations.toml`, deploy the platform repository, or compare the capacity repository with Fabric (see **Repository kinds**).
+- Deploy the platform repository, or compare the capacity repository with Fabric (see **Repository kinds**).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

@@ -1367,3 +1367,6 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .git-nb .tool.warn { color: var(--warn-text, #8a4b00); border-color: currentColor; }
 .git-kinds .git-choice { display: inline-flex; align-items: center; }
 .git-kinds .git-choice input { margin: 0; }
+.git-locations { width: 100%; table-layout: fixed; }
+.git-locations th:first-child { width: 48px; }
+.git-locations select { width: 100%; min-width: 0; }

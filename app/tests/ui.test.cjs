@@ -305,7 +305,7 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
   return ctx;
 }
 
@@ -1106,7 +1106,7 @@ test("Schedule follows the current environment's Runs on", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
   const opened = [];
-  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod", nbLakehouse: (nb) => nb.lakehouse };
   vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
   const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
   for (const env of ["dev", "prod"]) {
@@ -1408,4 +1408,29 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(shortcuts, /primary\.disabled = !!verdict\.unchecked/);
   const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
   assert.match(estate, /res\.partial \?/);
+});
+
+// Item 37, stage 2: a notebook in a notebooks repository follows the environment's location.
+test("a notebook's data: its own lakehouse first, then its repository's location for the environment", () => {
+  const { nbData, nbDataText } = gitHelpers();
+  const own = { lakehouse_id: "own", name: "LH_Mine", workspace_id: "w" };
+  const testRef = { lakehouse_id: "lt", name: "LH_Silver", workspace_id: "wt", workspace_name: "Sales Test" };
+  const nb = { place: { root: "/r", label: "sales-notebooks" },
+    locations: { envs: { dev: { this_pc: true, lakehouse: null }, test: { lakehouse: testRef }, prod: null } } };
+  const pick = (env, n = nb) => { const d = nbData(n, env); return [d.from, d.ref?.lakehouse_id || null, nbDataText(d)]; };
+  assert.strictEqual(JSON.stringify(pick("test")), JSON.stringify(["locations", "lt", "Data: LH_Silver"]));
+  assert.strictEqual(JSON.stringify(pick("dev")), JSON.stringify(["this_pc", null, "Data: nothing attached in Dev"]));
+  assert.strictEqual(JSON.stringify(pick("prod")), JSON.stringify(["unset", null, "No location for Prod"]));
+  assert.strictEqual(JSON.stringify(pick("test", { ...nb, lakehouse: own })), JSON.stringify(["notebook", "own", "Data: LH_Mine (this notebook)"]));
+  assert.strictEqual(nbData({ name: "home" }, "test").from, null, "notebooks in the app's own folder are unchanged");
+});
+
+test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
+  for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
+    assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
+  }
 });

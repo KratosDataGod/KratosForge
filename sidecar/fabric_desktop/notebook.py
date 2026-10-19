@@ -956,3 +956,113 @@ class NotebookStore:
 
     def delete(self, name: str) -> None:
         self.path(name).unlink(missing_ok=True)
+
+
+class NotebookShelf(NotebookStore):
+    """The app's own notebooks folder plus the ``notebooks`` folder of each notebooks repository
+    opened in Source control. A notebook is still found by its name alone, so names are unique
+    across all of them; the app's own folder wins if two places hold the same name.
+
+    ``places`` returns ``[(root, label, folder)]`` for the repositories (root is the repository
+    folder, which identifies the place)."""
+
+    def __init__(self, folder: Path, places: Callable[[], list[tuple[str, str, Path]]] = lambda: []):
+        super().__init__(folder)
+        self._places = places
+
+    def places(self) -> list[dict[str, Any]]:
+        home = _resolved(self.folder)
+        out, seen = [], {home}
+        for root, label, folder in self._places():
+            f = _resolved(folder)
+            if f in seen or _resolved(Path(root)) == home:
+                continue  # "Version my notebooks": that repository is the app's own folder
+            seen.add(f)
+            out.append({"root": root, "label": label, "folder": folder})
+        return out
+
+    def _folders(self) -> list[tuple[dict[str, Any] | None, Path]]:
+        return [(None, self.folder)] + [(p, p["folder"]) for p in self.places()]
+
+    def _where(self, name: str) -> tuple[dict[str, Any] | None, Path]:
+        file = f"{check_notebook_name(name)}.ipynb"
+        for place, folder in self._folders():
+            if (folder / file).is_file():
+                return place, folder
+        return None, self.folder
+
+    def path(self, name: str) -> Path:
+        return self._where(name)[1] / f"{check_notebook_name(name)}.ipynb"
+
+    def place_of(self, name: str) -> dict[str, str] | None:
+        """The repository holding the notebook ({"root", "label"}), or None for the app's own folder."""
+        place = self._where(name)[0]
+        return {"root": place["root"], "label": place["label"]} if place else None
+
+    def _place(self, root: str | None) -> tuple[dict[str, Any] | None, Path]:
+        if not root:
+            return None, self.folder
+        for place in self.places():
+            if _resolved(Path(place["root"])) == _resolved(Path(root)):
+                return place, place["folder"]
+        raise ValueError("That repository isn't a notebooks repository opened in Source control.")
+
+    def list(self) -> list[dict[str, Any]]:
+        out, names = [], set()
+        for place, folder in self._folders():
+            if not folder.is_dir():
+                continue
+            for p in folder.glob("*.ipynb"):
+                where = {"root": place["root"], "label": place["label"]} if place else None
+                out.append({"name": p.stem, "modified": p.stat().st_mtime, "place": where,
+                            "hidden_by": None if p.stem not in names else "another notebook with this name"})
+                names.add(p.stem)
+        return sorted(out, key=lambda n: n["modified"], reverse=True)
+
+    def _taken(self, name: str) -> bool:
+        return any((f / f"{check_notebook_name(name)}.ipynb").exists() for _, f in self._folders())
+
+    def new(self, prefix: str = "Notebook", place: str | None = None) -> dict[str, Any]:
+        _, folder = self._place(place)
+        i = 1
+        while self._taken(f"{prefix} {i}"):
+            i += 1
+        name = f"{prefix} {i}"
+        folder.mkdir(parents=True, exist_ok=True)
+        NotebookStore(folder).save(name, [{"type": "code", "source": ""}])
+        return self.load(name)
+
+    def rename(self, name: str, new_name: str) -> dict[str, Any]:
+        if self._taken(new_name):
+            raise ValueError(f"A notebook named {new_name!r} already exists.")
+        src = self.path(name)
+        src.rename(src.with_name(f"{check_notebook_name(new_name)}.ipynb"))
+        return {"name": new_name}
+
+    def move(self, name: str, place: str | None) -> dict[str, Any]:
+        """Moves the notebook's file to another place (a repository root, or None for the app's
+        own folder). The copy is written and checked before the original is removed, and a
+        notebook already there is never replaced."""
+        src = self.path(name)
+        if not src.is_file():
+            raise ValueError(f"There's no notebook named {name!r}.")
+        target_place, folder = self._place(place)
+        dest = folder / src.name
+        if _resolved(dest) == _resolved(src):
+            return {"name": name, "place": self.place_of(name), "moved": False}
+        data = src.read_bytes()
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(dest, "xb") as out:  # refuses when a file of that name is already there
+            out.write(data)
+        if dest.read_bytes() != data:
+            dest.unlink()
+            raise OSError(f"Couldn't copy {name} to {folder}. The notebook is still where it was.")
+        src.unlink()
+        return {"name": name, "place": self.place_of(name), "moved": True}
+
+
+def _resolved(p: Path) -> str:
+    try:
+        return os.path.normcase(str(p.resolve()))
+    except OSError:
+        return os.path.normcase(str(p))

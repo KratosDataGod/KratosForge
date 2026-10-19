@@ -16,7 +16,7 @@ Nothing you built moves, and nothing has to be set up again. These keep their ol
 
 | What | Still called | Why it stays |
 | --- | --- | --- |
-| The download and the program file | `fabric-desktop.exe`, `fabric-desktop-engine.zip` | Updates replace the file people already have, and download links keep working. |
+| The download, the program file and the Windows program name | `fabric-desktop.exe`, `fabric-desktop-engine.zip`, "Fabric Desktop" | Updates replace the file people already have, and download links keep working. |
 | The folder on your PC | `%LOCALAPPDATA%\FabricDesktop` | Your notebooks, sign-in, settings and engine are there ([where files live](install.md#where-things-are-kept-on-your-pc)). |
 | The Windows app identity and update address | `com.kratosbi.fabricdesktop`, the `fabric-desktop` GitHub releases | Changing either would stop installed copies from updating. |
 | The repository and docs site | `github.com/KratosDataGod/fabric-desktop`, `kratosdatagod.github.io/fabric-desktop` | Links people saved keep working. |

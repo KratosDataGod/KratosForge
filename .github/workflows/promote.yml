@@ -39,7 +39,7 @@ jobs:
             gh release edit stable --notes "$NOTES" --latest
           else
             gh release create stable fabric-desktop.exe fabric-desktop-engine.zip version.json \
-              --title "Fabric Desktop by KratosBI (stable)" \
+              --title "KratosForge (stable)" \
               --notes "$NOTES" \
               --target "$COMMIT" \
               --latest

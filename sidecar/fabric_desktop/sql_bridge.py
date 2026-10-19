@@ -12,6 +12,8 @@ import json
 import sys
 from typing import Any
 
+import sqlglot.expressions as exp
+
 from . import sql, sql_policy
 
 
@@ -56,6 +58,26 @@ def classify(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def table_names(payload: dict[str, Any]) -> dict[str, Any]:
+    query = payload.get("query")
+    dialect = str(payload.get("dialect") or "spark")
+    if not isinstance(query, str):
+        raise ValueError("query must be a string.")
+    names: list[str] = []
+    seen: set[str] = set()
+    for statement in sql.parse(query, dialect):
+        for table in statement.find_all(exp.Table):
+            if not isinstance(table.this, exp.Identifier):
+                continue
+            parts = [p for p in (table.catalog, table.db, table.name) if p]
+            name = ".".join(parts)
+            key = name.lower()
+            if key not in seen:
+                seen.add(key)
+                names.append(name)
+    return {"tables": names}
+
+
 def translate(payload: dict[str, Any]) -> dict[str, Any]:
     query = payload.get("query")
     dialect = str(payload.get("dialect") or "spark")
@@ -77,6 +99,8 @@ def main() -> None:
             _write(classify(payload))
         elif op == "translate":
             _write(translate(payload))
+        elif op == "table_names":
+            _write(table_names(payload))
         else:
             raise ValueError(f"unknown op {op!r}")
     except Exception as exc:  # noqa: BLE001 - CLI reports errors as JSON

@@ -38,9 +38,9 @@ The [`engine/`](engine/) crate speaks the same JSON-lines RPC as the Python side
 
 - **Phase 1:** `engine_health`, Python forward for everything else.
 - **Phase 2:** SQL page RPCs (`sql_start`, `sql_status`, `sql_executions`, `sql_page`, `sql_cancel`, `sql_export*`) run in Rust (`engine/src/sql/`): queue, worker subprocess (`fabric-desktop-sql-worker` → Python `sql_worker` today), Arrow paging/export, audit via `engine_audit_sql`. Classification uses [`sql_bridge.py`](sidecar/fabric_desktop/sql_bridge.py) (`classify` / `translate` on stdin/stdout).
-- **Phase 3:** OneLake Unity Catalog `list_tables` in Rust (`engine/src/onelake/catalog.rs`); profile checks in `engine/src/delta/`; `table_columns`, `preview_table`, and `catalog_tables` still on Python (deltalake-rs is not in the engine crate yet).
-- **Phase 4:** `list_workspaces`, `list_lakehouses`, `list_items`, and `catalog` use `reqwest` with tokens from `engine_fabric_token`; `sign_in`, `sign_out`, and `environment` stay on Python (MSAL cache).
-- **SQL worker:** `fabric-desktop-sql-worker` runs DuckDB natively for jobs with `local_root` (tests); OneLake runs use the Python `sql_worker`.
+- **Phase 3:** OneLake Unity Catalog `list_tables`, `table_columns`, `preview_table`, and background `catalog_tables` in Rust (`deltalake-rs` + `engine/src/onelake/`); Delta profile checks in `engine/src/delta/`.
+- **Phase 4:** Fabric list APIs and `catalog` use `reqwest` with `engine_fabric_token`; `sign_in`, `sign_out`, and `environment` are Rust RPCs that call MSAL through `fabric_desktop.auth_bridge` (shared cache with the sidecar).
+- **SQL worker:** `fabric-desktop-sql-worker` runs DuckDB natively for local Delta fixtures and OneLake (`delta_scan` + engine token calls); Python `sql_worker` is fallback only.
 
 Releases still start Python unless you opt in:
 

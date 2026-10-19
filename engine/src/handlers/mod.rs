@@ -7,6 +7,7 @@ use crate::handlers::lakehouse::list_tables as lakehouse_tables;
 use crate::reply::{err, ok};
 
 mod catalog;
+pub mod catalog_tables;
 mod lakehouse;
 
 const PHASE: u32 = 4;
@@ -103,8 +104,43 @@ pub fn handle(id: Option<Value>, method: &str, params: &Value, ctx: &mut EngineC
             Ok(result) => ok(id, result),
             Err(message) => err(id, message),
         },
-        "table_columns" | "preview_table" => forward_invoke(id, ctx, method, params),
-        "sign_in" | "sign_out" | "environment" | "catalog_tables" => forward_invoke(id, ctx, method, params),
+        "table_columns" => {
+            let table = params.get("table").and_then(Value::as_str).unwrap_or("");
+            let lh = params.get("lakehouse_ref").unwrap_or(&Value::Null);
+            match lakehouse::table_columns(ctx, lh, table) {
+                Ok(result) => ok(id, result),
+                Err(message) => err(id, message),
+            }
+        }
+        "preview_table" => {
+            let table = params.get("table").and_then(Value::as_str).unwrap_or("");
+            let lh = params.get("lakehouse_ref").unwrap_or(&Value::Null);
+            let limit = params.get("limit").and_then(Value::as_i64).unwrap_or(100);
+            match lakehouse::preview_table(ctx, lh, table, limit) {
+                Ok(result) => ok(id, result),
+                Err(message) => err(id, message),
+            }
+        }
+        "sign_in" => match crate::auth::sign_in() {
+            Ok(result) => ok(id, result),
+            Err(message) => err(id, message),
+        },
+        "sign_out" => match crate::auth::sign_out() {
+            Ok(result) => ok(id, result),
+            Err(message) => err(id, message),
+        },
+        "environment" => match crate::auth::environment() {
+            Ok(result) => ok(id, result),
+            Err(message) => err(id, message),
+        },
+        "catalog_tables" => {
+            let lakehouses = params
+                .get("lakehouses")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            ok(id, catalog_tables::CatalogTables::start(ctx, &lakehouses))
+        }
         "catalog" => match build_catalog(
             ctx,
             params.get("all_types").and_then(Value::as_bool).unwrap_or(false),

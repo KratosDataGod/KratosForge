@@ -1,4 +1,10 @@
-//! Fabric-safe Delta profile checks (phase 3). Table I/O uses Python until deltalake is wired in CI.
+//! Fabric-safe Delta profile checks and deltalake-rs table I/O (phase 3).
+
+mod table;
+
+pub use table::{
+    open_lakehouse_table, preview_table, table_columns, table_columns_for_ref,
+};
 
 pub const MAX_READER: i32 = 1;
 pub const MAX_WRITER: i32 = 2;

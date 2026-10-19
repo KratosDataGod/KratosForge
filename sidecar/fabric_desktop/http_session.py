@@ -19,8 +19,10 @@ from requests.adapters import HTTPAdapter
 from requests.cookies import RequestsCookieJar
 
 # Seconds to wait for a server when the caller names no timeout, so no request can hang forever.
+# Every call in the engine names its own today, so this is only a backstop.
 DEFAULT_TIMEOUT = 60
-# Connections kept open per host. The engine runs a few workers at once; more than this queue up.
+# Connections kept open per host. Requests beyond this still run (nothing waits), but their extra
+# connections are closed after use instead of kept.
 POOL_SIZE = 16
 
 

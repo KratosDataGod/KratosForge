@@ -450,7 +450,7 @@ function keysRow(s, policy) {
   const title = `Keys: ${k.workspace_id ? where : "one keys database for every environment"}`;
   if (k.shared) {
     return settingRow(h("span", {}, title, " ", h("span", { class: "pill-s pass" }, "Dev, Test and Prod use it")),
-      `One key per business key in every environment${k.kind === "fabric" ? ", in SQL_Keys and UDF_Keys" : ", in a file on this PC"}. Moved ${k.moved_at ? when(k.moved_at) : ""}.`,
+      `One key per business key in every environment${k.kind === "fabric" ? ", in SQL_Keys and UDF_Keys" : ", in a file on this PC"}${k.moved_at ? `. Moved ${when(k.moved_at)}` : ""}.`,
       null, policy ? "policy" : null);
   }
   const fabric = k.kind === "fabric";
@@ -583,7 +583,7 @@ function keysPlatformCard(k, rerender) {
   if (k.platform) {
     return h("div", { class: "card pad" }, h("div", { class: "row" }, icon("database", 18),
       h("span", { class: "grow" }, h("b", {}, "Keys are in the platform's SQL database"),
-        h("div", { class: "muted-text small" }, `Moved ${k.moved_at ? when(k.moved_at) : ""}. LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
+        h("div", { class: "muted-text small" }, `${k.moved_at ? `Moved ${when(k.moved_at)}. ` : ""}LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
       btn("Back to LH_Keys", null, async () => {
         if (!(await confirmDialog("Use LH_Keys again?", "Only allowed while the platform hasn't issued keys LH_Keys doesn't have.", "Use LH_Keys"))) return;
         if (await metaCall("meta_keys_to_lakehouse", { env: k.env }, "Not changed")) rerender();

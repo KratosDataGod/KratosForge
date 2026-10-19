@@ -1491,4 +1491,9 @@ test("moving keys into one database previews first, and cancelling it is a dange
   const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
   assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
   assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
 });

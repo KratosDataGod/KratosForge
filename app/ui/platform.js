@@ -236,7 +236,7 @@ async function platformKeysTab(body) {
   const rerender = () => platformKeysTab(body);
   const admin = platformPage.me?.admin;
   if (!!k.shared !== !!platformPage.keysShared) { platformPage.keysShared = !!k.shared; render(); return; }  // one list: no environment picker
-  body.replaceChildren(h("div", { class: "card pad" },
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
     h("div", { class: "row" }, h("b", { class: "grow" }, k.shared ? "Key tables in SQL_Keys" : `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
       k.shared ? h("span", { class: "pill-s pass" }, "Shared by Dev, Test and Prod") : null,
       admin ? btn("New key table", "add", () => keyTableDialog(rerender, k.shared), "tool primary small")
@@ -257,7 +257,18 @@ async function platformKeysTab(body) {
         h("td", { class: "n mono" }, (t.next || 1).toLocaleString()),
         h("td", { class: "muted-text small" }, t.created_at ? `${relTime(t.created_at)}${t.created_by ? `, ${t.created_by}` : ""}` : "")))))
       : h("p", { class: "muted-text" }, "No key tables yet."),
-    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null));
+    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null),
+  howItWorks("platform.keys", {
+    reads: k.shared
+      ? "The key tables in SQL_Keys, the one keys database Dev, Test and Prod share. It reads when the tab opens."
+      : "The key tables in this environment's SQL_Platform, or a file on this PC until the environment has a platform. It reads when the tab opens.",
+    changes: `New key table adds sk.<name> ${k.shared ? "once, in SQL_Keys" : "in every environment's SQL_Platform"}; only platform admins can. ` +
+      "From Settings under Platform: Create or Finish makes a Keys workspace with SQL_Keys and UDF_Keys, which uses Fabric capacity. " +
+      "Move keys in shows what would move first, then copies every key table into it, keeps Prod's numbers, gives Dev and Test keys new numbers where Prod differs, closes each environment's old key tables and switches every environment to it. " +
+      "Cancel the move removes the copied tables and reopens the old ones; it's refused once the move has finished.",
+    results: "Runs in every environment issue keys from the list on this tab. After a move, re-run Dev and Test so their tables pick up the new numbers. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
 function keyTableDialog(done, shared = false) {

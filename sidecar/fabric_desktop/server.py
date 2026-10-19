@@ -103,8 +103,10 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 METHODS |= OPTIMIZE_METHODS
 
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
+from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 
 METHODS |= TENANT_HISTORY_METHODS
+METHODS |= CAPACITY_HISTORY_METHODS
 
 # Governance's request and shortcut notices to Teams (platform_notify_service.py).
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402

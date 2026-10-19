@@ -55,7 +55,7 @@ def test_a_proof_of_older_code_doesnt_count():
     assert "changed since it was last compared" in out["reasons"][1]["text"] and "Prove" in out["next_step"]
     assert not any(r["kind"] == "cu" for r in out["reasons"])
     never = advisor.advise("nb", REV, OK, [])
-    assert never["place"] == advisor.UNKNOWN and "Never compared" in never["reasons"][1]["text"]
+    assert never["place"] == advisor.UNKNOWN and "No proof yet" in never["reasons"][1]["text"]
 
 
 @pytest.mark.parametrize(("verdict", "pc_status", "place"), [
@@ -93,7 +93,8 @@ def test_a_side_by_side_of_the_current_code_counts_and_says_how_it_compared():
     assert any(r["kind"] == "time" and "side-by-side" in r["text"] for r in out["reasons"])
     assert "row-by-row" in out["next_step"]
     assert advisor.advise("nb", REV, OK, [], [sbs(same=False)])["place"] == advisor.FABRIC
-    assert advisor.advise("nb", REV, OK, [], [sbs(same=None, tables=0)])["place"] == advisor.EITHER
+    either = advisor.advise("nb", REV, OK, [], [sbs(same=None, tables=0)])
+    assert either["place"] == advisor.EITHER and any("Files/ aren't" in r["text"] for r in either["reasons"])
     failed = advisor.advise("nb", REV, OK, [], [sbs(same=False, status="failed")])
     assert failed["place"] == advisor.UNKNOWN and "a run failed" in failed["reasons"][2]["text"]
     # A proof of the current code wins over a side-by-side run.

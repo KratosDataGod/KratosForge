@@ -101,7 +101,7 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
                                created_at=proofs[0]["receipt"].get("created_at")))
         next_step = "Prove the notebook again to compare the current code on this PC and in Fabric."
     else:
-        reasons.append(_reason("proof", "Never compared: no proof has run this notebook on this PC and in Fabric."))
+        reasons.append(_reason("proof", "No proof yet: Prove hasn't run this notebook on this PC and in Fabric."))
         next_step = "Prove the notebook to compare its results and time on this PC and in Fabric."
     done = [c for c in comparisons or [] if c.get("state") == "done"]
     sbs = next((c for c in done if c.get("code_revision") == revision), None) if not proof else None
@@ -140,6 +140,8 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
         next_step = "Look at the tables that differ before running it on this PC."
     elif verdict == "nothing":
         place = EITHER
+        reasons.append(_reason("scope", "Only tables are compared. Files written under Files/ aren't, so check them "
+                                        "yourself if the notebook writes any."))
     elif verdict == "failed-sbs":
         place = UNKNOWN
     elif verdict in ("failed", "inconclusive"):

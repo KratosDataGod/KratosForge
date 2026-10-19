@@ -9,9 +9,9 @@ The advice is available to tools connected through [MCP or the local API](../ai/
 | Place | Means |
 | --- | --- |
 | **Run it on this PC** (`pc`) | It can run here, and the newest proof (or, without one, side-by-side run) of its current code got the same results on this PC and in Fabric. Or a cell needs this PC (for example, a local file path). |
-| **Keep it in Fabric** (`fabric`) | A cell needs Fabric, the proof's results differ, or the run on this PC failed in the proof. |
-| **Either place works** (`either`) | It runs in both places and the proof wrote no tables, so only time was compared. |
-| **Not enough evidence** (`unknown`) | It was never proved, the notebook changed since its last proof, or the proof was inconclusive. The answer says what to do next. |
+| **Keep it in Fabric** (`fabric`) | A cell needs Fabric, the proof's (or side-by-side run's) results differ, or the run on this PC failed in the proof. |
+| **Either place works** (`either`) | It runs in both places and neither run of the proof (or side-by-side run) wrote a table, so only time was compared. Files written under Files/ aren't compared. |
+| **Not enough evidence** (`unknown`) | Neither a proof nor a side-by-side run covers its current code, or the comparison was inconclusive or a side failed. The answer says what to do next. |
 
 ## The evidence
 

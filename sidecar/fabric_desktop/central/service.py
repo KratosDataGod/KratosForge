@@ -122,7 +122,7 @@ class PlatformMixin:
             return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
         if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
             # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
-            raise LookupError("Create or join the Keys workspace first (Settings > Platform > Keys), "
+            raise LookupError("Create or join the Keys workspace first, in Settings under Platform, "
                               "then move the keys in.")
         sources, seen = [], set()
         for env in reversed(ENVIRONMENTS):  # Prod first, so a database it shares with Dev keeps Prod's numbers

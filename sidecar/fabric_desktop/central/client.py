@@ -14,6 +14,7 @@ from typing import Any, Callable
 import requests
 
 from . import core
+from .. import http_session
 
 API = "https://api.fabric.microsoft.com/v1"
 # Business keys per call. Each call's request stays well under User Data Functions' payload limit.
@@ -72,7 +73,7 @@ class FabricPlatform:
     def __init__(self, token: Callable[[], str], workspace_id: str, functions_id: str,
                  session: requests.Session | None = None):
         self._token, self.workspace_id, self.functions_id = token, workspace_id, functions_id
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
 
     def url(self, op: str) -> str:
         return f"{API}/workspaces/{self.workspace_id}/userDataFunctions/{self.functions_id}/functions/{op}/invoke"

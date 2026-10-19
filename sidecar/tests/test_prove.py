@@ -457,6 +457,19 @@ def test_whole_numbers_on_one_side_and_decimals_on_the_other_compare_as_numbers(
     assert verify.compare(pc, pa.table({"k": [1, 2], "n": ["1", "2"]}), rules)["result"] == "differs"
 
 
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("rules", [{}, {"keys": ["k"]}, {"limit_rows": 1}], ids=["whole rows", "keyed", "checksum"])
+@pytest.mark.parametrize("pc,fabric,result", [
+    ([1.0], [NAN], "differs"), ([1], [NAN], "differs"), ([1], [INF], "differs"), ([1.0], [-INF], "differs"),
+    ([INF], [-INF], "differs"), ([0], [None], "differs"), ([None], [0.0], "differs"),
+    ([NAN], [NAN], "match"), ([INF], [INF], "match"), ([None], [None], "match"), ([0], [-0.0], "match")])
+def test_nan_infinity_and_null_are_never_within_a_tolerance(rules, pc, fabric, result):
+    a = pa.table({"k": [1], "n": pa.array(pc, pa.int64() if isinstance(pc[0], int) else pa.float64())})
+    assert verify.compare(a, pa.table({"k": [1], "n": pa.array(fabric, pa.float64())}), rules)["result"] == result
+
+
 def test_verify_whole_rows_counts_duplicates_and_reports_levels():
     a = pa.table({"k": [1, 1, 2], "v": [1.0, 1.0, 2.0]})
     b = pa.table({"k": [1, 2, 2], "v": [1.0, 2.0, 2.0]})

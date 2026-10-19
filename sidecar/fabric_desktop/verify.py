@@ -180,8 +180,9 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
             same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "
-                    f"(abs({x} - {y}) <= {ab!r} OR abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})) "
-                    f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")
+                    f"((isfinite({x}) AND isfinite({y}) AND (abs({x} - {y}) <= {ab!r} OR "
+                    f"abs({x} - {y}) <= {rl!r} * greatest(abs({x}), abs({y})))) "
+                    f"OR (isnan({x}) AND isnan({y})) OR {x} = {y})))")  # the tolerance holds between finite numbers
             metrics.append((name_a, f"max(abs({x} - {y})) FILTER (WHERE NOT {same})",
                             f"max(abs({x} - {y}) / nullif(greatest(abs({x}), abs({y})), 0)) FILTER (WHERE NOT {same})"))
         elif ka == kb == "timestamp":

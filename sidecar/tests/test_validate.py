@@ -114,6 +114,8 @@ def test_local_files_and_keys_the_code_checks_find():
     effects = lambda src: [f["title"] for f in findings(validate.check([code(src)], None), "side_effect")]
     assert effects("text = open('a').read()") == []  # opening to read is not a write
     assert effects("open('a', 'w').write('x')") == ["Cell 1 writes files on this PC"]
+    assert effects("import os\nopen(os.path.join('a', 'b'), 'w')") == ["Cell 1 writes files on this PC"]
+    assert effects("import os\nopen(os.path.join('a', 'b')).read()") == []
     assert effects("import pandas as pd\npd.DataFrame().to_csv('out.csv')") == ["Cell 1 writes files on this PC"]
     assert effects("import pandas as pd\ns = pd.DataFrame().to_csv(index=False)") == []
     out = validate.check([code('key = "sk-proj-abcdefghijklmnopqrstuvwx"')], None)

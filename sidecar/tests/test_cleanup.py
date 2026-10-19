@@ -35,12 +35,26 @@ def test_unused_and_repeated_imports_are_removed_and_used_ones_kept():
     assert applied(cells, ["repeated_imports"])[0] == cells[0]["source"]
 
 
+def test_an_import_that_may_do_something_when_imported_is_offered_unticked():
+    cells = [code("import janitor\nimport os"), code("df = df.clean_names()")]
+    t = tidy(cells)
+    assert t["unused_imports"]["text"] == "Cell 1: no cell uses os." and t["unused_imports"]["on"]
+    other = t["unused_package_imports"]
+    assert other["on"] is False and "pyjanitor adds DataFrame methods" in other["text"]
+    assert other["diff"] == [{"cell": 1, "removed": ["import janitor"]}]
+    # What Apply makes with the tidy-ups ticked at first keeps it.
+    on = [x["id"] for x in cleanup.plan(cells)["tidy"] if x["on"]]
+    assert applied(cells, on)[0] == "import janitor"
+
+
 def test_imports_are_left_alone_when_names_can_be_made_at_run_time_or_the_cell_is_frozen():
     assert "unused_imports" not in tidy([code("import os\nexec('x = 1')")])
     assert "unused_imports" not in tidy([code("import os\n%run other_notebook")])
     assert "unused_imports" not in tidy([code("import os", frozen=True), code("x = 1")])
     assert "unused_imports" not in tidy([code("import os  # needed by the shim")])  # a comment on the line stays
     assert "unused_imports" not in tidy([code("import os; x = 1")])
+    assert "unused_imports" not in tidy([code("import json"), code("del json")])  # del needs the name
+    assert "unused_imports" not in tidy([code("from typing import List"), code("def h(x: 'List[int]'): return x")])
     # A repeated import after the name was rebound isn't repeated.
     assert "repeated_imports" not in tidy([code("import polars as pl"), code("pl = None"), code("import polars as pl\npl.DataFrame()")])
     # An earlier frozen cell doesn't run, so the later import is needed.

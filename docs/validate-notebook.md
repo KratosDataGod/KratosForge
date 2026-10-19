@@ -38,13 +38,14 @@ Clean up reads the code and lists two kinds of changes. Nothing runs.
 
 | Tidy-up | What it changes | Ticked at first |
 | --- | --- | --- |
-| Remove unused imports | An import no cell uses | Yes |
+| Remove unused imports | An import of a standard-library module, or of numpy, pandas, polars, pyarrow, duckdb, deltalake, requests or scipy, that no cell uses | Yes |
+| Remove imports no cell names | An import of any other package that no cell names | No: some packages add things when imported (pyjanitor adds DataFrame methods), so check first |
 | Remove repeated imports | An import an earlier cell already made, with nothing rebinding the name in between | Yes |
 | Tidy spacing | Spaces at line ends and runs of more than two blank lines, outside multi-line strings | Yes |
 | Remove empty cells | Cells with no code (never the parameter cell) | Yes |
 | Remove print lines | One-line `print(...)` statements | No: you may want them |
 
-A tidy-up never changes what the code does. It leaves frozen cells alone, skips imports when the notebook can make names at run time (`exec`, `import *`, `%run`) or the line has a comment, keeps spacing changes only when the code is identical after them, and drops any change after which a cell wouldn't parse. **Apply** changes the cells, and the notebook saves as it does after any edit. **Undo** puts the cells back as they were.
+The tidy-ups ticked at first don't change what the code does. Tidy-ups leave frozen cells alone, skips imports when the notebook can make names at run time (`exec`, `import *`, `%run`) or the line has a comment, keeps spacing changes only when the code is identical after them, and drops any change after which a cell wouldn't parse. **Apply** changes the cells, and the notebook saves as it does after any edit. **Undo** puts the cells back as they were, as long as you haven't edited them since; after an edit, Undo isn't offered, so it can't lose that edit.
 
 **Suggestions** point at a cell and leave the change to you:
 

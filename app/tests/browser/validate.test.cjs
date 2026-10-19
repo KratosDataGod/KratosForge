@@ -76,3 +76,18 @@ test("Clean up applies the ticked tidy-ups, and Undo puts the cells back", { ski
   assert.deepStrictEqual(await page().evaluate(() => state.notebook.cells.map((c) => c.source)), CELLS.map((c) => c.source));
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("Undo isn't offered after a later edit, so it can't lose that edit", { skip }, async () => {
+  const pane = page().locator(".validatepane");
+  await pane.getByRole("button", { name: /^Apply 3 tidy-ups/ }).click();
+  await page().waitForFunction(() => state.notebook.cells.length === 3);
+  const undo = pane.getByRole("button", { name: "Undo" });
+  await undo.waitFor();
+  await page().evaluate(() => { setSource(state.notebook.cells[1], "import json\ntotal = 2"); markDirty(); });
+  await undo.click();  // still on screen from before the edit: it refuses
+  await page().locator("#toast").getByText(/Undo would lose those edits/).waitFor();
+  assert.deepStrictEqual(await page().evaluate(() => state.notebook.cells.map((c) => c.source)),
+    ["run_date = '2026-10-18'", "import json\ntotal = 2", CELLS[2].source]);
+  assert.strictEqual(await undo.count(), 0);
+  assert.deepStrictEqual(app.errors, []);
+});

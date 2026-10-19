@@ -55,6 +55,16 @@ function cleanupChosen(plan, chosen) {
   return (plan?.tidy || []).filter((t) => (chosen && t.id in chosen ? chosen[t.id] : t.on)).map((t) => t.id);
 }
 
+// The cells as Undo compares them: order, kind, code and settings.
+function cleanupState(cells) {
+  return JSON.stringify((cells || []).map((c) => [c.cell_id, c.type, c.source || "", c.meta || {}]));
+}
+
+// Undo is offered only while the cells are exactly what Apply made, so it never drops a later edit.
+function cleanupUndoable(undo, cells) {
+  return !!undo && undo.after === cleanupState(cells);
+}
+
 // ---------- state ----------
 
 const VALIDATE_POLL_MS = 1000;
@@ -189,7 +199,7 @@ async function applyCleanup(nb) {
   if (!ids.length) return;
   const out = await attempt(() => rpc("notebook_cleanup_apply", { cells: validatePayload(nb).cells, ids }), "Could not clean up");
   if (!out) return;
-  v.undo = cleanupSnapshot(nb);
+  const before = cleanupSnapshot(nb);
   const gone = new Set(out.removed);
   const next = new Map(out.cells.map((c) => [c.cell_id, c.source]));
   for (const cell of [...nb.cells]) {
@@ -201,6 +211,7 @@ async function applyCleanup(nb) {
       setSource(cell, next.get(cell.cell_id));
     }
   }
+  v.undo = { cells: before, after: cleanupState(nb.cells) };
   markDirty();
   renderNotebook();
   toast(`Cleaned up: ${out.applied.length} tidy-up${out.applied.length > 1 ? "s" : ""}. Undo puts the cells back.`);
@@ -209,9 +220,14 @@ async function applyCleanup(nb) {
 
 async function undoCleanup(nb) {
   const v = nb.validate;
-  if (!v.undo) return;
+  if (!cleanupUndoable(v.undo, nb.cells)) {
+    v.undo = null;
+    toast("The cells changed after the clean-up, so Undo would lose those edits. Undo isn't offered any more.");
+    drawValidate(nb);
+    return;
+  }
   disposeEditors();
-  nb.cells = v.undo.map(cellFrom);
+  nb.cells = v.undo.cells.map(cellFrom);
   nb.cells.forEach((c) => { if (c.type === "markdown") c.editing = false; });
   v.undo = null;
   markDirty();
@@ -339,6 +355,7 @@ function cleanupBody(nb) {
   const v = nb.validate;
   const body = h("div", { class: "prove-body" },
     h("p", { class: "muted small" }, "Tidy-ups change only the cells, never the lakehouse. Nothing changes until you apply them, and Undo puts the cells back."));
+  if (v.undo && !cleanupUndoable(v.undo, nb.cells)) v.undo = null;  // edited since: Undo would lose those edits
   if (v.undo) body.append(h("div", { class: "prove-note" }, "Cleaned up. ", h("button", { class: "link-btn", onclick: () => undoCleanup(nb) }, "Undo")));
   const plan = v.plan;
   if (!plan) {

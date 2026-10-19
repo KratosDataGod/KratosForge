@@ -133,7 +133,7 @@ New items:
 
 ## Validate a notebook (Preview)
 
-In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
+In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
 
 ## Workspaces
 

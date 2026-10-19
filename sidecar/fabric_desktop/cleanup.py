@@ -6,21 +6,30 @@ into pandas, a parameter's value written out again, a row-by-row loop). ``apply(
 returns the cells with the chosen tidy-ups made. Both read the code only: nothing runs, and
 nothing is written; the app puts the new cells in the notebook, where Undo puts them back.
 
-A tidy-up never changes what the code does: it leaves frozen cells alone, skips a notebook whose
-names can be made at run time (``exec``, ``import *``, ``%run``), keeps a cell's code identical
-when it only changes spacing, and drops any change after which the cell no longer parses.
+The tidy-ups ticked at first don't change what the code does; removing print lines, or an import
+of a package that may do something when imported, is offered unticked. Tidy-ups leave frozen
+cells alone, skip a notebook whose names can be made at run time (``exec``, ``import *``,
+``%run``), keep a cell's code identical when they only change spacing, and drop any change after
+which the cell no longer parses.
 """
 
 from __future__ import annotations
 
 import ast
 import io
+import sys
 import tokenize
 from typing import Any
 
 from . import depgraph
 
 _KEEP_IMPORTS = {"__future__", "fabric_desktop"}  # imported for what importing does, or named in docs
+# Modules whose import only defines names, so an import no cell names can go without changing
+# anything. Others may register things when imported (pyjanitor adds DataFrame methods), so
+# removing theirs is offered unticked.
+_PLAIN_IMPORTS = (set(sys.stdlib_module_names) - {"antigravity", "this", "readline", "rlcompleter", "site", "sitecustomize",
+                                                  "usercustomize", "builtins", "faulthandler", "tracemalloc", "cgitb"}) \
+    | {"numpy", "pandas", "polars", "pyarrow", "duckdb", "deltalake", "requests", "scipy"}
 _READS = {"read_table", "table", "open_table"}
 _TO_PANDAS = {"to_pandas", "toPandas"}
 
@@ -120,9 +129,31 @@ def _uses(cells: list[dict[str, Any]]) -> set[str]:
         used |= set(depgraph.analyze(c.get("source") or "").get("uses", []))
         tree = _parse(c.get("source") or "")
         if tree is not None:  # a name the same cell imports and uses isn't in "uses"
-            used |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+            used |= {n.id for n in ast.walk(tree) if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Load, ast.Del))}
             used |= {n.value.id for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
+            used |= _annotation_names(tree)
     return used
+
+
+def _annotation_names(tree: ast.Module) -> set[str]:
+    """Names in string annotations ("List[int]"), which typing tools read later."""
+    notes: list[ast.expr | None] = []
+    for n in ast.walk(tree):
+        if isinstance(n, ast.arg):
+            notes.append(n.annotation)
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            notes.append(n.returns)
+        elif isinstance(n, ast.AnnAssign):
+            notes.append(n.annotation)
+    out: set[str] = set()
+    for note in notes:
+        for c in ast.walk(note) if note is not None else []:
+            if isinstance(c, ast.Constant) and isinstance(c.value, str):
+                try:
+                    out |= {x.id for x in ast.walk(ast.parse(c.value, mode="eval")) if isinstance(x, ast.Name)}
+                except SyntaxError:
+                    pass
+    return out
 
 
 def _rebinds(cells: list[dict[str, Any]], name: str, after: int, before: int) -> bool:
@@ -141,6 +172,7 @@ def _import_edits(cells: list[dict[str, Any]]) -> tuple[dict[int, dict[ast.stmt,
     imports = [i for i in _imports(cells) if i["alone"]]
     used = _uses(cells)
     unused: list[tuple[int, str]] = []
+    other: list[tuple[int, str]] = []  # modules that may do something when imported
     repeated: list[tuple[int, str, int]] = []
     first: dict[tuple[str, str, str], int] = {}
     for imp in imports:
@@ -156,13 +188,20 @@ def _import_edits(cells: list[dict[str, Any]]) -> tuple[dict[int, dict[ast.stmt,
                 continue
             first.setdefault(key, imp["cell"])
             if bound not in used and not _params(cells[imp["cell"] - 1]):
-                drops.setdefault(imp["cell"], {}).setdefault(stmt, {})[bound] = "unused_imports"
-                unused.append((imp["cell"], bound))
+                plain = _module(stmt, alias) in _PLAIN_IMPORTS
+                drops.setdefault(imp["cell"], {}).setdefault(stmt, {})[bound] = "unused_imports" if plain else "unused_package_imports"
+                (unused if plain else other).append((imp["cell"], bound))
     if unused:
         where = sorted({n for n, _ in unused})
         names = ", ".join(sorted({b for _, b in unused}))
         changes.append(_change("unused_imports", f"Remove {_plural(len(unused), 'unused import')}",
                                f"{_cells(where)}: no cell uses {names}.", where))
+    if other:
+        where = sorted({n for n, _ in other})
+        names = ", ".join(sorted({b for _, b in other}))
+        changes.append(_change("unused_package_imports", f"Remove {_plural(len(other), 'import')} no cell names",
+                               f"{_cells(where)}: no cell names {names}. Some packages add things when imported "
+                               "(pyjanitor adds DataFrame methods, for example), so check before removing.", where, on=False))
     if repeated:
         where = sorted({n for n, _, _ in repeated})
         text = "; ".join(f"cell {e} already imports {b}" for _, b, e in repeated)
@@ -310,7 +349,7 @@ def _diff(cells: list[dict[str, Any]], change: dict[str, Any],
     for n in change["cells"]:
         source = cells[n - 1].get("source") or ""
         lines = source.split("\n")
-        if change["id"] in ("unused_imports", "repeated_imports"):
+        if change["id"] in ("unused_imports", "unused_package_imports", "repeated_imports"):
             gone = [lines[s.lineno - 1] for s, names in drops.get(n, {}).items() if change["id"] in names.values()]
         elif change["id"] == "print_lines":
             gone = [lines[i - 1] for i in _print_lines(source)]

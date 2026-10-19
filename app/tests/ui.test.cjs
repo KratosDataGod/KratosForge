@@ -1480,7 +1480,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
 function validateHelpers() {
   const src = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
   const ctx = {};
-  vm.runInNewContext(`${src}; Object.assign(this, { validateHeadline, validateShown, validateSnapshot, validateChanged, cleanupChosen });`, ctx);
+  vm.runInNewContext(`${src}; Object.assign(this, { validateHeadline, validateShown, validateSnapshot, validateChanged, cleanupChosen, cleanupState, cleanupUndoable });`, ctx);
   return ctx;
 }
 
@@ -1511,10 +1511,21 @@ test("Clean up applies the ticked tidy-ups, starting from the ones ticked at fir
   assert.deepStrictEqual([...cleanupChosen(plan, { unused_imports: false, print_lines: true })], ["print_lines"]);
   const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
   assert.match(v, /preview\("validate", btn\("Validate"/);
-  assert.match(v, /v\.undo = cleanupSnapshot\(nb\);/);
+  assert.match(v, /v\.undo = \{ cells: before, after: cleanupState\(nb\.cells\) \};/);
   assert.match(v, /if \(cell\.meta\?\.frozen\) continue;/);
   assert.match(v, /changes: "Code checks and suggestions change nothing\. A clean run writes tables only to Files\/_fabric_desktop\/proofs\/validate-<id>\/pc/);
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   assert.strictEqual(nb.match(/validateToggle\(nb\), proveToggle\(nb\)/g).length, 2);
   assert.match(nb, /provePanel\(nb\), validatePanel\(nb\)\)/);
+});
+
+test("Clean up's Undo is offered only while the cells are exactly what Apply made", () => {
+  const { cleanupState, cleanupUndoable } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1", meta: {} }, { cell_id: "b", type: "code", source: "y = 2", meta: {} }];
+  const undo = { cells: [], after: cleanupState(cells) };
+  assert.strictEqual(cleanupUndoable(undo, cells), true);
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], source: "y = 3" }]), false);  // an edit
+  assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
+  assert.strictEqual(cleanupUndoable(null, cells), false);
 });

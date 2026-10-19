@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
+  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -68,9 +68,10 @@ async function loadMetaProject() {
   return p;
 }
 
-// Metadata's tabs, in four groups so new metadata features join a group instead of a long row.
+// Data mesh's tabs, in groups so new features join a group instead of a long row. Overview comes first.
 // [group id, label, [[tab id, label, preview feature id]]]
 const META_TAB_GROUPS = [
+  ["overview", "Overview", [["overview", "Domains", "mesh"]]],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
@@ -123,7 +124,7 @@ async function renderMetadata() {
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
-  const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  const render = { overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
     domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab }[m.tab];
   await render(body, p);

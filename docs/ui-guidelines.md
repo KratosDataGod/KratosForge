@@ -1,6 +1,6 @@
 # UI guidelines: adding a feature without moving things people know
 
-Fabric Desktop by KratosBI is used by people who learned where things are. New features go where those people already look. These rules keep it that way; `app/ui/features.js` enforces the first two.
+KratosForge is used by people who learned where things are. New features go where those people already look. These rules keep it that way; `app/ui/features.js` enforces the first two.
 
 ## Where a new page goes
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 from typing import Any
 
 import polars as pl
@@ -23,7 +24,10 @@ from .meta import drift as drift_mod
 from .meta import freshness as freshness_mod
 from .meta import release
 from .meta.project import ENVIRONMENTS
+from .redact import describe
 from .workloads.notify import failure
+
+_log = logging.getLogger(__name__)
 
 
 def _rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
@@ -154,8 +158,8 @@ class DataOpsMixin:
         try:
             h = store.meta("schema_history").filter(pl.col("entity") == name).reverse()
             history = _rows(h, 10)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("No schema history for this entity: %s", describe(exc))
         return drift_mod.detect(project, e, source) | {"env": env, "problem": problem, "history": history}
 
     def meta_drift_apply(self, name: str, add: dict[str, str] | None = None, retype: dict[str, str] | None = None,
@@ -299,7 +303,7 @@ class DataOpsMixin:
                 text = f"**{x['entity']}** in {env} is late: {'; '.join(x['reasons'])}."
             elif x.get("failed_run"):
                 key = f"failed:{x['env']}:{x['entity']}:{x['failed_run']}"
-                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in Fabric Desktop by KratosBI'}."
+                text = f"**{x['entity']}** in {env} failed: {x.get('failure') or 'see the run in KratosForge'}."
             else:
                 continue
             if key not in sent:
@@ -325,7 +329,7 @@ class DataOpsMixin:
         if url and not url.startswith("https://"):
             raise ValueError("The Teams webhook address starts with https://")
         if url and test:
-            post_teams(url, "Fabric Desktop by KratosBI alerts are on",
+            post_teams(url, "KratosForge alerts are on",
                        ["Late or failed tables will be posted here, once each."])
         self._save_settings(teams_webhook=url)  # type: ignore[attr-defined]
         return self.meta_alerts()
@@ -336,7 +340,7 @@ def teams_card(title: str, lines: list[str]) -> dict[str, Any]:
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium", "wrap": True}]
     body += [{"type": "TextBlock", "text": line, "wrap": True, "spacing": "Small"} for line in lines[:20]]
     if len(lines) > 20:
-        body.append({"type": "TextBlock", "text": f"and {len(lines) - 20} more in Fabric Desktop by KratosBI", "wrap": True})
+        body.append({"type": "TextBlock", "text": f"and {len(lines) - 20} more in KratosForge", "wrap": True})
     return {"type": "message", "attachments": [{"contentType": "application/vnd.microsoft.card.adaptive", "contentUrl": None,
             "content": {"$schema": "http://adaptivecards.io/schemas/adaptive-card.json", "type": "AdaptiveCard",
                         "version": "1.4", "body": body}}]}

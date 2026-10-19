@@ -1,6 +1,6 @@
 # Production readiness checklist
 
-Release gates for Fabric Desktop by KratosBI going to an enterprise pilot. Each gate has measurable acceptance criteria and the evidence that exists today. Reviewed at `main` **1248ccd** (2026-10-17); gate states re-checked at **a346145** (2026-10-18 16:35Z). This page replaces the gate table in [release-readiness.md](../product/release-readiness.md), whose "open PR" entries have since merged.
+Release gates for KratosForge going to an enterprise pilot. Each gate has measurable acceptance criteria and the evidence that exists today. Reviewed at `main` **1248ccd** (2026-10-17); gate states re-checked at **a346145** (2026-10-18 16:35Z). This page replaces the gate table in [release-readiness.md](../product/release-readiness.md), whose "open PR" entries have since merged.
 
 ## Evidence levels
 

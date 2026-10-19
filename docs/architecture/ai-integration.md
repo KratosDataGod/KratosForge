@@ -1,6 +1,6 @@
 # AI integration architecture
 
-Fabric Desktop by KratosBI is **AI-ready, not AI-dependent**. It contains no AI model, no chat, no AI provider SDK and asks for no AI API key. Instead it exposes its own capabilities through standard interfaces (the Model Context Protocol and a documented local API) so a developer can point whichever AI tool they already use at it: Claude, Codex, GitHub Copilot, Cursor, or tools that don't exist yet.
+KratosForge is **AI-ready, not AI-dependent**. It contains no AI model, no chat, no AI provider SDK and asks for no AI API key. Instead it exposes its own capabilities through standard interfaces (the Model Context Protocol and a documented local API) so a developer can point whichever AI tool they already use at it: Claude, Codex, GitHub Copilot, Cursor, or tools that don't exist yet.
 
 The app works exactly the same with every integration switched off, which is the default.
 
@@ -33,7 +33,7 @@ External tools: Claude, Codex, Copilot, Cursor, any MCP client, any HTTP client
    (fabric-desktop mcp)  (127.0.0.1, token)            (127.0.0.1, token)
         \_______________________|__________________________/
                                 |
-              Fabric Desktop integration layer  (fabric_desktop/integrations/)
+              KratosForge integration layer  (fabric_desktop/integrations/)
               - capability registry: every operation, its schemas and permissions
               - invoke(): validate -> authorize -> approve -> run -> shape result
               - permissions and approvals (integrations.sqlite, decided in the app)
@@ -71,7 +71,7 @@ Until **Settings > Integrations** writes the configuration for you, a developer 
 fabric-desktop mcp --client my-laptop
 ```
 
-`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing Fabric Desktop sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
+`fabric-desktop capabilities` prints every capability with its schemas as JSON. The server signs in with your existing KratosForge sign-in and never opens a sign-in window; sign in in the app first. On a release install the engine's folder changes with every update, so the Integrations page will write a launcher with a fixed path rather than asking you to copy one.
 
 ### The local HTTP API
 
@@ -222,7 +222,7 @@ The full threat model is in [ai-integration-security.md](../product/ai-integrati
 - External clients and everything they send are untrusted, and so is everything they read (notebook text, data, metadata). Nothing read is ever treated as an instruction or as authorization.
 - No capability returns a token, secret, connection string or credential. Results and errors pass through secret redaction.
 - The HTTP listener binds to `127.0.0.1`, requires a per-client bearer token, checks `Host` and `Origin` (DNS rebinding), limits request size, rate and concurrency, and stops with the app.
-- **What this boundary is not:** it protects against an AI tool that only has Fabric Desktop's interfaces, including one misled by a prompt injection. It does not protect against a tool that already runs arbitrary commands as you on the PC: that tool can read your files and the sign-in cache directly. Approvals for `EXECUTE_LOCAL_CODE` exist because running code is equivalent to that level of access.
+- **What this boundary is not:** it protects against an AI tool that only has KratosForge's interfaces, including one misled by a prompt injection. It does not protect against a tool that already runs arbitrary commands as you on the PC: that tool can read your files and the sign-in cache directly. Approvals for `EXECUTE_LOCAL_CODE` exist because running code is equivalent to that level of access.
 
 ## 10. Compatibility and limits
 

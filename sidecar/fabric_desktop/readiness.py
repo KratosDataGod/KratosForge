@@ -92,7 +92,7 @@ def write_test(store: Any, workspace_id: str, lakehouse_id: str, workspace_name:
     refusal = write_test_refusal(workspace_name)
     if refusal:
         raise PermissionError(refusal)
-    body = f"Fabric Desktop by KratosBI write test {int(time.time())}\n".encode()
+    body = f"KratosForge write test {int(time.time())}\n".encode()
     started = time.monotonic()
     try:
         store.upload(workspace_id, lakehouse_id, CHECK_FILE, body)

@@ -122,7 +122,7 @@ def task_xml(schedule: dict[str, Any], executable: str, workdir: str) -> str:
     args = f"-m fabric_desktop.cli run-schedule {schedule['id']}"
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
-  <RegistrationInfo><Description>{escape("Fabric Desktop: " + target_label(schedule["target"]))}</Description></RegistrationInfo>
+  <RegistrationInfo><Description>{escape("KratosForge: " + target_label(schedule["target"]))}</Description></RegistrationInfo>
   <Triggers>{_triggers(schedule["config"])}</Triggers>
   <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>

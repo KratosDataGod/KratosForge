@@ -117,7 +117,7 @@ def test_initialize_negotiates_and_describes_the_server(transport, mode):
             assert c.protocol_version == MODES[mode]
             info = c.server_info
             assert (info.name, info.version) == ("fabric-desktop", __version__)
-            assert info.title == "Fabric Desktop by KratosBI"
+            assert info.title == "KratosForge"
             caps = c.server_capabilities
             assert caps.tools is not None and caps.resources is not None and caps.prompts is not None
             assert c.instructions and "approval" in c.instructions

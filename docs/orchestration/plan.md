@@ -1,6 +1,6 @@
 # Fabric pipelines on this PC: orchestration plan
 
-Fabric Desktop by KratosBI's program for importing, checking and, later, running Microsoft Fabric Data Factory pipelines on your own PC, so developing and testing a pipeline doesn't spend Fabric capacity. Feature IDs ORCH-001 to ORCH-010. The working state for whoever continues it is in the [continuation note](continuation.md); how to use what exists is in [Pipeline definitions](pipeline-definitions.md).
+KratosForge's program for importing, checking and, later, running Microsoft Fabric Data Factory pipelines on your own PC, so developing and testing a pipeline doesn't spend Fabric capacity. Feature IDs ORCH-001 to ORCH-010. The working state for whoever continues it is in the [continuation note](continuation.md); how to use what exists is in [Pipeline definitions](pipeline-definitions.md).
 
 ## Rules for the whole program
 

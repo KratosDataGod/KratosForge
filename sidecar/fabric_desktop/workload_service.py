@@ -10,6 +10,7 @@ recorded with how they ended. See docs/workloads/plan.md.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -21,8 +22,11 @@ from .fabric_run import TERMINAL
 from .meta import freshness as freshness_mod
 from .meta.project import ENVIRONMENTS, impact
 from .meta import mesh as mesh_mod
+from .redact import describe
 from .workloads import health, inventory, model, query
 from .workloads.store import ManagementStore
+
+_log = logging.getLogger(__name__)
 
 REMOTE_RUNS_MAX_AGE = 120          # seconds a OneLake run log read is reused without asking again
 RUNS_STALE_AFTER = 3600            # a cached run log older than this is shown as stale
@@ -50,13 +54,15 @@ class WorkloadMixin:
     def _wl_user(self) -> str:
         try:
             return self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no client id yet
+        except Exception as exc:  # noqa: BLE001 - no client id yet
+            _log.info("Signed-in user unknown: %s", describe(exc))
             return ""
 
     def _wl_token(self, scopes: list[str]) -> str | None:
         try:
             return self.auth.silent_token(scopes)  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            _log.info("No silent token: %s", describe(exc))
             return None
 
     # ---- sources
@@ -324,7 +330,7 @@ class WorkloadMixin:
         for a in actions:
             events.append({"at": a["at"], "kind": "action", "state": a["status"],
                            "text": f"{_ACTION_LABELS.get(a['action'], a['action'])} by {a['by'] or 'you'} · {a['status']}",
-                           "source": "actions from Fabric Desktop by KratosBI"})
+                           "source": "actions from KratosForge"})
         for h in w.get("assignment_history") or []:
             events.append({"at": h["at"], "kind": "ownership", "state": "ok",
                            "text": f"{model.ROLE_LABELS.get(h['field'], h['field'].title())}: "
@@ -340,7 +346,8 @@ class WorkloadMixin:
             return []
         try:
             products = self.platform_products()  # type: ignore[attr-defined]
-        except Exception:  # noqa: BLE001 - no platform: the products are still listed, without consumers
+        except Exception as exc:  # noqa: BLE001 - no platform: the products are still listed, without consumers
+            _log.info("No platform catalog; products are listed without consumers: %s", describe(exc))
             return []
         pname = w["definition"].get("project")
         wanted = {f"{pname}.{f['product']}" for f in feeds} | {f["product"] for f in feeds}
@@ -371,8 +378,8 @@ class WorkloadMixin:
         try:
             self.workload_store.record_link(name, workspace_id, item_id, workspace_name, how="recorded",
                                             by=self._wl_user())
-        except Exception:  # noqa: BLE001 - never fail a publish over this
-            pass
+        except Exception as exc:  # noqa: BLE001 - never fail a publish over this
+            _log.warning("Couldn't record notebook %r's Fabric item: %s", name, describe(exc))
 
     def workload_link(self, notebook: str, workspace_id: str, item_id: str, workspace_name: str = "") -> dict[str, Any]:
         self.notebooks.load(notebook)  # type: ignore[attr-defined]  # it exists
@@ -559,5 +566,6 @@ def _rows(df: Any) -> list[dict[str, Any]]:
     try:
         return [{k: (v.isoformat() if isinstance(v, (dt.date, dt.datetime)) else v) for k, v in r.items()}
                 for r in df.to_dicts()]
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("Couldn't convert rows for the workload view: %s", describe(exc))
         return []

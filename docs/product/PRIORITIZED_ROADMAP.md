@@ -1,6 +1,6 @@
 # Prioritized roadmap
 
-The order in which Fabric Desktop by KratosBI should build the items in
+The order in which KratosForge should build the items in
 [the product backlog](PRODUCT_BACKLOG.md), and why. Every number on this page is computed from
 [PRODUCT_BACKLOG.json](PRODUCT_BACKLOG.json) by `docs/product/tools/product_data.py`, so changing a
 score or a weight and running `product_data.py all` re-ranks everything the same way each time.

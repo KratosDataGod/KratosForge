@@ -9,6 +9,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import http_session
 from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -57,7 +58,7 @@ def _check_fabric_runs_allowed(what: str) -> None:
     """The organization's policy can keep work off Fabric capacity (allow_fabric_runs: false)."""
     from . import app_settings
     if not app_settings.value("allow_fabric_runs"):
-        raise FabricError(f"Your organization doesn't allow {what} from Fabric Desktop by KratosBI, so it wasn't "
+        raise FabricError(f"Your organization doesn't allow {what} from KratosForge, so it wasn't "
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 
@@ -65,7 +66,7 @@ class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
         self._poll_timeout = poll_timeout
 

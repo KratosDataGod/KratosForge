@@ -9,13 +9,15 @@ Capacity Metrics app in Fabric has the billed numbers.
 
 Runs on this PC start no Fabric job, so their Fabric job CU is 0. That isn't zero capacity: their
 OneLake reads and writes still use the capacity of the workspace they read and write, and
-aren't counted here. What the job would have cost is estimated as the same time on a Python
-notebook, which is what Fabric Desktop's runner uses in Fabric.
+aren't counted here. What the job would have used in Fabric (``avoided_cu``) comes from Fabric
+runs of the same workload (``calibration.py``, FINOPS-005): an **estimate** when there are such
+runs, otherwise **unknown**. Time on this PC is never turned into CU for it. The older rough
+figure, the same time on a Python notebook, stays as ``scenario_cu`` and is never added to it.
 
 Every figure is also a classified measurement (``measurement.py``): Fabric use worked out from
-run time is **estimated**, what a run on this PC would have used in Fabric is a **scenario**,
-and a run whose time isn't known is **unknown** rather than 0. The plain numbers (``cu_hours``,
-``cost``, ``saved``...) stay for older callers and cover only the known parts.
+run time is **estimated**, the rough figure for a run on this PC is a **scenario**, and a run
+whose time isn't known is **unknown** rather than 0. The plain numbers (``cu_hours``, ``cost``,
+``saved``...) stay for older callers as they were: ``saved`` is still the rough scenario.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any
 
+from . import calibration
 from . import measurement as ms
 
 DEFAULTS: dict[str, Any] = {"price_per_cu_hour": 0.18, "currency": "USD", "python_cu": 1.0, "spark_cu": 8.0}
@@ -78,19 +81,21 @@ def _scenario_cu(seconds: float, cu: float, ids: dict[str, Any], at: Any) -> dic
     return ms.make(ms.SCENARIO, "fabric_job_cu_avoided", ms.CU_SECONDS, seconds * cu,
                    method="time on this PC x configured CUs of a Python notebook", period_start=at,
                    assumptions=["The run would take as long in Fabric as it took on this PC.",
-                                (f"It would run as a Python notebook at {cu:g} CU, which is what Fabric Desktop by "
-                                 "KratosBI's runner uses in Fabric."),
+                                (f"It would run as a Python notebook at {cu:g} CU, which is what KratosForge's "
+                                 "runner uses in Fabric."),
                                 "OneLake reads and writes made from this PC still use capacity and aren't counted."], **ids)
 
 
 def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]],
-               notebook_writes: list[dict[str, Any]], cfg: dict[str, Any]) -> list[dict[str, Any]]:
+               notebook_writes: list[dict[str, Any]], cfg: dict[str, Any], *,
+               now: dt.datetime | None = None) -> list[dict[str, Any]]:
     """Every run as one row: what it was, where it ran, how long, and its CU-seconds.
 
     Each row carries ``fabric_job_cu`` (a classified measurement of the CU its Fabric job used; OneLake
-    storage transactions are not part of it) and,
-    for runs on this PC, ``avoided_cu`` (the scenario of running it in Fabric instead). A run
-    whose time isn't known has ``seconds`` None and unknown measurements, never 0.
+    storage transactions are not part of it) and, for runs on this PC, ``avoided_cu`` (what it
+    would have used in Fabric, from Fabric runs of the same workload; see ``calibrate``) and
+    ``scenario_cu`` (the rough figure: its time here on a Python notebook). A run whose time isn't
+    known has ``seconds`` None and unknown measurements, never 0.
 
     Metadata runs in Fabric are counted per table from the run log; the runner job that holds
     them is left out so its time isn't counted twice."""
@@ -98,10 +103,10 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
     rows: list[dict[str, Any]] = []
 
     def row(kind: str, name: str, env: str, where: str, at: Any, secs: float | None,
-            fabric_cu: dict[str, Any], avoided: dict[str, Any] | None) -> None:
+            fabric_cu: dict[str, Any], scenario: dict[str, Any] | None, **workload: Any) -> None:
         rows.append({"kind": kind, "name": name, "env": env, "where": where, "at": at, "seconds": secs,
-                     "cu_seconds": fabric_cu["value"] or 0.0, "would_cu_seconds": (avoided or {}).get("value") or 0.0,
-                     "fabric_job_cu": fabric_cu, "avoided_cu": avoided})
+                     "cu_seconds": fabric_cu["value"] or 0.0, "would_cu_seconds": (scenario or {}).get("value") or 0.0,
+                     "fabric_job_cu": fabric_cu, "avoided_cu": None, "scenario_cu": scenario} | workload)
 
     def local_cu(ids: dict[str, Any], at: Any) -> dict[str, Any]:
         return ms.make(ms.MEASURED, "fabric_job_cu", ms.CU_SECONDS, 0.0, source="Fabric Desktop run log",
@@ -114,18 +119,21 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
         secs = r.get("seconds")
         secs = float(secs) if isinstance(secs, (int, float)) and not isinstance(secs, bool) and secs >= 0 else None
         at = r.get("started_at")
+        # One metadata table is one workload wherever it runs; "logic" is its definition's fingerprint.
+        workload = {"workload_id": f"meta:{r['entity']}" if r.get("entity") else None,
+                    "version": r.get("logic") or None, "rows_read": r.get("rows_read")}
         if secs is None:
             why = "The run log has no run time for this table."
             row("Metadata run", r.get("entity") or "", r.get("env") or "", "fabric" if fabric else "local", at, None,
                 ms.unknown("fabric_job_cu", ms.CU_SECONDS, why, **ids) if fabric else local_cu(ids, at),
-                None if fabric else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, why, **ids))
+                None if fabric else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, why, **ids), **workload)
         elif fabric:
             row("Metadata run", r.get("entity") or "", r.get("env") or "", "fabric", at, secs,
                 _estimated_cu(secs, py, "python", "Run time per table from the metadata run log; the runner "
-                              "notebook's session start isn't counted.", ids, at, "Metadata run log"), None)
+                              "notebook's session start isn't counted.", ids, at, "Metadata run log"), None, **workload)
         else:
             row("Metadata run", r.get("entity") or "", r.get("env") or "", "local", at, secs, local_cu(ids, at),
-                _scenario_cu(secs, py, ids, at))
+                _scenario_cu(secs, py, ids, at), **workload)
     for r in fabric_runs:
         if r.get("kind") == "Metadata run":
             continue
@@ -153,6 +161,43 @@ def activities(meta_runs: list[dict[str, Any]], fabric_runs: list[dict[str, Any]
         avoided = (_scenario_cu(secs, py, ids, at) if secs is not None
                    else ms.unknown("fabric_job_cu_avoided", ms.CU_SECONDS, "The write's time wasn't recorded."))
         row("Notebook write", r.get("job") or "", "", "local", at, secs, local_cu(ids, at), avoided)
+    return calibrate(rows, now=now)
+
+
+_NO_WORKLOAD = "A notebook write from this PC has no Fabric run of the same work to compare with."
+
+
+def calibrate(rows: list[dict[str, Any]], *, now: dt.datetime | None = None) -> list[dict[str, Any]]:
+    """Set ``avoided_cu`` on each run on this PC from the Fabric runs of its workload (calibration.py).
+
+    The Fabric runs are a metadata table's own runs in Fabric, with their estimated job CU. Measured CU
+    from an imported Capacity Metrics export isn't used yet: it covers the whole runner job, and one
+    job runs many tables. Fabric runs of the same environment are preferred; others are used, with a
+    note, when the same environment has none. Changes the rows in place and returns them."""
+    baselines: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        if r["where"] == "fabric" and r.get("workload_id"):
+            baselines.setdefault(r["workload_id"], []).append(
+                {"cu": r["fabric_job_cu"], "at": r["at"], "rows": r.get("rows_read"), "version": r.get("version"), "env": r["env"]})
+    for r in rows:
+        if r["where"] != "local":
+            continue
+        ids = {"run_id": r["fabric_job_cu"].get("run_id"), "workload_id": r.get("workload_id")}
+        if not r.get("workload_id"):
+            r["avoided_cu"] = ms.unknown(calibration.METRIC, ms.CU_SECONDS, _NO_WORKLOAD, **ids)
+            continue
+        local = {"workload_id": r["workload_id"], "run_id": ids["run_id"], "at": r["at"], "rows": r.get("rows_read"),
+                 "version": r.get("version")}
+        found = baselines.get(r["workload_id"], [])
+        same = calibration.calibrate(local, [b for b in found if b["env"] == r["env"]], now=now)
+        if same["classification"] != ms.UNKNOWN:
+            r["avoided_cu"] = same
+            continue
+        others = [b for b in found if b["env"] != r["env"]]
+        envs = ", ".join(sorted({b["env"] or "?" for b in others}))
+        r["avoided_cu"] = (calibration.calibrate(local, others, now=now, notes=[
+            f"Based on Fabric runs in another environment ({envs}); this run was in {r['env'] or 'no environment'}."])
+            if others else same)
     return rows
 
 
@@ -172,16 +217,29 @@ def _money(cu: dict[str, Any], price: float, currency: str, metric: str) -> dict
     return out
 
 
+_UNCALIBRATED = ("{n} of {total} run{s} on this PC {have} no comparable Fabric run of the same workload (same definition, "
+                 "last {days:g} days), so what {they} would have used in Fabric isn't known. A Fabric run of the same "
+                 "table lets later runs here be estimated from it.")
+
+
 def _evidence(group: list[dict[str, Any]], cfg: dict[str, Any]) -> dict[str, Any]:
-    """The classified totals of a group of rows: Fabric CU and its price, and the scenario of what
-    the runs on this PC would have used in Fabric."""
+    """The classified totals of a group of rows: Fabric CU and its price; what the runs on this PC
+    would have used in Fabric, from Fabric runs of the same workload; and, apart, the rough scenario."""
     price, cur = float(cfg["price_per_cu_hour"]), cfg["currency"]
     cu = ms.total([r["fabric_job_cu"] for r in group], "fabric_job_cu", ms.CU_HOURS)
-    avoided = ms.total([r["avoided_cu"] for r in group if r.get("avoided_cu")], "fabric_job_cu_avoided", ms.CU_HOURS)
-    if not any(r.get("avoided_cu") for r in group):
-        avoided = dict(avoided, classification=ms.SCENARIO, label=ms.LABELS[ms.SCENARIO])
+    local = [r for r in group if r.get("avoided_cu")]
+    avoided = ms.total([r["avoided_cu"] for r in local], "fabric_job_cu_avoided", ms.CU_HOURS)
+    if avoided["unknown_parts"]:
+        n = avoided["unknown_parts"]
+        avoided["reason"] = _UNCALIBRATED.format(n=n, total=len(local), s="s" if len(local) != 1 else "",
+                                                 have="has" if n == 1 else "have", they="it" if n == 1 else "they",
+                                                 days=calibration.MAX_AGE_DAYS)
+    scenario = ms.total([r["scenario_cu"] for r in group if r.get("scenario_cu")], "fabric_job_cu_avoided", ms.CU_HOURS)
+    scenario = dict(scenario, classification=ms.SCENARIO, label=ms.LABELS[ms.SCENARIO]) \
+        if scenario["classification"] != ms.UNKNOWN else scenario
     return {"fabric_job_cu": cu, "fabric_cost": _money(cu, price, cur, "fabric_cost"),
-            "avoided_cu": avoided, "avoided_cost": _money(avoided, price, cur, "fabric_cost_avoided")}
+            "avoided_cu": avoided, "avoided_cost": _money(avoided, price, cur, "fabric_cost_avoided"),
+            "scenario_cu": scenario, "scenario_cost": _money(scenario, price, cur, "fabric_cost_avoided")}
 
 
 def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.datetime | None = None,
@@ -206,7 +264,8 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
                 "fabric_runs": sum(r["where"] == "fabric" for r in group),
                 "local_runs": sum(r["where"] == "local" for r in group),
                 "unknown_runs": sum(r["fabric_job_cu"]["classification"] == ms.UNKNOWN
-                                    or (r.get("avoided_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
+                                    or (r.get("scenario_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
+                "uncalibrated_runs": sum((r.get("avoided_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
                 "cu_hours": round(cu / 3600, 3), "cost": money(cu),
                 "saved_cu_hours": round(would / 3600, 3), "saved": money(would), "evidence": _evidence(group, cfg)}
 
@@ -251,6 +310,6 @@ def capacity_share(cu: dict[str, Any], cap: dict[str, Any], days: int, since: dt
                     method=f"estimated CU hours / ({cap.get('sku')} = {cus} CU x {days} days x 24 h)",
                     period_start=since, period_end=now,
                     assumptions=cu["assumptions"] + [f"{cap.get('sku')} has {cus} CUs, every hour of the period.",
-                                                     ("Only runs started from Fabric Desktop by KratosBI are counted, not "
+                                                     ("Only runs started from KratosForge are counted, not "
                                                       "everything else on the capacity.")], **ids)
     return {"capacity_share": round(value, 3), "capacity_share_evidence": m}

@@ -1,4 +1,4 @@
-"""What Fabric Desktop by KratosBI can do with each Fabric pipeline activity type (ORCH-002).
+"""What KratosForge can do with each Fabric pipeline activity type (ORCH-002).
 
 One ``ActivitySupport`` entry per activity type says, honestly:
 
@@ -31,7 +31,7 @@ from typing import Any, Callable, Protocol
 from .definition import Activity, ImportedPipeline
 from .validate import Diagnostic, summary, validate
 
-REGISTRY_VERSION = "2"
+REGISTRY_VERSION = "3"
 
 CLASSIFICATIONS = {
     "local": "Runs on this PC with a tested adapter.",
@@ -143,8 +143,8 @@ class ActivitySupport:
 
 UNKNOWN = ActivitySupport(
     "(unknown)", "Activity type this version doesn't know", "unsupported", "none", "metered_in_fabric",
-    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop "
-                 "by KratosBI may know it; otherwise it has to run in Fabric.",))
+    limitations=("Kept exactly as it is in the definition, but not checked or run. A newer KratosForge "
+                 "may know it; otherwise it has to run in Fabric.",))
 
 
 class ActivityRegistry:

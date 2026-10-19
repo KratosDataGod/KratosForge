@@ -1,6 +1,6 @@
 # Hardening findings register
 
-Confirmed issues from the enterprise hardening audit of Fabric Desktop by KratosBI. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
+Confirmed issues from the enterprise hardening audit of KratosForge. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
 
 How to read this register:
 
@@ -71,7 +71,7 @@ No Critical issue was confirmed. Twelve are High.
 | AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |
 | UI-8 | Medium | Maintainability | `app.js` is 2,521 lines; UI tests check 13 of 27 scripts; browser tests aren't in CI | HD-052 |
-| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59% | HD-053 |
+| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%. Done in HD-053: contract tests for OneLake files and the Fabric client. They found that a OneLake file path with a `..` segment (plain, URL-encoded or with backslashes) reached outside the lakehouse folder it named, and that an empty path named the whole lakehouse (so `delete("")` would delete its root); `onelake.item_path` now refuses both. The workspace and lakehouse ids and lease keys aren't checked the same way; they come from Fabric or the app, not from notebook code | HD-053 |
 | TS-2 | Medium | Testing | No live-tenant or T-SQL dialect test runs anywhere automatically | HD-054 |
 | DOC-1 | Medium | Docs | `release-readiness.md` lists gates as "open PR" that merged hours ago; three security claims in docs are false | HD-009 |
 
@@ -246,7 +246,7 @@ No Critical issue was confirmed. Twelve are High.
 | Id | Evidence | Direction |
 | --- | --- | --- |
 | AR-2 | `service.py:55`: 18 mixins, 335 public methods, 332 callable over RPC, 348 `type: ignore[attr-defined]` | Small injected services (auth, Fabric client, store) with Protocols; narrow `server.METHODS` to what the UI calls |
-| AR-3 | `fabric_api.FabricClient` retries only 429; `onelake`, `central/client`, `leases` don't retry; `requests` called directly in `estate_service.py:355`, `:389`, `telemetry.py:212`, `dataops_service.py:345`, `notebookutils_local.py:226`; 8 hand-written retry loops | One session factory with a retry policy that never blindly retries non-idempotent writes |
+| AR-3 | `fabric_api.FabricClient` retries only 429; `onelake`, `central/client`, `leases` don't retry; `requests` called directly in `estate_service.py:355`, `:389`, `telemetry.py:212`, `dataops_service.py:345`, `notebookutils_local.py:226`; 8 hand-written retry loops | One session factory with a retry policy that never blindly retries non-idempotent writes. Done in HD-051: `http_session.session()` is one pooled `requests.Session` (16 connections per host, a 60-second default timeout, no cookies, no urllib3 retries). `FabricClient`, `TableCatalog`, `FileStore`, the lease and control files, `FabricPlatform`, the Power BI and Graph calls in `estate_service.py` and Key Vault `getSecret` use it unless given their own session. Reads go through `retrying.send_with_retry`; OneLake writes and platform function calls are sent once, and Fabric writes are repeated only on 429 as before. Left out: telemetry and the Teams webhook (not Fabric; sent once to another host), the managed identity token client (auth), the agent and the integrations server. Tested with a fake transport, not against Fabric |
 | AR-4 | 218 `except Exception`, about 53 that swallow (`leases.py:264`, `xray_service.py:149-236`) | Log or re-raise; ban new silent ones with a lint rule |
 | UI-8 | `app.js` 2,521 lines, one shared `state`; tests cover 13 of 27 scripts; no tests for `meta.js`, which starts writes; 24 Playwright tests in `app/tests/browser` not run by CI | Run the browser suite in CI; a test that bans new raw HTML sinks; split `app.js` along `registerFeature` boundaries |
 | TS-1 | Line coverage 87% overall, but `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%, `server.py` 63%, `fabric_api.py` 72%, `central/setup.py` 20%, `kernel_host.py` 0% (subprocess) | Contract tests with a fake `requests.Session` for OneLake writes and deletes and Fabric 429/5xx/LRO paths |

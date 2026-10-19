@@ -176,7 +176,7 @@ def _keyed(con: Any, cols: dict[str, Any], kq: list[tuple[str, str]], r: dict[st
         qa, qb = _q(name_a), _q(name_b)
         if qa in key_names:
             continue
-        if ka == kb == "number" or {ka, kb} <= {"number", "integer"} and ka != kb:
+        if ka == kb == "number":  # widened integer/decimal pairs arrive as number
             ab, rl = _tolerance(r, name_a)
             x, y = f"CAST(a.{qa} AS DOUBLE)", f"CAST(b.{qb} AS DOUBLE)"
             same = (f"(({x} IS NULL AND {y} IS NULL) OR ({x} IS NOT NULL AND {y} IS NOT NULL AND "

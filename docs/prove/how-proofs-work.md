@@ -29,7 +29,7 @@ Only one proof runs at a time, and the notebook kernel can't run other cells whi
 Each table's result has a **level**:
 
 - **Complete**: every row was compared. With key columns, rows are matched by key, and the result counts rows only on this PC, rows only in Fabric and changed rows, names each changed column with the largest absolute and relative difference, and lists the first 50 differing rows with both values. Without keys, rows are matched as whole rows (order doesn't matter; duplicates count). If the key isn't unique, rows are matched as whole rows and the result says so.
-- **Fingerprint**: the table has more rows than the limit (5,000,000 by default), so only row counts and an order-independent checksum of every row were compared. A matching checksum makes a difference very unlikely, not impossible; the result says so.
+- **Fingerprint**: the table has more rows than the limit (5,000,000 by default), so only row counts and an order-independent checksum of every row were compared. A matching checksum makes a difference very unlikely, not impossible; the result says so. Before hashing, decimals are rounded to 10 significant digits, so the checksum ignores differences smaller than that instead of applying the column tolerances.
 
 ## Rules
 

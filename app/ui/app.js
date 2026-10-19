@@ -82,6 +82,16 @@ async function attempt(fn, label) {
   }
 }
 
+// A click whose handler throws (or whose promise fails) outside attempt() would otherwise do
+// nothing at all on screen: say so, with the error in Activity.
+function reportUncaught(err) {
+  const f = friendlyError(err);
+  if (f.cancelled) return;
+  toast(`Something didn't work: ${f.text}`, true, { details: f.details || (err?.stack ?? "") });
+}
+window.addEventListener("error", (e) => reportUncaught(e.error || e.message));
+window.addEventListener("unhandledrejection", (e) => reportUncaught(e.reason));
+
 function matches(text) {
   return !state.query || String(text).toLowerCase().includes(state.query.toLowerCase());
 }

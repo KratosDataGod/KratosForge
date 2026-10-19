@@ -13,22 +13,45 @@ Thanks for helping. There are several ways in, and most don't need code.
 
 ## Set up
 
-You need Windows for the desktop app. The Python engine and its tests also run on Linux and macOS.
+The Python engine and its tests run on Linux and macOS. The downloadable **fabric-desktop.exe** is Windows only; on macOS you run the desktop app from source.
 
-```powershell
+```bash
 git clone https://github.com/KratosDataGod/fabric-desktop
-cd fabric-desktop\sidecar
-python -m pip install -e ".[dev]"     # Python 3.11 or later
-python -m pytest -q                   # every test runs without Fabric
+cd fabric-desktop/sidecar
+python3 -m pip install -e ".[dev]"     # Python 3.11 or later
+python3 -m pytest -q                   # every test runs without Fabric
 ```
 
-To run the desktop app from source, install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), then:
+### Desktop app from source
+
+Install Rust and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS (on macOS: Xcode command line tools). Then:
+
+**macOS**
+
+```bash
+export FABRIC_DESKTOP_PYTHON="$(command -v python3)"   # when python3 is not the interpreter you installed into
+cd fabric-desktop/app/src-tauri
+cargo run
+```
+
+**Windows**
 
 ```powershell
 $env:FABRIC_DESKTOP_PYTHON = (Get-Command python).Source
-cd app\src-tauri
+cd fabric-desktop\app\src-tauri
 cargo run
 ```
+
+Release builds on Windows bundle their own engine and update themselves. A local `cargo run` uses your pip-installed sidecar and does not download the Windows engine zip.
+
+**Full macOS app (`.app` bundle)**
+
+```bash
+chmod +x scripts/build-macos-app.sh
+./scripts/build-macos-app.sh
+```
+
+The script installs Rust and Tauri CLI if needed, builds a Python engine under `~/Library/Application Support/FabricDesktop/engine/<commit>/`, then runs `cargo tauri build`. Open the `.app` it prints at the end. There is no signed Mac release on GitHub yet; this is the supported way to run on a Mac.
 
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
 

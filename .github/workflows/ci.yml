@@ -207,11 +207,61 @@ jobs:
           path: app/src-tauri/target/release/fabric-desktop.exe
           if-no-files-found: error
 
+  engine-macos:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Build the macOS engine zip
+        env:
+          FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: bash .github/scripts/build-macos-engine.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fabric-desktop-engine-macos
+          path: fabric-desktop-engine-macos.zip
+          if-no-files-found: error
+
+  shell-macos:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app/src-tauri
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: app/src-tauri
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+      - name: Build and package the Mac app
+        env:
+          FABRIC_RELEASE_COMMIT: ${{ github.sha }}
+          FABRIC_CLIENT_ID: ${{ vars.FABRIC_CLIENT_ID }}
+        run: cargo tauri build
+      - name: Sign and create DMG
+        working-directory: ${{ github.workspace }}
+        run: bash .github/scripts/package-macos-app.sh app/src-tauri
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: fabric-desktop-macos
+          path: app/src-tauri/fabric-desktop-macos.dmg
+          if-no-files-found: error
+
   release:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
     # exe. People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [sidecar, ui, engine, shell, sbom-app]
+    needs: [sidecar, ui, engine, shell, sbom-app, engine-macos, shell-macos]
     runs-on: ubuntu-latest
     # One publish at a time, shared with Promote to stable: two merges close together used to
     # replace the release's files at once and left Preview with no engine zip.
@@ -239,6 +289,12 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: sbom-app
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fabric-desktop-engine-macos
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: fabric-desktop-macos
       # Signed proof that these exact files were built by this workflow from this commit.
       # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/fabric-desktop
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
@@ -246,6 +302,8 @@ jobs:
           subject-path: |
             fabric-desktop.exe
             fabric-desktop-engine.zip
+            fabric-desktop-engine-macos.zip
+            fabric-desktop-macos.dmg
       - env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -264,16 +322,18 @@ jobs:
           jq -n --arg commit "$GITHUB_SHA" --arg notes "$NOTES" --slurpfile history history.json \
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
-            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
-          BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
+            --arg macos_engine "$(sha256sum fabric-desktop-engine-macos.zip | cut -d' ' -f1)" \
+            --arg macos_dmg "$(sha256sum fabric-desktop-macos.dmg | cut -d' ' -f1)" \
+            '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine, macos_engine_sha256: $macos_engine, macos_dmg_sha256: $macos_dmg}' > version.json
+          BODY="Built automatically from ${GITHUB_SHA::7} on main. Windows: download fabric-desktop.exe and double-click it. macOS: download fabric-desktop-macos.dmg, open it, and drag Fabric Desktop to Applications (see docs/install.md)."
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
             # update never find it missing. version.json goes last: it names the new build.
-            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json --clobber
+            gh release upload latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-macos.zip fabric-desktop-macos.dmg sbom-engine.cdx.json sbom-app.cdx.json --clobber
             gh release upload latest version.json --clobber
             gh api -X PATCH "repos/$GH_REPO/git/refs/tags/latest" -f sha="$GITHUB_SHA" -F force=true
             gh release edit latest --notes "$BODY"
           else
-            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
+            gh release create latest fabric-desktop.exe fabric-desktop-engine.zip fabric-desktop-engine-macos.zip fabric-desktop-macos.dmg sbom-engine.cdx.json sbom-app.cdx.json version.json \
               --title "Fabric Desktop by KratosBI (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi

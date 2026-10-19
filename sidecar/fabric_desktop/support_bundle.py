@@ -29,8 +29,9 @@ LOG_LINES = 2000
 
 
 def _data_dir() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
-    return Path(base) / "FabricDesktop"
+    from .paths import data_dir
+
+    return data_dir()
 
 
 def _tail(path: Path, lines: int = LOG_LINES) -> str | None:

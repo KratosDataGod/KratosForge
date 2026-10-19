@@ -136,8 +136,9 @@ def policy_path() -> Path:
 
 
 def user_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
-    return Path(base) / "FabricDesktop" / "app-settings.json"
+    from .paths import data_dir
+
+    return data_dir() / "app-settings.json"
 
 
 def _read(path: Path) -> dict[str, Any]:

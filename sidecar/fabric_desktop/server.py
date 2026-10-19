@@ -172,9 +172,11 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
 
 
 def _log_file() -> IO[str]:
-    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
-    os.makedirs(os.path.join(base, "FabricDesktop"), exist_ok=True)
-    return open(os.path.join(base, "FabricDesktop", "sidecar.log"), "a", encoding="utf-8", buffering=1)
+    from .paths import data_dir
+
+    root = data_dir()
+    os.makedirs(root, exist_ok=True)
+    return open(root / "sidecar.log", "a", encoding="utf-8", buffering=1)
 
 
 class _SafeFormatter(logging.Formatter):

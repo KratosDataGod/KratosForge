@@ -8,7 +8,8 @@ This page takes you from nothing to a running app on one Windows PC. There is no
 
 | You need | Why |
 | --- | --- |
-| Windows 10 or 11 (64-bit) | The desktop app is Windows only. The [headless agent](agent.md) also runs on Linux. |
+| Windows 10 or 11 (64-bit) | The downloadable app is a Windows **.exe**. The [headless agent](agent.md) also runs on Linux. |
+| macOS 12 or later (Apple Silicon or Intel) | Download **fabric-desktop-macos.dmg** from [Releases](https://github.com/KratosDataGod/fabric-desktop/releases) (Preview: `latest`, Stable: `stable`). Developers can also run `./scripts/build-macos-app.sh` (see [CONTRIBUTING.md](../CONTRIBUTING.md#full-macos-app-app-bundle)). |
 | Microsoft Edge WebView2 Runtime | The app's window is WebView2. It is already on every up-to-date Windows 11 and most Windows 10 PCs. If the app opens a blank window, install it from [Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/). |
 | A work account with Microsoft Fabric | You sign in with the same account you use at `app.fabric.microsoft.com`. |
 | A Fabric capacity on your workspaces | Only for creating lakehouses and for the features that run in Fabric. Work that runs on your PC starts no Fabric job; only its OneLake reads and writes use capacity. |
@@ -34,6 +35,18 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; Fabric Desktop by KratosBI signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
 
 That's it. Home shows a **Get started** list until you set up a metadata project. Go on to the [user guide](user-guide.md).
+
+## Install on macOS
+
+1. Download **[fabric-desktop-macos.dmg](https://github.com/KratosDataGod/fabric-desktop/releases/download/stable/fabric-desktop-macos.dmg)** from the **Releases** page (Stable), or use the `latest` release for Preview builds.
+2. Open the disk image and drag **Fabric Desktop** to **Applications**.
+3. The first time you open it, macOS may say the app is from an unidentified developer because it is not notarized yet. Either:
+   - Right-click **Fabric Desktop** in Applications and choose **Open**, then confirm **Open** in the dialog, or
+   - Run `xattr -cr "/Applications/Fabric Desktop.app"` in Terminal, then open the app normally.
+4. The first start downloads the local engine (`fabric-desktop-engine-macos.zip`) into `~/Library/Application Support/FabricDesktop/engine`. A **Checking components** window appears while that runs.
+5. **Sign in** on Home with your work account (browser sign-in, the same as Fabric CLI). **Monitor** and **Fabric** pages use an embedded Fabric portal: sign in there with your work account when asked; the app keeps that sign-in in its own profile between launches (not Windows single sign-on).
+
+There is no Mac self-update yet; download a newer **fabric-desktop-macos.dmg** when a release notes a fix you need.
 
 ## If Windows blocks the engine
 

@@ -37,8 +37,7 @@ fn setting(path: PathBuf, key: &str) -> Option<String> {
 /// Whether the app may update itself. An organization that rolls out builds itself sets
 /// `"auto_update": false` in its policy file; only that file can turn updates off.
 fn auto_update_allowed() -> bool {
-    let Some(dir) = std::env::var_os("ProgramData") else { return true };
-    policy_allows_updates(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+    policy_allows_updates(&std::fs::read_to_string(policy_file()).unwrap_or_default())
 }
 
 fn policy_allows_updates(text: &str) -> bool {
@@ -65,7 +64,7 @@ mod policy_tests {
 /// The release this PC updates from: "stable" or "latest" (the Preview channel). The
 /// organization's policy file wins over the Settings page, as in the sidecar's app_settings.py.
 fn release_tag() -> &'static str {
-    let policy = std::env::var_os("ProgramData").map(|d| PathBuf::from(d).join("FabricDesktop").join("policy.json"));
+    let policy = Some(policy_file());
     let user = data_dir().join("app-settings.json");
     for path in policy.into_iter().chain([user]) {
         match setting(path, "channel").as_deref() {
@@ -125,9 +124,25 @@ fn sha256_file(path: &std::path::Path) -> Result<String, String> {
 /// files: the zip's SHA-256 must be the one it gives. A release that gives none is refused (every
 /// release CI publishes has one, so only a stripped or hand-made version.json lacks it). Returns
 /// the build the release names, if any.
+fn engine_zip_file() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "fabric-desktop-engine-macos.zip"
+    } else {
+        "fabric-desktop-engine.zip"
+    }
+}
+
+fn engine_sha256_key() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos_engine_sha256"
+    } else {
+        "engine_sha256"
+    }
+}
+
 fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<String>, String> {
     let commit = release["commit"].as_str().filter(|c| c.len() == 40 && c.bytes().all(|b| b.is_ascii_hexdigit()));
-    match release["engine_sha256"].as_str() {
+    match release.get(engine_sha256_key()).and_then(Value::as_str) {
         Some(expected) if expected.eq_ignore_ascii_case(actual_sha256) => Ok(commit.map(str::to_owned)),
         Some(_) => Err("The engine download doesn't match the checksum its release gives, so it wasn't installed. \
              A new build may be being published; try again in a few minutes."
@@ -136,33 +151,72 @@ fn check_engine_zip(actual_sha256: &str, release: &Value) -> Result<Option<Strin
     }
 }
 
-/// Release builds run the bundled engine; local builds, and anyone who sets
-/// FABRIC_DESKTOP_PYTHON, use a Python of their own with the sidecar pip-installed.
-fn bundled() -> bool {
+/// A release build that ships with (or downloads) its own engine, not FABRIC_DESKTOP_PYTHON.
+fn release_uses_bundled_engine() -> bool {
     !BUILD_COMMIT.is_empty() && std::env::var_os("FABRIC_DESKTOP_PYTHON").is_none()
 }
 
-/// One folder per build: engine\<commit>\python.exe.
+/// Whether the startup check treats this PC as running a bundled engine folder.
+fn bundled() -> bool {
+    engine_python().is_some()
+        || (release_uses_bundled_engine() && (cfg!(windows) || cfg!(target_os = "macos")))
+}
+
+/// One folder per build: engine\<commit>\python.exe on Windows, engine/<commit>/bin/python3 on macOS.
 fn engine_root() -> PathBuf {
     data_dir().join("engine")
+}
+
+fn engine_interpreter(dir: &std::path::Path) -> PathBuf {
+    if cfg!(windows) {
+        dir.join("python.exe")
+    } else {
+        dir.join("bin").join("python3")
+    }
 }
 
 /// This build's engine, or failing that another build's, which can still run the
 /// startup check that then updates this exe or the engine.
 fn engine_python() -> Option<PathBuf> {
-    if !bundled() {
+    if std::env::var_os("FABRIC_DESKTOP_PYTHON").is_some() {
         return None;
     }
-    let exact = engine_root().join(BUILD_COMMIT).join("python.exe");
-    if exact.exists() {
-        return Some(exact);
+    let root = engine_root();
+    if !BUILD_COMMIT.is_empty() {
+        let exact = engine_interpreter(&root.join(BUILD_COMMIT));
+        if exact.exists() {
+            return Some(exact);
+        }
     }
-    std::fs::read_dir(engine_root())
+    std::fs::read_dir(root)
         .ok()?
         .flatten()
         .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
-        .map(|e| e.path().join("python.exe"))
+        .filter(|e| e.path().is_dir())
+        .map(|e| engine_interpreter(&e.path()))
         .find(|p| p.exists())
+}
+
+fn curl_bin() -> PathBuf {
+    if cfg!(windows) {
+        system_tool("curl.exe")
+    } else if cfg!(target_os = "macos") {
+        PathBuf::from("/usr/bin/curl")
+    } else {
+        PathBuf::from("curl")
+    }
+}
+
+fn unpack_zip(zip: &std::path::Path, into: &std::path::Path) -> Command {
+    if cfg!(windows) {
+        let mut tar = Command::new(system_tool("tar.exe"));
+        tar.arg("-xf").arg(zip).arg("-C").arg(into);
+        tar
+    } else {
+        let mut tar = Command::new("tar");
+        tar.arg("-xf").arg(zip).arg("-C").arg(into);
+        tar
+    }
 }
 
 /// The interpreter that runs the sidecar and the startup check.
@@ -170,7 +224,14 @@ fn python() -> String {
     if let Ok(path) = std::env::var("FABRIC_DESKTOP_PYTHON") {
         return path;
     }
-    engine_python().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "python".into())
+    if let Some(p) = engine_python() {
+        return p.to_string_lossy().into_owned();
+    }
+    if cfg!(windows) {
+        "python".into()
+    } else {
+        "python3".into()
+    }
 }
 
 fn hide_window(cmd: &mut Command) {
@@ -184,11 +245,30 @@ fn hide_window(cmd: &mut Command) {
     let _ = cmd;
 }
 
+/// Organization policy file; matches the sidecar's app_settings.policy_path().
+fn policy_file() -> PathBuf {
+    let base = std::env::var_os("ProgramData")
+        .or_else(|| std::env::var_os("PROGRAMDATA"))
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/etc"));
+    base.join("FabricDesktop").join("policy.json")
+}
+
 /// The app's own data folder, where the sidecar's log and the updater's working folder live.
 fn data_dir() -> PathBuf {
-    let dir = std::env::var_os("LOCALAPPDATA")
-        .map(|d| PathBuf::from(d).join("FabricDesktop"))
-        .unwrap_or_else(std::env::temp_dir);
+    let dir = if let Some(d) = std::env::var_os("LOCALAPPDATA") {
+        PathBuf::from(d).join("FabricDesktop")
+    } else if cfg!(target_os = "macos") {
+        dirs::home_dir()
+            .map(|h| h.join("Library").join("Application Support").join("FabricDesktop"))
+            .unwrap_or_else(std::env::temp_dir)
+    } else if cfg!(windows) {
+        std::env::temp_dir()
+    } else {
+        dirs::home_dir()
+            .map(|h| h.join(".local").join("share").join("FabricDesktop"))
+            .unwrap_or_else(std::env::temp_dir)
+    };
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -389,7 +469,7 @@ async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarSt
     // A running sidecar holds its files open, which blocks pip and the engine swap on Windows.
     stop_kernel(state.clone())?;
     *state.sidecar.lock().map_err(|e| e.to_string())? = None;
-    if bundled() {
+    if release_uses_bundled_engine() && (cfg!(windows) || cfg!(target_os = "macos")) {
         return install_engine(&app).map(|commit| json!({ "engine": commit }));
     }
     stream(&app, updater(&["install-sidecar", BUILD_COMMIT]))?;
@@ -423,13 +503,13 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     let mut result = Err(String::new());
     let mut release = Value::Null;
     for tag in engine_tags() {
-        let mut curl = Command::new(system_tool("curl.exe"));
+        let mut curl = Command::new(curl_bin());
         // Give up on a dead or stalled connection (under 1 KB/s for a minute) instead of
         // leaving "Downloading the engine" up for ever; Retry is then shown.
         curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--speed-limit", "1024", "--speed-time", "60",
                    "--retry", "2", "-H", "Cache-Control: no-cache", "-o"])
             .arg(&zip)
-            .arg(format!("{}?nocache={nocache}", release_file(tag, "fabric-desktop-engine.zip")));
+            .arg(format!("{}?nocache={nocache}", release_file(tag, engine_zip_file())));
         result = run_tool(curl, "download the engine");
         if result.as_ref().is_err_and(|e| !missing_release_file(e)) {
             break;
@@ -437,7 +517,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
         if result.is_ok() {
             // Its checksum comes from the same release, fetched after the zip: CI uploads
             // version.json last, so it never names a zip older than the one just downloaded.
-            let mut curl = Command::new(system_tool("curl.exe"));
+            let mut curl = Command::new(curl_bin());
             curl.args(["-L", "--fail", "-sS", "--connect-timeout", "20", "--max-time", "60", "-H",
                        "Cache-Control: no-cache", "-o"])
                 .arg(&release_json)
@@ -471,9 +551,7 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
     say("Unpacking the engine…");
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-    let mut tar = Command::new(system_tool("tar.exe"));
-    tar.arg("-xf").arg(&zip).arg("-C").arg(&staging);
-    run_tool(tar, "unpack the engine")?;
+    run_tool(unpack_zip(&zip, &staging), "unpack the engine")?;
     let _ = std::fs::remove_file(&zip);
 
     let info: Value = std::fs::read_to_string(staging.join("engine.json"))
@@ -510,6 +588,9 @@ fn install_engine(app: &tauri::AppHandle) -> Result<String, String> {
 /// one and starts it.
 #[tauri::command]
 async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String> {
+    if !cfg!(windows) {
+        return Err("The app updates itself only on Windows. On this Mac, rebuild from source.".into());
+    }
     if commit.len() != 40 || !commit.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{commit} is not a build commit"));
     }
@@ -557,21 +638,29 @@ fn stays_in_view(url: &Url) -> bool {
     fabric_host(url.host_str().unwrap_or_default())
 }
 
-fn open_in_browser(url: &Url) -> Result<(), String> {
-    if !matches!(url.scheme(), "https" | "http") {
-        return Err(format!("Not opening {url}"));
-    }
+fn open_external(url: &str) -> Result<(), String> {
     let mut cmd = if cfg!(windows) {
         let mut c = Command::new(system_tool("rundll32.exe"));
-        c.args(["url.dll,FileProtocolHandler", url.as_str()]);
+        c.args(["url.dll,FileProtocolHandler", url]);
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("/usr/bin/open");
+        c.arg(url);
         c
     } else {
         let mut c = Command::new("xdg-open");
-        c.arg(url.as_str());
+        c.arg(url);
         c
     };
     hide_window(&mut cmd);
     cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open the browser: {e}"))
+}
+
+fn open_in_browser(url: &Url) -> Result<(), String> {
+    if !matches!(url.scheme(), "https" | "http") {
+        return Err(format!("Not opening {url}"));
+    }
+    open_external(url.as_str())
 }
 
 /// The page the Fabric view shows: "monitor", "catalog", or an https link to a Fabric item.
@@ -628,7 +717,10 @@ async fn fabric_view_show(
     let window = app.get_window("main").ok_or("The main window is not open")?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank)).on_new_window(|url, _| {
+    let profile = data_dir().join("fabric-view");
+    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
+        .data_directory(profile)
+        .on_new_window(|url, _| {
         if stays_in_view(&url) {
             NewWindowResponse::Allow
         } else {
@@ -754,8 +846,9 @@ mod signin {
         }
         match dpapi::protect(&bytes) {
             Ok(sealed) => {
-                let tmp = file().with_extension("tmp");
-                if std::fs::write(&tmp, sealed).and_then(|_| std::fs::rename(&tmp, file())).is_ok() {
+                let path = file();
+                let tmp = path.with_extension("tmp");
+                if write_signin_file(&tmp, &sealed).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
                     *last = bytes;
                 }
             }
@@ -816,8 +909,21 @@ mod signin {
         }
     }
 
-    /// Only Windows has DPAPI; elsewhere (development builds) nothing is saved.
-    #[cfg(not(windows))]
+    /// macOS: same cookie blob on disk, readable only by this user (not DPAPI).
+    #[cfg(target_os = "macos")]
+    mod dpapi {
+        pub const AVAILABLE: bool = true;
+
+        pub fn protect(data: &[u8]) -> Result<Vec<u8>, String> {
+            Ok(data.to_vec())
+        }
+
+        pub fn unprotect(data: &[u8]) -> Result<Vec<u8>, String> {
+            Ok(data.to_vec())
+        }
+    }
+
+    #[cfg(all(not(windows), not(target_os = "macos")))]
     mod dpapi {
         pub const AVAILABLE: bool = false;
 
@@ -828,6 +934,16 @@ mod signin {
         pub fn unprotect(_: &[u8]) -> Result<Vec<u8>, String> {
             Err("not supported on this platform".into())
         }
+    }
+
+    fn write_signin_file(path: &std::path::Path, data: &[u8]) -> Result<(), std::io::Error> {
+        std::fs::write(path, data)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -946,19 +1062,7 @@ fn open_link(url: String) -> Result<(), String> {
     let url = Url::parse(&url).map_err(|e| e.to_string())?;
     match url.scheme() {
         "https" => open_in_browser(&url),
-        "mailto" => {
-            let mut cmd = if cfg!(windows) {
-                let mut c = Command::new(system_tool("rundll32.exe"));
-                c.args(["url.dll,FileProtocolHandler", url.as_str()]);
-                c
-            } else {
-                let mut c = Command::new("xdg-open");
-                c.arg(url.as_str());
-                c
-            };
-            hide_window(&mut cmd);
-            cmd.spawn().map(|_| ()).map_err(|e| format!("Could not open the mail app: {e}"))
-        }
+        "mailto" => open_external(url.as_str()).map_err(|e| format!("Could not open the mail app: {e}")),
         other => Err(format!("Not opening a {other} link")),
     }
 }
@@ -1008,15 +1112,21 @@ mod integrity_tests {
         assert_eq!(sha, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
 
+    fn engine_release_with_hash(hash: &str) -> Value {
+        let mut release = json!({ "commit": BUILD });
+        release[engine_sha256_key()] = json!(hash);
+        release
+    }
+
     #[test]
     fn an_engine_matching_its_release_checksum_is_accepted() {
-        let release = json!({ "commit": BUILD, "engine_sha256": "AB".repeat(32) });
+        let release = engine_release_with_hash(&"AB".repeat(32));
         assert_eq!(check_engine_zip(&"ab".repeat(32), &release), Ok(Some(BUILD.to_string())));
     }
 
     #[test]
     fn an_engine_not_matching_its_release_checksum_is_refused() {
-        let release = json!({ "commit": BUILD, "engine_sha256": "ab".repeat(32) });
+        let release = engine_release_with_hash(&"ab".repeat(32));
         let err = check_engine_zip(&"cd".repeat(32), &release).unwrap_err();
         assert!(err.contains("doesn't match the checksum"), "{err}");
     }
@@ -1047,5 +1157,24 @@ mod integrity_tests {
         let tool = system_tool("curl.exe");
         assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
         assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
+
+    #[test]
+    fn release_bundled_engine_needs_a_commit() {
+        if release_uses_bundled_engine() {
+            assert!(!BUILD_COMMIT.is_empty());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn data_dir_is_application_support() {
+        let dir = data_dir();
+        assert!(
+            dir.ends_with("Library/Application Support/FabricDesktop")
+                || dir.ends_with("Library\\Application Support\\FabricDesktop"),
+            "{}",
+            dir.display()
+        );
     }
 }

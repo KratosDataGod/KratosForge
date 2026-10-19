@@ -41,11 +41,21 @@ def _settings(path: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _data_dir() -> Path:
+    """Matches fabric_desktop.paths.data_dir; this file can't import the sidecar."""
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        return Path(local) / "FabricDesktop"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "FabricDesktop"
+    return Path.home() / ".local" / "share" / "FabricDesktop"
+
+
 def channel() -> str:
     """This PC's update channel: the organization's policy file wins over the Settings page.
     The same rule as the sidecar's app_settings.py; this file can't import it."""
     policy = Path(os.environ.get("ProgramData") or "/etc") / "FabricDesktop" / "policy.json"
-    user = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "FabricDesktop" / "app-settings.json"
+    user = _data_dir() / "app-settings.json"
     for path in (policy, user):
         value = _settings(path).get("channel")
         if value in CHANNEL_TAGS:

@@ -93,8 +93,9 @@ def _window_handle() -> int | object:
 
 
 def default_cache_path() -> Path:
-    base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".cache")
-    return Path(base) / "FabricDesktop" / "msal_cache.bin"
+    from .paths import data_dir
+
+    return data_dir() / "msal_cache.bin"
 
 
 

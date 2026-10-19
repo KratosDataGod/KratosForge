@@ -7,6 +7,8 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | What you see | What it means | What to do |
 | --- | --- | --- |
 | "Windows protected your PC" | SmartScreen doesn't know the exe yet because it isn't code-signed. | **More info > Run anyway**. |
+| macOS says the app is damaged or can't be opened | Gatekeeper blocks apps that aren't signed with an Apple Developer ID. Preview builds are ad-hoc signed only. | Right-click the app in **Applications** and choose **Open**, or run `xattr -cr "/Applications/Fabric Desktop.app"` in Terminal, then open again. See [Install on macOS](install.md#install-on-macos). |
+| Fabric **Monitor** or **Fabric** asks you to sign in every time | The embedded Fabric portal uses its own sign-in, not your Mac login (unlike Windows Web Account Manager). | Sign in once in the Fabric view; the app saves cookies in `~/Library/Application Support/FabricDesktop/fabric-view`. Use **Sign out** in the account menu to clear it. |
 | A blank white window | The WebView2 runtime is missing or broken. | Install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) and start again. |
 | **Windows Smart App Control blocked it** or **An App Control policy on this PC blocked it** | Windows refused the engine's unsigned Python packages. Reinstalling won't help. | See [Install: If Windows blocks the engine](install.md#if-windows-blocks-the-engine). |
 | "Could not check for a newer build" | GitHub didn't answer, or its limit of 60 checks an hour from your network was reached. | Nothing. The app runs the build you have and checks again next start. |

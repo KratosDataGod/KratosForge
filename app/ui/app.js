@@ -920,7 +920,7 @@ function workspacesTabs(active) {
 
 function renderFabric() {
   const slot = h("div", { class: "fabric-slot" },
-    h("p", { class: "muted-text" }, "Opening Fabric. Sign in once and the app keeps it between launches."));
+    h("p", { class: "muted-text" }, "Opening Fabric. Sign in with your work account when asked; the app keeps that sign-in between launches."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: fabricPage.page }), "Fabric view");
   setView(h("div", { class: "page monitor fabric-page" }, workspacesTabs("fabric"), withHowItWorks(
     h("section", { class: "card monitor-fabric" },
@@ -939,8 +939,8 @@ function renderFabric() {
         + "Fabric Desktop doesn't read anything from it.",
       changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
         + "with Fabric's own prompts; this app adds no confirmation of its own there.",
-      results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
-        + "account; delete fabric-view-signin.bin to make it forget.",
+      results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC between launches "
+        + "(in the Fabric view's own profile and, on Windows, encrypted for your account). Use Sign out in the account menu to forget it.",
       anchor: "fabric",
     }))));
   dockFabricView(slot, "fabric", fabricPage.page);

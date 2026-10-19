@@ -418,6 +418,12 @@ def set_policy_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionCon
 
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
+def policies_ready(sqlDB: fn.FabricSqlConnection) -> bool:
+    return _run(sqlDB, "policies_ready")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
 def list_policies(sqlDB: fn.FabricSqlConnection, query: str = "", category: str = "", status: str = "") -> list:
     return _run(sqlDB, "list_policies", query=query, category=category, status=status)
 

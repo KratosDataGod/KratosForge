@@ -305,7 +305,8 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
+    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
   return ctx;
 }
 
@@ -1473,4 +1474,18 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+});
+
+test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
+  const { platformChangeLines, platformStepText, PLATFORM_STATES } = gitHelpers();
+  assert.strictEqual(PLATFORM_STATES.only_deployed, "removed in Git");
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "domains", changes: [
+    { field: "description", git: "Selling things", deployed: "Selling" }, { field: "owners", git: ["a", "b"], deployed: [] }] })),
+  JSON.stringify(['description: Git "Selling things", deployed "Selling"', "owners: Git a, b, deployed none"]));
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "admins", changes: [{ field: "admins", git: ["ana"], deployed: [] }] })),
+    JSON.stringify(["Git adds ana"]));
+  const labels = { domains: "Domain", policies: "Policy" };
+  assert.strictEqual(platformStepText({ kind: "domains", id: "sales", action: "create" }, labels), "Domain sales: create");
+  assert.strictEqual(platformStepText({ kind: "policies", id: "names", action: "update", what: "publish it as a new version" }, labels),
+    "Policy names: publish it as a new version");
 });

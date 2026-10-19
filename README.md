@@ -56,7 +56,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
-| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
+| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, repository kinds, the platform repository (compare, export, deploy), and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
 | [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or can only run in Fabric, per activity and property (Preview) |
 | [docs/orchestration/local-runs.md](docs/orchestration/local-runs.md) | Running a Fabric pipeline's control flow on your PC, with mocks for data activities and nothing run in Fabric (Preview) |

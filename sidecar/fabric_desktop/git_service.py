@@ -211,7 +211,7 @@ class GitMixin:
         return platform_files.from_platform({
             "domains": cat.call("list_domains"), "sources": cat.call("list_sources"), "key_tables": tables,
             "glossary": cat.call("list_glossary"), "admins": admins, "shortcut_rules": cat.call("shortcut_rules"),
-            "policies": policies})
+            "policies": policies, "projects": cat.call("list_projects")})
 
     def git_platform_diff(self, repo: str, env: str = "prod") -> dict[str, Any]:
         """The platform repository's files compared with what ``env``'s platform has deployed.
@@ -286,7 +286,7 @@ class GitMixin:
                 if step["op"] == "adopt_sources" and res.get("conflicts"):  # reported, not raised: stop here
                     raise GitError("; ".join(res["conflicts"]), kind="invalid")
             except Exception as exc:  # noqa: BLE001 - stop at the first refusal and say where
-                return out | {"done": done, "failed": step, "message": str(exc)}
+                return out | {"done": done, "failed": step, "message": str(exc), "total": len(p["steps"])}
             done.append(step)
         return out | {"done": done, "deployed": True}
 

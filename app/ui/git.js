@@ -1164,7 +1164,7 @@ async function gitPlatformDeploy(root) {
       toast(`Deployed ${out.done.length} step${out.done.length === 1 ? "" : "s"}.`);
       gitPlatformReload();
     } else if (out.failed) {
-      const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} step${out.done.length === 1 ? " was" : "s were"} done before it.`;
+      const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} of ${out.total} steps applied; the rest didn't run.`;
       plan = (await rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)) }).catch(() => null)) || { ...out, steps: [] };
       draw(`${note} What is left is below. Fix the file and commit, then deploy again.`);
       gitPlatformReload();

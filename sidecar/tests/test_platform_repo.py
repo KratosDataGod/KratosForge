@@ -332,3 +332,39 @@ def test_a_source_id_taken_meanwhile_stops_before_the_source_is_saved(other, exp
     out = other.git_platform_deploy(exported, confirm=preview["plan_id"])
     assert out["failed"]["op"] == "adopt_sources" and "already" in out["message"]
     assert {s["code"] for s in other.platform_sources()} == {"CRM"}
+
+
+def test_domains_are_created_parents_first_and_removed_deepest_first_at_any_depth():
+    deployed = platform_files.from_platform({"domains": [
+        {"id": "a", "name": "A"}, {"id": "b", "name": "B", "parent_id": "a"}, {"id": "c", "name": "C", "parent_id": "b"}],
+        "key_tables": {"prod": []}})
+    git = {"domains": {"z": platform_files.domain_record({"id": "z", "name": "Z", "parent": "y"}),
+                       "y": platform_files.domain_record({"id": "y", "name": "Y", "parent": "x"}),
+                       "x": platform_files.domain_record({"id": "x", "name": "X"})}, "problems": []}
+    out = platform_files.plan(git, {"prod": deployed}, "prod", {("domains", d) for d in "abc"}, "note")
+    order = [(s["op"], s["id"]) for s in out["steps"]]
+    assert order == [("save_domain", "x"), ("save_domain", "y"), ("save_domain", "z"),
+                     ("delete_domain", "c"), ("delete_domain", "b"), ("delete_domain", "a")]
+
+
+def test_in_use_removals_are_caught_while_planning(svc, exported, tmp_path):
+    svc._catalog().call("register_project", project={"name": "crm", "domain": "sales"})
+    for name in ("emea", "sales"):
+        (tmp_path / "platform" / "domains" / f"{name}.toml").unlink()
+    (tmp_path / "platform" / "admins.toml").write_text("admins = []\n", encoding="utf-8")
+    commit(svc, exported, "Remove sales and every admin")
+    preview = svc.git_platform_deploy(exported, remove=[{"kind": "domains", "id": "emea"}])
+    assert [s["id"] for s in preview["steps"] if s["action"] == "remove"] == ["emea"]
+    preview = svc.git_platform_deploy(exported, remove=[{"kind": "domains", "id": "sales"}])
+    assert not any(s["action"] == "remove" for s in preview["steps"])
+    assert "subdomain emea, project crm" in next(b for b in preview["blocked"] if b["id"] == "sales")["why"]
+    preview = svc.git_platform_deploy(exported, remove=[{"kind": "admins", "id": "ana@contoso.com"}])
+    assert any("no platform admin" in x for x in preview["stops"])
+
+
+def test_a_source_still_read_is_kept_in_the_plan():
+    deployed = platform_files.from_platform({"sources": [{"name": "sap", "code": "SAP", "source_id": 1,
+                                                          "readers": [{"project": "crm", "entities": []}]}],
+                                             "key_tables": {"prod": []}})
+    out = platform_files.plan({"sources": {}, "problems": []}, {"prod": deployed}, "prod", {("sources", "sap")}, "note")
+    assert out["steps"] == [] and "still read by crm" in out["blocked"][0]["why"]

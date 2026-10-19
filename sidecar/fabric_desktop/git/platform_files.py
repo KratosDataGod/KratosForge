@@ -120,7 +120,8 @@ def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
                            # the platform's own rows, which a deploy needs beside the records
                            "raw": {"domains": {_s(d.get("id")): d for d in raw.get("domains") or []},
                                    "sources": {_s(s.get("name")): s for s in raw.get("sources") or []},
-                                   "policies": {_s(p.get("id")): p for p in raw.get("policies") or []}}}
+                                   "policies": {_s(p.get("id")): p for p in raw.get("policies") or []},
+                                   "projects": list(raw.get("projects") or [])}}
     for d in raw.get("domains") or []:
         out["domains"][_s(d.get("id"))] = domain_record(d)
     for s in raw.get("sources") or []:
@@ -440,6 +441,17 @@ def _policies_plan(git: dict[str, Any], cat: dict[str, Any], note: str, steps: l
                                {"id": ident, "status": rec["status"], "note": note}, what=f"mark it {rec['status']}"))
 
 
+def _depth(ident: str, parent_of: dict[str, str]) -> int:
+    """How deep a domain sits: 0 for a top-level one. A loop counts as deep, never forever."""
+    seen, n = {ident}, 0
+    while parent_of.get(ident):
+        ident, n = parent_of[ident], n + 1
+        if ident in seen:
+            break
+        seen.add(ident)
+    return n
+
+
 def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str, remove: set[tuple[str, str]],
          note: str) -> dict[str, Any]:
     """The steps that make the platform match the files. ``envs`` is each environment's deployed
@@ -460,15 +472,23 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
         for env in ordered:
             for who in sorted(set(git["admins"]) - set(envs[env]["admins"])):
                 steps.append(_step("admins", who, "create", "add_admin", {"user": who}, env, f"add as admin in {env}"))
-            for who in sorted(set(envs[env]["admins"]) - set(git["admins"])):
+            gone = sorted(set(envs[env]["admins"]) - set(git["admins"]))
+            for who in gone:
                 removable.append({"kind": "admins", "id": who, "env": env})
-                if ("admins", who) in remove:
-                    removals.append(_step("admins", who, "remove", "remove_admin", {"user": who}, env,
-                                          f"remove as admin in {env}"))
+            ticked = [w for w in gone if ("admins", w) in remove]
+            if ticked and not (set(envs[env]["admins"]) | set(git["admins"])) - set(ticked):
+                stops.append(f"Removing {', '.join(ticked)} would leave {env} with no platform admin. "
+                             "Keep one, or add another in admins.toml.")
+            for who in ticked:
+                removals.append(_step("admins", who, "remove", "remove_admin", {"user": who}, env,
+                                      f"remove as admin in {env}"))
 
     # domains, parents first
     gd, dd = git.get("domains") or {}, cat["domains"]
-    for ident in sorted(gd, key=lambda i: (bool(gd[i].get("parent")), i)):
+    raw_domains = cat["raw"]["domains"]
+    parent_of = {i: _s(r.get("parent_id")) for i, r in raw_domains.items()}  # Fabric-backed ones' too
+    git_parent = {i: r.get("parent") or parent_of.get(i, "") for i, r in gd.items()}
+    for ident in sorted(gd, key=lambda i: (_depth(i, git_parent | {k: v for k, v in parent_of.items() if k not in gd}), i)):
         rec, dep = gd[ident], dd.get(ident)
         if rec.get("fabric_domain_id") and dep is None:
             blocked.append({"kind": "domains", "id": ident, "why": "comes from Fabric. Import it from Fabric on Platform > Domains, then deploy again."})
@@ -477,10 +497,18 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
         elif rec != dep:
             steps.append(_step("domains", ident, "update" if dep else "create", "save_domain",
                                _domain_args(ident, rec, cat["raw"]["domains"].get(ident))))
-    parent_of = {i: _s(r.get("parent_id")) for i, r in cat["raw"]["domains"].items()}  # Fabric's too
-    for ident in sorted(set(dd) - set(gd), key=lambda i: (not parent_of.get(i), i)):  # children first
+    going = {i for i in set(dd) - set(gd) if ("domains", i) in remove}
+    for ident in sorted(set(dd) - set(gd), key=lambda i: (-_depth(i, parent_of), i)):  # deepest first
         removable.append({"kind": "domains", "id": ident, "env": None})
-        if ("domains", ident) in remove:
+        if ident not in going:
+            continue
+        kept = sorted(c for c, p in {**parent_of, **git_parent}.items() if p == ident and c not in going)
+        users = sorted({p["name"] for p in cat["raw"].get("projects") or []
+                        if ident in (_s(p.get("domain_id")), _s(p.get("subdomain_id")))})
+        if kept or users:
+            what = [f"subdomain {c}" for c in kept] + [f"project {u}" for u in users]
+            blocked.append({"kind": "domains", "id": ident, "why": f"is still used by {', '.join(what)}, so it stays."})
+        else:
             removals.append(_step("domains", ident, "remove", "delete_domain", {"did": ident}))
 
     # sources: an id is never changed, and a new source keeps the id its file gives it
@@ -510,7 +538,12 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
             steps.append(_step("sources", ident, "update" if dep else "create", "save_source", {"source": fields}))
     for ident in sorted(set(ds) - set(gs)):
         removable.append({"kind": "sources", "id": ident, "env": None})
-        if ("sources", ident) in remove:
+        if ("sources", ident) not in remove:
+            continue
+        readers = sorted({r["project"] for r in (cat["raw"]["sources"].get(ident) or {}).get("readers") or []})
+        if readers:
+            blocked.append({"kind": "sources", "id": ident, "why": f"is still read by {', '.join(readers)}, so it stays."})
+        else:
             removals.append(_step("sources", ident, "remove", "delete_source", {"name": ident}))
 
     # key tables: made in every environment; never renamed, changed or removed (they hold keys)

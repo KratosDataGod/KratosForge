@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from deltalake import DeltaTable
 
-from . import depgraph
+from . import depgraph, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -138,7 +138,9 @@ class SideBySideMixin:
         if sorted(confirm_writes or []) != writes["tables"] or (writes["unknown"] and not confirm_unknown):
             raise PermissionError("Side by side writes this notebook's tables for real, on this PC and then in Fabric. "
                                   "Confirm the tables it writes first, or use Prove, which keeps both runs' writes in a sandbox.")
-        self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
+        # The code revision a receipt would name, so a comparison counts only for the code it ran.
+        revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])])
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         # Sign in now, while the app is in front, rather than from the background.
         self.auth.storage_token()  # type: ignore[attr-defined]
@@ -149,7 +151,7 @@ class SideBySideMixin:
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "local",
             "started_at": _now(), "finished_at": None, "message": "",
             "lakehouse": {"name": lakehouse_ref.get("name", ""), "workspace_name": lakehouse_ref.get("workspace_name", "")},
-            "workspace_name": ws["workspace_name"], "machine": sbs.machine(),
+            "workspace_name": ws["workspace_name"], "machine": sbs.machine(), "code_revision": revision["revision"],
             "local": {"status": "pending", "seconds": None, "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python" if uses_local_module(cells) and not uses_spark(cells) else "spark"},
             "tables": [], "verdict": None, "speed": {}, "_cancel": False}

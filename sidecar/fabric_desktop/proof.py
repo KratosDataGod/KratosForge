@@ -39,7 +39,9 @@ _SQL_CHANGE = re.compile(r"\b(CREATE|INSERT|MERGE|UPDATE|DELETE|DROP|ALTER|TRUNC
 _WARNINGS = [
     (re.compile(r"\b(requests|httpx|urllib3?)\.(get|post|put|patch|delete|request|urlopen|Request)\b|\bhttp\.client\b|\bsmtplib\b"),
      "calls a network service; the proof can't contain or compare what that does"),
-    (re.compile(r"\bopen\s*\([^)]*[\"'][wax]b?\+?[\"']|\.write_(text|bytes)\s*\(|\bos\.(remove|unlink|rename|makedirs)\b|\bshutil\."),
+    (re.compile(r"\bopen\s*\([^,)]*,\s*(?:mode\s*=\s*)?[\"'][rbt]*[wax+]|\bopen\s*\([^)]*\bmode\s*=\s*[\"'][rbt]*[wax+]"
+                r"|\.write_(text|bytes)\s*\(|\bos\.(remove|unlink|rename|makedirs)\b|\bshutil\."
+                r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"),
      "writes or changes files on the machine running it; those aren't compared"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.notebook\.(run|runMultiple)\b|^\s*%run\b", re.M),
      "runs another notebook, which isn't checked or contained by the proof"),

@@ -28,7 +28,8 @@ from .git import secrets
 
 SEVERITIES = ("error", "warning", "info")
 LIMITS = ["Code checks read the code; they can't see names or calls built at run time.",
-          "A clean run on this PC uses this PC's packages and DuckDB's PySpark API, not Fabric's Spark.",
+          "A clean run uses this PC's packages. It doesn't run Spark cells yet, so a notebook that uses Spark gets "
+          "code checks only.",
           "Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
           "the ones the code checks find are listed before it starts."]
 
@@ -72,7 +73,13 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
         dynamic = any(not d["text"].startswith("doesn't parse") for d in info.get("dynamic", []))
         for u in info.get("unresolved", []):
             later = re.search(r"later cell \((\d+)\)", u["text"])
-            if later:
+            if later and u["name"] in info.get("deferred", []):
+                m = int(later.group(1))
+                out.append(finding(
+                    "info", "defined_later", f"Cell {n} has a function that uses a name defined later",
+                    f"{u['name']} is defined in cell {m}. A function reads it when it's called, so this works as long "
+                    f"as nothing calls the function before cell {m} runs.", "", n, cells))
+            elif later:
                 m = int(later.group(1))
                 out.append(finding(
                     "error", "defined_later", f"Cell {n} uses a name defined later",
@@ -162,7 +169,12 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                            "The cells read or write lakehouse tables or files.", "Attach a lakehouse with Add data items."))
     if not _code_cells(cells):
         out.append(finding("info", "empty", "The notebook has no code"))
-    return {"findings": _sorted(out), "counts": counts(out), "run": run_plan(cells, lakehouse),
+    plan = run_plan(cells, lakehouse)
+    spark = next((b["cell"] for b in plan["blockers"] if b["text"].startswith("uses Spark")), None)
+    if spark:
+        out.append(finding("info", "spark_code_checks_only", "Spark notebooks get code checks only for now",
+                           f"Cell {spark} uses Spark. A clean run doesn't run Spark cells yet.", "", spark, cells))
+    return {"findings": _sorted(out), "counts": counts(out), "run": plan,
             "tables": {"reads": reads, "writes": writes}, "limits": LIMITS}
 
 

@@ -110,8 +110,11 @@ class ValidateMixin:
             plan = validate.run_plan(cells, lakehouse_ref)
             if not plan["ok"]:
                 b = plan["blockers"][0]
+                if b["text"].startswith("uses Spark"):
+                    raise ValueError(f"A clean run doesn't run Spark cells yet (cell {b['cell']} uses Spark), so this "
+                                     "notebook gets code checks only for now.")
                 raise ValueError(f"A clean run can't contain cell {b['cell']}: it {b['text']}. "
-                                 "Change that cell to write with lakehouse.write_table, or run it yourself.")
+                                 "Change that cell to read and write through the lakehouse module, or run it yourself.")
             if plan["uncontained"] and not allow_uncontained:
                 u = plan["uncontained"][0]
                 raise PermissionError(f"Confirm to continue. Cell {u['cell']}: {u['text']}")

@@ -40,6 +40,17 @@ def test_a_name_defined_in_a_later_cell_is_an_error_and_an_unknown_one_a_warning
     assert validate.verdict(out["findings"], None) == "not_ready"
 
 
+def test_a_name_read_only_inside_a_function_body_is_read_when_the_function_is_called():
+    cells = [code("def f(x):\n    return x + y\nadd = lambda v: v + y"), code("y = 2\nprint(f(1), add(1))")]
+    out = validate.check(cells, None)
+    [f] = findings(out, "defined_later")
+    assert f["severity"] == "info" and f["cell"] == 1 and "when it's called" in f["text"]
+    assert validate.verdict(out["findings"], None) == "checked"
+    # Read at definition time (a default value), it's still an error.
+    out = validate.check([code("def f(x=y):\n    return x"), code("y = 2")], None)
+    assert [g["severity"] for g in findings(out, "defined_later")] == ["error"]
+
+
 def test_a_cell_that_does_not_parse_is_an_error():
     out = validate.check([code("x = (1,")], None)
     [f] = findings(out, "syntax")
@@ -84,6 +95,23 @@ def test_the_run_plan_refuses_writes_it_cannot_contain_and_lists_what_it_cannot_
     web = validate.run_plan([code("import requests\nrequests.get('https://example.com')")], LH)
     assert web["ok"] and web["uncontained"] == [{"cell": 1, "cell_id": None, "line": 2,
                                                  "text": "A clean run really makes the call."}]
+
+
+def test_spark_notebooks_get_code_checks_only_for_now():
+    out = validate.check([code("df = spark.read.table('dbo.orders')\ndisplay(df)")], LH, "pc")
+    [f] = findings(out, "spark_code_checks_only")
+    assert f["severity"] == "info" and f["cell"] == 1 and not out["run"]["ok"]
+    assert any("doesn't run Spark cells yet" in t for t in out["limits"])
+
+
+def test_local_files_and_keys_the_code_checks_find():
+    effects = lambda src: [f["title"] for f in findings(validate.check([code(src)], None), "side_effect")]
+    assert effects("text = open('a').read()") == []  # opening to read is not a write
+    assert effects("open('a', 'w').write('x')") == ["Cell 1 writes files on this PC"]
+    assert effects("import pandas as pd\npd.DataFrame().to_csv('out.csv')") == ["Cell 1 writes files on this PC"]
+    assert effects("import pandas as pd\ns = pd.DataFrame().to_csv(index=False)") == []
+    out = validate.check([code('key = "sk-proj-abcdefghijklmnopqrstuvwx"')], None)
+    assert [f["severity"] for f in findings(out, "secret")] == ["error"] and "abcdefghijklmnop" not in json.dumps(out)
 
 
 # ---- the clean run
@@ -182,6 +210,11 @@ def test_the_clean_run_asks_first_and_refuses_what_it_cannot_contain(svc):
     assert "Confirm to continue" in refused(svc, "notebook_validate_start", name="Web", cells=web, lakehouse_ref=LH)
     direct = [code("from deltalake import write_deltalake\nwrite_deltalake('abfss://x', t)")]
     assert "can't contain cell 1" in refused(svc, "notebook_validate_start", name="Direct", cells=direct, lakehouse_ref=LH)
+
+
+def test_a_spark_notebook_is_told_it_gets_code_checks_only(svc):
+    cells = [code("df = spark.read.table('dbo.orders')\ndf.write.saveAsTable('dbo.copy')")]
+    assert "code checks only" in refused(svc, "notebook_validate_start", name="Spark", cells=cells, lakehouse_ref=LH)
 
 
 def test_one_validation_at_a_time_and_cancel_ends_it(svc):

@@ -109,6 +109,11 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
+from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
+
+METHODS |= VALIDATE_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

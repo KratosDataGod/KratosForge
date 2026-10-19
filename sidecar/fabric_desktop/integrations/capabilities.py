@@ -139,7 +139,8 @@ def register_core(reg: Registry) -> None:
         Capability(
             "fabric_desktop_validate_notebook", "Validate notebook",
             "Whether a notebook can run on this PC and in Fabric and which cells stop it, what a proof would refuse, "
-            "and how its cells depend on each other: the checks the notebook screen runs. Runs no code.",
+            "how its cells depend on each other, and Validate's findings (errors, warnings and info, each with its cell "
+            "and a fix): the checks the notebook screen runs. Runs no code.",
             schema({"name": NAME}, ["name"]),
             schema({"ok": {"type": "boolean"}, "this_pc": CHECK, "fabric": CHECK, "proof": {"type": "object"},
                     "dependencies": {"type": "object"}}, ["ok", "this_pc", "fabric"], extra=True),

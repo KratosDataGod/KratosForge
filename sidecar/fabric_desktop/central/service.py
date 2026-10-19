@@ -87,8 +87,11 @@ class PlatformMixin:
                                   cfg["workspace_id"], cfg["functions_id"])
         cached = getattr(self, "_local_shared_keys", None)
         if cached is None:
-            cached = self._local_shared_keys = LocalPlatform(self.root / "platform" / "keys.sqlite", self._user)
+            cached = self._local_shared_keys = LocalPlatform(self._local_keys_path(), self._user)
         return cached
+
+    def _local_keys_path(self) -> Path:
+        return self.root / "platform" / "keys.sqlite"
 
     def _keys_platform(self, env: str) -> LocalPlatform | FabricPlatform:
         """Where an environment's platform keys are: the shared keys database, else its own platform."""
@@ -107,16 +110,35 @@ class PlatformMixin:
         out = keys_home.setup(self.fabric, lambda: self.auth._token(EXECUTE_SCOPES),  # type: ignore[attr-defined]
                               name, capacity_id, self._keys_config())
         self._save_platform("keys", out["config"])
+        if out["ready"]:
+            self._adopt_live_keys()  # a Keys workspace someone else already moved keys into
         return out | {"status": self.platform_status()}
 
     def platform_keys_join(self, workspace_id: str) -> dict[str, Any]:
+        """Use a Keys workspace someone already made. If its keys are already in use, this PC uses them too."""
         self._save_platform("keys", self._keys_config() | keys_home.join(self.fabric, workspace_id))  # type: ignore[attr-defined]
+        self._adopt_live_keys()
         return self.platform_status()
+
+    def _adopt_live_keys(self) -> bool:
+        """Switch this PC to the shared keys database if another admin's move already made it live."""
+        cfg = self._keys_config()
+        if cfg.get("shared"):
+            return True
+        if not cfg.get("functions_id") and not self._local_keys_path().exists():
+            return False  # no keys database on this PC yet, and looking must not create one
+        if not self._shared_keys().call("keys_state").get("live"):
+            return False
+        self._save_platform("keys", cfg | {"shared": True})
+        return True
 
     def _share_sources(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
         """Each environment's platform once, Prod first, so a database it shares with Dev keeps Prod's numbers."""
         sources, seen = [], set()
+        cfg = self._platform_config()
         for env in reversed(ENVIRONMENTS):
+            if not cfg[env].get("functions_id") and not (self.root / "platform" / f"platform-{env}.sqlite").exists():
+                continue  # no platform on this PC for it, so no keys to move (and looking must not create one)
             client = self._platform(env)
             ident = getattr(client, "functions_id", None) or str(getattr(client, "path", env))
             if ident not in seen:
@@ -142,10 +164,11 @@ class PlatformMixin:
         no run issues a key while they're copied; Prod's keep their numbers. The switch happens only
         if every key table checked out and no environment's keys changed during the move. A move
         that stops leaves the keys closed, so running it again copies the same keys."""
-        cfg = self._keys_config()
-        if cfg.get("shared"):
+        if self._keys_config().get("shared"):
             return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
         cfg = self._check_can_share()
+        if self._adopt_live_keys():  # another admin's move: the keys are already in use
+            return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
         sources = self._share_sources()
         if not approve:
             return keys_home.plan(sources) | {"ok": False, "preview": True, "message": (
@@ -187,7 +210,7 @@ class PlatformMixin:
         if changed:
             report |= {"ok": False, "changed_during_move": changed}
         if report["ok"]:
-            shared.call("stage_keys", staging=False)
+            shared.call("stage_keys", staging=False, live=True)
             self._save_platform("keys", cfg | {"shared": True, "moved_at": dt.datetime.now(dt.timezone.utc)
                                                 .isoformat(timespec="seconds")})
             for _, client in sources:
@@ -199,12 +222,15 @@ class PlatformMixin:
 
     def platform_cancel_share_keys(self, approve: bool = False) -> dict[str, Any]:
         """Give up a move that didn't switch: empty what it copied and reopen every environment's keys."""
-        if self._keys_config().get("shared"):
-            raise GateError("save", ["The keys already moved and are in use, so the move can't be cancelled."])
         self._check_can_share()
+        if self._adopt_live_keys():
+            raise GateError("save", ["The keys already moved and are in use, so the move can't be cancelled."])
         if not approve:
-            return {"ok": False, "preview": True, "message": "The keys the move copied are removed from the keys "
-                    "database, and every environment issues its own keys again. Confirm to continue."}
+            tables = [t["name"] for t in self._shared_keys().call("list_key_tables")]
+            return {"ok": False, "preview": True, "tables": tables, "message": (
+                f"The move never switched, so nothing uses these key tables yet: {', '.join(tables) or 'none'}. "
+                "They're removed from the keys database, and every environment issues its own keys again. "
+                "Confirm to continue.")}
         cleared = self._shared_keys().call("clear_keys")
         for _, client in self._share_sources():
             client.call("close_keys", reason="")

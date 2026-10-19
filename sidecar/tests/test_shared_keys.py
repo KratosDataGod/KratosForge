@@ -265,3 +265,26 @@ def test_a_platform_set_by_policy_moves_nothing_from_this_pc(svc, monkeypatch):
     with pytest.raises(PermissionError, match="organization sets the platform"):
         svc.platform_share_keys(approve=True)
     assert not svc._shared_keys().call("list_key_tables")
+
+
+def test_a_second_admin_who_joins_uses_the_live_keys_and_can_never_clear_them(svc, tmp_path, monkeypatch):
+    _issue(svc, "prod", "customer", ["ada"])
+    _issue(svc, "dev", "customer", ["aaron"])
+    assert svc.platform_share_keys(approve=True)["ok"]
+    live = svc._shared_keys()
+    # Another admin's PC: its own environments, the same keys database, nothing in its settings yet.
+    other = Service(root=tmp_path / "other")
+    _issue(other, "prod", "customer", ["someone else"])
+    monkeypatch.setattr(other, "_local_keys_path", lambda: live.path)
+    assert not other.platform_status()["keys"]["shared"]
+    with pytest.raises(GateError, match="can't be cancelled"):
+        other.platform_cancel_share_keys(approve=True)
+    assert other.platform_status()["keys"]["shared"]  # it noticed the keys are live and uses them
+    assert other.platform_share_keys(approve=True)["already"]
+    assert other._platform_keys("dev").lookup("customer", "aaron")["sk"] == 2
+    # The live database refuses to be staged or cleared, whoever asks.
+    with pytest.raises(Exception, match="already in use"):
+        live.call("stage_keys", staging=True)
+    with pytest.raises(Exception, match="these keys are in use"):
+        live.call("clear_keys")
+    assert [t["name"] for t in live.call("list_key_tables")] == ["customer"]

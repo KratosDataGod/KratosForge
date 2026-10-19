@@ -168,7 +168,7 @@ Setting it up creates only those two items and makes you its first admin. Nothin
 
 Each environment's own keys are only read, never changed or deleted.
 
-**If the move stops** (a network drop, a table that didn't check out), nothing switches and every environment's keys stay closed, so they can't change. Run Move keys in again and the same keys copy again. Or **cancel the move**: after a confirm, it removes what the move copied into the keys database and reopens every environment's keys. Keys that already moved and are in use can't be cancelled or cleared.
+**If the move stops** (a network drop, a table that didn't check out), nothing switches and every environment's keys stay closed, so they can't change. Run Move keys in again and the same keys copy again. Or **cancel the move**: after a confirm, it removes what the move copied into the keys database and reopens every environment's keys. Keys that already moved and are in use can't be cancelled or cleared: the switch marks the keys database as live, and from then on it refuses to be filled by another move or emptied, whoever asks. A PC that joins the Keys workspace afterwards sees that mark and uses the shared keys straight away.
 
 In Fabric, each Platform workspace needs **Finish or repair** once after this update, so `UDF_Platform` has the functions that close and reopen keys. A platform that doesn't have them yet refuses the move before anything is copied.
 

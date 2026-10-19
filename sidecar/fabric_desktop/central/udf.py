@@ -77,8 +77,15 @@ def close_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, r
 @udf.connection(argName="sqlDB", alias="platform")
 @udf.context(argName="ctx")
 @udf.function()
-def stage_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, staging: bool) -> dict:
-    return _run(sqlDB, "stage_keys", ctx, staging=staging)
+def stage_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, staging: bool,
+               live: bool = False) -> dict:
+    return _run(sqlDB, "stage_keys", ctx, staging=staging, live=live)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def keys_state(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "keys_state")
 
 
 @udf.connection(argName="sqlDB", alias="platform")

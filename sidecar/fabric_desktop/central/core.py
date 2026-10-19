@@ -295,6 +295,8 @@ def _clean_bks(business_keys: list[Any]) -> list[str]:
 KEYS_CLOSED = "keys_closed"
 # Set on the shared keys database while a move fills it and nothing uses it yet.
 KEYS_STAGING = "keys_staging"
+# Set on the shared keys database once every environment uses it: from then on it's never staged or cleared.
+KEYS_LIVE = "keys_live"
 
 
 def _setting(db: Db, name: str) -> str:
@@ -318,19 +320,31 @@ def close_keys(db: Db, reason: str = "", by: str = "") -> dict[str, Any]:
     return {"closed": str(reason or "")}
 
 
-def stage_keys(db: Db, staging: bool, by: str = "") -> dict[str, Any]:
-    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it)."""
+def keys_state(db: Db) -> dict[str, Any]:
+    """Whether this keys database is live (Dev, Test and Prod use it), being filled by a move, or closed."""
+    return {"live": _setting(db, KEYS_LIVE) == "1", "staging": _setting(db, KEYS_STAGING) == "1",
+            "closed": _setting(db, KEYS_CLOSED)}
+
+
+def stage_keys(db: Db, staging: bool, live: bool = False, by: str = "") -> dict[str, Any]:
+    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it),
+    or, with ``live``, as the one every environment uses now. A live database is never staged again."""
     require_admin(db, by, "move keys")
-    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging else ""})
+    if _setting(db, KEYS_LIVE) == "1" and (staging or not live):
+        raise PlatformError("This keys database is already in use by Dev, Test and Prod. Join it instead of moving keys into it.")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging and not live else ""})
+    if live:
+        _upsert(db, "config", "setting", "name", {"name": KEYS_LIVE, "value": "1"})
+        _audit(db, by, "keys live", "keys")
     db.commit()
-    return {"staging": bool(staging)}
+    return keys_state(db)
 
 
 def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
     """Drop every key table a move put here before it switched, so the move can start again.
     Refused on a keys database that isn't being filled by a move: those keys are in use."""
     require_admin(db, by, "clear the keys a move copied")
-    if _setting(db, KEYS_STAGING) != "1":
+    if _setting(db, KEYS_LIVE) == "1" or _setting(db, KEYS_STAGING) != "1":
         raise PlatformError("Only a keys database a move is still filling can be cleared: these keys are in use.")
     names = [t["name"] for t in list_key_tables(db)]
     for name in names:
@@ -1353,6 +1367,7 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
     "import_keys": import_keys, "close_keys": close_keys, "stage_keys": stage_keys, "clear_keys": clear_keys,
+    "keys_state": keys_state,
     "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
     "import_fabric_domains": import_fabric_domains,

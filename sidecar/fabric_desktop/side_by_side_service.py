@@ -140,7 +140,7 @@ class SideBySideMixin:
                                   "Confirm the tables it writes first, or use Prove, which keeps both runs' writes in a sandbox.")
         saved = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)  # type: ignore[attr-defined]
         # The code revision a receipt would name, so a comparison counts only for the code it ran.
-        revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"])])
+        revision = receipts.code_revision([dict(c) | {"cell_id": cid} for c, cid in zip(cells, saved["cell_ids"], strict=True)])
         ws = self._publish_workspace(name, lakehouse_ref, workspace)  # type: ignore[attr-defined]
         # Sign in now, while the app is in front, rather than from the background.
         self.auth.storage_token()  # type: ignore[attr-defined]

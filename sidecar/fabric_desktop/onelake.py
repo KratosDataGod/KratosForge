@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 import requests
 
+from . import http_session
 from .retrying import send_with_retry
 
 DFS_HOST = "onelake.dfs.fabric.microsoft.com"
@@ -59,7 +60,7 @@ class TableCatalog:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
 
     def _get(self, url: str, **params) -> dict[str, Any]:
@@ -98,7 +99,7 @@ class FileStore:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
 
     def _read(self, url: str, **kwargs: Any) -> requests.Response:

@@ -50,6 +50,7 @@ Checked by reading the code and running the engine's tests (322 passed, 2 skippe
 
 - Runs the notebook on the PC, then publishes and runs it in Fabric, **against the same lakehouse, writing the real tables twice**. It snapshots every table's Delta version before, between and after, and compares the tables each run wrote by row count, column kinds and an order-independent checksum (doubles rounded to 10 significant digits, timestamps in UTC).
 - Limits: shared outputs are overwritten (twice); the Fabric run starts from what the PC run left, so merge/append/update notebooks are not compared from equal state; inputs aren't pinned, so a writer elsewhere changes the result; a checksum mismatch says nothing about which rows differ; no tolerances, keys or ignored columns; files under `Files/` aren't compared; the environment isn't recorded; results live in a local JSONL with no integrity protection.
+- Each comparison records the notebook's code revision, computed the same way as a Prove receipt's, so tools that weigh it (the FinOps placement advisor) count it only for the code that ran.
 
 ### Telemetry and cost
 

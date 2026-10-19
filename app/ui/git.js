@@ -57,6 +57,38 @@ function gitCommitLabel(st) {
   return all ? `Stage all and commit ${all} file${all === 1 ? "" : "s"}${where}` : "Nothing to commit";
 }
 
+// Repositories grouped by what they hold, in the order of the kinds; ones that don't say come last.
+function gitGroupRepos(repos, kinds) {
+  const order = Object.keys(kinds || {});
+  const groups = order.map((k) => ({ kind: k, label: kinds[k].label, repos: [] }));
+  const other = { kind: null, label: "Not yet sorted", repos: [] };
+  for (const r of repos || []) (groups.find((g) => g.kind === r.kind) || other).repos.push(r);
+  return [...groups, other].filter((g) => g.repos.length);
+}
+
+// Where a notebook's data is (item 37, stage 2): a lakehouse attached to the notebook itself,
+// else its notebooks repository's location for the environment in the top bar, else nothing.
+function nbData(nb, env = (typeof state !== "undefined" && state.meta?.env) || "dev") {
+  const envLabel = env[0].toUpperCase() + env.slice(1);
+  if (nb?.lakehouse) return { ref: nb.lakehouse, from: "notebook", env, envLabel };
+  const loc = nb?.locations?.envs?.[env] || null;
+  if (loc?.lakehouse) return { ref: loc.lakehouse, from: "locations", env, envLabel, loc };
+  return { ref: null, from: loc ? "this_pc" : nb?.place ? "unset" : null, env, envLabel, loc };
+}
+
+function nbLakehouse(nb) {
+  return nbData(nb).ref;
+}
+
+// The chip's words for where the data is.
+function nbDataText(data) {
+  if (data.from === "notebook") return `Data: ${data.ref.name} (this notebook)`;
+  if (data.from === "locations") return `Data: ${data.ref.name}`;
+  if (data.from === "this_pc") return `Data: nothing attached in ${data.envLabel}`;
+  if (data.from === "unset") return `No location for ${data.envLabel}`;
+  return "";
+}
+
 // ---------- state ----------
 
 const gitPage = {
@@ -125,8 +157,10 @@ async function renderSourceControl() {
       h("div", { class: "tiles" },
         tile("arrowDownload", "Clone a repository", "Copy a repository from GitHub, Azure DevOps or another Git server to this PC.", gitCloneDialog),
         tile("folderOpen", "Open a folder", "Use a repository that is already on this PC.", gitOpenDialog),
-        tile("add", "Start a new repository", "Make a folder a new Git repository.", () => gitInitDialog()),
-        tile("notebook", "Version my notebooks", "Start a repository in the folder this app keeps notebooks in.", () => gitInitDialog(info.notebooks_folder)))));
+        tile("notebook", "Version my notebooks", "Start a notebooks repository in the folder this app keeps notebooks in.", () => gitInitDialog(info.notebooks_folder, "notebooks"))),
+      h("h2", {}, "Start a repository for one kind of definition"),
+      h("p", { class: "muted-text" }, "Each kind lives in its own repository, so a notebook change never rides along with a platform change."),
+      gitKindTiles(info)));
     return;
   }
   if (!gitPage.status || gitPage.status.root !== gitCurrent()) {
@@ -151,7 +185,7 @@ async function renderSourceControl() {
   const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"), tab("branches", "Branches"),
     tab("history", "History"), tab("settings", "Repository settings"));
   const bodies = { changes: gitChangesTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
-  setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), tabs,
+  setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
 
@@ -188,6 +222,10 @@ function gitHeader(st) {
   return h("div", { class: "page-head" },
     h("div", { class: "grow" },
       h("div", { class: "row wrap" }, gitPage.title()[0], btn(gitRepoName(st.root), "chevronDown", (e) => gitRepoMenu(e.currentTarget), "tool outline", { title: "Switch repository" }),
+        gitKindOf(st.root).kind ? h("span", { class: "pill" }, gitPage.info.kinds[gitKindOf(st.root).kind].label) : null,
+        gitKindOf(st.root).kind === "notebooks" ? btn("Data locations", "lakehouse",
+          () => gitLocationsDialog(st.root, gitRepoName(st.root), gitAfterChange), "tool outline small",
+          { title: "Where this repository's notebooks find their data in each environment" }) : null,
         ...gitPage.title().slice(1)),
       h("p", { class: "sub git-sub" }, sub)),
     h("div", { class: "row wrap" }, remoteActions));
@@ -196,11 +234,75 @@ function gitHeader(st) {
 function gitRepoMenu(anchor) {
   const repos = (gitPage.info?.repos || []).filter((r) => r.exists);
   showMenu(anchor, [
-    ...repos.map((r) => ({ label: r.path === gitCurrent() ? `${r.name} (open)` : r.name, icon: "branch", action: () => gitSwitchRepo(r.path) })),
+    ...gitGroupRepos(repos, gitPage.info?.kinds).flatMap((g) => [{ info: g.label },
+      ...g.repos.map((r) => ({ label: r.path === gitCurrent() ? `${r.name} (open)` : r.name, icon: "branch", action: () => gitSwitchRepo(r.path) }))]),
+    { info: "More" },
+    { label: "New repository", icon: "add", action: () => gitNewDialog() },
     { label: "Clone a repository", icon: "arrowDownload", action: gitCloneDialog },
     { label: "Open a folder", icon: "folderOpen", action: gitOpenDialog },
-    { label: "Start a new repository", icon: "add", action: () => gitInitDialog() },
   ]);
+}
+
+function gitKindTiles(info) {
+  const icons = { notebooks: "notebook", project: "database", platform: "building", capacity: "gauge" };
+  return h("div", { class: "tiles" }, Object.entries(info?.kinds || {}).map(([kind, k]) =>
+    tile(icons[kind] || "add", `New ${k.label.toLowerCase()} repository`, `${k.holds} ${k.for}`, () => gitNewDialog(kind))));
+}
+
+function gitKindOf(root) {
+  return gitPage.info?.repos.find((r) => r.path === root) || {};
+}
+
+// Under the header when the repository doesn't say what it holds: one click writes the marker.
+function gitKindBanner(st) {
+  const r = gitKindOf(st.root);
+  const kinds = gitPage.info?.kinds || {};
+  if (r.kind || !Object.keys(kinds).length) return null;
+  const order = Object.keys(kinds).sort((a, b) => (b === r.suggested) - (a === r.suggested));
+  return h("div", { class: "callout git-kind" }, icon("info", 20),
+    h("span", {}, "What does this repository hold? Fabric Desktop keeps each kind in its own repository. Choosing adds ",
+      h("code", {}, "fabric-desktop.repo.toml"), " as a change you commit; nothing else changes."),
+    h("span", { class: "spacer" }),
+    h("div", { class: "row wrap" }, order.map((k) => btn(kinds[k].label, null, () => gitSetKind(st.root, k),
+      k === r.suggested ? "tool primary small" : "tool outline small", k === r.suggested ? { title: "Suggested from the files in it" } : {}))));
+}
+
+async function gitSetKind(root, kind, confirm = false) {
+  const res = await attempt(() => rpc("git_set_kind", { repo: root, kind, confirm }), "Couldn't save what it holds");
+  if (!res) return;
+  await gitLoadInfo().catch(() => {});
+  gitAfterChange(res.status);
+  toast(`Marked as a ${gitPage.info?.kinds?.[kind]?.label.toLowerCase() || kind} repository. Commit fabric-desktop.repo.toml to keep it.`);
+}
+
+function gitNewDialog(kind = "notebooks") {
+  const kinds = gitPage.info?.kinds || {};
+  let chosen = kind in kinds ? kind : Object.keys(kinds)[0];
+  const name = h("input", { value: "", placeholder: "sales-notebooks", "aria-label": "Repository name" });
+  const parent = h("input", { value: gitPage.info?.clone_folder || "", "aria-label": "Into this folder" });
+  const holds = h("p", { class: "muted-text small" });
+  const err = h("p", { class: "field-error" });
+  const radios = h("div", { class: "git-kinds" }, Object.entries(kinds).map(([k, v]) =>
+    h("label", { class: "git-choice" }, h("input", { type: "radio", name: "git-kind", value: k, checked: k === chosen ? true : null,
+      onchange: () => { chosen = k; holds.textContent = `${v.holds} ${v.for}`; } }), h("span", {}, h("b", {}, v.label)))));
+  holds.textContent = chosen ? `${kinds[chosen].holds} ${kinds[chosen].for}` : "";
+  const ok = async () => {
+    err.textContent = "";
+    const folder = `${parent.value.trim().replace(/[\\/]+$/, "")}${parent.value.includes("\\") ? "\\" : "/"}${name.value.trim()}`;
+    if (!name.value.trim()) { err.textContent = "Give the repository a name."; return; }
+    try {
+      const st = await rpc("git_create", { path: folder, kind: chosen });
+      closeDialog();
+      await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
+      toast("Repository created with its starting files. Review them and commit to begin its history.");
+    } catch (e) { err.textContent = friendlyError(e).text; }
+  };
+  showDialog("New repository", h("div", { class: "git-form" },
+    h("p", { class: "text" }, "A new Git repository on this PC for one kind of definition, with that kind's starting files. Nothing is sent anywhere until you add a remote and push."),
+    h("div", { class: "field" }, "It holds", radios), holds,
+    h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Into this folder", parent), err),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Create repository", null, ok, "tool primary")]);
+  setTimeout(() => name.focus(), 50);
 }
 
 function gitMergeBanner(st) {
@@ -682,11 +784,11 @@ function gitOpenDialog() {
     });
 }
 
-function gitInitDialog(path = "") {
+function gitInitDialog(path = "", kind = null) {
   gitPathDialog("Start a new repository", "Makes this folder a Git repository on this PC. Nothing is sent anywhere until you add a remote and push.",
     [{ label: "Folder", value: path, placeholder: "C:\\Users\\you\\source\\repos\\new-project" }, { label: "First branch", value: "main" }], "Start repository",
     async (folder, branch) => {
-      const st = await rpc("git_init", { path: folder, branch: branch || "main" });
+      const st = await rpc("git_init", { path: folder, branch: branch || "main", kind });
       await gitLoadInfo(); gitPage.repo = st.root; gitPage.status = st; gitPage.tab = "changes"; go("source");
       toast("Repository started. Stage and commit your files to begin its history.");
     });
@@ -725,6 +827,13 @@ function gitNotebookChip(nb) {
   if (!previewShown() || !nb?.name) return slot;
   const fill = (info) => {
     if (!info) { slot.replaceChildren(); return; }
+    if (info.wrong_place) {
+      slot.replaceChildren(btn(`${info.branch || "no branch"} · wrong repository`, "warning", async () => {
+        if (gitPage.repo !== info.repo) await gitSwitchRepo(info.repo);
+        go("source");
+      }, "tool outline warn", { title: `${info.wrong_place} Open ${info.name} in Source control to change what it holds.` }));
+      return;
+    }
     slot.replaceChildren(btn(`${info.branch || "no branch"}${info.state ? ` · ${info.state}` : ""}`, "branch", async () => {
       if (gitPage.repo !== info.repo) await gitSwitchRepo(info.repo);
       gitPage.tab = "changes";
@@ -758,6 +867,150 @@ registerFeature({
     { label: "Switch branch", icon: "branch", keywords: "git checkout switch", run: () => { gitPage.tab = "branches"; go("source"); }, when: () => !!gitCurrent() },
     { label: "Clone a repository", icon: "arrowDownload", keywords: "git clone github azure devops", run: gitCloneDialog },
     { label: "Open a repository", icon: "folderOpen", keywords: "git open folder", run: gitOpenDialog },
-    { label: "Start a new repository", icon: "add", keywords: "git init new", run: () => gitInitDialog() },
+    { label: "New repository", icon: "add", keywords: "git init new notebooks project platform capacity", run: () => gitNewDialog() },
+    { label: "Make a folder a repository", icon: "add", keywords: "git init existing folder", run: () => gitInitDialog() },
   ],
 });
+
+// ---------- notebooks in notebooks repositories (item 37, stage 2) ----------
+
+// Shown on notebooks saved in a notebooks repository: where the data is for the environment in
+// the top bar, with each environment's location and a way to edit them.
+function notebookDataChip(nb) {
+  if (!nb?.place) return null;
+  const data = nbData(nb);
+  return btn(nbDataText(data), data.from === "unset" ? "warning" : "lakehouse",
+    (e) => showMenu(e.currentTarget, notebookDataMenu(nb)), `tool outline${data.from === "unset" ? " warn" : ""}`,
+    { title: `${data.ref?.workspace_name ? `${data.ref.name} in ${data.ref.workspace_name}. ` : ""}Where ${nb.name} reads and writes data. It follows the environment in the top bar.` });
+}
+
+function notebookDataMenu(nb) {
+  const data = nbData(nb);
+  const envs = nb.locations?.envs || {};
+  const where = (loc) => !loc ? "not set" : loc.lakehouse
+    ? `${loc.workspace_name || "Workspace"} / ${loc.lakehouse.name}${loc.sql_name ? `, ${loc.sql_name}` : ""}` : "nothing attached (this PC)";
+  return [
+    { info: `From ${nb.place.label} / locations.toml` },
+    ...["dev", "test", "prod"].map((env) => ({ info: `${env[0].toUpperCase() + env.slice(1)}: ${where(envs[env])}${env === data.env ? " (now)" : ""}` })),
+    nb.locations?.problem ? { info: nb.locations.problem } : null,
+    nb.lakehouse
+      ? { label: `Use the repository's locations again (stop using ${nb.lakehouse.name})`, icon: "sync", action: detachLakehouse }
+      : { label: "Attach a different lakehouse to this notebook only…", icon: "add", action: openDataItems },
+    { label: "Edit locations for this repository…", icon: "layers", action: () => gitLocationsDialog(nb.place.root, nb.place.label, () => nbReloadLocations(nb)) },
+    { label: "Move this notebook…", icon: "folder", action: () => moveNotebookDialog(nb) },
+  ].filter(Boolean);
+}
+
+async function nbReloadLocations(nb) {
+  const fresh = await rpc("open_notebook", { name: nb.name }).catch(() => null);
+  if (!fresh || state.notebook !== nb) return;
+  nb.place = fresh.place;
+  nb.locations = fresh.locations;
+  if (state.view === "notebook") renderNotebook();
+}
+
+// Asks where a new notebook goes when there are notebooks repositories; the last choice comes first.
+// Resolves to the place's root (null for the app's own folder), or undefined when cancelled.
+async function nbChoosePlace() {
+  const places = (await rpc("notebook_places").catch(() => null))?.places || [];
+  if (places.length < 2) return null;
+  let last = null;
+  try { last = localStorage.getItem("fd.notebookPlace"); } catch { /* storage can be off */ }
+  if (last === null || !places.some((p) => (p.root || "") === last)) last = places[1].root;  // first repository
+  const select = h("select", { "aria-label": "Save in" }, places.map((p) =>
+    h("option", { value: p.root || "", selected: (p.root || "") === (last || "") ? true : null }, p.root ? `${p.label} (repository)` : "This PC (the app's notebooks folder)")));
+  return new Promise((resolve) => {
+    const done = (value) => { closeDialog(); resolve(value); };
+    showDialog("New notebook", h("div", { class: "git-form" },
+      h("label", { class: "field" }, "Save in", select),
+      h("p", { class: "muted-text small" }, "In a repository it's saved under notebooks/ as a change to commit, and finds its data from that repository's locations.")),
+    [btn("Cancel", null, () => done(undefined), "tool outline"), btn("Create", null, () => {
+      try { localStorage.setItem("fd.notebookPlace", select.value); } catch { /* storage can be off */ }
+      done(select.value || null);
+    }, "tool primary")]);
+  });
+}
+
+async function moveNotebookDialog(nb) {
+  if (nb.dirty && !(await saveNotebook())) return;
+  const places = ((await attempt(() => rpc("notebook_places"), "Couldn't list where notebooks can go"))?.places || [])
+    .filter((p) => (p.root || null) !== (nb.place?.root || null));
+  if (!places.length) {
+    toast("There's nowhere else to move it. Make a notebooks repository in Source control first.");
+    return;
+  }
+  const select = h("select", { "aria-label": "Move to" }, places.map((p) => h("option", { value: p.root || "" }, p.root ? p.label : "This PC")));
+  showDialog(`Move ${nb.name}`, h("div", { class: "git-form" },
+    h("label", { class: "field" }, "Move to", select),
+    h("p", { class: "muted-text small" }, "The file moves; nothing is committed. If a notebook with this name is already there, nothing moves.")),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Move", null, async () => {
+    const out = await attempt(() => rpc("move_notebook", { name: nb.name, place: select.value || null }), "Couldn't move the notebook");
+    if (!out) return;
+    closeDialog();
+    delete gitNotebookCache[nb.name];
+    await nbReloadLocations(nb);
+    toast(out.place ? `${nb.name} is now in ${out.place.label}. Commit it there to keep it.` : `${nb.name} is now in the app's notebooks folder.`);
+  }, "tool primary")]);
+}
+
+// Edits where a notebooks repository's notebooks find their data, per environment. Saved to its
+// locations.toml as ids and names, as a change to commit. Nothing in Fabric changes.
+async function gitLocationsDialog(root, label, after) {
+  const now = await attempt(() => rpc("git_locations", { repo: root }), "Couldn't read the locations");
+  if (!now) return;
+  const workspaces = await loadWorkspaces();
+  if (!workspaces.length) { toast("Sign in to pick workspaces and lakehouses.", true); return; }
+  const envs = ["dev", "test", "prod"];
+  const rows = {};
+  const opt = (value, text, on) => h("option", { value, selected: on ? true : null }, text);
+  const row = (env) => {
+    const cur = now.envs[env] || null;
+    const ws = h("select", { "aria-label": `${env} workspace` },
+      opt("", "Not set", !cur), opt("this_pc", "This PC", cur && !cur.workspace_id),
+      workspaces.map((w) => opt(w.id, w.displayName, cur?.workspace_id === w.id)));
+    const lh = h("select", { "aria-label": `${env} lakehouse` });
+    const sql = h("select", { "aria-label": `${env} SQL database` });
+    const fill = async () => {
+      lh.replaceChildren(opt("", "—", true));
+      sql.replaceChildren(opt("", "none", true));
+      lh.disabled = sql.disabled = !ws.value || ws.value === "this_pc";
+      if (lh.disabled) return;
+      const id = ws.value;
+      const [lakes, items] = await Promise.all([rpc("list_lakehouses", { workspace_id: id }).catch(() => []),
+        rpc("list_items", { workspace_id: id }).catch(() => [])]);
+      if (ws.value !== id) return;
+      lh.replaceChildren(opt("", "—", !cur?.lakehouse_id), ...lakes.map((l) => opt(l.id, l.displayName, cur?.lakehouse_id === l.id)));
+      sql.replaceChildren(opt("", "none", !cur?.sql_id), ...(items || []).filter((i) => i.type === "SQLDatabase")
+        .map((i) => opt(i.id, i.displayName, cur?.sql_id === i.id)));
+    };
+    ws.onchange = fill;
+    fill();
+    rows[env] = { ws, lh, sql };
+    return h("tr", {}, h("td", {}, env[0].toUpperCase() + env.slice(1)), h("td", {}, ws), h("td", {}, lh), h("td", {}, sql));
+  };
+  const err = h("p", { class: "field-error" });
+  const value = (env) => {
+    const r = rows[env];
+    if (!r.ws.value) return null;
+    if (r.ws.value === "this_pc") return { this_pc: true };
+    const name = (sel) => sel.selectedOptions[0]?.textContent || "";
+    const w = workspaces.find((x) => x.id === r.ws.value);
+    return { workspace_id: r.ws.value, workspace_name: w?.displayName || "",
+      ...(r.lh.value ? { lakehouse_id: r.lh.value, lakehouse_name: name(r.lh) } : {}),
+      ...(r.sql.value ? { sql_id: r.sql.value, sql_name: name(r.sql) } : {}) };
+  };
+  showDialog(`Where ${label} find their data`, h("div", { class: "git-form" },
+    h("table", { class: "list git-locations" }, h("thead", {}, h("tr", {}, h("th", {}, "Env"), h("th", {}, "Workspace"), h("th", {}, "Lakehouse"), h("th", {}, "SQL database"))),
+      h("tbody", {}, envs.map(row))),
+    h("p", { class: "muted-text small" }, "Saved to locations.toml in the repository by workspace and item id, with the names beside them, as a change to commit. No passwords or keys. Nothing in Fabric changes."),
+    now.problem ? h("p", { class: "field-error" }, `${now.problem} Saving writes a new one.`) : null, err),
+  [btn("Cancel", null, closeDialog, "tool outline"), btn("Save locations", null, async () => {
+    err.textContent = "";
+    try {
+      await rpc("git_set_locations", { repo: root, envs: Object.fromEntries(envs.map((e) => [e, value(e)])) });
+      closeDialog();
+      toast("Locations saved. Commit locations.toml to share them.");
+      if (after) after();
+    } catch (e) { err.textContent = friendlyError(e).text; }
+  }, "tool primary")]);
+}

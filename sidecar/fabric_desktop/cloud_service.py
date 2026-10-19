@@ -150,11 +150,16 @@ class CloudMixin:
 
     def _publish(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                  compute: str | None = None, workspace: dict[str, str] | None = None,
-                 fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+                 fabric_cells: list[dict[str, Any]] | None = None,
+                 location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here).
+        ``location_ref`` is the lakehouse from the notebook repository's locations for the current
+        environment: Fabric gets it when the notebook has none of its own, but it isn't saved into
+        the notebook, so the notebook keeps following the environment."""
         self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
+        self.notebooks.save(name, cells, saved_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                    if lakehouse_ref else True)
         ipynb = json.dumps(fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)).encode()
@@ -170,9 +175,11 @@ class CloudMixin:
                        "?experience=fabric-developer"}
 
     def run_notebook_in_fabric(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
-                               compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                               compute: str | None = None, workspace: dict[str, str] | None = None,
+                               location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Publish the notebook, then run it on its workspace's Fabric capacity."""
-        item = self._publish(name, cells, lakehouse_ref, compute, workspace)
+        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
+        lakehouse_ref = lakehouse_ref or location_ref
         job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
         # As published: a Python notebook, or Spark (what the cost view counts it as).
         engine = "python" if lakehouse_ref and uses_local_module(cells) and not uses_spark(cells) else "spark"
@@ -198,14 +205,15 @@ class CloudMixin:
 
     def add_notebook_schedule(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                               schedule: dict[str, Any], compute: str | None = None,
-                              workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                              workspace: dict[str, str] | None = None,
+                              location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Publish the notebook (so the schedule runs what is on screen), then add a schedule to it."""
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
-        item = self._publish(name, cells, lakehouse_ref, compute, workspace)
+        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
         self.fabric_jobs.create_schedule(item["workspace_id"], item["id"], NOTEBOOK_JOB, config)  # type: ignore[attr-defined]
-        return self.notebook_schedules(name, lakehouse_ref)
+        return self.notebook_schedules(name, lakehouse_ref or location_ref)
 
     def delete_notebook_schedule(self, name: str, schedule_id: str, lakehouse_ref: dict[str, str] | None = None,
                                  workspace: dict[str, str] | None = None) -> dict[str, Any]:

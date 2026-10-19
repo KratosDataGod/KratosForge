@@ -302,6 +302,16 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
 
 
+def test_side_by_side_names_the_code_it_ran_as_a_receipt_does(svc, tables):
+    from fabric_desktop import receipts
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    cells = [dict(c) | {"cell_id": f"c{i}"} for i, c in enumerate(CELLS)]  # the app sends the ids it was given
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    assert call(svc, "side_by_side_list", name="NB")[0]["code_revision"] == receipts.code_revision(cells)["revision"]
+    cells[1]["source"] += "\n# changed"  # so a comparison counts only while the notebook is unchanged
+    assert out["code_revision"] != receipts.code_revision(cells)["revision"]
+
+
 def test_side_by_side_reports_a_different_answer(svc, tables):
     svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 3]}), "bench.q01"))
     out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])

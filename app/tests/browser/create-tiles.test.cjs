@@ -30,6 +30,15 @@ test("an engine from an older build says so instead of doing nothing", { skip },
   } finally { await app.close(); }
 });
 
+test("browser noise without an error object shows nothing", { skip }, async () => {
+  const app = await openApp();
+  try {
+    await app.page.evaluate(() => window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications." })));
+    await app.page.waitForTimeout(200);
+    assert.ok(await app.page.$eval("#toast", (t) => t.hidden || !/Something didn't work/.test(t.textContent)));
+  } finally { await app.close(); }
+});
+
 test("a click whose handler fails shows the error", { skip }, async () => {
   const app = await openApp();
   try {

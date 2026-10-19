@@ -89,7 +89,9 @@ function reportUncaught(err) {
   if (f.cancelled) return;
   toast(`Something didn't work: ${f.text}`, true, { details: f.details || (err?.stack ?? "") });
 }
-window.addEventListener("error", (e) => reportUncaught(e.error || e.message));
+// Only thrown errors: an event without one is browser noise, such as WebView2's "ResizeObserver loop
+// completed with undelivered notifications", or a resource that didn't load.
+window.addEventListener("error", (e) => { if (e.error) reportUncaught(e.error); });
 window.addEventListener("unhandledrejection", (e) => reportUncaught(e.reason));
 
 function matches(text) {

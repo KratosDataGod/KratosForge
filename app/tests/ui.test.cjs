@@ -305,7 +305,7 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos });`, ctx);
   return ctx;
 }
 
@@ -567,13 +567,14 @@ test("compatibility findings land where the engine says, even after characters o
 });
 
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
-  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  const page = fs.readFileSync(path.join(ui, "query.js"), "utf8");
   assert.ok(!page.includes('h("textarea"'), "no textarea editor");
   assert.match(page, /createSqlEditor\(/);
   assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("query.js"));
+  // app.js registers renderQuery when it loads, so query.js must come first (HD-056).
+  assert.ok(html.indexOf('src="query.js"') < html.indexOf('src="app.js"'));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
     "linter", "lintGutter", "forceLinting", "StateEffect"]) {
@@ -1388,6 +1389,16 @@ test("Workspaces, the catalog and data products have a How this works panel that
   assert.match(products, /records your project as a reader/);
   assert.match(products, /adds a request/);
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
+});
+
+test("repositories are grouped by what they hold, unsorted ones last", () => {
+  const { gitGroupRepos } = gitHelpers();
+  const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
+  const groups = gitGroupRepos([{ name: "a", kind: "platform" }, { name: "b", kind: null }, { name: "c", kind: "notebooks" },
+    { name: "d", kind: "platform" }], kinds);
+  assert.strictEqual(JSON.stringify(groups.map((g) => [g.label, g.repos.map((r) => r.name).join()])),
+    JSON.stringify([["Notebooks", "c"], ["Platform", "a,d"], ["Not yet sorted", "b"]]));
+  assert.strictEqual(gitGroupRepos([], kinds).length, 0);
 });
 
 // QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.

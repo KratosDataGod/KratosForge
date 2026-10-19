@@ -1378,3 +1378,10 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .mf-lineage { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: start; margin: 8px 0; }
 @media (max-width: 900px) { .mf-layer, .mf-lineage { grid-template-columns: 1fr; } }
 .mf h2 { margin: 0 0 8px; }
+
+/* Source control: kinds of repository */
+.callout.git-kind { align-items: center; }
+.git-kinds { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 4px; }
+.git-nb .tool.warn { color: var(--warn-text, #8a4b00); border-color: currentColor; }
+.git-kinds .git-choice { display: inline-flex; align-items: center; }
+.git-kinds .git-choice input { margin: 0; }

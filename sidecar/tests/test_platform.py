@@ -732,3 +732,21 @@ def test_a_project_reads_platform_sources_with_the_platform_ids(svc):
     svc.platform_save_source({"code": "HR"})  # id 4 in the platform
     svc.meta_save_source_system({"id": 9, "code": "HR", "name": "HR"})
     assert svc.meta_keys(platform=True)["source_problems"][0].startswith("HR is id 4 in the platform but 9 in this project")
+
+
+def test_listing_sources_on_a_platform_not_yet_repaired_changes_nothing(tmp_path):
+    import sqlite3
+    path = tmp_path / "old.sqlite"
+    platform = LocalPlatform(path, lambda: "chris@example.com")
+    with sqlite3.connect(path) as conn:  # schema 4's source table, as a Fabric platform has it before Finish or repair
+        conn.execute('DROP TABLE "catalog__source"')
+        conn.execute('CREATE TABLE "catalog__source" (name TEXT NOT NULL PRIMARY KEY, title TEXT, description TEXT, '
+                     'owner TEXT, expected_hours TEXT, connections TEXT, updated_at TEXT, updated_by TEXT)')
+        conn.executemany('INSERT INTO "catalog__source" (name, title, connections) VALUES (?, ?, ?)',
+                         [("sap", "SAP ERP", "{}"), ("crm", "Dynamics", "{}")])
+    with platform._db() as db:
+        got = {s["name"]: s for s in core.list_sources(db)}
+    assert (got["crm"]["source_id"], got["crm"]["code"], got["sap"]["source_id"], got["sap"]["active"]) == (1, "CRM", 2, True)
+    with sqlite3.connect(path) as conn:
+        cols = {r[1] for r in conn.execute('PRAGMA table_info("catalog__source")')}
+    assert not cols & set(core._SOURCE_ADDED), "a read added columns"

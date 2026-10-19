@@ -651,9 +651,13 @@ function lakehouseAccessBody(a, lh, redraw) {
   tableSel.addEventListener("change", async () => {
     if (!tableSel.value) { fill(who); return; }
     fill(who, h("p", { class: "muted-text small" }, "Working it out..."));
-    const list = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
-    if (list) fill(who, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
-      : [h("p", { class: "muted-text small" }, "Only workspace admins.")]));
+    const res = await attempt(() => rpc("access_who_can_read", { workspace_id: lh.workspace_id, item_id: lh.item_id, table: tableSel.value }), "Could not work it out");
+    if (!res) return;
+    const list = res.readers;
+    // Without the data access roles the list misses everyone they let in: say so (QA-005).
+    const partial = res.partial ? h("p", { class: "warn-text small" }, `Not complete: people given access by data access roles may be missing. ${res.problem}`) : null;
+    fill(who, partial, ...(list.length ? list.map((p) => h("div", { class: "row tight" }, h("b", {}, p.name), h("span", { class: "muted-text small" }, p.how)))
+      : [h("p", { class: "muted-text small" }, res.partial ? "No one found so far." : "Only workspace admins.")]));
   });
   const whoBox = h("div", { class: "card pad who-reads" }, h("b", {}, "Who can read a table"), h("label", { class: "field" }, "Table", tableSel), who);
   if (!a.enabled) {

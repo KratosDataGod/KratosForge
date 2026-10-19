@@ -1008,14 +1008,17 @@ class NotebookShelf(NotebookStore):
         raise ValueError("That repository isn't a notebooks repository opened in Source control.")
 
     def list(self) -> list[dict[str, Any]]:
+        """Every notebook that can be opened by name. A copy shadowed by a same-named notebook in
+        an earlier place isn't listed (opening, saving or deleting by that name reaches the other)."""
         out, names = [], set()
         for place, folder in self._folders():
             if not folder.is_dir():
                 continue
             for p in folder.glob("*.ipynb"):
+                if p.stem in names:
+                    continue
                 where = {"root": place["root"], "label": place["label"]} if place else None
-                out.append({"name": p.stem, "modified": p.stat().st_mtime, "place": where,
-                            "hidden_by": None if p.stem not in names else "another notebook with this name"})
+                out.append({"name": p.stem, "modified": p.stat().st_mtime, "place": where})
                 names.add(p.stem)
         return sorted(out, key=lambda n: n["modified"], reverse=True)
 
@@ -1052,11 +1055,19 @@ class NotebookShelf(NotebookStore):
             return {"name": name, "place": self.place_of(name), "moved": False}
         data = src.read_bytes()
         folder.mkdir(parents=True, exist_ok=True)
-        with open(dest, "xb") as out:  # refuses when a file of that name is already there
-            out.write(data)
-        if dest.read_bytes() != data:
-            dest.unlink()
-            raise OSError(f"Couldn't copy {name} to {folder}. The notebook is still where it was.")
+        where = target_place["label"] if target_place else "the app's notebooks folder"
+        try:
+            out = open(dest, "xb")  # refuses when a file of that name is already there
+        except FileExistsError:
+            raise ValueError(f"A notebook named {name!r} is already in {where}. Nothing was moved.") from None
+        try:
+            with out:
+                out.write(data)
+            if dest.read_bytes() != data:
+                raise OSError("the copy doesn't match")
+        except OSError as e:
+            dest.unlink(missing_ok=True)  # never leave a partial copy that blocks a retry
+            raise OSError(f"Couldn't copy {name} to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
         return {"name": name, "place": self.place_of(name), "moved": True}
 

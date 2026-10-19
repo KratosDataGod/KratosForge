@@ -8,6 +8,8 @@ the person picks a kind. Nothing is committed for them: the new files show as ch
 
 from __future__ import annotations
 
+import os
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -168,7 +170,7 @@ def set_kind(repo: Repository, kind: str, confirm: bool = False) -> dict[str, An
         if (repo.root / MARKER).exists():
             raise GitError(f"This repository's {MARKER} isn't one this app can read. "
                            f"Confirm to replace it with {KINDS[kind]['label'].lower()}.", kind="confirm")
-    (repo.root / MARKER).write_text(_marker(kind), encoding="utf-8")
+    _replace_in(repo.root, MARKER, _marker(kind))
     return {"kind": kind, "changed": True}
 
 
@@ -220,15 +222,30 @@ def write_locations(root: str | Path, envs: dict[str, Any]) -> dict[str, Any]:
             raise GitError(f"The {env} location isn't valid.", kind="invalid")
         fields = {k: loc[k].strip() for k in _LOCATION_FIELDS if isinstance(loc.get(k), str) and loc[k].strip()}
         for k, v in fields.items():
-            if len(v) > 256 or any(ord(c) < 32 for c in v):
+            if len(v) > 256 or any(ord(c) < 32 or ord(c) == 127 for c in v):
                 raise GitError(f"The {env} {k.replace('_', ' ')} isn't valid.", kind="invalid")
         if fields.get("workspace_id"):
             lines += [f"[{env}]", *(f"{k} = {_toml_str(v)}" for k, v in fields.items()), ""]
         elif loc.get("this_pc"):
             lines += [f"[{env}]", 'runs_on = "this_pc"', ""]
         # anything else: no location for this environment yet
-    (Path(root) / LOCATIONS).write_text("\n".join(lines), encoding="utf-8")
+    _replace_in(Path(root), LOCATIONS, "\n".join(lines))
     return read_locations(root)
+
+
+def _replace_in(root: Path, name: str, text: str) -> None:
+    """Replaces the file ``name`` at the repository root with ``text``. The new file is written
+    beside it and moved into place, so a link there is replaced itself and its target (which can
+    be anywhere, in a cloned repository) is never written."""
+    root = Path(root)
+    fd, tmp = tempfile.mkstemp(prefix=f".{name}.", suffix=".tmp", dir=root)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as out:
+            out.write(text)
+        os.replace(tmp, root / name)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def wrong_place(kind: str | None, item: str) -> str | None:

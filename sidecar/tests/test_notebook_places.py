@@ -62,7 +62,7 @@ def test_moving_a_notebook_never_replaces_or_loses_one(svc, tmp_path):
     # Another copy of that name appears back home (the home copy wins by name): moving it into the
     # repository refuses, and both files stay as they are.
     (svc.notebooks.folder / f"{name}.ipynb").write_text(json.dumps({"cells": [], "metadata": {}}), encoding="utf-8")
-    with pytest.raises(FileExistsError):
+    with pytest.raises(ValueError, match="already in sales-notebooks. Nothing was moved"):
         svc.move_notebook(name, root)
     assert (svc.notebooks.folder / f"{name}.ipynb").exists()
     assert "x = 1" in (tmp_path / "sales-notebooks" / "notebooks" / f"{name}.ipynb").read_text(encoding="utf-8")
@@ -120,8 +120,7 @@ def test_the_shelf_finds_the_apps_own_copy_first(tmp_path):
     for folder in (shelf.folder, repo_folder):
         (folder / "Same.ipynb").write_text(json.dumps({"cells": [], "metadata": {}}), encoding="utf-8")
     assert shelf.path("Same").parent == shelf.folder
-    hidden = [n for n in shelf.list() if n["hidden_by"]]
-    assert len(hidden) == 1 and hidden[0]["place"]["label"] == "r"
+    assert [(n["name"], n["place"]) for n in shelf.list()] == [("Same", None)]  # only the one reachable by name
 
 
 def test_publishing_with_a_location_does_not_save_it_into_the_notebook(svc, tmp_path, monkeypatch):
@@ -140,3 +139,48 @@ def test_publishing_with_a_location_does_not_save_it_into_the_notebook(svc, tmp_
     svc.publish_notebook(name, [{"type": "code", "source": "1"}], None, location_ref=ref)
     assert sent["ws"] == "ws-test"
     assert svc.open_notebook(name)["lakehouse"] is None  # it keeps following the environment
+
+
+def test_saving_locations_or_a_kind_replaces_a_link_never_its_target(svc, tmp_path):
+    root = repo_of(svc, tmp_path)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me\n", encoding="utf-8")
+    for name in (scopes.LOCATIONS, scopes.MARKER):
+        link = tmp_path / "sales-notebooks" / name
+        link.unlink()
+        try:
+            link.symlink_to(victim)
+        except OSError:
+            pytest.skip("this system can't make symbolic links")
+    # The marker is now a link, so the repository has no readable kind: set it, confirming.
+    scopes.set_kind(svc._repo(root), "notebooks", confirm=True)
+    svc.git_set_locations(root, {"test": TEST})
+    assert victim.read_text(encoding="utf-8") == "keep me\n"
+    for name in (scopes.LOCATIONS, scopes.MARKER):
+        assert not (tmp_path / "sales-notebooks" / name).is_symlink()
+    assert svc.git_locations(root)["envs"]["test"]["lakehouse_id"] == "lh-test"
+
+
+def test_a_delete_character_is_refused(svc, tmp_path):
+    root = repo_of(svc, tmp_path)
+    with pytest.raises(GitError):
+        svc.git_set_locations(root, {"test": TEST | {"workspace_name": "Sales\x7fTest"}})
+
+
+def test_a_failed_copy_leaves_nothing_behind(svc, tmp_path, monkeypatch):
+    root = repo_of(svc, tmp_path)
+    name = svc.new_notebook()["name"]
+    real_open = open
+
+    def short_write(path, mode="r", *a, **k):
+        f = real_open(path, mode, *a, **k)
+        if mode == "xb":
+            f.write = lambda data: real_open.__call__  # writes nothing: the check sees a mismatch
+        return f
+
+    monkeypatch.setattr("builtins.open", short_write)
+    with pytest.raises(OSError, match="still where it was"):
+        svc.move_notebook(name, root)
+    monkeypatch.undo()
+    assert not (tmp_path / "sales-notebooks" / "notebooks" / f"{name}.ipynb").exists()
+    assert svc.move_notebook(name, root)["moved"]  # a retry works

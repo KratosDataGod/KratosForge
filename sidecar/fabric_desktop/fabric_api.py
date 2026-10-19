@@ -6,9 +6,10 @@ import base64
 import re
 import time
 from typing import Any, Callable
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 import requests
+from urllib3.util import parse_url
 
 from .retrying import retry_after, send_with_retry
 
@@ -58,21 +59,36 @@ FOLLOW_DOMAINS = ("fabric.microsoft.com", "powerbi.com", "analysis.windows.net")
 UNTRUSTED_URL = "UntrustedUrl"
 
 
+def _sent_to(url: str) -> Any:
+    """The URL as requests will send it, parsed the way urllib3 will connect to it. Checking the
+    standard library's reading instead lets "https://evil.example\\.fabric.microsoft.com/" pass as a
+    Fabric host while requests connects to evil.example."""
+    return parse_url(requests.Request("GET", url).prepare().url)
+
+
 def followable_url(url: str, came_from: str) -> str:
     """``url`` (relative or absolute) resolved against the request it came from, if it's https on
-    that request's host or under FOLLOW_DOMAINS. Anything else raises, so the token isn't sent."""
+    that request's host or under FOLLOW_DOMAINS. Anything else raises, so the token isn't sent.
+    Returns the URL exactly as it will be sent, so the host checked is the host contacted."""
     full = urljoin(came_from, url)
-    parts = urlsplit(full)
-    host = (parts.hostname or "").lower()
-    same = host == (urlsplit(came_from).hostname or "").lower()
+    if "\\" in full or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in full):
+        raise FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
+                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    try:
+        parts, origin = _sent_to(full), _sent_to(came_from)
+    except (requests.RequestException, ValueError) as exc:
+        raise FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
+                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL) from exc
+    host = (parts.host or "").lower()
+    same = host == (origin.host or "").lower()
     known = any(host == d or host.endswith(f".{d}") for d in FOLLOW_DOMAINS)
-    if parts.scheme != "https" or parts.username or parts.password:
+    if parts.scheme != "https" or parts.auth:
         raise FabricError(f"Fabric pointed to a page without a secure connection ({host or full}); Fabric Desktop "
                           "by KratosBI didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
     if not host or not (same or known):
         raise FabricError(f"Fabric pointed to a page on another site ({host or full}); Fabric Desktop by KratosBI "
                           "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
-    return full
+    return parts.url
 
 
 POLICY_BLOCKED = "PolicyBlocked"

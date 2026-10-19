@@ -134,3 +134,25 @@ def test_known_and_same_hosts_are_allowed(url, came_from):
 def test_other_hosts_and_schemes_are_refused(url):
     with pytest.raises(FabricError):
         followable_url(url, API)
+
+
+@pytest.mark.parametrize("url", ["https://evil.example\\.fabric.microsoft.com/v1/workspaces?ct=2",
+                                 "https://evil.example\\@api.fabric.microsoft.com/v1/workspaces",
+                                 "https://api.fabric.microsoft.com\t.evil.example/v1/workspaces",
+                                 "https://api.fabric.microsoft.com\n.evil.example/v1/workspaces"])
+def test_addresses_read_differently_by_the_sender_are_refused_and_not_requested(url):
+    # urlsplit reads the first as a fabric.microsoft.com subdomain, but requests connects to evil.example.
+    c, s = client([Resp(200, {"value": [{"id": "a"}], "continuationUri": url}), Resp(200, {"value": [{"id": "b"}]})])
+    with pytest.raises(FabricError) as exc:
+        c.list_workspaces()
+    assert exc.value.code == "UntrustedUrl"
+    assert hosts(s) == ["api.fabric.microsoft.com"]
+
+
+def test_the_followed_url_is_the_one_checked():
+    import requests
+    from urllib3.util import parse_url
+
+    url = followable_url("/v1/workspaces?continuationToken=a%20b", API + "/workspaces")
+    assert parse_url(requests.Request("GET", url).prepare().url).host == "api.fabric.microsoft.com"
+    assert url == "https://api.fabric.microsoft.com/v1/workspaces?continuationToken=a%20b"

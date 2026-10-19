@@ -11,8 +11,9 @@ on this PC into CU. The evidence it weighs:
 * **Fabric job CU** of the proof's Fabric run, with its classification (measured or estimated): what
   a run here would leave out of Fabric job CU. It is capacity use, not money saved.
 
-Side-by-side comparisons don't record which code they ran, so they are listed as context, not
-counted as evidence for the current code.
+* **Side-by-side runs** of the current code (their ``code_revision``), when there is no proof: they
+  compare each table's row count, columns and a checksum of every row, which is cited as such. Runs
+  that didn't record their code, or ran other code, are listed as context only.
 
 Pure: no I/O. The caller (``advisor_service``) gathers the receipts and the compatibility check.
 """
@@ -54,12 +55,18 @@ def _cu_reason(cost: dict[str, Any]) -> dict[str, Any] | None:
                          "on this PC starts no Fabric job. This is capacity use, not money saved.", measurement=m)
 
 
+def _sbs(c: dict[str, Any]) -> tuple[bool | None, int, bool]:
+    """A side-by-side run's verdict ("same"), how many tables it compared, and whether a side failed."""
+    failed = any((c.get(side) or {}).get("status") not in (None, "ok") for side in ("local", "fabric"))
+    return (c.get("verdict") or {}).get("same"), len(c.get("tables") or []), failed
+
+
 def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[str, Any]],
            comparisons: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Where to run notebook ``name`` (at code ``revision``), with the evidence for it.
 
     ``compat``: ``fabric_run.compute_check``'s result. ``proofs``: Prove receipts (``{"id", "receipt"}``),
-    newest first. ``comparisons``: side-by-side records, newest first (context only)."""
+    newest first. ``comparisons``: side-by-side records, newest first."""
     reasons: list[dict[str, Any]] = []
     local_ok, fabric_ok = compat["local"]["ok"], compat["fabric"]["ok"]
     if not local_ok:
@@ -96,13 +103,31 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
     else:
         reasons.append(_reason("proof", "Never compared: no proof has run this notebook on this PC and in Fabric."))
         next_step = "Prove the notebook to compare its results and time on this PC and in Fabric."
-    for c in (comparisons or [])[:1]:
-        if c.get("state") == "done":
-            reasons.append(_reason("context", "A side-by-side run on " + str(c.get("started_at") or "")[:10] + " said: "
-                                   + ((c.get("verdict") or {}).get("text") or "no verdict") + " It didn't record which "
-                                   "code it ran, so it isn't counted for the current code.", comparison_id=c.get("id")))
+    done = [c for c in comparisons or [] if c.get("state") == "done"]
+    sbs = next((c for c in done if c.get("code_revision") == revision), None) if not proof else None
+    if sbs:
+        same, n, sbs_failed = _sbs(sbs)
+        what = ("not comparable, as a run failed" if sbs_failed else "the same" if same else "different" if same is False
+                else "not compared, as neither run wrote a table")
+        reasons.append(_reason("comparison", f"A side-by-side run of the current code on {str(sbs.get('started_at') or '')[:10]} "
+                                             f"found the results {what}"
+                               + (f" ({n} table{'s' if n != 1 else ''} compared by row count, columns and a checksum of "
+                                  "every row, not row by row)." if n and not sbs_failed else "."),
+                               comparison_id=sbs.get("id"), same=same, method="row count, columns and row checksum"))
+        if faster := (sbs.get("speed") or {}).get("end_to_end"):
+            reasons.append(_reason("time", faster + " (measured in the side-by-side run).", comparison_id=sbs.get("id")))
+        next_step = "Prove the notebook for a row-by-row comparison and its Fabric job CU."
+    elif done and not proof:
+        c = done[0]
+        why = ("ran other code" if c.get("code_revision") else "didn't record which code it ran")
+        reasons.append(_reason("context", "A side-by-side run on " + str(c.get("started_at") or "")[:10] + " said: "
+                               + ((c.get("verdict") or {}).get("text") or "no verdict") + f" It {why}, so it isn't "
+                               "counted for the current code.", comparison_id=c.get("id")))
 
     verdict = ((proof or {}).get("receipt", {}).get("verification") or {}).get("verdict")
+    if sbs and verdict is None:
+        same, _, sbs_failed = _sbs(sbs)
+        verdict = "failed-sbs" if sbs_failed else "same" if same else "nothing" if same is None else "differs"
     if not local_ok and not fabric_ok:
         place = UNKNOWN
         next_step = "Change the cells listed so it can run in at least one place."
@@ -112,9 +137,11 @@ def advise(name: str, revision: str, compat: dict[str, Any], proofs: list[dict[s
         place = PC
     elif verdict == "differs":
         place = FABRIC
-        next_step = "Look at the tables that differ in the proof before running it on this PC."
+        next_step = "Look at the tables that differ before running it on this PC."
     elif verdict == "nothing":
         place = EITHER
+    elif verdict == "failed-sbs":
+        place = UNKNOWN
     elif verdict in ("failed", "inconclusive"):
         pc_failed = (((proof or {}).get("receipt", {}).get("runs") or {}).get("pc") or {}).get("status") not in (None, "ok")
         place = FABRIC if verdict == "failed" and pc_failed else UNKNOWN

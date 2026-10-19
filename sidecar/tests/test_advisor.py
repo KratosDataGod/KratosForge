@@ -78,13 +78,34 @@ def test_cells_that_stop_one_side_decide_it_and_unknown_cu_stays_unknown():
     assert "isn't known" in cu["text"] and cu["evidence"]["measurement"]["value"] is None
 
 
-def test_a_side_by_side_is_context_only():
-    sbs = {"id": "s1", "state": "done", "started_at": "2026-10-17T10:00:00+00:00",
-           "verdict": {"same": True, "text": "Same results in both places (2 tables)."}}
-    out = advisor.advise("nb", REV, OK, [], [sbs])
-    assert out["place"] == advisor.UNKNOWN
-    ctx = next(r for r in out["reasons"] if r["kind"] == "context")
-    assert "isn't counted for the current code" in ctx["text"]
+def sbs(same=True, revision=REV, tables=2, status="ok"):
+    return {"id": "s1", "state": "done", "started_at": "2026-10-17T10:00:00+00:00", "code_revision": revision,
+            "local": {"status": status}, "fabric": {"status": "ok"}, "tables": [{"result": "match"}] * tables,
+            "verdict": {"same": same, "text": "Same results in both places."},
+            "speed": {"end_to_end": "This PC was 3.0x faster end to end"}}
+
+
+def test_a_side_by_side_of_the_current_code_counts_and_says_how_it_compared():
+    out = advisor.advise("nb", REV, OK, [], [sbs()])
+    assert out["place"] == advisor.PC
+    c = next(r for r in out["reasons"] if r["kind"] == "comparison")
+    assert "checksum of every row, not row by row" in c["text"] and c["evidence"]["comparison_id"] == "s1"
+    assert any(r["kind"] == "time" and "side-by-side" in r["text"] for r in out["reasons"])
+    assert "row-by-row" in out["next_step"]
+    assert advisor.advise("nb", REV, OK, [], [sbs(same=False)])["place"] == advisor.FABRIC
+    assert advisor.advise("nb", REV, OK, [], [sbs(same=None, tables=0)])["place"] == advisor.EITHER
+    failed = advisor.advise("nb", REV, OK, [], [sbs(same=False, status="failed")])
+    assert failed["place"] == advisor.UNKNOWN and "a run failed" in failed["reasons"][2]["text"]
+    # A proof of the current code wins over a side-by-side run.
+    assert advisor.advise("nb", REV, OK, [proof(verdict="differs")], [sbs()])["place"] == advisor.FABRIC
+
+
+def test_a_side_by_side_of_other_or_unrecorded_code_is_context_only():
+    for c in (sbs(revision="b" * 64), {k: v for k, v in sbs().items() if k != "code_revision"}):
+        out = advisor.advise("nb", REV, OK, [], [c])
+        assert out["place"] == advisor.UNKNOWN
+        ctx = next(r for r in out["reasons"] if r["kind"] == "context")
+        assert "isn't counted for the current code" in ctx["text"]
 
 
 @pytest.fixture

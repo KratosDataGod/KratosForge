@@ -8,7 +8,7 @@ The advice is available to tools connected through [MCP or the local API](../ai/
 
 | Place | Means |
 | --- | --- |
-| **Run it on this PC** (`pc`) | It can run here, and the newest proof of its current code got the same results on this PC and in Fabric. Or a cell needs this PC (for example, a local file path). |
+| **Run it on this PC** (`pc`) | It can run here, and the newest proof (or, without one, side-by-side run) of its current code got the same results on this PC and in Fabric. Or a cell needs this PC (for example, a local file path). |
 | **Keep it in Fabric** (`fabric`) | A cell needs Fabric, the proof's results differ, or the run on this PC failed in the proof. |
 | **Either place works** (`either`) | It runs in both places and the proof wrote no tables, so only time was compared. |
 | **Not enough evidence** (`unknown`) | It was never proved, the notebook changed since its last proof, or the proof was inconclusive. The answer says what to do next. |
@@ -23,7 +23,7 @@ Every reason cites what it used:
 - **Time** measured in the proof, on this PC and in Fabric.
 - **Fabric job CU** of the proof's Fabric run, with its classification (Measured or Estimated; see [Capacity and cost evidence](cost-evidence.md)). That is the Fabric job CU a run on this PC leaves out. It is capacity use, not money saved, and OneLake reads and writes from this PC still use capacity.
 
-Side-by-side runs don't record which code they ran, so the newest one is shown as context only and isn't counted for the current code.
+- **A side-by-side run of the current code**, when there is no proof. It compares each table's row count, columns and a checksum of every row, and the advice says so: it is not a row-by-row comparison. Side-by-side runs of other code, or older ones that didn't record which code they ran, are shown as context only.
 
 ## Permissions
 

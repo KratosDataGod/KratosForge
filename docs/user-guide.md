@@ -221,10 +221,11 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in five groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in six groups:
 
 | Group | Tabs |
 | --- | --- |
+| Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see where each table comes from and what reads it. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
@@ -408,7 +409,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ## Source control (Preview)
 
-**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. The whole page is described in [Source control](source-control.md).
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. The whole page is described in [Source control](source-control.md).
 
 ## Settings
 

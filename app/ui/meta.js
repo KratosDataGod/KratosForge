@@ -445,12 +445,13 @@ function dataTable(preview) {
 
 async function runEntities(names, opts = {}) {
   const p = state.meta.project;
-  const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
+  let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
   if (inFabric(p, env) && !state.user && !(await signIn())) return;
   const go = await metaRiskGate(p, names, env, label);
   if (!go) return;
   const only = go === true ? names : go;
+  if (only !== names) label = only.join(", ");  // only those that can start
   if (inFabric(p, env)) {
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
@@ -458,9 +459,9 @@ async function runEntities(names, opts = {}) {
   }
   const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
-  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], names ? label : "Run all");
+  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
-  logRunActivity(`${names ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
+  logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
   render();
 }

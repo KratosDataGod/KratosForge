@@ -53,6 +53,8 @@ class _Cell(ast.NodeVisitor):
         self.out = out
         self.defined: set[str] = set()
         self.scopes: list[set[str]] = []  # names local to the functions being read
+        self.depth = 0  # inside a function body, names are read when it's called, not when it's defined
+        self.now: set[str] = set()
 
     def define(self, name: str) -> None:
         if self.scopes:
@@ -65,6 +67,8 @@ class _Cell(ast.NodeVisitor):
     def use(self, name: str) -> None:
         if name in _BUILTINS or name in self.defined or any(name in s for s in self.scopes):
             return
+        if not self.depth:
+            self.now.add(name)
         if name not in self.out["uses"]:
             self.out["uses"].append(name)
 
@@ -113,8 +117,10 @@ class _Cell(ast.NodeVisitor):
         for n in ast.walk(ast.Module(body=body, type_ignores=[])):
             if isinstance(n, ast.Name) and not isinstance(n.ctx, ast.Load):
                 local.add(n.id)
+        self.depth += 1
         for stmt in body:
             self.visit(stmt)
+        self.depth -= 1
         self.scopes.pop()
 
     visit_FunctionDef = visit_AsyncFunctionDef = visit_Lambda = _function
@@ -205,7 +211,8 @@ def _python(source: str) -> tuple[str | None, list[int]]:
 
 def analyze(source: str) -> dict[str, Any]:
     """What one cell defines, uses, reads, writes and changes, read from its code."""
-    out: dict[str, Any] = {"parsed": True, "defines": [], "uses": [], "reads": [], "writes": [], "effects": [], "dynamic": []}
+    out: dict[str, Any] = {"parsed": True, "defines": [], "uses": [], "deferred": [], "reads": [], "writes": [],
+                           "effects": [], "dynamic": []}
     code, magics = _python(source)
     if code is None:
         _sql(source.lstrip()[5:], out, 1)
@@ -222,7 +229,9 @@ def analyze(source: str) -> dict[str, Any]:
             out["parsed"] = False
             out["dynamic"].append({"line": exc.lineno or 1, "text": f"doesn't parse: {exc.msg}"})
             return out
-        _Cell(out).visit(tree)
+        visitor = _Cell(out)
+        visitor.visit(tree)
+        out["deferred"] = [n for n in out["uses"] if n not in visitor.now]  # used only inside function bodies
         for m in _NETWORK.finditer(code):
             out["effects"].append({"line": code.count("\n", 0, m.start()) + 1, "text": f"calls {m.group(0)} over the network"})
     for w in out["writes"]:

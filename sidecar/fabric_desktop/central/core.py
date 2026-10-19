@@ -290,6 +290,58 @@ def _clean_bks(business_keys: list[Any]) -> list[str]:
     return sorted(out)
 
 
+# A keys database that has stopped issuing (keys moving to, or moved to, the one keys database
+# for every environment) keeps the reason here; every run that asks for keys is told it.
+KEYS_CLOSED = "keys_closed"
+# Set on the shared keys database while a move fills it and nothing uses it yet.
+KEYS_STAGING = "keys_staging"
+
+
+def _setting(db: Db, name: str) -> str:
+    if not db.exists("config", "setting"):
+        return ""
+    found = db.rows(f"SELECT value FROM {db.t('config', 'setting')} WHERE name = ?", (name,))
+    return str(found[0]["value"] or "") if found else ""
+
+
+def _require_open(db: Db) -> None:
+    if why := _setting(db, KEYS_CLOSED):
+        raise PlatformError(why)
+
+
+def close_keys(db: Db, reason: str = "", by: str = "") -> dict[str, Any]:
+    """Stop issuing and importing keys here, telling every run ``reason``; an empty reason opens them again."""
+    require_admin(db, by, "close or reopen key issuing")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_CLOSED, "value": str(reason or "")})
+    _audit(db, by, "close keys" if reason else "reopen keys", "keys", {"reason": reason})
+    db.commit()
+    return {"closed": str(reason or "")}
+
+
+def stage_keys(db: Db, staging: bool, by: str = "") -> dict[str, Any]:
+    """Mark the shared keys database as being filled by a move (only then can clear_keys empty it)."""
+    require_admin(db, by, "move keys")
+    _upsert(db, "config", "setting", "name", {"name": KEYS_STAGING, "value": "1" if staging else ""})
+    db.commit()
+    return {"staging": bool(staging)}
+
+
+def clear_keys(db: Db, by: str = "") -> dict[str, Any]:
+    """Drop every key table a move put here before it switched, so the move can start again.
+    Refused on a keys database that isn't being filled by a move: those keys are in use."""
+    require_admin(db, by, "clear the keys a move copied")
+    if _setting(db, KEYS_STAGING) != "1":
+        raise PlatformError("Only a keys database a move is still filling can be cleared: these keys are in use.")
+    names = [t["name"] for t in list_key_tables(db)]
+    for name in names:
+        if db.exists("keys", name):
+            db.run(f"DROP TABLE {db.t('keys', name)}")
+        db.run(f"DELETE FROM {db.t('catalog', 'key_table')} WHERE name = ?", (name,))
+    _audit(db, by, "clear moved keys", "keys", {"tables": names})
+    db.commit()
+    return {"cleared": names}
+
+
 def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     """The surrogate key of every business key given, issuing the next keys for new ones.
 
@@ -298,6 +350,7 @@ def issue_keys(db: Db, name: str, business_keys: list[Any]) -> dict[str, Any]:
     business key. Returns {"keys": {bk: sk}, "inserted": n}."""
     name = key_name(name)
     bks = _clean_bks(business_keys)
+    _require_open(db)
     if not db.exists("keys", name):
         raise _missing_key_table(name)
     if not bks:
@@ -348,6 +401,7 @@ def import_keys(db: Db, name: str, rows: list[list[Any]], by: str = "") -> dict[
     migration never renumbers a key. The identity continues after the highest key. A key table
     that isn't there yet is created, which only a platform admin may do."""
     name = key_name(name)
+    _require_open(db)
     ensure_key_table(db, name, by)
     t = db.t("keys", name)
     have = {r["bk"]: int(r["sk"]) for r in db.rows(f"SELECT {name}_bk AS bk, {name}_sk AS sk FROM {t}")}
@@ -1298,7 +1352,8 @@ def save_shortcut_rules(db: Db, rules: dict[str, Any], by: str = "") -> dict[str
 # Everything a caller (the app, a notebook, a report button) may ask the platform to do.
 OPERATIONS = {
     "ensure_schema": ensure_schema, "ensure_key_table": ensure_key_table, "issue_keys": issue_keys,
-    "import_keys": import_keys, "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
+    "import_keys": import_keys, "close_keys": close_keys, "stage_keys": stage_keys, "clear_keys": clear_keys,
+    "key_stats": key_stats, "lookup_key": lookup_key, "export_keys": export_keys,
     "list_domains": list_domains, "save_domain": save_domain, "delete_domain": delete_domain,
     "import_fabric_domains": import_fabric_domains,
     "register_project": register_project, "list_projects": list_projects, "register_product": register_product,

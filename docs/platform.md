@@ -145,23 +145,32 @@ Projects that already issue keys in `LH_Keys` keep them there until you move the
 ## One keys database for Dev, Test and Prod
 
 !!! note "Preview"
-    Built and tested against SQLite, not yet on a live tenant. The screens for it come next; until then these are platform calls (`platform_keys_setup`, `platform_keys_join`, `platform_share_keys`).
+    Built and tested against SQLite, not yet on a live tenant. The screens for it come next; until then these are platform calls (`platform_keys_setup`, `platform_keys_join`, `platform_share_keys`, `platform_cancel_share_keys`).
 
-A business key can have **one** surrogate key everywhere: Customer ABC is key 123 in Dev, Test and Prod. The keys then live in a dedicated **Keys workspace**, named `Fabric Desktop Keys` unless you choose another name:
+A business key can have **one** surrogate key everywhere: Customer ABC is key 123 in Dev, Test and Prod. The keys then live in a dedicated **Keys workspace**, named `KratosForge Keys` unless you choose another name:
 
 | Item | Type | What it's for |
 | --- | --- | --- |
 | `SQL_Keys` | SQL database | Every key table (`keys.<name>`) and the platform admins who may add one |
 | `UDF_Keys` | User data functions | The same functions as `UDF_Platform`, connected to `SQL_Keys` in the same workspace |
 
-Setting it up creates only those two items and makes you its first admin. Nothing moves until a platform admin chooses to move the keys in:
+Setting it up creates only those two items and makes you its first admin. Nothing moves until a platform admin moves the keys in.
 
-1. Prod's key tables are copied with the **same numbers** and checked row by row.
-2. Test's and Dev's follow. A business key Prod already has takes Prod's key. One Prod doesn't have gets a new key. The result counts how many Dev and Test keys changed number.
-3. The platform admins of every environment become admins of the keys database, so they can still add key tables.
-4. Only when every key table moved and checked out does every environment switch to the keys database.
+**First, a preview.** Move keys in lists every key table in every environment, how many keys each holds, and how many Dev and Test keys would get a different number. It writes nothing until you confirm.
 
-Each environment's own `SQL_Platform` keys are only read, never changed.
+**Then the move:**
+
+1. Every environment's keys **close**. No run can issue a key while they're copied: a run that needs a new key stops and says the keys are moving.
+2. Prod's key tables are copied with the **same numbers** and checked row by row.
+3. Test's and Dev's follow. A business key Prod already has takes Prod's key. One Prod doesn't have gets a new key. The result counts how many Dev and Test keys changed number.
+4. The platform admins of every environment become admins of the keys database, so they can still add key tables.
+5. Only when every key table checked out, and no environment's keys changed during the move, does every environment switch to the keys database. Each environment's own keys stay closed, with a note saying where keys are now, so a PC that hasn't joined the Keys workspace can't issue different keys.
+
+Each environment's own keys are only read, never changed or deleted.
+
+**If the move stops** (a network drop, a table that didn't check out), nothing switches and every environment's keys stay closed, so they can't change. Run Move keys in again and the same keys copy again. Or **cancel the move**: after a confirm, it removes what the move copied into the keys database and reopens every environment's keys. Keys that already moved and are in use can't be cancelled or cleared.
+
+In Fabric, each Platform workspace needs **Finish or repair** once after this update, so `UDF_Platform` has the functions that close and reopen keys. A platform that doesn't have them yet refuses the move before anything is copied.
 
 **After the move, re-run Dev and Test.** Their tables still hold the old numbers for any key that changed, so rebuild them before you compare them with Prod. Prod's tables don't change.
 

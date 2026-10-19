@@ -9,10 +9,11 @@ key issued in Dev is the same key in Prod. The Keys workspace holds:
 Both items sit in one workspace, so the functions never reach a database in another workspace.
 Until the Keys workspace is in Fabric, the shared keys live on this PC (platform/keys.sqlite).
 
-Moving in (``share``) never changes a Prod key: Prod's keys are copied with their numbers and
-checked row by row. A Dev or Test business key that Prod already has takes Prod's key; one that
-Prod doesn't have gets a new key, so Dev and Test tables need one re-run after the move. Each
-environment's own database is left as it was.
+Moving in never changes a Prod key. ``plan`` says what a move would do and writes nothing. The
+move itself closes every environment's keys first (no run can issue one while it copies), copies
+Prod's keys with their numbers and checks them row by row, then gives each Dev or Test business key
+Prod's key, or a new one if Prod doesn't have it, so Dev and Test tables need one re-run. Each
+environment's keys are only read, and stay closed afterwards with a note saying where keys are now.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ SQL = "SQL_Keys"
 FUNCTIONS = "UDF_Keys"
 SQL_TYPE = "SQLDatabase"
 UDF_TYPE = "UserDataFunction"
-DEFAULT_NAME = "Fabric Desktop Keys"
+DEFAULT_NAME = "KratosForge Keys"
 IMPORT_ROWS = 5000
 
 
@@ -123,6 +124,32 @@ def add_renumbering(rows: list[list[Any]], name: str, shared: PlatformKeys) -> d
     renumbered = sum(1 for sk, bk, _ in rows if keys.get(str(bk)) not in (None, int(sk)))
     return {"table": name, "copied": len(rows), "renumbered": renumbered, "match": not missing,
             "differ": missing[:10]}
+
+
+def snapshot(sources: list[tuple[str, Any]]) -> dict[tuple[str, str], tuple[int, int]]:
+    """(env, key table) -> (keys, next key), to prove nothing was issued while the move ran."""
+    return {(env, kt["name"]): (int(kt.get("keys") or 0), int(kt.get("next") or 1))
+            for env, client in sources for kt in client.call("list_key_tables")}
+
+
+def plan(sources: list[tuple[str, Any]]) -> dict[str, Any]:
+    """What a move would do, reading only: each key table's keys, and how many Dev or Test keys
+    would get a different number (Prod's for a business key Prod has, a new one for any other)."""
+    ordered = sorted(sources, key=lambda s: s[0] != "prod")
+    prod: dict[str, dict[str, int]] = {}
+    tables = []
+    for env, client in ordered:
+        source = PlatformKeys(client, env)
+        for kt in client.call("list_key_tables"):
+            rows = _real(source.export(kt["name"]))
+            if env == "prod":
+                prod[kt["name"]] = {str(bk): int(sk) for sk, bk, _ in rows}
+                change = 0
+            else:
+                have = prod.get(kt["name"], {})
+                change = sum(1 for sk, bk, _ in rows if have.get(str(bk)) != int(sk))
+            tables.append({"env": env, "table": kt["name"], "keys": len(rows), "renumbered": change})
+    return {"tables": tables, "renumbered": sum(t["renumbered"] for t in tables)}
 
 
 def share(sources: list[tuple[str, Any]], shared: Any) -> dict[str, Any]:

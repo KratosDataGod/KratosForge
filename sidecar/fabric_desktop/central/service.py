@@ -113,24 +113,45 @@ class PlatformMixin:
         self._save_platform("keys", self._keys_config() | keys_home.join(self.fabric, workspace_id))  # type: ignore[attr-defined]
         return self.platform_status()
 
-    def platform_share_keys(self) -> dict[str, Any]:
-        """Move every environment's key tables into the one keys database and use it from then on.
-        Prod's keys keep their numbers; Dev and Test keys Prod doesn't have get new ones. Nothing
-        switches unless every key table moved and checked out."""
-        cfg = self._keys_config()
-        if cfg.get("shared"):
-            return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
-        if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
-            # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
-            raise LookupError("Create or join the Keys workspace first, in Settings under Platform, "
-                              "then move the keys in.")
+    def _share_sources(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
+        """Each environment's platform once, Prod first, so a database it shares with Dev keeps Prod's numbers."""
         sources, seen = [], set()
-        for env in reversed(ENVIRONMENTS):  # Prod first, so a database it shares with Dev keeps Prod's numbers
+        for env in reversed(ENVIRONMENTS):
             client = self._platform(env)
             ident = getattr(client, "functions_id", None) or str(getattr(client, "path", env))
             if ident not in seen:
                 seen.add(ident)
                 sources.append((env, client))
+        return sources
+
+    def _check_can_share(self) -> dict[str, Any]:
+        if self._platform_source() == "policy":
+            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC")
+        cfg = self._keys_config()
+        if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
+            # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
+            raise LookupError("Create or join the Keys workspace first, in Settings under Platform, "
+                              "then move the keys in.")
+        return cfg
+
+    def platform_share_keys(self, approve: bool = False) -> dict[str, Any]:
+        """Move every environment's key tables into the one keys database and use it from then on.
+
+        Without ``approve`` this only reports what would happen: each key table's keys and how many
+        Dev and Test keys get a different number. With it, every environment's keys close first, so
+        no run issues a key while they're copied; Prod's keep their numbers. The switch happens only
+        if every key table checked out and no environment's keys changed during the move. A move
+        that stops leaves the keys closed, so running it again copies the same keys."""
+        cfg = self._keys_config()
+        if cfg.get("shared"):
+            return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
+        cfg = self._check_can_share()
+        sources = self._share_sources()
+        if not approve:
+            return keys_home.plan(sources) | {"ok": False, "preview": True, "message": (
+                f"Every environment's keys close while they move into {cfg.get('workspace_name') or 'the keys database on this PC'}, "
+                "so runs that need new keys wait. Prod's keys keep their numbers; Dev and Test keys that change "
+                "need one re-run of their tables. Confirm to continue.")}
         shared = self._shared_keys()
         if shared.call("whoami").get("can_claim"):
             shared.call("claim_admin")
@@ -140,11 +161,54 @@ class PlatformMixin:
                 if admin["user_name"] not in admins:
                     shared.call("add_admin", user=admin["user_name"])
                     admins.add(admin["user_name"])
-        report = keys_home.share(sources, shared)
+        where = cfg.get("workspace_name") or "the keys database on this PC"
+        closed: list[LocalPlatform | FabricPlatform] = []
+        for env, client in sources:
+            try:
+                client.call("close_keys", reason=f"Keys are moving to {where}. Runs that need new keys can run "
+                                                 "again once the move finishes.")
+                closed.append(client)
+            except Exception as exc:  # noqa: BLE001 - an older platform: nothing has moved yet
+                for done in closed:
+                    done.call("close_keys", reason="")
+                raise LookupError(f"{env.title()}'s platform can't close its keys for the move ({exc}). Run Finish "
+                                  "or repair on it in Settings under Platform, then move the keys again.") from exc
+        stopped = ("Nothing switched, and every environment's keys stay closed so they can't change. "
+                   "Move the keys again, or cancel the move to reopen them.")
+        try:
+            shared.call("stage_keys", staging=True)
+            before = keys_home.snapshot(sources)
+            report = keys_home.share(sources, shared)
+        except Exception as exc:  # noqa: BLE001 - the keys stay closed, so the move can simply run again
+            _log.warning("Moving keys stopped: %s", describe(exc))
+            return {"ok": False, "tables": [], "renumbered": 0, "error": describe(exc),
+                    "message": f"The move stopped: {describe(exc)}. {stopped}", "status": self.platform_status()}
+        changed = [f"{env.title()} {name}" for (env, name), v in keys_home.snapshot(sources).items() if before.get((env, name)) != v]
+        if changed:
+            report |= {"ok": False, "changed_during_move": changed}
         if report["ok"]:
+            shared.call("stage_keys", staging=False)
             self._save_platform("keys", cfg | {"shared": True, "moved_at": dt.datetime.now(dt.timezone.utc)
                                                 .isoformat(timespec="seconds")})
+            for _, client in sources:
+                client.call("close_keys", reason=f"Keys moved to {where}, one keys database for Dev, Test and "
+                                                 "Prod. Join it in Settings under Platform.")
+        else:
+            report["message"] = stopped
         return report | {"status": self.platform_status()}
+
+    def platform_cancel_share_keys(self, approve: bool = False) -> dict[str, Any]:
+        """Give up a move that didn't switch: empty what it copied and reopen every environment's keys."""
+        if self._keys_config().get("shared"):
+            raise GateError("save", ["The keys already moved and are in use, so the move can't be cancelled."])
+        self._check_can_share()
+        if not approve:
+            return {"ok": False, "preview": True, "message": "The keys the move copied are removed from the keys "
+                    "database, and every environment issues its own keys again. Confirm to continue."}
+        cleared = self._shared_keys().call("clear_keys")
+        for _, client in self._share_sources():
+            client.call("close_keys", reason="")
+        return {"ok": True, **cleared, "status": self.platform_status()}
 
     def platform_status(self) -> dict[str, Any]:
         cfg = self._platform_config()

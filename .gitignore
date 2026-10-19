@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .pytest_cache/
 app/src-tauri/target/
+engine/target/
 app/src-tauri/gen/
 
 # Documentation site built by Zensical (zensical.toml)

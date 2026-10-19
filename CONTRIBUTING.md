@@ -32,6 +32,19 @@ cargo run
 
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
 
+### Rust engine (phase 1, optional)
+
+The [`engine/`](engine/) crate speaks the same JSON-lines RPC as the Python sidecar. It handles `engine_health` in Rust and forwards every other method to `python -m fabric_desktop.server`. Releases still start Python unless you opt in:
+
+```bash
+cd engine && cargo build
+cd ../sidecar && python3 -m pip install -e ".[dev]"
+export FABRIC_DESKTOP_ENGINE=rust
+export FABRIC_DESKTOP_ENGINE_BIN="$(pwd)/../engine/target/debug/fabric-desktop-engine"
+export FABRIC_DESKTOP_PYTHON="$(command -v python3)"
+cd ../app/src-tauri && cargo run
+```
+
 ## Rules for changes
 
 - **Tests pass.** `python -m pytest -q` in `sidecar/` and `node --test app/tests/ui.test.cjs` before you push. CI also builds the exe and the engine on Windows. Pages with browser tests (`app/tests/browser/`, for example the SQL query page) open the real UI in Chromium with the shell stubbed: install Playwright (`npm install -g playwright`, then `npx playwright install chromium`) and run `node --test app/tests/browser/sql-editor.test.cjs app/tests/browser/sql-compat.test.cjs` with `NODE_PATH` set to `npm root -g`. They don't run in CI yet.

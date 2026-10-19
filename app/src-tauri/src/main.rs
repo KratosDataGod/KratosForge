@@ -165,6 +165,35 @@ fn engine_python() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
+/// Phase 1 Rust engine: JSON-lines front with Python fallback (`engine/`).
+fn use_rust_engine() -> bool {
+    std::env::var("FABRIC_DESKTOP_ENGINE").as_deref() == Ok("rust")
+}
+
+fn rust_engine_binary() -> PathBuf {
+    if let Ok(path) = std::env::var("FABRIC_DESKTOP_ENGINE_BIN") {
+        return PathBuf::from(path);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let name = if cfg!(windows) {
+                "fabric-desktop-engine.exe"
+            } else {
+                "fabric-desktop-engine"
+            };
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from(if cfg!(windows) {
+        "fabric-desktop-engine.exe"
+    } else {
+        "fabric-desktop-engine"
+    })
+}
+
 /// The interpreter that runs the sidecar and the startup check.
 fn python() -> String {
     if let Ok(path) = std::env::var("FABRIC_DESKTOP_PYTHON") {
@@ -245,14 +274,27 @@ impl Sidecar {
         // exits at once. Send it to a log file instead, so crashes can be explained.
         let log = data_dir().join("sidecar.log");
         let stderr = std::fs::File::create(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
-        let mut cmd = Command::new(python());
-        cmd.args(["-m", "fabric_desktop.server"])
-            .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
-            .current_dir(data_dir())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(stderr);
-        hide_window(&mut cmd);
+        let mut cmd = if use_rust_engine() {
+            let mut c = Command::new(rust_engine_binary());
+            c.env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+                .env("FABRIC_DESKTOP_PYTHON", python())
+                .current_dir(data_dir())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(stderr);
+            hide_window(&mut c);
+            c
+        } else {
+            let mut c = Command::new(python());
+            c.args(["-m", "fabric_desktop.server"])
+                .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
+                .current_dir(data_dir())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(stderr);
+            hide_window(&mut c);
+            c
+        };
         let mut child = cmd.spawn()?;
         let stdin = child.stdin.take().expect("sidecar stdin");
         let stdout = BufReader::new(child.stdout.take().expect("sidecar stdout"));

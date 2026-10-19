@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 import requests
 from urllib3.util import parse_url
 
+from . import http_session
 from .retrying import retry_after, send_with_retry
 
 API = "https://api.fabric.microsoft.com/v1"
@@ -106,7 +107,7 @@ class FabricClient:
     def __init__(self, token_provider: Callable[[], str], session: requests.Session | None = None,
                  sleep: Callable[[float], None] = time.sleep, poll_timeout: float = 300):
         self._token = token_provider
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
         self._poll_timeout = poll_timeout
 

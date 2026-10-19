@@ -542,7 +542,7 @@ class MetaMixin:
         if project.products:
             try:  # so other teams' links find this environment's tables
                 result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
-            except Exception as exc:  # the promote itself worked; publish again from Mesh > Data products
+            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Domains > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version

@@ -17,12 +17,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import polars as pl
-import requests
 from deltalake.exceptions import TableNotFoundError
 
 from . import access as access_mod
 from . import capacity as capacity_mod
 from . import costs as costs_mod
+from . import http_session
 from . import shortcuts as shortcuts_mod
 from .auth import CAPACITY_SCOPES, CONNECTION_SCOPES, FABRIC_SCOPES, GRAPH_USER_SCOPES, ONELAKE_SCOPES, POWERBI_WORKSPACE_SCOPES
 from .fabric_api import FabricClient
@@ -360,7 +360,7 @@ class EstateMixin:
         if "@" not in email:
             raise ValueError("Type a person's email, or a group's or app's object ID.")
         token = self.auth._token(POWERBI_WORKSPACE_SCOPES)  # type: ignore[attr-defined]
-        r = requests.post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
+        r = http_session.session().post(f"https://api.powerbi.com/v1.0/myorg/groups/{workspace_id}/users",
                           json={"emailAddress": email, "groupUserAccessRight": role, "principalType": "User"},
                           headers={"Authorization": f"Bearer {token}"}, timeout=30)
         if r.status_code == 404:
@@ -395,11 +395,12 @@ class EstateMixin:
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
         headers = {"Authorization": f"Bearer {token}"}
-        r = send_with_retry(lambda: requests.get(f"https://graph.microsoft.com/v1.0/users/{text}",
+        http = http_session.session()
+        r = send_with_retry(lambda: http.get(f"https://graph.microsoft.com/v1.0/users/{text}",
                                                  params={"$select": "id,displayName,userPrincipalName,mail"},
                                                  headers=headers, timeout=30), "GET")
         if r.status_code == 404:
-            r = send_with_retry(lambda: requests.get(
+            r = send_with_retry(lambda: http.get(
                 "https://graph.microsoft.com/v1.0/users",
                 params={"$filter": f"mail eq '{text.replace(chr(39), '')}'",
                         "$select": "id,displayName,userPrincipalName,mail"},

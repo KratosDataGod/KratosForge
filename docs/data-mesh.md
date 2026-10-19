@@ -18,6 +18,14 @@ Fabric Desktop by KratosBI lets many teams build on one platform without steppin
 
 All of it happens on the **Platform** page (central team, and requests from everyone), **Data mesh > Domains** (a project's own products and links) and **OneLake > Data products** (finding other teams' products). See [The platform](platform.md#who-can-do-what).
 
+## From domains to tables
+
+**Data mesh > Overview** is where the page opens. It reads the platform's catalog and changes nothing:
+
+1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
+2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
+3. **A layer.** The layer's tables. Pick one to see what it comes from, which tables and products read it, and **Open in Design** to edit it.
+
 ## The pieces
 
 | Piece | What it is | Where it's kept |

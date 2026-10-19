@@ -34,6 +34,7 @@ from typing import Any, Callable, Iterator, Protocol
 
 import requests
 
+from . import http_session
 from .onelake import DFS_HOST
 from .retrying import send_with_retry
 
@@ -173,7 +174,7 @@ class OneLakeBackend:
                  session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep):
         self.workspace_id, self.lakehouse_id = workspace_id, lakehouse_id
         self._token = token
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
         self._sleep = sleep
 
     def _url(self, key: str) -> str:

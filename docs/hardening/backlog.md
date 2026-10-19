@@ -142,7 +142,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
-| HD-051 | AR-3: one HTTP session with a shared retry policy | Hardening | M |
+| HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
 | HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
 | HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths | Hardening | M |
 | HD-054 | TS-2: T-SQL contract harness; scheduled live job once a test workspace exists | Hardening | M |

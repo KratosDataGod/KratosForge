@@ -21,6 +21,7 @@ from typing import Any
 
 from .git import cli
 from .git.cli import GitError
+from .git import scopes
 from .git.ops import Operations
 from .git.repo import Repository, _folder, init as git_init
 
@@ -91,8 +92,14 @@ class GitMixin:
 
     def git_repos(self) -> dict[str, Any]:
         data = self._git_saved()
-        repos = [{**r, "exists": Path(r["path"]).is_dir()} for r in data["repos"] if r.get("path")]
-        return {"repos": repos, "current": data.get("current")}
+        repos = []
+        for r in data["repos"]:
+            if not r.get("path"):
+                continue
+            exists = Path(r["path"]).is_dir()
+            repos.append({**r, "exists": exists, **(scopes.describe(r["path"]) if exists else
+                                                    {"kind": None, "suggested": None})})
+        return {"repos": repos, "current": data.get("current"), "kinds": scopes.KINDS}
 
     def git_open(self, path: str) -> dict[str, Any]:
         """Opens the repository holding ``path`` (any folder inside it) and remembers it."""
@@ -110,10 +117,30 @@ class GitMixin:
             self._git_save(data)
         return self.git_repos()
 
-    def git_init(self, path: str, branch: str = "main") -> dict[str, Any]:
+    def git_init(self, path: str, branch: str = "main", kind: str | None = None) -> dict[str, Any]:
+        """Makes an existing folder a repository. With ``kind``, also writes the marker saying what
+        it holds (the folder's own files are left as they are)."""
+        if kind:
+            scopes.check_kind(kind)
+            if (_folder(path, must_exist=False) / scopes.MARKER).exists():
+                raise GitError(f"This folder already says what it holds in {scopes.MARKER}. "
+                               "Make it a repository first, then choose what it holds.", kind="confirm")
         repo = git_init(path, branch)
+        if kind:
+            scopes.set_kind(repo, kind)
         self._git_remember(repo)
         return repo.status()
+
+    def git_create(self, path: str, kind: str, branch: str = "main") -> dict[str, Any]:
+        """A new, empty folder made a repository of ``kind`` with that kind's starting files."""
+        repo = scopes.create(path, kind, branch)
+        self._git_remember(repo)
+        return repo.status()
+
+    def git_set_kind(self, repo: str, kind: str, confirm: bool = False) -> dict[str, Any]:
+        """Says what an opened repository holds, by writing its marker file (a change to commit)."""
+        r = self._repo(repo)
+        return {**scopes.set_kind(r, kind, confirm), "status": r.status()}
 
     # ---- the work that talks to a remote (background)
 
@@ -241,8 +268,10 @@ class GitMixin:
                 rel = p.relative_to(repo.root).as_posix()
                 state = next((e["state"] for group in ("conflicts", "staged", "unstaged", "untracked")
                               for e in st[group] if e["path"] == rel), None)
+                kind = scopes.read_kind(repo.root)
                 return {"repo": str(repo.root), "name": repo.root.name, "branch": st["branch"], "path": rel,
-                        "state": state, "changed": st["changed"]}
+                        "state": state, "changed": st["changed"], "kind": kind,
+                        "wrong_place": scopes.wrong_place(kind, "notebooks") if rel.endswith(".ipynb") else None}
         return None
 
     def git_notebook_info(self, name: str) -> dict[str, Any] | None:

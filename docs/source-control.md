@@ -19,11 +19,31 @@ Open it from **Source control** at the bottom of the left rail, or from the bran
 | **Clone a repository** | Paste the address from GitHub or Azure DevOps (`https://…` or `git@…`). The copy goes to a new folder under `source\repos` in your user folder, or a folder you pick. Cloning runs in the background with progress and **Cancel**; a cancelled or failed clone removes only the folder it made. |
 | **Open a folder** | A folder that is already a Git repository. |
 | **Version my notebooks** | Starts a repository in the folder the app keeps your notebooks in. |
-| **Start a new repository** | Makes a new repository in a folder that isn't one yet. It refuses a folder that is already inside another repository. |
+| **New repository** | Makes a new repository for one kind of definition (below), in an empty folder, with that kind's starting files. It refuses a folder that is already inside another repository. |
+| **Make a folder a repository** | From the command bar: turns a folder that isn't a repository yet into one, without adding files. |
 
 The app remembers up to 50 repositories; pick one from the name at the top of the page. **Repository settings > Take it off the list** forgets a repository without deleting any files.
 
 Addresses are checked before Git sees them: unencrypted `http://`, addresses with a password or token in them, and anything that isn't a Git address are refused.
+
+## Repository kinds
+
+Each kind of definition lives in its own repository, so a notebook change never rides along with a platform change. A repository says what it holds in a small file at its root, `fabric-desktop.repo.toml` (for example `kind = "platform"`).
+
+| Kind | How many | Starts with |
+| --- | --- | --- |
+| **Notebooks** | One per team or project | `notebooks/` and `locations.toml`, where these notebooks find their data in each environment (workspace and lakehouse ids, never passwords or keys) |
+| **Data mesh project** | One per domain or project | Nothing extra; the project's own files go here as today |
+| **Platform** | One per tenant, for platform admins | `platform.toml` (where the platform's items live) and folders for domains, sources, key tables, landing zones and policies |
+| **Capacity** | One or more, for capacity admins | `capacity.toml`: which workspaces sit on which capacity |
+
+Every kind also gets a `.gitignore` that keeps local data (`.local/`), caches and `.env` files out of Git. The new files show as changes to review; nothing is committed or pushed for you.
+
+The repository list at the top of the page is grouped by kind. A repository that doesn't say what it holds shows **What does this repository hold?** with a button per kind; the app suggests one from what is in the folder (for example `environments.toml` means a data mesh project). Choosing writes only the marker file, as a change you commit. Changing a kind a repository already states asks first.
+
+A notebook saved in a repository of another kind shows **wrong repository** next to **Save**, so it can be moved to a notebooks repository.
+
+Today the starting files are templates: the app doesn't yet read `locations.toml`, `platform.toml` or `capacity.toml`, and notebooks still save in the app's one notebooks folder. Reading notebook locations, exporting and deploying platform definitions, and the capacity drift report are the next stages in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
 
 ## Changes
 
@@ -71,6 +91,7 @@ A notebook saved inside a repository shows its branch and whether it has uncommi
 - Stage single lines of a file (whole files only).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
+- Use `locations.toml`, deploy the platform repository, or compare the capacity repository with Fabric (see **Repository kinds**).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

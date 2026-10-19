@@ -71,7 +71,7 @@ No Critical issue was confirmed. Twelve are High.
 | AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |
 | UI-8 | Medium | Maintainability | `app.js` is 2,521 lines; UI tests check 13 of 27 scripts; browser tests aren't in CI | HD-052 |
-| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59% | HD-053 |
+| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%. Done in HD-053: contract tests for OneLake files and the Fabric client. They found that a OneLake file path with a `..` segment (plain, URL-encoded or with backslashes) reached outside the lakehouse folder it named, and that an empty path named the whole lakehouse (so `delete("")` would delete its root); `onelake.item_path` now refuses both. The workspace and lakehouse ids and lease keys aren't checked the same way; they come from Fabric or the app, not from notebook code | HD-053 |
 | TS-2 | Medium | Testing | No live-tenant or T-SQL dialect test runs anywhere automatically | HD-054 |
 | DOC-1 | Medium | Docs | `release-readiness.md` lists gates as "open PR" that merged hours ago; three security claims in docs are false | HD-009 |
 

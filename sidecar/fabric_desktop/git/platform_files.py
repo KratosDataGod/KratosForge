@@ -490,7 +490,10 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
     git_parent = {i: r.get("parent") or parent_of.get(i, "") for i, r in gd.items()}
     for ident in sorted(gd, key=lambda i: (_depth(i, git_parent | {k: v for k, v in parent_of.items() if k not in gd}), i)):
         rec, dep = gd[ident], dd.get(ident)
-        if rec.get("fabric_domain_id") and dep is None:
+        if not rec.get("fabric_domain_id") and _depth(ident, {**parent_of, **git_parent}) > 1:
+            blocked.append({"kind": "domains", "id": ident, "why": f"has parent {rec['parent']}, which is a subdomain "
+                            "itself. Subdomains go one level deep: pick a top-level domain as the parent."})
+        elif rec.get("fabric_domain_id") and dep is None:
             blocked.append({"kind": "domains", "id": ident, "why": "comes from Fabric. Import it from Fabric on Platform > Domains, then deploy again."})
         elif dep is not None and dep.get("fabric_domain_id", "") != rec.get("fabric_domain_id", ""):
             blocked.append({"kind": "domains", "id": ident, "why": "is linked to a different Fabric domain in the platform."})

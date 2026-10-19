@@ -343,8 +343,10 @@ def test_domains_are_created_parents_first_and_removed_deepest_first_at_any_dept
                        "x": platform_files.domain_record({"id": "x", "name": "X"})}, "problems": []}
     out = platform_files.plan(git, {"prod": deployed}, "prod", {("domains", d) for d in "abc"}, "note")
     order = [(s["op"], s["id"]) for s in out["steps"]]
-    assert order == [("save_domain", "x"), ("save_domain", "y"), ("save_domain", "z"),
+    assert order == [("save_domain", "x"), ("save_domain", "y"),
                      ("delete_domain", "c"), ("delete_domain", "b"), ("delete_domain", "a")]
+    # The platform keeps subdomains one level deep: a third level is caught in the plan, not partway through.
+    assert [b["id"] for b in out["blocked"]] == ["z"] and "one level deep" in out["blocked"][0]["why"]
 
 
 def test_in_use_removals_are_caught_while_planning(svc, exported, tmp_path):
@@ -368,3 +370,14 @@ def test_a_source_still_read_is_kept_in_the_plan():
                                              "key_tables": {"prod": []}})
     out = platform_files.plan({"sources": {}, "problems": []}, {"prod": deployed}, "prod", {("sources", "sap")}, "note")
     assert out["steps"] == [] and "still read by crm" in out["blocked"][0]["why"]
+
+
+def test_a_file_git_ignores_is_never_deployed(svc, exported, tmp_path):
+    root = tmp_path / "platform"
+    (root / ".gitignore").write_text((root / ".gitignore").read_text(encoding="utf-8") + "domains/secret.toml\n",
+                                     encoding="utf-8")
+    commit(svc, exported, "Ignore one file")
+    (root / "domains" / "secret.toml").write_text('id = "secret"\nname = "Secret"\n', encoding="utf-8")
+    with pytest.raises(GitError, match="domains/secret.toml"):
+        svc.git_platform_deploy(exported)
+    assert "secret" not in {d["id"] for d in svc.platform_domains()}

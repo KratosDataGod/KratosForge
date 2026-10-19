@@ -269,6 +269,14 @@ class GitMixin:
                            kind="dirty")
         if not st.get("commit"):
             raise GitError("Commit the platform files first.", kind="invalid")
+        # Files Git ignores aren't in any commit, so a deploy that read them wouldn't be "from" one.
+        paths = [*platform_files.FOLDERS.values(), *platform_files.FILES.values()]
+        ignored = [x for x in r.git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", *paths,
+                                    read_only=True).split("\0") if x]
+        if ignored:
+            raise GitError(f"Git ignores {', '.join(sorted(ignored)[:5])}{' and more' if len(ignored) > 5 else ''}, so "
+                           "it isn't in any commit. Move it out of the platform folders or stop ignoring it and "
+                           "commit it, then deploy.", kind="dirty")
         if not self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
             raise GitError("Only platform admins deploy platform definitions.", kind="denied")
         envs, clients, cat_env = self._deployed_envs()

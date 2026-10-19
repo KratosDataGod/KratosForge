@@ -133,3 +133,4 @@ The UX audit owns workflows and navigation. At component level this review found
 | Date | Commit | Overall | Decision | Note |
 | --- | --- | --- | --- | --- |
 | 2026-10-18 | 3bee0db | 5.9 | FAIL | Baseline; QA-001 and QA-002 block |
+| 2026-10-18 | 52ff52d | not re-scored | n/a | QA-001 (#177), QA-002 (#178), QA-012 (#182), QA-016 (#181) and QA-006 fixed on main; 15-PR merge set reviewed: 2 PASS, 8 CONDITIONAL, 5 FAIL ([reviews](pr-review.md#reviews)) |

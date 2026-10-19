@@ -66,6 +66,8 @@ async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { wid
       return { error: String(err.message || err) };
     }
   });
+  // The one-time KratosForge announcement covers the window; only its own test wants it.
+  storage = { "fd.rename.kratosforge.seen": "1", ...storage };
   await page.addInitScript(({ storage }) => {
     for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v);
     const shell = {

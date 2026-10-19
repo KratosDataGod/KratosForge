@@ -1,6 +1,6 @@
 # Hardening backlog
 
-PR-sized work items from the enterprise hardening audit of Fabric Desktop by KratosBI, in dependency order inside each priority. Each item fixes findings in the [findings register](findings.md). Reviewed at `main` **1248ccd**.
+PR-sized work items from the enterprise hardening audit of KratosForge, in dependency order inside each priority. Each item fixes findings in the [findings register](findings.md). Reviewed at `main` **1248ccd**.
 
 Priority:
 

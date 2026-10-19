@@ -1,6 +1,6 @@
 # Product backlog
 
-One backlog for Fabric Desktop by KratosBI, in twelve categories. It consolidates the gaps found in
+One backlog for KratosForge, in twelve categories. It consolidates the gaps found in
 [the feature inventory](FEATURE_INVENTORY.md) with the backlogs that specialist programs already
 keep, without restating their requirements.
 

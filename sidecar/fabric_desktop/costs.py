@@ -81,8 +81,8 @@ def _scenario_cu(seconds: float, cu: float, ids: dict[str, Any], at: Any) -> dic
     return ms.make(ms.SCENARIO, "fabric_job_cu_avoided", ms.CU_SECONDS, seconds * cu,
                    method="time on this PC x configured CUs of a Python notebook", period_start=at,
                    assumptions=["The run would take as long in Fabric as it took on this PC.",
-                                (f"It would run as a Python notebook at {cu:g} CU, which is what Fabric Desktop by "
-                                 "KratosBI's runner uses in Fabric."),
+                                (f"It would run as a Python notebook at {cu:g} CU, which is what KratosForge's "
+                                 "runner uses in Fabric."),
                                 "OneLake reads and writes made from this PC still use capacity and aren't counted."], **ids)
 
 
@@ -310,6 +310,6 @@ def capacity_share(cu: dict[str, Any], cap: dict[str, Any], days: int, since: dt
                     method=f"estimated CU hours / ({cap.get('sku')} = {cus} CU x {days} days x 24 h)",
                     period_start=since, period_end=now,
                     assumptions=cu["assumptions"] + [f"{cap.get('sku')} has {cus} CUs, every hour of the period.",
-                                                     ("Only runs started from Fabric Desktop by KratosBI are counted, not "
+                                                     ("Only runs started from KratosForge are counted, not "
                                                       "everything else on the capacity.")], **ids)
     return {"capacity_share": round(value, 3), "capacity_share_evidence": m}

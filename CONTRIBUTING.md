@@ -1,4 +1,4 @@
-# Contributing to Fabric Desktop by KratosBI
+# Contributing to KratosForge
 
 Thanks for helping. There are several ways in, and most don't need code.
 

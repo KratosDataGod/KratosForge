@@ -1,6 +1,6 @@
 # Hardening findings register
 
-Confirmed issues from the enterprise hardening audit of Fabric Desktop by KratosBI. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
+Confirmed issues from the enterprise hardening audit of KratosForge. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
 
 How to read this register:
 

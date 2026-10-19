@@ -341,7 +341,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         """Endorsement needs Fabric's admin scan and an admin-only permission, which Fabric Desktop
         doesn't ask for; Fabric's own catalog, embedded on the same page, shows it."""
         return {"pending": False, "available": False, "items": {},
-                "reason": "Endorsement shows in Fabric's catalog below. Fabric Desktop by KratosBI doesn't ask for admin permissions."}
+                "reason": "Endorsement shows in Fabric's catalog below. KratosForge doesn't ask for admin permissions."}
 
     @property
     def favorites_file(self) -> Path:

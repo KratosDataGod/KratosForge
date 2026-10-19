@@ -1,6 +1,6 @@
 # Source control (Preview)
 
-**Source control** keeps a folder on your PC in Git without leaving Fabric Desktop by KratosBI. You can clone a repository, change notebooks and metadata files, see exactly what changed, make a branch, commit and push. It works with GitHub, Azure DevOps and any other Git server, over HTTPS or SSH.
+**Source control** keeps a folder on your PC in Git without leaving KratosForge. You can clone a repository, change notebooks and metadata files, see exactly what changed, make a branch, commit and push. It works with GitHub, Azure DevOps and any other Git server, over HTTPS or SSH.
 
 Open it from **Source control** at the bottom of the left rail, or from the branch name in the top bar.
 
@@ -8,7 +8,7 @@ Open it from **Source control** at the bottom of the left rail, or from the bran
 
 ## Before you start
 
-- **Install Git for Windows** from [git-scm.com](https://git-scm.com/download/win). It includes Git Credential Manager, which signs you in to GitHub and Azure DevOps in your browser and keeps the sign-in in Windows Credential Manager. Fabric Desktop by KratosBI uses the Git you installed and never sees your password or token.
+- **Install Git for Windows** from [git-scm.com](https://git-scm.com/download/win). It includes Git Credential Manager, which signs you in to GitHub and Azure DevOps in your browser and keeps the sign-in in Windows Credential Manager. KratosForge uses the Git you installed and never sees your password or token.
 - **For SSH**, add your key to the SSH agent (`ssh-add`) and connect to the server once in a terminal so its host key is known. The app doesn't ask for passphrases or accept host keys for you.
 - **Tell Git who you are** in **Repository settings** if Git asks. The name and email are saved for that repository only.
 

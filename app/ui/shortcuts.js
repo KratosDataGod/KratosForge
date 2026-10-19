@@ -370,7 +370,7 @@ async function renderShortcuts() {
       rule("connections", modeSel("connections")),
       h("label", { class: "field" }, "Allowed connections", conns),
       rule("who_creates", who),
-      h("p", { class: "muted-text small" }, "Fabric itself lets any workspace Contributor make a shortcut. These rules apply to what Fabric Desktop by KratosBI makes; anything made elsewhere that breaks them shows on Health."),
+      h("p", { class: "muted-text small" }, "Fabric itself lets any workspace Contributor make a shortcut. These rules apply to what KratosForge makes; anything made elsewhere that breaks them shows on Health."),
       r.admin ? btn("Save rules", "save", async () => {
         rules.allowed_connections = conns.value.split(",").map((x) => x.trim()).filter(Boolean);
         const out = await attempt(() => rpc("shortcut_save_rules", { rules }), "Rules not saved");
@@ -396,7 +396,7 @@ async function renderShortcuts() {
       h("div", { class: "card pad sc-col" }, h("div", { class: "sc-filters" }, days, kind), box),
       h("div", { class: "sc-col sc-side" },
         h("div", { class: "card pad" }, h("b", {}, "Where changes come from"),
-          h("p", { class: "small" }, "Changes made in Fabric Desktop by KratosBI are recorded with who made them, and why when it came from a request."),
+          h("p", { class: "small" }, "Changes made in KratosForge are recorded with who made them, and why when it came from a request."),
           h("p", { class: "small" }, "Fabric doesn't record who changes a shortcut. Each time this page reads the shortcuts it compares them with the last read, so changes made in Fabric or by other tools show as \"seen at scan\"."),
           h("p", { class: "muted-text small" }, "The first read of a lakehouse sets the starting point, so what was already there isn't listed as added.")),
         h("div", { class: "card pad" }, h("b", {}, "Undo and Recreate"),
@@ -459,7 +459,7 @@ function scLastChange(c) {
   if (!c) return h("span", { class: "muted-text small" }, "");
   const [, label] = SC_CHANGE[c.kind] || ["", c.kind];
   return h("div", { class: "small" }, `${label} ${relTime(c.at)}`,
-    h("div", { class: "muted-text small" }, c.how === "app" ? (c.by_user ? `by ${c.by_user}` : "in Fabric Desktop by KratosBI") : c.how === "check" ? "health check" : "seen at scan"));
+    h("div", { class: "muted-text small" }, c.how === "app" ? (c.by_user ? `by ${c.by_user}` : "in KratosForge") : c.how === "check" ? "health check" : "seen at scan"));
 }
 
 function scDefText(d) {
@@ -498,7 +498,7 @@ function scChangeList(changes, after, showWhere) {
           : c.kind === "added" ? h("div", { class: "small mono" }, `→ ${scDefText(c.after)}`)
             : c.kind === "removed" ? h("div", { class: "small mono" }, `was → ${scDefText(c.before)}`) : null,
         c.note ? h("div", { class: "muted-text small" }, c.note) : null),
-      h("span", { class: "small" }, c.how === "app" ? (c.by_user || "Fabric Desktop by KratosBI") : c.how === "check" ? "Health check" : "Seen at scan",
+      h("span", { class: "small" }, c.how === "app" ? (c.by_user || "KratosForge") : c.how === "check" ? "Health check" : "Seen at scan",
         c.how === "scan" ? h("div", { class: "muted-text small" }, "made outside the app") : null),
       ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
         ? btn(c.kind === "removed" ? "Recreate" : "Undo", null, () => undo(c), "tool link small") : h("span", {})));

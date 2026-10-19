@@ -233,7 +233,7 @@ class PipelineRun:
             raise RunRefused(problems)
         self.scope.system.update({"RunId": self.id, "Pipeline": self.pipeline.name, "PipelineName": self.pipeline.name,
                                   "TriggerTime": _now(), "TriggerType": "Manual", "TriggerId": self.id,
-                                  "TriggerName": "Fabric Desktop by KratosBI (local run)", "GroupId": self.id})
+                                  "TriggerName": "KratosForge (local run)", "GroupId": self.id})
         self.state, self.started, self._t0 = "running", _now(), time.monotonic()
         timer = None
         if self.timeout_seconds:

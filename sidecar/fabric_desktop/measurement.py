@@ -1,6 +1,6 @@
 """Capacity and cost measurements, each labeled for where its number came from (FINOPS-001).
 
-Every CU or cost figure Fabric Desktop by KratosBI shows is one of these dicts, so a view can
+Every CU or cost figure KratosForge shows is one of these dicts, so a view can
 say how much to trust it and how it was worked out:
 
 - **measured**: read from a source that observed it (Fabric's job API, an imported

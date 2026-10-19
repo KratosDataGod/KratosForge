@@ -1,6 +1,6 @@
 # Optimize and the central lakehouse
 
-Optimize keeps optimization results in one Microsoft Fabric lakehouse that every Fabric Desktop by KratosBI installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
+Optimize keeps optimization results in one Microsoft Fabric lakehouse that every KratosForge installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
 
 > **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
 
@@ -8,7 +8,7 @@ Optimize keeps optimization results in one Microsoft Fabric lakehouse that every
 
 - One lakehouse is enough for a whole organization. You don't need one per developer, project or workspace.
 - If you need separate boundaries, such as business units, regulated data or separate environments, use separate optimization lakehouses. Each installation is connected to one at a time and can switch between the ones it knows.
-- The default name is `FabricDesktop_Central`: it is Fabric Desktop's central lakehouse, where other features keep their organization-wide data too ([Table families](#table-families)). It is a separate item from the platform's `LH_Meta`, which is per environment. A lakehouse created before this release under the old default name, `FabricDesktop_Optimization`, keeps working as it is.
+- The default name is `FabricDesktop_Central`: it is KratosForge's central lakehouse, where other features keep their organization-wide data too ([Table families](#table-families)). It is a separate item from the platform's `LH_Meta`, which is per environment. A lakehouse created before this release under the old default name, `FabricDesktop_Optimization`, keeps working as it is.
 
 ## Where it is in the app
 

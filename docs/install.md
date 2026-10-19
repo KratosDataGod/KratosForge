@@ -1,8 +1,8 @@
-# Install Fabric Desktop by KratosBI
+# Install KratosForge
 
 This page takes you from nothing to a running app on one Windows PC. There is no app registration to set up: you sign in with your work account and that's it. If you look after Fabric for a whole organization, [Configure Azure and Fabric](azure-setup.md) lists the few tenant settings worth checking.
 
-> **Before you start:** Fabric Desktop by KratosBI is new. The parts that only talk to your own PC are tested on every build. Several features that talk to Fabric are marked **Preview** in the app because nobody has tried them on a live Fabric tenant yet. See [What is tested and what isn't](README.md#what-is-tested-and-what-isnt).
+> **Before you start:** KratosForge is new. The parts that only talk to your own PC are tested on every build. Several features that talk to Fabric are marked **Preview** in the app because nobody has tried them on a live Fabric tenant yet. See [What is tested and what isn't](README.md#what-is-tested-and-what-isnt).
 
 ## What you need
 
@@ -26,12 +26,12 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 
    | Line | What happens |
    | --- | --- |
-   | Fabric Desktop by KratosBI | Checks GitHub for a newer build on your channel and installs it straight away, then restarts. |
+   | KratosForge | Checks GitHub for a newer build on your channel and installs it straight away, then restarts. |
    | Python | Comes with the engine. Nothing to install. |
    | Local engine | Downloads `fabric-desktop-engine.zip` (Python plus every package) and unpacks it into `%LOCALAPPDATA%\FabricDesktop\engine`. |
 
    This takes a minute or two the first time. Later starts go straight to Home unless something is updating.
-6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; Fabric Desktop by KratosBI signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
+6. **Sign in.** Click **Sign in** on Home (or the **?** circle at the top right). Windows asks which work account to use, or signs you in with the one you use on Windows. There is nothing to paste and no app ID to ask for; KratosForge signs in through Microsoft's own Fabric sign-in, and only ever does what your own Fabric access allows ([Permissions](permissions.md)).
 
 That's it. Home shows a **Get started** list until you set up a metadata project. Go on to the [user guide](user-guide.md).
 
@@ -50,7 +50,7 @@ The lasting fix is code signing: CI signs every file when the repository has an 
 
 ## Updates
 
-Fabric Desktop by KratosBI updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. Then **What's new** lists what changed. You never run an old build by accident.
+KratosForge updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. Then **What's new** lists what changed. You never run an old build by accident.
 
 | Channel | Who it's for | What you get |
 | --- | --- | --- |
@@ -109,7 +109,7 @@ Nothing in Fabric is removed. Lakehouses, tables and notebooks you published sta
 
 ## For developers: run from source
 
-To work on Fabric Desktop by KratosBI itself, see [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md). In short:
+To work on KratosForge itself, see [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md). In short:
 
 ```powershell
 cd sidecar

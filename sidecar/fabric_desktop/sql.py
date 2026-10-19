@@ -26,7 +26,7 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
-        raise ValueError(f"{chosen['label']} can't run on this PC. Fabric Desktop by KratosBI checks and formats "
+        raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])

@@ -4,7 +4,7 @@
 # Merges to main publish it to GitHub Pages (.github/workflows/docs.yml).
 
 [project]
-site_name = "Fabric Desktop by KratosBI"
+site_name = "KratosForge"
 site_url = "https://kratosdatagod.github.io/fabric-desktop/"
 site_description = "Do your Microsoft Fabric data engineering on your own PC and write the results straight into OneLake."
 site_author = "KratosBI"
@@ -68,7 +68,8 @@ nav = [
     { "Incidents and your service desk" = "incidents.md" },
   ] },
   { "Project" = [
-    { "Why Fabric Desktop by KratosBI" = "why-fabric-desktop.md" },
+    { "Why KratosForge" = "why-fabric-desktop.md" },
+    { "Fabric Desktop is now KratosForge" = "kratosforge.md" },
     { "Submitting ideas" = "ideas.md" },
     { "Enterprise roadmap" = "enterprise-roadmap.md" },
     { "Local data engine plan" = "local-data-engine-plan.md" },

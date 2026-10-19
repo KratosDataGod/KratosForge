@@ -1,4 +1,4 @@
-"""The activity types Fabric Desktop by KratosBI knows (ORCH-002), as ``default_registry()``.
+"""The activity types KratosForge knows (ORCH-002), as ``default_registry()``.
 
 Control-flow activities and child pipelines are ``local`` (ORCH-003): adapters.py runs them, with
 tests in tests/test_pipeline_runs.py. Data and compute activities are ``static`` (checked here:
@@ -108,7 +108,7 @@ def _variable(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
 
 def _delete(a: Activity, ctx: CheckContext) -> list[Diagnostic]:
     return [_diag(a, "deletes_data", "info", f"{a.name} deletes files when it runs in Fabric.",
-                  "datasetSettings", "Fabric Desktop by KratosBI will never run it outside an isolated test location.")]
+                  "datasetSettings", "KratosForge will never run it outside an isolated test location.")]
 
 
 # ---- entries
@@ -210,7 +210,7 @@ ENTRIES: tuple[ActivitySupport, ...] = (
             auth=("connection",), side_effects=("runs_code", "writes_external"),
             external_dependencies=("database connection", "the stored procedure"),
             properties={"storedProcedureParameters": CARRIED},
-            limitations=("Runs in the target database; Fabric Desktop by KratosBI has no local stand-in planned.",)),
+            limitations=("Runs in the target database; KratosForge has no local stand-in planned.",)),
     _static("Delete", "Delete data", ("datasetSettings",), _delete, fabric_capacity="metered_in_fabric",
             auth=("fabric", "connection"), side_effects=("deletes_data",), external_dependencies=("dataset connection",),
             planned=Planned("simulated", LATER, "Lists what would be deleted; deletes only in an isolated test "

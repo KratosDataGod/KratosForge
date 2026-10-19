@@ -192,7 +192,7 @@ def with_overrides(select: str, overrides: dict[str, str]) -> str:
 def _friendly_open_error(exc: Exception, path: str) -> Exception:
     text = str(exc)
     if "lock" in text.lower():
-        return EngineBusy(f"{path} is open in another program (another Fabric Desktop window or a notebook), "
+        return EngineBusy(f"{path} is open in another program (another KratosForge window or a notebook), "
                           f"so this one can't write to it. Close it there and try again. ({text})")
     return exc
 

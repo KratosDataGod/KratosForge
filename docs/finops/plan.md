@@ -1,6 +1,6 @@
 # Administration and FinOps program (FINOPS-001 to FINOPS-005)
 
-Fabric Desktop by KratosBI helps developers understand, predict and avoid Fabric capacity use without becoming a copy of the Fabric admin portal or the Capacity Metrics app. This program adds evidence to what the app already shows: where each CU and cost number comes from, what capacity a workload would run on, what is risky before a cloud run, and when this PC is the better place to run.
+KratosForge helps developers understand, predict and avoid Fabric capacity use without becoming a copy of the Fabric admin portal or the Capacity Metrics app. This program adds evidence to what the app already shows: where each CU and cost number comes from, what capacity a workload would run on, what is risky before a cloud run, and when this PC is the better place to run.
 
 Rules for every PR in this program:
 

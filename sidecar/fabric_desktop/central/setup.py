@@ -41,7 +41,7 @@ def _varlib(cfg: dict[str, Any]) -> dict[str, str]:
             ("PLATFORM_SQL_DATABASE_ID", cfg.get("sql_id", "")), ("PLATFORM_FUNCTIONS_ID", cfg.get("functions_id", ""))]
     schema = "https://developer.microsoft.com/json-schemas/fabric/item/variableLibrary/definition"
     return {"variables.json": json.dumps({"$schema": f"{schema}/variables/1.0.0/schema.json", "variables": [
-        {"name": n, "note": "Set by Fabric Desktop by KratosBI's platform setup", "type": "String", "value": v} for n, v in rows]},
+        {"name": n, "note": "Set by KratosForge's platform setup", "type": "String", "value": v} for n, v in rows]},
         indent=2),
         "settings.json": json.dumps({"$schema": f"{schema}/settings/1.0.0/schema.json", "valueSetsOrder": []}, indent=2)}
 
@@ -67,7 +67,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
             return f"Kept {cfg.get('workspace_name') or cfg['workspace_id']}"
         wanted = (name or default_name(env)).strip()
         found = next((w for w in fabric.list_workspaces() if w.get("displayName") == wanted), None)
-        ws = found or fabric.create_workspace(wanted, capacity_id, f"{env.title()} platform for Fabric Desktop by KratosBI: "
+        ws = found or fabric.create_workspace(wanted, capacity_id, f"{env.title()} platform for KratosForge: "
                                               "surrogate keys, catalog and run history for every team")
         cfg.update(workspace_id=ws["id"], workspace_name=ws.get("displayName") or wanted)
         return ("Found " if found else "Created ") + cfg["workspace_name"]
@@ -79,7 +79,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
     def meta() -> str:
         lh = fabric.find_lakehouse(ws, META)
         created = lh is None
-        lh = lh or fabric.create_lakehouse(ws, META, "Run history from every Fabric Desktop by KratosBI project")
+        lh = lh or fabric.create_lakehouse(ws, META, "Run history from every KratosForge project")
         cfg["meta_id"] = lh["id"]
         return ("Created " if created else "Kept ") + META
 

@@ -1,6 +1,6 @@
 # Running SQL queries on this PC
 
-*Fabric Desktop by KratosBI* runs every query on the SQL query page as a managed run: it gets an id, it can be stopped, it has a time limit and a memory limit, and its result is read a page at a time. This page explains what happens when you press **Run**, what a query may and may not do, and the limits you (or your IT team) can set.
+*KratosForge* runs every query on the SQL query page as a managed run: it gets an id, it can be stopped, it has a time limit and a memory limit, and its result is read a page at a time. This page explains what happens when you press **Run**, what a query may and may not do, and the limits you (or your IT team) can set.
 
 A query that runs here runs in DuckDB on this PC, not in Fabric. It is not proof that the same SQL runs, or gives the same answer, in a Fabric Warehouse, SQL analytics endpoint or Spark session. See [SQL compatibility check](sql-compatibility.md) for how the page tells you about known differences. Nothing on the SQL page uses Fabric capacity.
 

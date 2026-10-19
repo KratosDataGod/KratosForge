@@ -1,6 +1,6 @@
 # Troubleshooting
 
-When something goes wrong, Fabric Desktop by KratosBI says what happened in a sentence and keeps the technical text in **Activity** (the bell) under **Details**. Find the sentence you saw below. If it isn't here, use **Report a problem** in the account menu: it collects the build and recent errors for you, without your data.
+When something goes wrong, KratosForge says what happened in a sentence and keeps the technical text in **Activity** (the bell) under **Details**. Find the sentence you saw below. If it isn't here, use **Report a problem** in the account menu: it collects the build and recent errors for you, without your data.
 
 ## Starting the app
 
@@ -10,7 +10,7 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | A blank white window | The WebView2 runtime is missing or broken. | Install the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) and start again. |
 | **Windows Smart App Control blocked it** or **An App Control policy on this PC blocked it** | Windows refused the engine's unsigned Python packages. Reinstalling won't help. | See [Install: If Windows blocks the engine](install.md#if-windows-blocks-the-engine). |
 | "Could not check for a newer build" | GitHub didn't answer, or its limit of 60 checks an hour from your network was reached. | Nothing. The app runs the build you have and checks again next start. |
-| "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every Fabric Desktop by KratosBI window, then download `fabric-desktop.exe` again from the Releases page. |
+| "The update didn't take" | The new exe couldn't replace the old one, usually because another copy was still running or antivirus held the file. | Close every KratosForge window, then download `fabric-desktop.exe` again from the Releases page. |
 | "The engine could not be installed" | The engine download or unpack failed. The log is under the message. | Check the internet connection and disk space, then **Retry**. |
 | "The engine download doesn't match the checksum its release gives" or "...is a different build from the one its release names" | The download didn't match what the release says it should be, so it wasn't installed. Usually a new build was being published at that moment; rarely, a proxy changed the file. | Wait a few minutes, then **Retry**. If it keeps happening, report it with the log under the message. |
 | "Could not read build ...'s checksum from its release" during an update | The app couldn't read the release's `version.json`, so it couldn't check the new exe and didn't install it. | Check the internet connection, then try the update again. |
@@ -46,7 +46,7 @@ When something goes wrong, Fabric Desktop by KratosBI says what happened in a se
 | "... isn't in ... yet. Run the TPC-H data notebook" | **TPC-H benchmark** reads the tables **TPC-H data** writes, and that notebook hasn't run on the attached lakehouse. | Attach the same lakehouse to **TPC-H data**, run it once, then run **TPC-H benchmark** again. |
 | "Fabric is busy and asked the app to slow down" | Fabric throttled the requests. | Wait a minute and retry. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
-| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which Fabric Desktop by KratosBI doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
+| Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
 | **Couldn't list capacities** when creating a workspace | Your sign-in lacks `Capacity.Read.All` (your organization's own app registration doesn't have it). | Create the workspace in Fabric, or an admin adds it ([permissions.md](permissions.md#using-your-own-app-registration)). |
 
 ## Notebooks and SQL

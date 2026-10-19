@@ -1,6 +1,6 @@
 # Notebooks and SQL
 
-Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake. A run on this PC starts no Fabric job, but its OneLake reads and writes still use the workspace's capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
+Notebooks in KratosForge look and work like Fabric's, but every cell runs in a Python kernel on your PC. Reading and writing lakehouse data goes straight to OneLake. A run on this PC starts no Fabric job, but its OneLake reads and writes still use the workspace's capacity. This page covers how to write, run, publish and schedule notebooks, which Fabric notebook code works here, and the SQL query tab.
 
 ## Your first notebook
 
@@ -38,7 +38,7 @@ Notebooks in Fabric Desktop by KratosBI look and work like Fabric's, but every c
 
 Notebooks are `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks`. They stay on your PC until you publish them.
 
-Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata Fabric Desktop by KratosBI doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
+Each cell keeps a stable id (the standard `id` of notebook format 4.5) through edits, moves and saves; a copied cell gets its own. Comparisons and run receipts use it to point at a cell after the notebook changes. When you save a notebook that came from Fabric or Jupyter, the metadata KratosForge doesn't use (a Fabric environment, widget state, other tools' cell settings) is kept as it was. Cell outputs aren't saved in the file.
 
 ## The lakehouse module
 
@@ -121,7 +121,7 @@ Printed output shows while a cell runs. Code stuck inside a library call can't a
 With that setting on, two more Preview settings appear under it.
 
 - **Cell time limit.** A cell that runs longer is interrupted, and variables are kept. If it doesn't stop within 30 seconds, for example because it's waiting on one long call, its process is ended and variables are cleared. The cell says which happened and offers **Run again without the limit**. Proofs and side by side use the same limit, and a proof's receipt records the limits in force.
-- **Notebook memory limit.** If the notebook's process uses more memory than this, it's ended, so one notebook can't slow the whole PC. Variables are cleared and every cell is marked stale. Memory is checked every second, so a sudden spike can briefly go past the limit before it's seen. Fabric Desktop by KratosBI counts private bytes on Windows and resident memory on Linux, for that process only; processes it starts itself aren't counted.
+- **Notebook memory limit.** If the notebook's process uses more memory than this, it's ended, so one notebook can't slow the whole PC. Variables are cleared and every cell is marked stale. Memory is checked every second, so a sudden spike can briefly go past the limit before it's seen. KratosForge counts private bytes on Windows and resident memory on Linux, for that process only; processes it starts itself aren't counted.
 
 Your organization can set either limit in the policy file ([azure-setup.md](azure-setup.md)); Settings then shows it as set by your organization.
 
@@ -141,7 +141,7 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 
 - **Watches.** Type an expression, such as `len(events)` or `df["amount"].sum()`, and it's shown with its value after every cell, with its last few values so you can see which cell changed it. A watch runs as notebook code in the kernel, after the cell and as part of its run, so Cancel and the cell time limit cover it. Keep watches to reads: one that changes data changes your notebook's state too. Only expressions are accepted (not `x = 1`), up to 10 per notebook. A watch that takes longer than 2 seconds is paused until you click **Resume**. The expressions are saved in the notebook file; their values aren't. Proofs and side by side don't run watches, so they can't change what a proof compares.
 - **History.** For each cell run: the variables it added, changed and removed, with their type and size. Values aren't kept. History stays in memory for the current kernel only; it's cleared when the kernel restarts and isn't saved. Cell numbers are as they were when the cell ran.
-- **Hidden state.** After a cell runs, Fabric Desktop by KratosBI checks the names it uses against the cells in the notebook (the same reading of the code as Dependencies). If the cell uses a name that no cell defines, or that only a cell further down defines, but the kernel still has it from an earlier run, a warning shows under the cell: the cell works now but will fail in Fabric, in a proof and after a restart. If that name was set by a cell you've since deleted or changed in this session, **Insert that cell back above** puts its code back. **Ignore for this notebook** stops the warning for that name and is saved in the notebook file.
+- **Hidden state.** After a cell runs, KratosForge checks the names it uses against the cells in the notebook (the same reading of the code as Dependencies). If the cell uses a name that no cell defines, or that only a cell further down defines, but the kernel still has it from an earlier run, a warning shows under the cell: the cell works now but will fail in Fabric, in a proof and after a restart. If that name was set by a cell you've since deleted or changed in this session, **Insert that cell back above** puts its code back. **Ignore for this notebook** stops the warning for that name and is saved in the notebook file.
 
 None of these run for notebooks that run in Fabric.
 

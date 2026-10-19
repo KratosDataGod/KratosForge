@@ -2,7 +2,7 @@
 
 Fabric has several SQL engines, and they don't take the same SQL. The SQL query page checks what you write against the engine you pick, as you type, and lists what that engine doesn't support or may run differently. It is in preview.
 
-The check is **static**: Fabric Desktop by KratosBI reads the SQL; it doesn't run it, doesn't connect to Fabric and uses no capacity. It never changes your SQL. Each finding says what to change, and you decide.
+The check is **static**: KratosForge reads the SQL; it doesn't run it, doesn't connect to Fabric and uses no capacity. It never changes your SQL. Each finding says what to change, and you decide.
 
 No findings means **no known problem**, not proof that the query runs, or gives the same answer, in Fabric. A query that runs on this PC with DuckDB says nothing about how a Fabric Warehouse runs it.
 

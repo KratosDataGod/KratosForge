@@ -20,7 +20,7 @@ A total is as weak as its weakest part: one estimated run makes the total estima
 - **Share of a capacity** is estimated CU divided by the capacity's CUs over the period. It needs the capacity's SKU (read only if you already granted capacity access) and counts only runs started from this app, not everything on the capacity.
 - **Money** is CU hours times your price per CU hour. A price is not a charge: on a reserved or already-running capacity the invoice doesn't change with each run, so running on this PC frees capacity rather than cutting the bill.
 
-Not counted: OneLake reads and writes (they use capacity too, including those made from this PC), Fabric session start for metadata runs, and anything not started from Fabric Desktop by KratosBI. The CU your capacity actually recorded is in Fabric's Capacity Metrics app.
+Not counted: OneLake reads and writes (they use capacity too, including those made from this PC), Fabric session start for metadata runs, and anything not started from KratosForge. The CU your capacity actually recorded is in Fabric's Capacity Metrics app.
 
 ## How savings on this PC are estimated
 

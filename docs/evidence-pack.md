@@ -1,6 +1,6 @@
 # Security evidence pack
 
-Everything a security or IT team needs to review Fabric Desktop by KratosBI before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
+Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 
 Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
 

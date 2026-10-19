@@ -1,6 +1,6 @@
 # Feature inventory
 
-This is the registry of what Fabric Desktop by KratosBI actually does, how sure we are, and what
+This is the registry of what KratosForge actually does, how sure we are, and what
 should happen next for each capability. It is the starting point for every product decision in
 [the product backlog](PRODUCT_BACKLOG.md) and [the prioritized roadmap](PRIORITIZED_ROADMAP.md).
 
@@ -1503,7 +1503,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/central/service.py`, `app/ui/mesh.js`, `app/ui/meshmap.js`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
-- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of Fabric Desktop's own; the built-in glossary becomes a fallback or is retired.
+- **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired.
 - **Pull requests and issues:** [#48](https://github.com/KratosDataGod/fabric-desktop/pull/48), [#50](https://github.com/KratosDataGod/fabric-desktop/pull/50)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
 - **Recommended next action:** Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call

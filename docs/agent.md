@@ -1,6 +1,6 @@
 # Headless agent
 
-The Fabric Desktop by KratosBI agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
+The KratosForge agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
 
 The agent is the first milestone (M1) of the [enterprise local execution roadmap](enterprise-roadmap.md). It runs one machine's worth of work. Several agents sharing one queue comes in M3.
 
@@ -175,12 +175,12 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. KratosForge's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
-| `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
+| `agent`, `host`, `pid`, `version` | Which agent, where, and which KratosForge version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |

@@ -58,7 +58,7 @@ def _check_fabric_runs_allowed(what: str) -> None:
     """The organization's policy can keep work off Fabric capacity (allow_fabric_runs: false)."""
     from . import app_settings
     if not app_settings.value("allow_fabric_runs"):
-        raise FabricError(f"Your organization doesn't allow {what} from Fabric Desktop by KratosBI, so it wasn't "
+        raise FabricError(f"Your organization doesn't allow {what} from KratosForge, so it wasn't "
                           "started. Run it on this PC instead, or ask your IT team.", POLICY_BLOCKED)
 
 

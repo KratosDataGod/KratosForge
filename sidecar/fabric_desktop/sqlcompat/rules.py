@@ -217,7 +217,7 @@ _RULES = [
     # ---- statements that change or delete data
     _r("DES-001", "warning", "destructive", ALL, "DROP {name} deletes it",
        "This statement deletes the {name} and, for a table, its data.", "Make sure this is the right object. "
-       "Fabric Desktop by KratosBI never runs it without asking.", "local"),
+       "KratosForge never runs it without asking.", "local"),
     _r("DES-002", "warning", "destructive", ALL, "TRUNCATE deletes every row",
        "This statement deletes all rows of the table.", "Make sure this is the right table.", "local"),
     _r("DES-003", "warning", "destructive", ALL, "{name} without WHERE changes every row",

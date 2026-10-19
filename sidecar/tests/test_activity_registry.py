@@ -27,7 +27,7 @@ EXAMPLE = HERE.parent.parent / "docs" / "orchestration" / "examples" / "orders-d
 
 # Fingerprint of every entry. A change to an entry changes it: bump REGISTRY_VERSION, add a line to
 # the changelog in docs/orchestration/activity-registry.md, then record the new fingerprint here.
-FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271"}
+FINGERPRINTS = {"1": "2949500357d2", "2": "24ea20e1e271", "3": "55e293f222e5"}
 
 
 @pytest.fixture(autouse=True)

@@ -30,6 +30,8 @@ PATTERNS: list[tuple[str, re.Pattern[str], str]] = [
      "Rotate the secret in Entra ID and read it from Key Vault at run time."),
     ("AWS access key", re.compile(r"\b(?P<s>AKIA[0-9A-Z]{16})\b"), "Rotate the key and keep it outside the repository."),
     ("Slack token", re.compile(r"\b(?P<s>xox[abposr]-[A-Za-z0-9-]{10,})\b"), "Revoke the token and keep it outside the repository."),
+    ("API key", re.compile(r"(?<![A-Za-z0-9_-])(?P<s>sk-[A-Za-z0-9_-]{20,})"),
+     "Revoke the key and read it from Key Vault or an environment variable at run time."),
     ("Access token", re.compile(r"\b(?P<s>eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})"),
      "This looks like a sign-in token (often in notebook output). Clear the output and commit again."),
     ("Teams webhook", re.compile(r"(?P<s>https://[A-Za-z0-9.-]+\.webhook\.office\.com/[^\s'\"]+)"),

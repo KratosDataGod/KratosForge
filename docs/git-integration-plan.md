@@ -73,6 +73,17 @@ Environment profiles on `environments.toml` plus custom environments; a Validate
 
 Extension manifest (id, version, engine range, entry points, permissions), validators and templates first, declarative and in-process only for signed or built-in extensions; third-party code runs in its own process with only the permissions its manifest names, and can be turned off or removed. One example extension and a contributor guide.
 
+## Repositories by scope
+
+Each kind of definition has its own repository: notebooks (one per team or project), data mesh projects (one per domain or project), platform (one per tenant) and capacity. A `fabric-desktop.repo.toml` marker at the root says the kind. For platform definitions, Git is the source of truth and the catalog (SQL_Platform and LH_Meta) is the deployed state; drift is reported, never silently overwritten.
+
+1. **Built:** the marker and the four kinds, starting files for each, the list grouped by kind, choosing a kind for an existing repository (marker only, confirm to change), and a warning when a notebook sits in a repository of another kind.
+2. Notebooks read `locations.toml` for where their data is in each environment, so a team's notebooks can live in their own repository.
+3. Platform repository: export the current catalog as a commit to review, diff against the catalog, and deploy per environment. The Enterprise governance owners define the content and deploy rules.
+4. Capacity repository: read-only, with a drift report against Fabric. No writes to capacities.
+
+Stages 1 and 2 need no new Entra scope. Any new scope for stages 3 and 4 goes in [permissions](permissions.md) first.
+
 ## Known gaps after Phase 1
 
 - Pull requests open on the provider's site; status, reviews and checks inside the app come later.

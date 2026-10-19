@@ -221,6 +221,8 @@ def test_validate_notebook_runs_the_screen_checks(svc):
     out = services.validate_notebook(svc, ctx(), name="Uses spark")
     assert set(out) >= {"this_pc", "fabric", "proof", "dependencies", "ok"}
     assert out["proof"]["ok"] is False  # no lakehouse attached
+    # Validate's code checks too: reading a table with no lakehouse attached is an error.
+    assert out["verdict"] == "not_ready" and [f["code"] for f in out["findings"] if f["severity"] == "error"] == ["no_lakehouse"]
 
 
 def test_projects_list_the_notebook_folder_without_a_metadata_project(svc):

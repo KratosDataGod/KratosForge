@@ -98,6 +98,7 @@ function proveToggle(nb) {
 
 async function openProve(nb) {
   nb.prove = { open: true, check: null, rules: null, history: null, record: nb.prove?.record || null, problem: "" };
+  if (nb.validate?.open) nb.validate.open = false;  // one panel beside the cells at a time
   renderNotebook();
   if (!proveRunning(nb)) await refreshProveCheck(nb);
 }

@@ -40,6 +40,7 @@ const PREVIEW_FEATURES = {
   schedules: "Schedules",
   sideBySide: "Side by side",
   prove: "Prove this notebook",
+  validate: "Validate notebook",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",

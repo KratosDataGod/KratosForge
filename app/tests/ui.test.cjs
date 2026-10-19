@@ -1497,3 +1497,58 @@ test("moving keys into one database previews first, and cancelling it is a dange
   }
   assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
 });
+
+// Validate notebook (validate.js): the headline, the count chips, what changed since a result,
+// and which tidy-ups Apply makes.
+function validateHelpers() {
+  const src = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}; Object.assign(this, { validateHeadline, validateShown, validateSnapshot, validateChanged, cleanupChosen, cleanupState, cleanupUndoable });`, ctx);
+  return ctx;
+}
+
+test("Validate says how ready the notebook is, and the chips filter by severity", () => {
+  const { validateHeadline, validateShown } = validateHelpers();
+  assert.deepStrictEqual([...validateHeadline({ verdict: "not_ready", counts: { error: 1, warning: 2 } })], ["fail", "Not ready: 1 error, 2 warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "ready", counts: {} })], ["pass", "Ready: no errors or warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "checked", counts: { warning: 1 } })], ["neu", "Code checks: 1 warning"]);
+  const f = [{ severity: "error" }, { severity: "info" }, { severity: "error" }];
+  assert.strictEqual(validateShown(f, "error").length, 2);
+  assert.strictEqual(validateShown(f, "all").length, 3);
+});
+
+test("Validate marks a result out of date when a cell changes, is added or is deleted", () => {
+  const { validateSnapshot, validateChanged } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1" }, { cell_id: "b", type: "markdown", source: "# hi" }];
+  const snap = validateSnapshot(cells);
+  assert.deepStrictEqual([...validateChanged(snap, cells)], []);
+  assert.deepStrictEqual([...validateChanged(snap, [{ ...cells[0], source: "x = 2" }, { ...cells[1], source: "# edited" }])], [1]);
+  assert.deepStrictEqual([...validateChanged(snap, [...cells, { cell_id: "c", type: "code", source: "" }])], [3]);
+  assert.deepStrictEqual([...validateChanged(snap, [cells[1]])], [0]);
+});
+
+test("Clean up applies the ticked tidy-ups, starting from the ones ticked at first", () => {
+  const { cleanupChosen } = validateHelpers();
+  const plan = { tidy: [{ id: "unused_imports", on: true }, { id: "print_lines", on: false }] };
+  assert.deepStrictEqual([...cleanupChosen(plan, {})], ["unused_imports"]);
+  assert.deepStrictEqual([...cleanupChosen(plan, { unused_imports: false, print_lines: true })], ["print_lines"]);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /preview\("validate", btn\("Validate"/);
+  assert.match(v, /v\.undo = \{ cells: before, after: cleanupState\(nb\.cells\) \};/);
+  assert.match(v, /if \(cell\.meta\?\.frozen\) continue;/);
+  assert.match(v, /changes: "Code checks and suggestions change nothing\. A clean run writes tables only to Files\/_fabric_desktop\/proofs\/validate-<id>\/pc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/validateToggle\(nb\), proveToggle\(nb\)/g).length, 2);
+  assert.match(nb, /provePanel\(nb\), validatePanel\(nb\)\)/);
+});
+
+test("Clean up's Undo is offered only while the cells are exactly what Apply made", () => {
+  const { cleanupState, cleanupUndoable } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1", meta: {} }, { cell_id: "b", type: "code", source: "y = 2", meta: {} }];
+  const undo = { cells: [], after: cleanupState(cells) };
+  assert.strictEqual(cleanupUndoable(undo, cells), true);
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], source: "y = 3" }]), false);  // an edit
+  assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
+  assert.strictEqual(cleanupUndoable(null, cells), false);
+});

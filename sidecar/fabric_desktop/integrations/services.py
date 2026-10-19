@@ -183,6 +183,9 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
         out["dependencies"] = svc.notebook_dependencies(cells)
     except Exception as exc:  # the dependency view is extra; the checks above still stand
         out["dependencies"] = {"error": redact_secrets(str(exc))}
+    # Validate notebook's code checks (validate.py): every finding with its severity, cell and fix.
+    checked = svc.notebook_validate_check(name, cells, lakehouse, nb.get("compute"))
+    out |= {"findings": checked["findings"], "counts": checked["counts"], "verdict": checked["verdict"]}
     out["ok"] = bool(runs["local"].get("ok"))
     return out
 

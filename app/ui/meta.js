@@ -448,13 +448,15 @@ async function runEntities(names, opts = {}) {
   const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
   if (inFabric(p, env) && !state.user && !(await signIn())) return;
-  if (!(await metaRiskGate(p, names || p.entities.map((e) => e.name), env, label))) return;
+  const go = await metaRiskGate(p, names, env, label);
+  if (!go) return;
+  const only = go === true ? names : go;
   if (inFabric(p, env)) {
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
-  const results = await metaCall("meta_run", { names, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
+  const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
   if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], names ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
@@ -463,34 +465,37 @@ async function runEntities(names, opts = {}) {
   render();
 }
 
-// The risk check (FINOPS-004) for each entity in the run, shown as one dialog when anything should
-// stop or slow it. When every entity is blocked there is no way to run anyway; when only some are,
-// the run can go ahead and the blocked ones are refused or fail as they would without the check.
+// The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
+// when anything should stop or slow it. Resolves true to run as asked, a list of names to run only
+// those (the rest are blocked, or read from one that is), or false. When nothing can start there is
+// no way to run.
 async function metaRiskGate(p, names, env, label) {
   const wid = (n) => `meta:${p.project?.name || "project"}:${n}`;
-  const checks = await Promise.all(names.map((n) => rpc("risk_check", { id: wid(n), action: "run", env })
-    .then((r) => [n, r]).catch(() => null)));
-  const found = checks.filter((c) => c && (c[1].result === "warning" || c[1].result === "blocked"));
-  if (!found.length) return true;
-  const blocked = found.filter(([, r]) => r.result === "blocked").length;
-  const allBlocked = blocked === names.length;
+  const gate = await rpc("meta_risk_gate", { names, env }).catch(() => null);
+  if (!gate) return true;
+  const found = gate.checks.filter((c) => c.result === "warning" || c.result === "blocked").map((c) => [c.entity, c]);
+  const held = Object.entries(gate.held || {});
+  if (!found.length && !held.length) return true;
+  const stopped = gate.checks.length - gate.run.length;
+  const none = !gate.run.length;
   return new Promise((resolve) => {
     const boxes = new Map(found.map(([n, r]) => [n, riskAckBox(r)]));
     const go_ = async () => {
-      for (const [n, r] of found) {
+      for (const [n, r] of found.filter(([n]) => gate.run.includes(n))) {
         if (!(await riskProceed({ id: wid(n), action: "run", env }, r, boxes.get(n)))) return;
       }
       closeDialog();
-      resolve(true);
+      resolve(stopped ? gate.run : true);
     };
     showDialog(`Run ${label} in ${ENV_LABEL[env]}?`, h("div", { class: "wl-confirm" },
-      found.map(([n, r]) => [found.length > 1 || names.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
-      blocked && !allBlocked ? h("p", { class: "text" }, `${blocked} of ${names.length} can't start; the others run if you go ahead.`) : null,
-      h("p", { class: "muted-text small" }, found[0][1].note)),
-    allBlocked
+      found.map(([n, r]) => [gate.checks.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
+      held.length ? h("p", { class: "text" }, `Waiting because they read from one that can't start: ${held.map(([n, ups]) => `${n} (reads ${ups.join(", ")})`).join("; ")}.`) : null,
+      stopped && !none ? h("p", { class: "text" }, `${stopped} of ${gate.checks.length} won't start; the other ${gate.run.length} run if you go ahead.`) : null,
+      h("p", { class: "muted-text small" }, (found[0]?.[1] || gate.checks[0])?.note || "")),
+    none
       ? [btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
       : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
-        btn("Run anyway", null, go_, "tool primary")]);
+        btn(stopped ? `Run the other ${gate.run.length}` : "Run anyway", null, go_, "tool primary")]);
   });
 }
 

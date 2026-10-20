@@ -8,6 +8,13 @@ import pytest
 from fabric_desktop import spark_api
 from fabric_desktop.notebook import Kernel
 
+@pytest.fixture(autouse=True)
+def no_lakehouse(monkeypatch):
+    """Earlier tests can leave a lakehouse attached; these check temp views and must not reach OneLake."""
+    from fabric_desktop import lakehouse
+    monkeypatch.setattr(lakehouse, "_attached", None)
+
+
 DOC = Path(__file__).resolve().parents[2] / "docs" / "notebook-spark-on-this-pc.md"
 
 

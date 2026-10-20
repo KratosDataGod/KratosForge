@@ -107,7 +107,7 @@ function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference, pollRun });`, ctx);
   return ctx;
 }
 
@@ -1528,4 +1528,57 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+// HD-035: Prove and side-by-side status polling stops on finish, a closed notebook and errors.
+function pollHarness(answers, { live = () => true, limit } = {}) {
+  const { pollRun } = proveHelpers();
+  const waits = [];
+  let calls = 0;
+  const run = pollRun(async () => {
+    const a = answers[calls++];
+    if (a instanceof Error || typeof a === "string") throw a;  // Tauri rejects with the engine's text
+    return a;
+  }, { live, limit, onStatus: (now) => now.state === "running", sleep: async (ms) => { waits.push(ms); } });
+  return run.then((end) => ({ end, waits, calls: () => calls }));
+}
+
+test("status polling stops when the run finishes", async () => {
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "done" }, { state: "running" }]);
+  assert.strictEqual(end.stopped, "finished");
+  assert.strictEqual(calls(), 3);
+});
+
+test("status polling stops when the notebook is closed, without asking again", async () => {
+  let open = 2;
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "running" }], { live: () => open-- > 0 });
+  assert.strictEqual(end.stopped, "closed");
+  assert.strictEqual(calls(), 2);
+});
+
+test("status polling stops at once when the engine doesn't know the run", async () => {
+  // the engine replies "LookupError: No proof p-1" (server.py)
+  const { end, calls } = await pollHarness([{ state: "running" }, "LookupError: No proof p-1"]);
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "LookupError: No proof p-1" });
+  assert.strictEqual(calls(), 2);
+  const sbs = await pollHarness(["LookupError: No side-by-side run s-1"]);
+  assert.strictEqual(sbs.end.stopped, "lost");
+});
+
+test("status polling backs off on errors and gives up after the limit", async () => {
+  const down = new Error("The engine isn't answering");
+  const { end, waits, calls } = await pollHarness([down, { state: "running" }, down, down, down, down, down, { state: "done" }], { limit: 5 });
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "The engine isn't answering" });
+  assert.strictEqual(calls(), 7, "an answer in between resets the count");
+  assert.deepStrictEqual(waits, [1500, 3000, 1500, 3000, 6000, 12000, 12000]);
+});
+
+test("Prove and side by side follow runs only through pollRun", () => {
+  for (const [file, fn] of [["prove.js", "followProof"], ["sidebyside.js", "followSideBySide"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = src.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n}\\n`))[0];
+    assert.match(body, /pollRun\(/, fn);
+    assert.doesNotMatch(body, /for \(;;\)|while \(true\)/, fn);
+    assert.match(body, /=== id\) return;/, `${fn} guards against two loops for one run`);
+  }
 });

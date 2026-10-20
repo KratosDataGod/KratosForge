@@ -80,6 +80,27 @@ function proveDifference(pc, fabric) {
   return "";
 }
 
+// Follows a run's status until it finishes (`onStatus` returns false), the run is gone (the engine
+// says it doesn't know it), the notebook is closed (`live` returns false) or `limit` checks in a
+// row fail. Waits longer between failed checks. Prove and side by side both use it (HD-035).
+async function pollRun(fetchStatus, { live, onStatus, every = 1500, limit = 20, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  let failures = 0;
+  for (;;) {
+    await sleep(every * Math.min(2 ** failures, 8));
+    if (!live()) return { stopped: "closed" };
+    let now;
+    try {
+      now = await fetchStatus();
+    } catch (e) {
+      const message = String(e?.message || e);
+      if (/(^|LookupError: )No (proof|side-by-side run) /.test(message) || ++failures >= limit) return { stopped: "lost", message };
+      continue;
+    }
+    failures = 0;
+    if (!onStatus(now)) return { stopped: "finished" };
+  }
+}
+
 // ---------- state ----------
 
 function proveOpen(nb) {
@@ -156,15 +177,13 @@ async function startProof(nb) {
 async function followProof(nb, id) {
   if (nb.prove.following === id) return;
   nb.prove.following = id;
-  for (;;) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const now = await rpc("prove_status", { id }).catch(() => null);
-    if (!now) continue;
-    nb.prove.record = now;
-    drawProve(nb);
-    if (!PROVE_RUNNING.has(now.state)) break;
-  }
+  const end = await pollRun(() => rpc("prove_status", { id }), {
+    live: () => state.notebook === nb,  // reopening the notebook follows the proof again
+    onStatus: (now) => { nb.prove.record = now; drawProve(nb); return PROVE_RUNNING.has(now.state); },
+  });
   nb.prove.following = null;
+  if (end.stopped === "closed") return;
+  if (end.stopped === "lost") nb.prove.record = { ...nb.prove.record, state: "failed", message: `Lost track of the proof: ${end.message}` };
   if (state.notebook === nb) setKernel("idle");
   const r = nb.prove.record;
   const text = r.state === "cancelled" ? "Cancelled." : r.verdict?.text || r.message || r.state;

@@ -20,6 +20,10 @@ dependencies = [
     "requests>=2.31",
     # Charts in notebook cells, as Fabric notebooks have.
     "matplotlib>=3.8",
+    # pandas, as Fabric and Databricks notebooks have it: import pandas, df.toPandas() and
+    # pandas data frames in display() and write_table. 2.x like Fabric's runtimes. It brings pytz,
+    # which DuckDB needs to hand back times with a time zone.
+    "pandas>=2.2,<3",
     # DuckDB's PySpark API (the notebook's spark on this PC) imports it but duckdb doesn't declare it.
     "typing_extensions>=4.6",
     # Windows has no system time zone database; pyarrow needs one to show timestamps with a time zone.

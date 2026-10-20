@@ -100,6 +100,8 @@ from pyspark.sql import functions as F
 
 **`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.
 
+**pandas** is there as in Fabric: `import pandas as pd`, `df.toPandas()`, and pandas data frames show as tables and can be written with `lakehouse.write_table`. It's pandas 2, like Fabric's runtimes.
+
 **Magics:** `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
 
 ## Running cells

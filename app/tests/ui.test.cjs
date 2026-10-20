@@ -1915,6 +1915,212 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });
 
+// motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
+function motionHarness({ setting = true, reduced = false, hidden = false } = {}) {
+  let clock = 0;
+  let timers = [];
+  const node = (cls = "") => {
+    const n = {
+      cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
+      get isConnected() { return !!n.parent; },
+      classList: { add: (c) => n.cls.add(c), contains: (c) => n.cls.has(c) },
+      append(...cs) { for (const c of cs) if (c && typeof c === "object") { c.remove(); c.parent = n; n.kids.push(c); } },
+      remove() { if (n.parent) n.parent.kids = n.parent.kids.filter((k) => k !== n); n.parent = null; },
+      setAttribute(k, v) { n.attrs[k] = v; },
+      all() { return n.kids.flatMap((k) => [k, ...k.all()]); },
+      querySelector(sel) {
+        if (sel === ":scope > .fx") return n.kids.find((k) => k.cls.has("fx")) || null;
+        return n.all().find((k) => k.cls.has(sel.slice(1))) || null;
+      },
+    };
+    return n;
+  };
+  const live = node();
+  const ctx = {
+    state: { settings: { forge_animations: { value: setting } } },
+    document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null) },
+    matchMedia: () => ({ matches: reduced, addEventListener() {} }),
+    setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
+    clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
+    Date: { now: () => clock },
+    h: (tag, attrs = {}, ...children) => {
+      const n = node(attrs.class || "");
+      for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
+      n.append(...children.flat());
+      return n;
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
+  ctx.advance = (ms) => {
+    clock += ms;
+    for (let due; (due = timers.filter((t) => t.at <= clock).sort((a, b) => a.at - b.at)[0]);) { timers = timers.filter((t) => t !== due); due.fn(); }
+  };
+  ctx.node = node;
+  ctx.live = live;
+  return ctx;
+}
+
+test("Forge animations: fx plays one hidden effect, removes it, and doesn't stack repeats", () => {
+  const ctx = motionHarness();
+  const label = ctx.node();
+  const el = ctx.fx(label, "spark");
+  assert.ok(el, "no spark was made");
+  assert.strictEqual(el.attrs["aria-hidden"], "true");
+  assert.ok(el.cls.has("fx") && el.cls.has("fx-spark") && label.cls.has("fx-anchor"));
+  assert.strictEqual(ctx.fx(label, "fail"), null, "a second effect stacked on the same element");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a second spark played within its gap");
+  ctx.advance(600);
+  assert.strictEqual(label.kids.length, 0, "the spark was not removed");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "a spark after the gap did not play");
+  assert.strictEqual(ctx.fx(ctx.node(), "confetti"), null, "an unknown kind played");
+  assert.strictEqual(ctx.fx(null, "fail"), null);
+});
+
+test("Forge animations: nothing is made with the setting off, reduced motion or a hidden window", () => {
+  for (const opts of [{ setting: false }, { reduced: true }, { hidden: true }]) {
+    const ctx = motionHarness(opts);
+    const label = ctx.node();
+    assert.strictEqual(ctx.fx(label, "spark"), null, JSON.stringify(opts));
+    assert.strictEqual(label.kids.length, 0);
+    const track = ctx.wolfTrack(() => ctx.bar ||= ctx.node(), "Notebook run", "Cell");
+    track.set(1, 3);
+    ctx.advance(700);
+    assert.strictEqual(ctx.bar.querySelector(".wolf"), null, `a wolf was drawn: ${JSON.stringify(opts)}`);
+    if (!opts.hidden) assert.ok(ctx.bar.querySelector(".wolf-bar"), "the progress bar itself went with the animations");
+  }
+  const off = motionHarness({ setting: false });
+  off.applyMotion();
+  assert.strictEqual(off.document.documentElement.dataset.motion, "off");
+  const reduced = motionHarness({ reduced: true });
+  reduced.applyMotion();
+  assert.strictEqual(reduced.document.documentElement.dataset.motion, "off");
+  const on = motionHarness();
+  on.applyMotion();
+  assert.strictEqual(on.document.documentElement.dataset.motion, "on");
+  on.state.settings = null;  // settings not loaded yet: on, as for a new install
+  assert.strictEqual(on.motionOn(), true);
+});
+
+test("Forge animations: the wolf track waits 600 ms, follows real progress and goes when the run ends", () => {
+  const ctx = motionHarness();
+  const bar = ctx.node();
+  const quick = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  quick.set(0, 2);
+  ctx.advance(500);
+  quick.stop();
+  ctx.advance(500);
+  assert.strictEqual(bar.kids.length, 0, "a run shorter than 600 ms flashed the track");
+
+  const track = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  track.set(0, 4);
+  ctx.advance(599);
+  assert.strictEqual(track.shown, false);
+  ctx.advance(1);
+  assert.strictEqual(track.shown, true);
+  track.set(1, 4);
+  const p = bar.querySelector(".wolf-bar");
+  assert.strictEqual(bar.querySelector(".wolf-text").textContent, "Cell 2 of 4");
+  assert.deepStrictEqual([p.attrs.role, p.attrs["aria-valuenow"], p.attrs["aria-valuemax"]], ["progressbar", "1", "4"]);
+  assert.strictEqual(bar.querySelector(".wolf").style.left, "25%");
+  assert.strictEqual(bar.querySelector(".wolf").attrs["aria-hidden"], "true");
+  assert.strictEqual(bar.querySelector(".wolf-embers").kids.length, 3, "the wolf has no embers behind it");
+  assert.strictEqual(bar.querySelector(".wolf-fill").style.width, "25%");
+  track.set(4, 4);
+  track.arrive();
+  assert.ok(bar.querySelector(".fx-arrive"), "the wolf didn't glow at the end");
+  assert.ok(bar.querySelector(".wolf").cls.has("arriving"));
+  ctx.advance(700);
+  assert.strictEqual(bar.kids.length, 0, "the track stayed after the run");
+
+  const failed = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  failed.set(1, 3);
+  ctx.advance(700);
+  failed.stop();
+  assert.strictEqual(bar.kids.length, 0, "a failed or cancelled run left its track");
+  assert.strictEqual(bar.querySelector(".fx-arrive"), null);
+});
+
+test("Forge animations: announce speaks once through the polite region", () => {
+  const ctx = motionHarness({ setting: false });
+  ctx.announce("Run finished: 3 cells succeeded");
+  ctx.advance(60);
+  assert.strictEqual(ctx.live.textContent, "Run finished: 3 cells succeeded", "turning animations off silenced screen readers");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div id="announce" class="sr-only" role="status" aria-live="polite"><\/div>/);
+  assert.ok(html.indexOf('src="motion.js"') < html.indexOf('src="notebook.js"'), "motion.js loads after notebook.js");
+});
+
+// cellFx from notebook.js, with fx and announce recorded.
+function cellFxHarness(runningAll) {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const code = src.match(/function cellFx\([\s\S]*?\n}\n/)[0];
+  const calls = [];
+  const cells = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const ctx = {
+    runningAll, state: { notebook: { cells } }, calls, cells,
+    document: { querySelector: (sel) => ({ sel }) },
+    fx: (anchor, kind) => calls.push(["fx", kind, anchor.sel]),
+    announce: (text) => calls.push(["say", text]),
+  };
+  vm.runInNewContext(`${code}; this.cellFx = cellFx;`, ctx);
+  return ctx;
+}
+
+test("Forge animations in the notebook: spark on success, ember on failure, nothing for Stop or Cancel", () => {
+  const one = cellFxHarness(false);
+  one.cells[1].status = "ok";
+  one.cellFx(one.cells[1]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "spark", '[data-cell="b"] .cell-status > span']]);
+  one.calls.length = 0;
+  one.cells[2].status = "error";
+  one.cellFx(one.cells[2]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 3 failed"], ["fx", "fail", '[data-cell="c"] .cell-status > span']]);
+  for (const status of ["stopped", "cancelled", "running", null]) {
+    one.calls.length = 0;
+    one.cells[0].status = status;
+    one.cellFx(one.cells[0]);
+    assert.deepStrictEqual(one.calls, [], `${status} played or said something`);
+  }
+  const all = cellFxHarness(true);
+  all.cells[0].status = "ok";
+  all.cellFx(all.cells[0]);
+  assert.deepStrictEqual(all.calls, [], "Run all sparked or spoke for each cell");
+  all.cells[1].status = "error";
+  all.cellFx(all.cells[1]);
+  assert.deepStrictEqual(all.calls, [["fx", "fail", '[data-cell="b"] .cell-status > span']]);
+});
+
+test("Forge animations in the notebook: runs of several cells use the wolf track and one announcement", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
+  assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell"\) : null/);
+  assert.match(run, /if \(!ok \|\| cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
+  assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
+  assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
+  assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
+  assert.match(run, /\} finally \{\n\s+runningAll = false;/);
+  assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
+});
+
+test("Forge animations setting: Settings > Display, lockable by policy, applied at once; CSS honours it", () => {
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(s, /settingRow\("Forge animations",\n\s+"Show subtle wolf, forge and spark animations during application activities\./);
+  assert.match(s, /disabled: locked\("forge_animations"\) \? true : null/);
+  assert.match(s, /saveSettings\(\{ forge_animations: e\.target\.checked \}\)/);
+  assert.match(s, /reducedMotion\(\) \? "Off while Windows reduces motion"/);
+  assert.match(s, /\[account, updates, display, previews,/);
+  assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
+  assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.fx, \.wolf \{ display: none; \}/);
+  // Effects animate only transform and opacity, so they never move the layout.
+  const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
+  assert.ok(keyframes.length >= 6, "fx keyframes not found");
+  for (const k of keyframes) assert.doesNotMatch(k.replace(/\b(opacity|transform)\b/g, ""), /[a-z-]+:/, k);
+});
+
 // Notebook files (notebook-files.js): the Saved in chips, search hits, and what Publish says changed in Fabric.
 function notebookFilesHelpers() {
   const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
@@ -2038,7 +2244,7 @@ test("Settings keeps App ID and engine limits in a folded Advanced section, read
   const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
   assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
   assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
-  assert.match(render, /\[account, updates, previews, usage, platform, notify, about, advanced\]/);
+  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
   const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
   for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
   assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);

@@ -296,6 +296,19 @@ def test_receipts_save_to_downloads_and_a_receipt_file_is_saved_whole(svc, tmp_p
     assert "saved whole" in error(svc, "receipt_save", id=rid, format="json", hide=["identity"])
 
 
+def test_saving_a_receipt_again_never_overwrites_the_first_file(svc, tmp_path, monkeypatch):  # noqa: F811
+    # HD-038 (finding EN-11): a second save replaced the first file.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    from fabric_desktop import receipts
+    rid = svc.receipts.put(receipts.new_receipt("proof", notebook={"name": "N"}))
+    first = Path(call(svc, "receipt_save", id=rid, format="html")["path"])
+    first.write_text("edited by hand", encoding="utf-8")
+    second = Path(call(svc, "receipt_save", id=rid, format="html")["path"])
+    assert second != first and second.parent == first.parent
+    assert first.read_text(encoding="utf-8") == "edited by hand"
+    assert second.name == first.stem + " (2).html"
+
+
 def test_a_new_template_runs_and_proves_the_same_in_both_engines(svc):  # noqa: F811
     svc.fake = FakeFabric(svc)
     nb = call(svc, "wizard_create", template="date_dimension", lakehouse_ref=LAKEHOUSE,

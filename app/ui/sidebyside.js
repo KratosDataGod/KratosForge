@@ -51,21 +51,17 @@ async function runSideBySide() {
   followSideBySide(nb, run.id);
 }
 
+// Run id -> the notebook showing it, as proveFollows in prove.js.
+const sbsFollows = new Map();
+
 async function followSideBySide(nb, id) {
-  for (;;) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const now = await rpc("side_by_side_status", { id }).catch(() => null);
-    if (!now) continue;
-    nb.sbs = now;
-    for (const [i, c] of Object.entries(now.local?.cells || {})) {
-      const cell = nb.sbsCells?.[Number(i)];
-      if (!cell) continue;
-      Object.assign(cell, { status: c.status, outputs: c.outputs || [], seconds: c.seconds, count: c.execution_count ?? cell.count });
-      if (state.notebook === nb && state.view === "notebook" && nb.cells.includes(cell)) updateResults(cell);
-    }
-    drawSbs(nb);
-    if (!SBS_RUNNING.has(now.state)) break;
-  }
+  const following = sbsFollows.has(id);
+  sbsFollows.set(id, nb);
+  if (following) return;
+  const end = await pollRun(() => rpc("side_by_side_status", { id }), { onStatus: (now) => sbsUpdate(sbsFollows.get(id), now) });
+  nb = sbsFollows.get(id);
+  sbsFollows.delete(id);
+  if (end.stopped === "lost") nb.sbs = { ...nb.sbs, state: "failed", message: `Lost track of the run: ${end.message}` };
   (nb.sbsCells || []).forEach((c) => { if (c.status === "queued") { c.status = null; if (state.notebook === nb) updateResults(c); } });
   if (state.notebook === nb) setKernel("idle");
   const s = nb.sbs;
@@ -74,6 +70,19 @@ async function followSideBySide(nb, id) {
   logActivity({ id: `sbs:${id}`, status: s.state === "done" && s.verdict?.same !== false ? "ok" : "error",
     title: `${nb.name} · Side by side`, text });
   toast(`${nb.name}: ${text}`, s.state === "failed");
+}
+
+// One status from the engine: copy this PC's cell results back and redraw. False once the run has ended.
+function sbsUpdate(nb, now) {
+  nb.sbs = now;
+  for (const [i, c] of Object.entries(now.local?.cells || {})) {
+    const cell = nb.sbsCells?.[Number(i)];
+    if (!cell) continue;
+    Object.assign(cell, { status: c.status, outputs: c.outputs || [], seconds: c.seconds, count: c.execution_count ?? cell.count });
+    if (state.notebook === nb && state.view === "notebook" && nb.cells.includes(cell)) updateResults(cell);
+  }
+  drawSbs(nb);
+  return SBS_RUNNING.has(now.state);
 }
 
 async function cancelSideBySide(nb) {

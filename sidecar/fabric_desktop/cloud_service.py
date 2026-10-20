@@ -28,6 +28,7 @@ from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_conf
 from .meta.engine import Engine, RunResult, apply_clean
 from .meta.project import ENVIRONMENTS, GateError, validate
 from .meta import keys as keys_mod
+from .meta_service import NoMetadataProject
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore
 from .redact import describe
@@ -100,11 +101,15 @@ class CloudMixin:
         """Metadata runs from every environment, newest first, for Monitor and Home.
 
         Environments in OneLake are read only when the user is already signed in, so this never
-        pops a sign-in; ``unavailable`` says why an environment was left out."""
+        pops a sign-in; ``unavailable`` says why an environment was left out. A project that can't be
+        read (a broken project.toml, say) is not "no runs": ``project_error`` says why."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # no metadata project yet
+        except NoMetadataProject:  # no metadata project yet
             return {"runs": [], "unavailable": {}}
+        except Exception as exc:
+            _log.warning("Couldn't read the metadata project for its runs: %s", describe(exc))
+            return {"runs": [], "unavailable": {}, "project_error": describe(exc)}
         signed_in = None
         runs: list[dict[str, Any]] = []
         unavailable: dict[str, str] = {}

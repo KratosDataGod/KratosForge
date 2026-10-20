@@ -270,7 +270,7 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-06: `sqlite_util.connect(path, durable=)` and `tx()`. **Verify:** the six modules use it; a `ResourceWarning` filter turned into an error in the notify tests.
 
-**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`); the other idioms are still open.
+**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`). The other sites don't leak per call: `jobqueue.py:63-71` and `integrations/store.py:77-84` (with `integrations/audit.py`) keep one connection per thread by design; `workloads/store.py:55-63` and `backup.py:68-74,227-242` close in `finally` (counted over 20-40 operations each). Unifying the idioms and the durability drift (only `jobqueue` sets `synchronous=full`) remain open.
 
 ### QA-023 Prove and side by side are clones (Low)
 

@@ -76,6 +76,7 @@ function accountMenu(anchor) {
     ? [{ info: `Signed in as ${state.user}` }]
     : [{ label: "Sign in", icon: "person", action: () => signIn().then((ok) => ok && render()) }];
   items.push(
+    previewShown() ? { label: "Profile (Preview)", icon: "person", action: () => { profilePage.tab = "overview"; go("profile"); } } : null,
     { label: "Settings", icon: "settings", action: () => go("settings") },
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
@@ -83,7 +84,7 @@ function accountMenu(anchor) {
     { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
-  showMenu(anchor, items);
+  showMenu(anchor, items.filter(Boolean));
 }
 
 function channelLabel() {

@@ -68,11 +68,13 @@ tenant_settings_history
 platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs
 notebook_validate_check notebook_validate_list notebook_validate_status notebook_cleanup_plan notebook_cleanup_apply
+profile_get profile_report
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
-                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes"})
+                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
+                      "report_summary"})
 _MAX = 200
 
 

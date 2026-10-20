@@ -1858,3 +1858,33 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });
+
+test("Profile opens from the account menu and the command bar, and Validate passes on what it earned (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
+  assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+    assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
+  }
+  assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
+  assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
+  assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{r\.summary \|\| r\.state\}`, r\.state === "failed"\);\n  profileEarned\(r\.earned\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="profile.js"') > html.indexOf('src="features.js"'), "profile.js must load after features.js");
+});
+
+test("the profile report preview renders headings, bullets and source tags without HTML from the text (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("function markdownBlocks"), p.indexOf("// ---------- Settings"));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, kids: kids.flat(), append(k) { this.kids.push(k); } }) };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.markdownBlocks = markdownBlocks;`, ctx);
+  const out = ctx.markdownBlocks("# Title\n\n## Key contributions\n\n- Validated <b>x</b> *(Verified, E1)*\n- Two\n\nText");
+  assert.strictEqual(out.map((b) => b.tag).join(","), "h2,h3,ul,p");
+  assert.strictEqual(out[2].kids.length, 2);
+  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em", ""]));
+});

@@ -56,7 +56,7 @@ Each time KratosForge publishes a notebook, it keeps the cells it sent on this P
 - **Replace with mine** asks once more, then publishes your notebook over the changes made in Fabric. Those changes are lost unless you kept a copy.
 - **Cancel** publishes nothing.
 
-If the check itself can't reach Fabric, nothing is published and the error says so; try again. A notebook published before this check existed is checked from its next publish on. When the item was deleted in Fabric, Publish makes it again.
+Publish writes the Fabric item that has the notebook's name. When that's no longer the item it was published to (someone renamed that one in Fabric and made another under this name), the dialog says so and nothing is sent until you choose. If the check itself can't reach Fabric, nothing is published and the error says so; try again. A notebook published before this check existed is checked from its next publish on. When the item was deleted in Fabric, Publish makes it again.
 
 ## What it reads and writes
 

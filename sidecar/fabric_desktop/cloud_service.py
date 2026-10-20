@@ -207,6 +207,18 @@ class CloudMixin:
         link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
         if not link or link["workspace_id"] != workspace_id:
             return None
+        # Publish writes the item that has this name, so check that one: when it isn't the linked item
+        # (renamed in Fabric, and someone made another under this name), Publish would replace theirs.
+        try:
+            target = self._notebook_item(name, workspace_id)
+        except FabricError as exc:
+            raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
+                               "published. Try again.") from exc
+        if target is None:
+            return None  # Publish makes a new item; nothing is replaced
+        if target["id"] != link["item_id"]:
+            return {"changed": True, "item_id": target["id"], "other_item": True,
+                    "fabric": [{"kind": "other item", "position": None, "diff": []}], "mine": []}
         base = notebook_files.published(Path(self.root) / "published", link["item_id"])  # type: ignore[attr-defined]
         if not base:
             return None

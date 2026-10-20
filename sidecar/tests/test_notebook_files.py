@@ -291,6 +291,28 @@ def test_a_notebook_published_from_here_is_checked_too_and_a_deleted_item_is_mad
     call(svc, "publish_notebook", **args)
 
 
+def test_publish_checks_the_item_it_would_write_when_the_linked_one_was_renamed(svc):
+    svc.fake.add("item-1", "ws1", "Monthly margin", ipynb([("code", "a = 1")]))
+    call(svc, "notebook_from_fabric", workspace_id="ws1", item_id="item-1", name="Monthly margin", workspace_name="WS")
+    nb = svc.notebooks.load("Monthly margin")
+    # In Fabric: the linked item is renamed and Dana makes a new one under the old name.
+    svc.fake.items["item-1"]["name"] = "Monthly margin (old)"
+    svc.fake.add("item-2", "ws1", "Monthly margin", ipynb([("code", "dana = 'her work'")]))
+    args = {"name": "Monthly margin", "cells": [dict(nb["cells"][0], source="a = 10")], "lakehouse_ref": None,
+            "workspace": nb["workspace"]}
+    check = call(svc, "notebook_publish_check", **args)
+    assert check["changed"] and check["item_id"] == "item-2" and check["fabric"][0]["kind"] == "other item"
+    assert "changed in Fabric" in error(svc, "publish_notebook", **args)
+    assert ["".join(c["source"]) for c in svc.fake.items["item-2"]["ipynb"]["cells"]] == ["dana = 'her work'"]
+    # Copy Fabric's version keeps Dana's notebook here, from the item Publish would replace.
+    kept = call(svc, "notebook_from_fabric", workspace_id="ws1", item_id=check["item_id"], name="Monthly margin",
+                workspace_name="WS", copy_name="Monthly margin (Fabric)")
+    assert [c["source"] for c in kept["cells"]] == ["dana = 'her work'"]
+    # Renamed with no new item under the name: Publish makes a new item, replacing nothing.
+    del svc.fake.items["item-2"]
+    assert call(svc, "notebook_publish_check", **args)["changed"] is False
+
+
 def test_a_failed_change_check_stops_the_publish(svc, monkeypatch):
     save(svc, "NB", "x = 1")
     args = {"name": "NB", "cells": [{"type": "code", "source": "x = 1"}], "lakehouse_ref": None,

@@ -32,6 +32,7 @@ function nbHitCount(result) {
 // One line for each change between Fabric's copy and the last publish (meta/diff.py notebook_changes).
 function nbChangeTitle(c) {
   if (c.kind === "reordered") return "Cells were reordered";
+  if (c.kind === "other item") return "A different notebook in Fabric now has this name (the one published from here was renamed or deleted)";
   const where = c.position ? `Cell ${c.position}` : "A cell";
   return `${where}: ${{ added: "added", removed: "removed", changed: "changed" }[c.kind] || c.kind}`;
 }

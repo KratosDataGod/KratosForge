@@ -547,6 +547,7 @@ async function renderHome() {
     const problems = failing.length + cloudFailed.length;
     // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
     const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (meta.project_error) unread.unshift("the metadata project");
     if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
@@ -712,7 +713,10 @@ async function renderMonitor() {
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
-  note.textContent = unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`).join(" · ");
+  note.textContent = [
+    meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
+    ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+  ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,

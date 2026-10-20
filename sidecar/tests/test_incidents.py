@@ -686,6 +686,6 @@ def test_a_legacy_connector_webhook_stays_out_of_a_waiting_job_alert(tmp_path, m
     agent, logged = _alerting_agent(tmp_path, monkeypatch, legacy)
     agent._alert(JOB, "boom")  # the real post_teams: a ConnectionError naming the URL's path
     [item] = agent._alert_outbox().pending()
+    assert item["error"].startswith("ConnectionError: ")  # what went wrong is kept
     for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
-        assert secret not in item["error"] and secret not in str(logged)
-    assert "[webhook]" in item["error"]
+        assert secret not in item["error"] and secret not in str(logged)  # the webhook isn't, however it's masked

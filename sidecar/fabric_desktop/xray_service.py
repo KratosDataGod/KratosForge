@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import threading
+import uuid
 from typing import Any
 
 import polars as pl
@@ -147,6 +148,7 @@ class XRayMixin:
             return maintenance.health(ref.uri, options)
 
         scanner = xray.Scanner(FabricClient(lambda: fabric_token), files.list, health, self._xray_progress, gate=gate)
+        started_at = dt.datetime.now(dt.timezone.utc)
         try:
             result = scanner.scan()
             try:
@@ -156,6 +158,9 @@ class XRayMixin:
             except Exception as exc:  # cost needs the run logs; the rest stands without it
                 _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
+            central = self._xray_record_central(result, started_at, storage_token)
+            if central:
+                result["central"] = central
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
             state: dict[str, Any] = {"running": False}
@@ -163,6 +168,25 @@ class XRayMixin:
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
         with self._xray_lock:
             self._xray_state = state
+
+    def _xray_record_central(self, result: dict[str, Any], started_at: dt.datetime,
+                             storage_token: str) -> dict[str, Any] | None:
+        """Add the scan's findings to the central lakehouse, when this PC is connected to one and
+        the policy allows it. None when not connected. A failure doesn't fail the scan: the answer
+        says in plain words what wasn't saved."""
+        conn = self.central_lakehouse()  # type: ignore[attr-defined]  # None when the policy is off
+        if not conn:
+            return None
+        self._xray_progress({"phase": "Saving findings to the central lakehouse", "done": 0, "total": 0})
+        try:
+            shared = self._optimize_shared(token=lambda: storage_token)  # type: ignore[attr-defined]
+            run, artifacts, findings = xray.central_rows(result, uuid.uuid4().hex, started_at)
+            out = shared.record_analysis(run, artifacts, findings)
+        except Exception as exc:  # the scan stands without it; the result says what wasn't saved
+            _log.warning("X-ray findings weren't saved to the central lakehouse: %s", describe(exc))
+            return {"recorded": 0, "lakehouse_name": conn.get("lakehouse_name") or "",
+                    "error": f"Findings weren't saved to the central lakehouse: {describe(exc)}"}
+        return {"recorded": out["findings"], "lakehouse_name": conn.get("lakehouse_name") or ""}
 
     def _xray_annotate(self, result: dict[str, Any], refresh: bool = True) -> dict[str, Any]:
         """Which lakehouses the metadata project already manages, and which findings have a fix under way or done."""

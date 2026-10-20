@@ -43,7 +43,7 @@ def svc(tmp_path, monkeypatch):
     monkeypatch.setattr(Service, "fabric", property(lambda self: fabric))
     lakes = tmp_path / "onelake"
     monkeypatch.setattr(Service, "_optimize_lake",
-                        lambda self, ws, lh, schemas=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
+                        lambda self, ws, lh, schemas=None, token=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
     s.fake = fabric
     s.lakes = lakes
     return s

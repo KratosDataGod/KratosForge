@@ -85,6 +85,22 @@ Every installation adds what its analysis finds to the shared lakehouse, and eve
 - **Allowed changes.** Open can become accepted, applied, dismissed or superseded. Accepted can become applied, dismissed or open again. Applied can become verified or open again. Dismissed and verified can only be reopened. Superseded is final.
 - **Only items you can open.** Findings and recommendations about items in workspaces you can't open in Fabric aren't shown to you. This is a courtesy, not security: anyone who can read the lakehouse can read every row ([Who can see what](#who-can-see-what)).
 
+### Findings from the Estate X-ray
+
+The [Estate X-ray](../user-guide.md#estate-x-ray-preview) is the first analysis that adds findings here. When this PC is connected to a central lakehouse and `allow_optimize_lakehouse` isn't off, every completed scan is recorded as one analysis run (scope `estate`, rule set `xray-1`, status `partial` when the scan read only the first 500 tables), with the lakehouses it scanned and its findings:
+
+| Finding | Rule | Item | Target |
+| --- | --- | --- | --- |
+| Small files, unidentified table, stale, vacuum | `xray.small_files`, `xray.unidentified`, `xray.stale`, `xray.vacuum` | The lakehouse | `schema.table` |
+| Empty lakehouse | `xray.empty` | The lakehouse | |
+| Guest with access, app with Admin | `xray.access.guest`, `xray.access.admin_app` | The workspace (its id stands for the item) | The person's display name |
+
+- **Cost findings aren't added.** They name a notebook by its name only, not by its Fabric ids.
+- **Scanning again adds no new finding.** The same problem has the same fingerprint in every scan and on every PC, so it shows once with how often and by how many installations it was seen.
+- **Nothing is written without a connection.** A PC that isn't connected, or whose organization turned the policy off, keeps its findings on the PC only. A lakehouse open read-only, or with a newer schema, isn't written to.
+- **A failed save doesn't fail the scan.** The scan's results are kept on the PC and the X-ray says the findings weren't saved and why. The next scan records them.
+- **Capacity.** Each scan's write is a few small Delta commits to OneLake, which use a little of the central lakehouse's workspace capacity.
+
 ## The tables
 
 All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.

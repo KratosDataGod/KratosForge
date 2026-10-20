@@ -1,6 +1,6 @@
 # Estate X-ray: what each finding means and how to fix it
 
-The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes nothing until you press a fix.
+The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes nothing in them until you press a fix. When this PC is connected to a central lakehouse, each scan also adds its findings there ([Optimize](optimize/README.md#findings-from-the-estate-x-ray)).
 
 Each finding links here. Every section says what the finding means, why it matters, what the button in the app does, and how to fix it by hand in Fabric if you'd rather.
 

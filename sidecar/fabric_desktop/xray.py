@@ -8,6 +8,7 @@ cost of runs this app started. Each finding says what is wrong, why it matters a
 from __future__ import annotations
 
 import datetime as dt
+import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
@@ -85,12 +86,12 @@ def access_findings(workspaces: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if p["guest"]:
             out.append({"kind": "access", "severity": "medium", "title": f"Guest {p['name']} has access to {len(roles)} workspace{'s' if len(roles) != 1 else ''}",
                         "detail": f"An account from another organization: {where}.", "action": "access",
-                        "workspace_id": next(iter(roles)), "person": p["name"]})
+                        "workspace_id": next(iter(roles)), "person": p["name"], "check": "guest"})
         admin = [k for k, v in roles.items() if v["role"] == "Admin"]
         if p["type"] == "ServicePrincipal" and admin:
             out.append({"kind": "access", "severity": "medium", "title": f"App {p['name']} is Admin in {len(admin)} workspace{'s' if len(admin) != 1 else ''}",
                         "detail": f"Admin can delete the workspace and change who has access. {where}.",
-                        "action": "access", "workspace_id": admin[0], "person": p["name"]})
+                        "action": "access", "workspace_id": admin[0], "person": p["name"], "check": "admin_app"})
     return out
 
 
@@ -229,3 +230,37 @@ def counts(findings: list[dict[str, Any]]) -> dict[str, int]:
     for f in findings:
         out[f["kind"]] = out.get(f["kind"], 0) + 1
     return out
+
+
+RULE_SET_VERSION = "xray-1"
+# What each finding's rule looked at, beyond its Fabric item: kept in evidence for the central lakehouse.
+_EVIDENCE = ("files", "bytes", "days", "versions", "cost")
+
+
+def central_rows(result: dict[str, Any], run_id: str,
+                 started_at: dt.datetime) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    """A scan as Optimize's shared.record_analysis takes it: the run, the lakehouses scanned and the
+    findings. Items are named by workspace and item id, so the same problem has the same identity
+    on every PC and in every scan. A finding about workspace roles is about the workspace itself
+    (its id stands for the item). Cost findings name a notebook only by its name, so they stay on
+    this PC."""
+    run = {"run_id": run_id, "started_at": started_at, "status": "partial" if result.get("partial") else "complete",
+           "scope": "estate", "rule_set_version": RULE_SET_VERSION}
+    artifacts = [{"workspace_id": r["workspace_id"], "item_id": r["lakehouse_id"], "item_type": "Lakehouse",
+                  "display_name": r.get("lakehouse_name")} for r in result.get("lakehouse_rows", [])]
+    findings = []
+    for f in result.get("findings", []):
+        if not f.get("workspace_id") or f["kind"] == "cost":
+            continue
+        if f.get("lakehouse_id"):
+            item = f["lakehouse_id"]
+            target = f"{f['schema']}.{f['table']}" if f.get("schema") else f.get("table") or ""
+        else:
+            item, target = f["workspace_id"], f.get("person") or ""
+        evidence = {k: f[k] for k in _EVIDENCE if f.get(k) is not None}
+        rule = ".".join(["xray", f["kind"]] + ([f["check"]] if f.get("check") else []))
+        findings.append({"workspace_id": f["workspace_id"], "item_id": item, "rule_id": rule,
+                         "rule_version": RULE_SET_VERSION, "target": target, "severity": f["severity"],
+                         "title": f["title"], "detail": f.get("detail"),
+                         "evidence": json.dumps(evidence, sort_keys=True) if evidence else None})
+    return run, artifacts, findings

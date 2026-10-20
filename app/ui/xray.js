@@ -88,7 +88,7 @@ function drawXray(box, res) {
   if (!result) {
     fill(box, head(h("div", { class: "row" }, scanBtn)), progress,
       res.error ? h("p", { class: "reason" }, `The scan stopped: ${friendlyError(res.error).text}`) : null,
-      !res.running && !res.error ? h("p", { class: "muted-text" }, "No scan yet. It reads table logs and workspace roles only, and changes nothing.") : null,
+      !res.running && !res.error ? h("p", { class: "muted-text" }, "No scan yet. It reads table logs and workspace roles only, and changes nothing in your lakehouses.") : null,
       xrayHow());
     return;
   }
@@ -117,6 +117,8 @@ function drawXray(box, res) {
     stats,
     withHowItWorks([
     result.skipped?.length ? h("p", { class: "muted-text small" }, `Couldn't read: ${result.skipped.join(", ")} (a paused capacity, or no access).`) : null,
+    result.central ? h("p", { class: result.central.error ? "reason" : "muted-text small" }, result.central.error
+      || `Findings added to ${result.central.lakehouse_name || "the central lakehouse"} (${result.central.recorded}).`) : null,
     open.length ? h("div", { class: "row wrap xray-chips" }, chip("all", "All", open.length),
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
     open.length ? h("div", { class: "xray-list" }, shown.slice(0, limit).map((f) => xrayFinding(f, box, res)))
@@ -137,12 +139,15 @@ function xrayHow() {
   return howItWorks("home.xray", {
     reads: "Table logs and workspace roles in every lakehouse you can reach, and the runs this app started in Fabric. "
       + "The first scan on this PC starts by itself after you sign in; after that it reads only when you press Scan again.",
-    changes: "Scanning changes nothing. Three buttons write, and each asks first. Optimize names the table, says it runs in "
+    changes: "Scanning changes nothing in your lakehouses. When this PC is connected to a central lakehouse (Settings > Optimize lakehouses), "
+      + "each scan adds its findings there: a small write to OneLake that uses a little of that workspace's capacity. "
+      + "Three buttons write, and each asks first. Optimize names the table, says it runs in "
       + "Fabric and uses capacity, and shows the risk check, then starts a Fabric table maintenance job that compacts it "
       + "and removes old files past the history the table keeps. Vacuum first shows how many old files it would delete, and deletes them in "
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
       + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
-    results: "Findings are kept on this PC and only you see them. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
+    results: "Findings are kept on this PC. When it's connected to a central lakehouse they're also added there, and everyone "
+      + "using it sees them in Optimize > Opportunities. Cost findings stay on this PC. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
     anchor: "estate-x-ray-preview",
   });
 }

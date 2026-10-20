@@ -1494,7 +1494,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
   const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\) \|\| showUpdateSplash\(\);/);
   assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
@@ -1911,6 +1911,23 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});
+
+test("the update splash lists the build's notes and each change since the build this PC ran before", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateHighlights\([\s\S]*?\n}\n/)[0]}; this.f = updateHighlights;`, ctx);
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const items = [{ title: "Notebook steps", commit: "c3" }, { title: "SCD templates ", commit: "c2" }, { title: "Keys move", commit: "c1" }];
+  assert.deepStrictEqual(plain(ctx.f([], items, "c1")), ["Notebook steps", "SCD templates"]);
+  assert.deepStrictEqual(plain(ctx.f(["Faster runs"], items, "c2")), ["Faster runs", "Notebook steps"]);
+  assert.deepStrictEqual(plain(ctx.f([], items, "gone")), ["Notebook steps"], "an unknown build shows only the newest change");
+  assert.deepStrictEqual(plain(ctx.f(["Notebook steps"], items, "")), ["Notebook steps"], "no repeats");
+  assert.deepStrictEqual(plain(ctx.f([], items, "c3")), []);
+  assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
+  assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
+  assert.match(src, /label: "Show the update splash"/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
 });
 
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.

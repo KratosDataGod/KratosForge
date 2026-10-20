@@ -55,10 +55,16 @@ function hydrateIcons(root = document) {
 }
 
 // A short message at the bottom of the window. Errors, and messages marked log, also go to the
-// activity tray, which keeps them; quiet ones (the tray already has them) don't.
+// activity tray, which keeps them; quiet ones (the tray already has them) don't. opts.action
+// ({label, run}) adds a button, such as Retry. Errors are announced at once (role=alert), and the
+// toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  if (opts.action) {
+    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
+      "tool small toast-action"));
+  }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
     const body = title === text ? "" : opts.title && text.startsWith(`${opts.title}: `) ? text.slice(opts.title.length + 2) : text;
@@ -66,18 +72,41 @@ function toast(text, isError = false, opts = {}) {
   }
   // On Monitor the bottom of the window is Fabric's native view, which would cover the toast.
   t.className = `toast${isError ? " error" : ""}${state.view === "monitor" ? " top" : ""}`;
+  t.setAttribute("role", isError ? "alert" : "status");
   t.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, isError ? 8000 : 4000);
+  toast.wait = isError ? 8000 : 4000;
+  if (!toast.wired) {
+    toast.wired = true;
+    const hold = () => { toast.held = true; clearTimeout(toast.timer); };
+    const release = () => {
+      if (t.matches(":hover") || t.contains(document.activeElement)) return;
+      toast.held = false;
+      toast.later();
+    };
+    t.addEventListener("mouseenter", hold);
+    t.addEventListener("focusin", hold);
+    t.addEventListener("mouseleave", release);
+    t.addEventListener("focusout", () => setTimeout(release));
+  }
+  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  if (!toast.held) toast.later(); else clearTimeout(toast.timer);
 }
 
-async function attempt(fn, label) {
+// Runs fn and shows a failure as an error toast titled label. With retry (true, or another
+// function to run instead), the toast has a Retry button. Pass it only for a read or an action that
+// is safe to repeat; Retry runs it again with no further question. What the caller does with the
+// result doesn't run after a Retry, so pass a function that does both when that matters.
+async function attempt(fn, label, opts = {}) {
   try {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
     if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
-    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    const again = opts.retry === true ? fn : opts.retry;
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, {
+      title: label, details: f.details,
+      action: typeof again === "function" ? { label: "Retry", run: () => attempt(again, label, opts) } : null,
+    });
     return undefined;
   }
 }
@@ -804,7 +833,7 @@ function placeFabricView() {
     fabricView.force = false;
     invoke("fabric_view_show", { x: r.left, y: r.top, width: r.width, height: r.height, tenant: state.tenant || null,
       page: fabricView.page, force }).catch((err) => {
-      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${err}`));
+      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${friendlyError(err).text}`));
     });
   });
 }

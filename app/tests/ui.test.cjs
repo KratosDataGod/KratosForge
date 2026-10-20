@@ -1949,3 +1949,128 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).
+function errorHelpers() {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: { ...(attrs || {}) }, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {},
+      disabled: false, hidden: false, isConnected: true, className: attrs?.class || "",
+      get textContent() { return this.kids.map((k) => (typeof k === "object" ? k.textContent : String(k))).join(""); },
+      set textContent(v) { this.kids = [String(v)]; },
+      append(...k) { this.kids.push(...k); },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type) { return Promise.all((this.on[type] || []).map((fn) => fn({ target: this }))); },
+      matches: () => false, contains: () => false };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) { n.addEventListener(k.slice(2), v); delete n.attrs[k]; }
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const timers = [];
+  const toastEl = node("div");
+  const ctx = {
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    copied: [], toasts: [], logged: [], state: { view: "home" },
+    navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
+    logActivity: (i) => ctx.logged.push(i),
+    document: { getElementById: () => toastEl, activeElement: null },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
+  };
+  const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+  vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
+  return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
+}
+
+test("friendlyError checks the engine first, then files on this PC, then Fabric's patterns", () => {
+  const { ctx } = errorHelpers();
+  const cases = [
+    ["The engine stopped answering, so KratosForge restarted it. (sql_page)", /stopped answering/],
+    ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
+    ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
+    ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
+    ["FileNotFoundError: The notebook nb_sales does not exist on this PC", /^The notebook nb_sales does not exist on this PC$/],
+    ["PermissionError: [Errno 13] Permission denied: '/home/me/out.csv'", /^This PC didn't allow access to \/home\/me\/out\.csv\./],
+    ["IsADirectoryError: [Errno 21] Is a directory: '/data'", /^\/data is a folder/],
+    ["FileExistsError: [Errno 17] File exists: 'out'", /^Something already exists at out/],
+    ["TimeoutError: The query ran longer than 30 seconds and was stopped.", /^The query ran longer than 30 seconds/],
+    ["TimeoutError: [Errno 110] Connection timed out", /Couldn't reach Fabric/],
+    ["RuntimeError: 404 Not Found: ItemNotFound", /Fabric couldn't find that item/],
+    ["RuntimeError: 403 Forbidden", /don't have permission/],
+    ["ConnectionError: Max retries exceeded", /Couldn't reach Fabric/],
+    ["ValueError: Pick a lakehouse first.", /^Pick a lakehouse first\.$/],
+    ["ZeroDivisionError: division by zero", /inside the app/],
+  ];
+  for (const [raw, want] of cases) {
+    const f = ctx.friendlyError(raw);
+    assert.match(f.text, want, raw);
+    assert.doesNotMatch(f.text, /^[A-Z][A-Za-z]*(Error|Exception):/, `${raw} starts with an exception name`);
+  }
+  assert.doesNotMatch(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").text, /Fabric/);
+  assert.strictEqual(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").details,
+    "FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'");
+});
+
+test("errorPanel says what happened, what to do, and keeps the raw text under Details with Copy", async () => {
+  const { ctx, find } = errorHelpers();
+  let tries = 0;
+  const panel = ctx.errorPanel("RuntimeError: 429 TooManyRequests", { label: "Couldn't read the history", retry: async () => { tries++; } });
+  assert.strictEqual(panel.attrs.role, "alert");
+  assert.strictEqual(panel.kids[0].textContent, "Couldn't read the history");
+  assert.match(panel.kids[1].textContent, /^Fabric is busy/);
+  assert.match(panel.kids[2].textContent, /^Try again/);
+  const retry = find(panel, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "a Retry button");
+  await retry.fire("click");
+  assert.strictEqual(tries, 1, "Retry calls the function it was given");
+  assert.strictEqual(retry.disabled, false, "Retry can be pressed again after a failure");
+  const details = find(panel, (n) => n.tag === "details");
+  assert.strictEqual(details.kids[0].textContent, "Details");
+  assert.strictEqual(details.kids[1].textContent, "RuntimeError: 429 TooManyRequests");
+  await find(details, (n) => n.tag === "button" && n.textContent === "Copy").fire("click");
+  assert.deepStrictEqual(ctx.copied, ["RuntimeError: 429 TooManyRequests"]);
+
+  const plain = ctx.errorPanel("Pick a lakehouse first.");
+  assert.ok(!find(plain, (n) => n.tag === "button"), "no Retry without retry, no Copy without details");
+  assert.ok(!find(plain, (n) => n.tag === "details"));
+  assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
+});
+
+test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+  const { ctx, find, toastEl, live } = errorHelpers();
+  let calls = 0;
+  const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
+  assert.strictEqual(await ctx.attempt(failing, "Couldn't load runs", { retry: true }), undefined);
+  assert.strictEqual(toastEl.attrs.role, "alert");
+  assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
+  const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "the toast has Retry");
+  assert.strictEqual(live().at(-1).ms, 8000);
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
+  await retry.fire("click");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(calls, 2, "Retry runs the same call again");
+
+  await ctx.attempt(failing, "No retry here");
+  assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  ctx.realToast("Saved");
+  assert.strictEqual(toastEl.attrs.role, "status");
+  assert.strictEqual(live().at(-1).ms, 4000);
+});
+
+test("the listed screens show a sentence or the error panel, never the raw exception (UX-011)", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const sc = read("shortcuts.js");
+  assert.doesNotMatch(sc, /class: "error-text" \}, String\(err\)/);
+  assert.strictEqual((sc.match(/errorPanel\(err, \{ label: "Couldn't read [^"]+", retry: \w+ \}\)/g) || []).length, 3);
+  assert.doesNotMatch(sc, /problems: \[String\(err\)\]/);
+  assert.doesNotMatch(read("deps.js"), /problem: String\(err\)/);
+  assert.match(read("query.js"), /errorPanel\(tab\.error, \{ retry: tab\.errorRetry \}\)/);
+  assert.doesNotMatch(read("app.js"), /could not open: \$\{err\}/);
+});

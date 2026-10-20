@@ -193,7 +193,9 @@ _FABRIC_ONLY = [
     (re.compile(r"^\s*%%(spark|sparkr|csharp)\b", re.M), "uses a Scala, R or .NET cell"),
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
-    (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
+    # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
+    (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
+    (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse|warehouse|"
                 r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]

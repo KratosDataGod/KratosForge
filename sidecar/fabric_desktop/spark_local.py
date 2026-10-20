@@ -503,6 +503,8 @@ def reset() -> None:
 
 def install(namespace: dict[str, Any]) -> None:
     _alias_pyspark()
+    from . import spark_stream
+    spark_stream.install()
     namespace["spark"] = session()
 
 

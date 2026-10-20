@@ -18,7 +18,7 @@ This page is the architecture. The backlog and status of each pull request are i
 | Execution boundaries | Notebook cells run in the engine or in a process of their own (`kernel_proc.py`, Preview), with interrupt and stop. SQL runs in an in-memory DuckDB with each named table registered as an Arrow dataset. Prove runs in a fresh kernel with outputs redirected. | |
 | Local network APIs | **None.** The engine is stdio only and the headless agent has no HTTP endpoint (`agent.py`, `agent_status.py` write files). | |
 | MCP | **None.** No MCP code, experiment or dependency anywhere in the repository. | |
-| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/fabric-desktop/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
+| Extension mechanism | **None yet** at discovery. Extensions (manifest, permissions, own process) are Phase 4 of the Git-native development program ([git-integration-plan.md](https://github.com/KratosDataGod/KratosForge/blob/claude/git-foundation-rmrdsg/docs/git-integration-plan.md)), not built. | |
 | Audit, redaction, IT policy | In review, owned by the enterprise readiness program: hash-chained audit trail (PR #89, `audit.py`), secret redaction (PR #84, `redact.py`), policy keys `auto_update`, `allow_fabric_runs`, `allowed_tenants` (PR #90). The policy file itself (`%ProgramData%\FabricDesktop\policy.json`) already exists in `app_settings.py`. | |
 | Tests | About 40 pytest modules in `sidecar/tests`, all run without Fabric; UI tests in `app/tests/ui.test.cjs`. | |
 

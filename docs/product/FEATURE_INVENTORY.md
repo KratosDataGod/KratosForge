@@ -172,7 +172,7 @@ on quality.
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
-| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25) |
+| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20) |
 | [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call |
 
 ### Data Governance and Quality
@@ -315,7 +315,7 @@ on quality.
 - **Evidence:** code: app/src-tauri/src/watchdog.rs QUICK list and read_reply; absent: Rust tests in watchdog.rs are never run by CI (.github/workflows/ci.yml has cargo build, no cargo test) and could not build here
 - **Source:** `app/src-tauri/src/watchdog.rs`, `app/src-tauri/src/main.rs`
 - **Known limitations:** Only about 22 methods are on the quick list; sign-in, Fabric calls and runs have no limit.
-- **Pull requests and issues:** [#83](https://github.com/KratosDataGod/fabric-desktop/pull/83), [#114](https://github.com/KratosDataGod/fabric-desktop/pull/114), [#115](https://github.com/KratosDataGod/fabric-desktop/pull/115)
+- **Pull requests and issues:** [#83](https://github.com/KratosDataGod/KratosForge/pull/83), [#114](https://github.com/KratosDataGod/KratosForge/pull/114), [#115](https://github.com/KratosDataGod/KratosForge/pull/115)
 - **Owning workstream:** Prove (FD-110)
 - **Backlog:** [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-072](PRODUCT_BACKLOG.md#pb-072)
 - **Recommended next action:** Run cargo test in CI (PB-071) and move long calls (sign-in, Fabric calls) off the single pipe (PB-072).
@@ -361,7 +361,7 @@ on quality.
 - **Source:** `app/ui/activity.js`
 - **Tests:** `app/tests/ui.test.cjs`
 - **Known limitations:** Tray lives in this webview's localStorage only (80 items). Not fed by incidents or agent status.
-- **Pull requests and issues:** [#122](https://github.com/KratosDataGod/fabric-desktop/pull/122)
+- **Pull requests and issues:** [#122](https://github.com/KratosDataGod/KratosForge/pull/122)
 - **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-102](PRODUCT_BACKLOG.md#pb-102)
 - **Recommended next action:** Feed incidents and agent status into the bell once incident screens exist (PB-047).
 
@@ -375,7 +375,7 @@ on quality.
 - **Evidence:** test: app/tests/ui.test.cjs every icon-only button has a name (sidecar suite passed in this assessment (656 passed, 2 skipped)); test: app/tests/ui.test.cjs the page has a skip link and labelled controls; test: app/tests/ui.test.cjs dialogs are modal for keyboard users and focus shows
 - **Source:** `app/ui/index.html`, `app/ui/app.js`, `app/ui/styles.css`
 - **Tests:** `app/tests/ui.test.cjs`
-- **Pull requests and issues:** [#92](https://github.com/KratosDataGod/fabric-desktop/pull/92)
+- **Pull requests and issues:** [#92](https://github.com/KratosDataGod/KratosForge/pull/92)
 - **Owning workstream:** Enterprise readiness (FD-139)
 - **Backlog:** [PB-063](PRODUCT_BACKLOG.md#pb-063)
 - **Recommended next action:** Run an assistive-technology audit on Windows (Narrator) and record results (FD-139 follow-up).
@@ -392,7 +392,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_policy.py`, `sidecar/tests/test_app_settings.py`
 - **Docs:** [docs/azure-setup.md](../azure-setup.md), [docs/enterprise-install.md](../enterprise-install.md)
 - **Known limitations:** The headless agent doesn't read the policy file. `platform` key not in azure-setup.md's key table.
-- **Pull requests and issues:** [#90](https://github.com/KratosDataGod/fabric-desktop/pull/90)
+- **Pull requests and issues:** [#90](https://github.com/KratosDataGod/KratosForge/pull/90)
 - **Owning workstream:** Enterprise readiness (FD-105)
 - **Backlog:** [PB-061](PRODUCT_BACKLOG.md#pb-061)
 - **Recommended next action:** Add the documented-but-missing keys (allowed_hosts, local_retention_days, telemetry, three-value allowed_compute) through the enterprise program (PB-061).
@@ -409,7 +409,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_updater.py`, `sidecar/tests/test_whats_new.py`
 - **Docs:** [docs/install.md](../install.md), [docs/enterprise-install.md](../enterprise-install.md), [docs/security.md](../security.md)
 - **Known limitations:** Checksums come from the same release, so they don't stop someone who can publish releases. Only the newest build per channel exists, so no pinning or rollback. A release without engine_sha256 is still accepted (main.rs check_engine_zip). Updating from Program Files fails.
-- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#82](https://github.com/KratosDataGod/fabric-desktop/pull/82), [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
+- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/KratosForge/pull/51), [#82](https://github.com/KratosDataGod/KratosForge/pull/82), [#132](https://github.com/KratosDataGod/KratosForge/pull/132)
 - **Owning workstream:** Fuller What's new dialog (PB-100) and Enterprise readiness
 - **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001), [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071), [PB-100](PRODUCT_BACKLOG.md#pb-100), [PB-101](PRODUCT_BACKLOG.md#pb-101)
 - **Recommended next action:** Code signing (PB-001) and per-build release assets for real rollback (PB-064).
@@ -425,7 +425,7 @@ on quality.
 - **Source:** `app/ui/settings.js`, `sidecar/fabric_desktop/redact.py`, `app/tests/redact-cases.json`
 - **Tests:** `sidecar/tests/test_redact.py`, `app/tests/ui.test.cjs`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
-- **Pull requests and issues:** [#84](https://github.com/KratosDataGod/fabric-desktop/pull/84)
+- **Pull requests and issues:** [#84](https://github.com/KratosDataGod/KratosForge/pull/84)
 - **Owning workstream:** Enterprise readiness (FD-131a, FD-138)
 - **Backlog:** [PB-077](PRODUCT_BACKLOG.md#pb-077)
 - **Recommended next action:** Fix the user guide, which says it adds the tenant id (it redacts it).
@@ -457,7 +457,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_local.py`
 - **Docs:** [docs/permissions.md](../permissions.md), [docs/troubleshooting.md](../troubleshooting.md)
 - **Known limitations:** Depends on Microsoft keeping the Fabric CLI public client usable by third parties (review item 8). Personal accounts can't sign in (/organizations).
-- **Pull requests and issues:** [#42](https://github.com/KratosDataGod/fabric-desktop/pull/42), [#111](https://github.com/KratosDataGod/fabric-desktop/pull/111), issue [#96](https://github.com/KratosDataGod/fabric-desktop/issues/96)
+- **Pull requests and issues:** [#42](https://github.com/KratosDataGod/KratosForge/pull/42), [#111](https://github.com/KratosDataGod/KratosForge/pull/111), issue [#96](https://github.com/KratosDataGod/KratosForge/issues/96)
 - **Owning workstream:** Enterprise readiness
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002)
 - **Recommended next action:** Include in the tenant smoke test (PB-002).
@@ -504,7 +504,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_agent.py`
 - **Docs:** [docs/agent.md](../agent.md), [docs/permissions.md](../permissions.md)
 - **Known limitations:** No workload identity federation. Live service principal access to OneLake unverified (roadmap FD-1).
-- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/fabric-desktop/pull/34)
+- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002)
 - **Recommended next action:** Verify a service principal on a tenant with the live test's --agent-config (PB-002).
 
@@ -549,7 +549,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_fabric_api.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** Always schema-enabled; no delete in the UI.
-- **Pull requests and issues:** [#109](https://github.com/KratosDataGod/fabric-desktop/pull/109)
+- **Pull requests and issues:** [#109](https://github.com/KratosDataGod/KratosForge/pull/109)
 - **Recommended next action:** Keep.
 
 ### FEAT-FAB-04
@@ -564,7 +564,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_preview.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** Files download whole into the app data folder and are not cleaned up (inference). Notebook preview shows no outputs.
-- **Pull requests and issues:** [#43](https://github.com/KratosDataGod/fabric-desktop/pull/43)
+- **Pull requests and issues:** [#43](https://github.com/KratosDataGod/KratosForge/pull/43)
 - **Backlog:** [PB-087](PRODUCT_BACKLOG.md#pb-087)
 - **Recommended next action:** Clean up downloaded preview files (inference: never removed).
 
@@ -594,7 +594,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook_publish.py`, `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Items matched by display name (fabric_api.py save_notebook). The setup cell pip-installs sqlglot in Fabric. notebooks.md says %%sql notebooks publish as Spark; code converts them (inference).
-- **Pull requests and issues:** [#31](https://github.com/KratosDataGod/fabric-desktop/pull/31)
+- **Pull requests and issues:** [#31](https://github.com/KratosDataGod/KratosForge/pull/31)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-018](PRODUCT_BACKLOG.md#pb-018), [PB-077](PRODUCT_BACKLOG.md#pb-077)
 - **Recommended next action:** Match the Fabric item by its recorded id, not display name, so a rename doesn't duplicate (PB-018).
 
@@ -700,7 +700,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_local.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** Table names cached once per session; errors swallowed.
-- **Pull requests and issues:** [#43](https://github.com/KratosDataGod/fabric-desktop/pull/43)
+- **Pull requests and issues:** [#43](https://github.com/KratosDataGod/KratosForge/pull/43)
 - **Recommended next action:** Unify environment-word lists between Python and JS (catalog-groups.js vs shortcut_center.py).
 
 ### FEAT-ONE-02
@@ -728,7 +728,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_shortcut_center.py`
 - **Docs:** [docs/shortcuts.md](../shortcuts.md)
 - **Known limitations:** No scheduled check or alert. Approved request creates the shortcut in one lakehouse only. OneLake error codes unseen on a tenant.
-- **Pull requests and issues:** [#53](https://github.com/KratosDataGod/fabric-desktop/pull/53)
+- **Pull requests and issues:** [#53](https://github.com/KratosDataGod/KratosForge/pull/53)
 - **Backlog:** [PB-053](PRODUCT_BACKLOG.md#pb-053)
 - **Recommended next action:** Scheduled health check with a Teams alert (documented as not built).
 
@@ -758,7 +758,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_local.py`
 - **Docs:** [docs/architecture.md](../architecture.md)
 - **Known limitations:** Writes Delta features Fabric reads; newer Delta features are refused rather than written.
-- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/fabric-desktop/pull/51), [#54](https://github.com/KratosDataGod/fabric-desktop/pull/54)
+- **Pull requests and issues:** [#51](https://github.com/KratosDataGod/KratosForge/pull/51), [#54](https://github.com/KratosDataGod/KratosForge/pull/54)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-003](PRODUCT_BACKLOG.md#pb-003), [PB-099](PRODUCT_BACKLOG.md#pb-099), [PB-101](PRODUCT_BACKLOG.md#pb-101)
 - **Recommended next action:** Keep; verify MERGE on OneLake in the live test.
 
@@ -774,7 +774,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Outputs are not saved with the notebook. No notebook-editor UI tests.
-- **Pull requests and issues:** [#30](https://github.com/KratosDataGod/fabric-desktop/pull/30)
+- **Pull requests and issues:** [#30](https://github.com/KratosDataGod/KratosForge/pull/30)
 - **Backlog:** [PB-070](PRODUCT_BACKLOG.md#pb-070)
 - **Recommended next action:** Add UI tests for the editor; outputs are never saved, say so in docs.
 
@@ -804,7 +804,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_kernel_process.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Off by default. No memory or CPU limits. Cell time and memory limits are Preview settings (PR #115).
-- **Pull requests and issues:** [#67](https://github.com/KratosDataGod/fabric-desktop/pull/67), [#115](https://github.com/KratosDataGod/fabric-desktop/pull/115)
+- **Pull requests and issues:** [#67](https://github.com/KratosDataGod/KratosForge/pull/67), [#115](https://github.com/KratosDataGod/KratosForge/pull/115)
 - **Owning workstream:** Prove (FD-110)
 - **Backlog:** [PB-073](PRODUCT_BACKLOG.md#pb-073)
 - **Recommended next action:** Make it the default after a Windows trial; add per-cell time and memory limits (Prove FD-110).
@@ -866,7 +866,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Regex-based; flags variableLibrary notebooks as Fabric-only although they run on the PC. No 'unknown' outcome.
-- **Pull requests and issues:** [#29](https://github.com/KratosDataGod/fabric-desktop/pull/29)
+- **Pull requests and issues:** [#29](https://github.com/KratosDataGod/KratosForge/pull/29)
 - **Owning workstream:** Prove (FD-111)
 - **Backlog:** [PB-013](PRODUCT_BACKLOG.md#pb-013), [PB-014](PRODUCT_BACKLOG.md#pb-014), [PB-017](PRODUCT_BACKLOG.md#pb-017)
 - **Recommended next action:** Fix the variableLibrary false positive and move to the AST analyzer planned as FD-111 (PB-013, PB-014).
@@ -883,7 +883,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook_parity.py`, `sidecar/tests/test_debugging.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Completes only what the kernel has run. No completion when Runs on is Fabric. Variable history, watches and hidden-state warnings are Preview (PR #129).
-- **Pull requests and issues:** [#129](https://github.com/KratosDataGod/fabric-desktop/pull/129)
+- **Pull requests and issues:** [#129](https://github.com/KratosDataGod/KratosForge/pull/129)
 - **Backlog:** [PB-027](PRODUCT_BACKLOG.md#pb-027)
 - **Recommended next action:** Column completion for attached tables (Prove backlog #12).
 
@@ -899,7 +899,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_depgraph.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Declared dependencies have no UI. External table changes don't mark cells stale.
-- **Pull requests and issues:** [#68](https://github.com/KratosDataGod/fabric-desktop/pull/68)
+- **Pull requests and issues:** [#68](https://github.com/KratosDataGod/KratosForge/pull/68)
 - **Owning workstream:** Prove
 - **Backlog:** [PB-085](PRODUCT_BACKLOG.md#pb-085)
 - **Recommended next action:** Add UI to declare depends_on (engine reads it, no UI sets it); mark stale on a new Delta version.
@@ -916,7 +916,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_wizard.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md)
 - **Known limitations:** Three fixed templates. No launch from a table.
-- **Pull requests and issues:** [#65](https://github.com/KratosDataGod/fabric-desktop/pull/65)
+- **Pull requests and issues:** [#65](https://github.com/KratosDataGod/KratosForge/pull/65)
 - **Owning workstream:** Prove
 - **Backlog:** [PB-034](PRODUCT_BACKLOG.md#pb-034)
 - **Recommended next action:** Add the entry point from a lakehouse table (plan Stage 3).
@@ -948,7 +948,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_notebook.py`, `sidecar/tests/test_sql_editor.py`, `sidecar/tests/test_sql_exec.py`
 - **Docs:** [docs/notebooks.md](../notebooks.md), [docs/sql-execution.md](../sql-execution.md)
 - **Known limitations:** Plain textarea, no autocomplete or formatting. Read-only. Download CSV re-runs the query. No cancel. Editor (SQL-001) and managed execution with cancel and streaming (SQL-003) verified by engine tests only; the browser tests were not run.
-- **Pull requests and issues:** [#118](https://github.com/KratosDataGod/fabric-desktop/pull/118), [#134](https://github.com/KratosDataGod/fabric-desktop/pull/134)
+- **Pull requests and issues:** [#118](https://github.com/KratosDataGod/KratosForge/pull/118), [#134](https://github.com/KratosDataGod/KratosForge/pull/134)
 - **Owning workstream:** SQL development sprint
 - **Backlog:** [PB-021](PRODUCT_BACKLOG.md#pb-021), [PB-022](PRODUCT_BACKLOG.md#pb-022), [PB-023](PRODUCT_BACKLOG.md#pb-023), [PB-099](PRODUCT_BACKLOG.md#pb-099)
 - **Recommended next action:** Owned by the SQL development sprint: SQL-001 editor, SQL-002 dialect analyzer, SQL-003 managed execution.
@@ -980,7 +980,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_prove.py`
 - **Docs:** [docs/prove/how-proofs-work.md](../prove/how-proofs-work.md), [docs/prove/plan.md](../prove/plan.md)
 - **Known limitations:** Spark notebooks blocked. One proof at a time. TZ fixed only where time.tzset exists (not Windows).
-- **Pull requests and issues:** [#59](https://github.com/KratosDataGod/fabric-desktop/pull/59), [#62](https://github.com/KratosDataGod/fabric-desktop/pull/62), [#65](https://github.com/KratosDataGod/fabric-desktop/pull/65)
+- **Pull requests and issues:** [#59](https://github.com/KratosDataGod/KratosForge/pull/59), [#62](https://github.com/KratosDataGod/KratosForge/pull/62), [#65](https://github.com/KratosDataGod/KratosForge/pull/65)
 - **Owning workstream:** Prove
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002)
 - **Recommended next action:** Run one proof on the tenant (PB-002); add the column heatmap from plan Stage 3.
@@ -1059,7 +1059,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_side_by_side.py`
 - **Docs:** [docs/side-by-side.md](../side-by-side.md)
 - **Known limitations:** Writes the real tables twice (confirmed first). Files/ not compared.
-- **Pull requests and issues:** [#44](https://github.com/KratosDataGod/fabric-desktop/pull/44), [#81](https://github.com/KratosDataGod/fabric-desktop/pull/81), [#114](https://github.com/KratosDataGod/fabric-desktop/pull/114)
+- **Pull requests and issues:** [#44](https://github.com/KratosDataGod/KratosForge/pull/44), [#81](https://github.com/KratosDataGod/KratosForge/pull/81), [#114](https://github.com/KratosDataGod/KratosForge/pull/114)
 - **Owning workstream:** Prove (FD-112)
 - **Backlog:** [PB-076](PRODUCT_BACKLOG.md#pb-076)
 - **Recommended next action:** Retire in favor of Prove for correctness; keep the benchmark. PR #114 open for its write check time limit.
@@ -1090,7 +1090,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_meta.py`, `sidecar/tests/test_large_tables.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Watermark filter is strictly >, so late rows are dropped. Type 2 source repeating a key fails (plan).
-- **Pull requests and issues:** [#56](https://github.com/KratosDataGod/fabric-desktop/pull/56), [#61](https://github.com/KratosDataGod/fabric-desktop/pull/61)
+- **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#61](https://github.com/KratosDataGod/KratosForge/pull/61)
 - **Backlog:** [PB-019](PRODUCT_BACKLOG.md#pb-019)
 - **Recommended next action:** Keep; add late-arriving rows and source deletes (FD-117).
 
@@ -1133,7 +1133,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_keys.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** read_keys reads the whole key table.
-- **Pull requests and issues:** [#23](https://github.com/KratosDataGod/fabric-desktop/pull/23), [#52](https://github.com/KratosDataGod/fabric-desktop/pull/52)
+- **Pull requests and issues:** [#23](https://github.com/KratosDataGod/KratosForge/pull/23), [#52](https://github.com/KratosDataGod/KratosForge/pull/52)
 - **Owning workstream:** Staged roadmap (FD-115)
 - **Backlog:** [PB-068](PRODUCT_BACKLOG.md#pb-068)
 - **Recommended next action:** Stop reading whole key tables on every keyed run (FD-115).
@@ -1150,7 +1150,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_preflight.py`, `sidecar/tests/test_batches.py`, `sidecar/tests/test_landing_manifest.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md), [docs/scale-and-operations-plan.md](../scale-and-operations-plan.md)
 - **Known limitations:** meta_preflight has no UI caller. Only Delta sources are estimated. No physical partitioning. Batching excludes SCD modes.
-- **Pull requests and issues:** [#56](https://github.com/KratosDataGod/fabric-desktop/pull/56), [#69](https://github.com/KratosDataGod/fabric-desktop/pull/69), [#70](https://github.com/KratosDataGod/fabric-desktop/pull/70), [#87](https://github.com/KratosDataGod/fabric-desktop/pull/87)
+- **Pull requests and issues:** [#56](https://github.com/KratosDataGod/KratosForge/pull/56), [#69](https://github.com/KratosDataGod/KratosForge/pull/69), [#70](https://github.com/KratosDataGod/KratosForge/pull/70), [#87](https://github.com/KratosDataGod/KratosForge/pull/87)
 - **Owning workstream:** Staged roadmap (FD-114)
 - **Backlog:** [PB-067](PRODUCT_BACKLOG.md#pb-067), [PB-090](PRODUCT_BACKLOG.md#pb-090)
 - **Recommended next action:** Build the run dialog (mockup first) and vacuum orphan files after a stopped batch (FD-114).
@@ -1182,7 +1182,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_dataops.py`, `sidecar/tests/test_meaningful_diffs.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Compare reads whole tables. meta_diff against Git head has no UI caller.
-- **Pull requests and issues:** [#75](https://github.com/KratosDataGod/fabric-desktop/pull/75)
+- **Pull requests and issues:** [#75](https://github.com/KratosDataGod/KratosForge/pull/75)
 - **Backlog:** [PB-069](PRODUCT_BACKLOG.md#pb-069)
 - **Recommended next action:** Batch the compare for large tables.
 
@@ -1214,7 +1214,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_release.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** No list of releases in the UI. Docs say Preview; no Preview id.
-- **Pull requests and issues:** [#73](https://github.com/KratosDataGod/fabric-desktop/pull/73), [#113](https://github.com/KratosDataGod/fabric-desktop/pull/113), [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
+- **Pull requests and issues:** [#73](https://github.com/KratosDataGod/KratosForge/pull/73), [#113](https://github.com/KratosDataGod/KratosForge/pull/113), [#124](https://github.com/KratosDataGod/KratosForge/pull/124)
 - **Owning workstream:** Staged roadmap
 - **Backlog:** [PB-042](PRODUCT_BACKLOG.md#pb-042)
 - **Recommended next action:** Merge PR #113 (release records read Git through the Git layer); add a release list view.
@@ -1273,7 +1273,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_fabric_compute.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Runs on Fabric is Preview. Bundle re-uploaded whole. Runner pip-installs deltalake/polars in Fabric when older.
-- **Pull requests and issues:** [#25](https://github.com/KratosDataGod/fabric-desktop/pull/25), [#32](https://github.com/KratosDataGod/fabric-desktop/pull/32)
+- **Pull requests and issues:** [#25](https://github.com/KratosDataGod/KratosForge/pull/25), [#32](https://github.com/KratosDataGod/KratosForge/pull/32)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002), [PB-017](PRODUCT_BACKLOG.md#pb-017)
 - **Recommended next action:** Verify the runner notebook on a tenant (PB-002).
 
@@ -1317,7 +1317,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_lineage.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Python-added columns are opaque.
-- **Pull requests and issues:** [#76](https://github.com/KratosDataGod/fabric-desktop/pull/76), [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
+- **Pull requests and issues:** [#76](https://github.com/KratosDataGod/KratosForge/pull/76), [#124](https://github.com/KratosDataGod/KratosForge/pull/124)
 - **Owning workstream:** Staged roadmap (FD-128)
 - **Backlog:** [PB-081](PRODUCT_BACKLOG.md#pb-081)
 - **Recommended next action:** Build the lineage view after a mockup (scale plan 8.x).
@@ -1334,7 +1334,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_xray.py`
 - **Docs:** [docs/xray-fixes.md](../xray-fixes.md)
 - **Known limitations:** Stops at 500 tables. Paused capacities skipped.
-- **Pull requests and issues:** [#41](https://github.com/KratosDataGod/fabric-desktop/pull/41)
+- **Pull requests and issues:** [#41](https://github.com/KratosDataGod/KratosForge/pull/41)
 - **Recommended next action:** Keep.
 
 ### FEAT-GOV-01
@@ -1395,7 +1395,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_duties.py`
 - **Docs:** [docs/metadata-guide.md](../metadata-guide.md)
 - **Known limitations:** Not a security boundary. Group roles become notes. separate_promoter compares PC login names.
-- **Pull requests and issues:** [#93](https://github.com/KratosDataGod/fabric-desktop/pull/93)
+- **Pull requests and issues:** [#93](https://github.com/KratosDataGod/KratosForge/pull/93)
 - **Owning workstream:** Enterprise readiness (FD-130)
 - **Backlog:** [PB-065](PRODUCT_BACKLOG.md#pb-065)
 - **Recommended next action:** Keep; compare signed-in identities rather than PC login names.
@@ -1412,7 +1412,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_governance.py`
 - **Docs:** [docs/governance.md](../governance.md)
 - **Known limitations:** GOV-001 policy registry only; offline validation (GOV-002) and enforcement are not built; HD-031 labels Block as not enforced.
-- **Pull requests and issues:** [#119](https://github.com/KratosDataGod/fabric-desktop/pull/119)
+- **Pull requests and issues:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Owning workstream:** Enterprise governance foundation
 - **Backlog:** [PB-056](PRODUCT_BACKLOG.md#pb-056), [PB-057](PRODUCT_BACKLOG.md#pb-057)
 - **Recommended next action:** GOV-002 offline validation, after Chris approves
@@ -1457,7 +1457,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
 - **Known limitations:** T-SQL tested on SQLite only. Whether UDF context exposes executing_user is unverified. setup()/join() have no tests. platform_revoke has no UI.
-- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/fabric-desktop/pull/48), [#50](https://github.com/KratosDataGod/fabric-desktop/pull/50)
+- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052), [PB-054](PRODUCT_BACKLOG.md#pb-054)
 - **Recommended next action:** Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified).
 
@@ -1472,9 +1472,9 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision.
+- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform.
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)
+- **Recommended next action:** Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)
 
 ### FEAT-MESH-03
 
@@ -1504,7 +1504,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
 - **Known limitations:** Fabric domain import needs Tenant.Read.All and its shape is unverified. Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired.
-- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/fabric-desktop/pull/48), [#50](https://github.com/KratosDataGod/fabric-desktop/pull/50)
+- **Pull requests and issues:** [#48](https://github.com/KratosDataGod/KratosForge/pull/48), [#50](https://github.com/KratosDataGod/KratosForge/pull/50)
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
 - **Recommended next action:** Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call
 
@@ -1519,7 +1519,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/meta/mesh.py`, `sidecar/fabric_desktop/meta_service.py`
 - **Tests:** `sidecar/tests/test_breaking_changes.py`
 - **Docs:** [docs/data-mesh.md](../data-mesh.md)
-- **Pull requests and issues:** [#71](https://github.com/KratosDataGod/fabric-desktop/pull/71)
+- **Pull requests and issues:** [#71](https://github.com/KratosDataGod/KratosForge/pull/71)
 - **Owning workstream:** Staged roadmap (FD-127)
 - **Backlog:** [PB-082](PRODUCT_BACKLOG.md#pb-082)
 - **Recommended next action:** Consumer declarations and deprecation (scale plan 8.2).
@@ -1551,7 +1551,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_agent.py`
 - **Docs:** [docs/agent.md](../agent.md)
 - **Known limitations:** Never run against a live tenant. Runs metadata environments only, not notebooks or jobs. Queue never pruned (inference). No command to revive a dead job.
-- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/fabric-desktop/pull/34)
+- **Pull requests and issues:** [#34](https://github.com/KratosDataGod/KratosForge/pull/34)
 - **Backlog:** [PB-044](PRODUCT_BACKLOG.md#pb-044)
 - **Recommended next action:** Verify on a tenant; add queue pruning and requeue of dead jobs (PB-044).
 
@@ -1582,7 +1582,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_mailbox.py`
 - **Docs:** [docs/agent.md](../agent.md)
 - **Known limitations:** Not run live. submitted_by is free text. enterprise-roadmap.md still calls it unbuilt.
-- **Pull requests and issues:** [#64](https://github.com/KratosDataGod/fabric-desktop/pull/64)
+- **Pull requests and issues:** [#64](https://github.com/KratosDataGod/KratosForge/pull/64)
 - **Backlog:** [PB-049](PRODUCT_BACKLOG.md#pb-049), [PB-077](PRODUCT_BACKLOG.md#pb-077)
 - **Recommended next action:** Run once on a tenant; record the writer's identity.
 
@@ -1597,7 +1597,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/agent_status.py`, `sidecar/fabric_desktop/workloads/agents.py`, `app/ui/agents.js`
 - **Tests:** `sidecar/tests/test_agent_status.py`, `sidecar/tests/test_agent_fleet.py`
 - **Docs:** [docs/agent.md](../agent.md)
-- **Pull requests and issues:** [#66](https://github.com/KratosDataGod/fabric-desktop/pull/66), [#133](https://github.com/KratosDataGod/fabric-desktop/pull/133)
+- **Pull requests and issues:** [#66](https://github.com/KratosDataGod/KratosForge/pull/66), [#133](https://github.com/KratosDataGod/KratosForge/pull/133)
 - **Owning workstream:** Workloads (FD-122)
 - **Backlog:** [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-091](PRODUCT_BACKLOG.md#pb-091)
 - **Recommended next action:** Implementation review of PR #133 (agents on Monitor, FD-122 stage 5A)
@@ -1626,7 +1626,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_workloads.py`
 - **Docs:** [docs/workloads/plan.md](../workloads/plan.md)
 - **Known limitations:** Ownership is per PC. No agent location or queue view.
-- **Pull requests and issues:** [#63](https://github.com/KratosDataGod/fabric-desktop/pull/63), [#72](https://github.com/KratosDataGod/fabric-desktop/pull/72)
+- **Pull requests and issues:** [#63](https://github.com/KratosDataGod/KratosForge/pull/63), [#72](https://github.com/KratosDataGod/KratosForge/pull/72)
 - **Owning workstream:** Workloads
 - **Backlog:** [PB-092](PRODUCT_BACKLOG.md#pb-092)
 - **Recommended next action:** Shared ownership (stage 2B); an 'on agents' view.
@@ -1643,7 +1643,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_incidents.py`, `sidecar/tests/test_incident_desk.py`
 - **Docs:** [docs/agent.md](../agent.md), [docs/incidents.md](../incidents.md)
 - **Known limitations:** Metadata tables only. workloads/plan.md describes a Delta table; code uses a JSON document. Direction (Chris's unit testing, 2026-10-18, item 33): a simplified incident management capability (detect, triage, hand off) is now its own workstream. Numbers, priority and SLAs are in the engine only; the list doesn't show them yet.
-- **Pull requests and issues:** [#74](https://github.com/KratosDataGod/fabric-desktop/pull/74), [#79](https://github.com/KratosDataGod/fabric-desktop/pull/79), [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125), [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
+- **Pull requests and issues:** [#74](https://github.com/KratosDataGod/KratosForge/pull/74), [#79](https://github.com/KratosDataGod/KratosForge/pull/79), [#125](https://github.com/KratosDataGod/KratosForge/pull/125), [#127](https://github.com/KratosDataGod/KratosForge/pull/127)
 - **Owning workstream:** Workloads (FD-123)
 - **Backlog:** [PB-047](PRODUCT_BACKLOG.md#pb-047), [PB-077](PRODUCT_BACKLOG.md#pb-077), [PB-084](PRODUCT_BACKLOG.md#pb-084), [PB-105](PRODUCT_BACKLOG.md#pb-105)
 - **Recommended next action:** Simplified incident management (PB-105) builds on these incidents; implementation review of PRs #125 and #127
@@ -1660,7 +1660,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_cloud.py`
 - **Docs:** [docs/user-guide.md](../user-guide.md)
 - **Known limitations:** Only jobs started from this app are tracked. fabric_runs.jsonl keeps 500 entries.
-- **Pull requests and issues:** [#58](https://github.com/KratosDataGod/fabric-desktop/pull/58)
+- **Pull requests and issues:** [#58](https://github.com/KratosDataGod/KratosForge/pull/58)
 - **Recommended next action:** Show worker, host and job for agent runs.
 
 ### FEAT-OPS-04
@@ -1675,7 +1675,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_livetest.py`
 - **Docs:** [docs/live-testing.md](../live-testing.md)
 - **Known limitations:** Never run. Doesn't test leases, concurrent writers, mailbox, Run in Fabric.
-- **Pull requests and issues:** [#80](https://github.com/KratosDataGod/fabric-desktop/pull/80)
+- **Pull requests and issues:** [#80](https://github.com/KratosDataGod/KratosForge/pull/80)
 - **Owning workstream:** Enterprise readiness (FD-101)
 - **Backlog:** [PB-002](PRODUCT_BACKLOG.md#pb-002)
 - **Recommended next action:** Chris runs it on a non-production workspace (PB-002); extend to leases and MERGE (PB-003).
@@ -1692,7 +1692,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_estate.py`, `sidecar/tests/test_measurement.py`
 - **Docs:** [docs/finops/cost-evidence.md](../finops/cost-evidence.md)
 - **Known limitations:** Estimates only (default $0.18/CU-hour, Python 1 CU, Spark 8 CU). Agent runs counted as local with no measured cost. Direction change (Chris's unit testing, 2026-10-18, item 36, decided 10:10Z): Monitor > Cost moves to the Optimize page's Cost and savings tab, without Fabric's Monitoring hub underneath.
-- **Pull requests and issues:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
+- **Pull requests and issues:** [#117](https://github.com/KratosDataGod/KratosForge/pull/117)
 - **Owning workstream:** Administration and FinOps sprint (FINOPS-001)
 - **Backlog:** [PB-050](PRODUCT_BACKLOG.md#pb-050), [PB-104](PRODUCT_BACKLOG.md#pb-104)
 - **Recommended next action:** Calibrate against the Capacity Metrics app and label every number (PB-050)
@@ -1707,7 +1707,7 @@ on quality.
 - **Evidence:** test: sidecar/tests/test_audit.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/audit.py
 - **Source:** `sidecar/fabric_desktop/audit.py`
 - **Tests:** `sidecar/tests/test_audit.py`
-- **Pull requests and issues:** [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89)
+- **Pull requests and issues:** [#89](https://github.com/KratosDataGod/KratosForge/pull/89)
 - **Owning workstream:** Enterprise readiness (FD-125)
 - **Backlog:** [PB-007](PRODUCT_BACKLOG.md#pb-007)
 - **Recommended next action:** Implementation review of PR #89; HD-007 (redaction before JSON encoding) and HD-017 (chain across processes) harden it
@@ -1722,7 +1722,7 @@ on quality.
 - **Evidence:** test: sidecar/tests/test_backup.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/backup.py
 - **Source:** `sidecar/fabric_desktop/backup.py`
 - **Tests:** `sidecar/tests/test_backup.py`
-- **Pull requests and issues:** [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91)
+- **Pull requests and issues:** [#91](https://github.com/KratosDataGod/KratosForge/pull/91)
 - **Owning workstream:** Enterprise readiness (FD-126)
 - **Backlog:** [PB-066](PRODUCT_BACKLOG.md#pb-066)
 - **Recommended next action:** Implementation review of PR #91; HD-005 (restore removes the stale WAL and verifies) is a P0 fix
@@ -1737,7 +1737,7 @@ on quality.
 - **Evidence:** test: sidecar/tests/test_readiness.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/readiness.py
 - **Source:** `sidecar/fabric_desktop/readiness.py`
 - **Tests:** `sidecar/tests/test_readiness.py`
-- **Pull requests and issues:** [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94)
+- **Pull requests and issues:** [#94](https://github.com/KratosDataGod/KratosForge/pull/94)
 - **Owning workstream:** Enterprise readiness (FD-136)
 - **Backlog:** [PB-086](PRODUCT_BACKLOG.md#pb-086)
 - **Recommended next action:** Implementation review of PR #94
@@ -1752,7 +1752,7 @@ on quality.
 - **Evidence:** test: sidecar/tests/test_retention.py (passed in the 2026-10-17 refresh run at 9715e28); code: sidecar/fabric_desktop/retention.py
 - **Source:** `sidecar/fabric_desktop/retention.py`
 - **Tests:** `sidecar/tests/test_retention.py`
-- **Pull requests and issues:** [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95)
+- **Pull requests and issues:** [#95](https://github.com/KratosDataGod/KratosForge/pull/95)
 - **Owning workstream:** Enterprise readiness (FD-131b)
 - **Backlog:** [PB-009](PRODUCT_BACKLOG.md#pb-009)
 - **Recommended next action:** Implementation review of PR #95
@@ -1768,7 +1768,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/telemetry.py`, `app/ui/settings.js`
 - **Tests:** `sidecar/tests/test_telemetry.py`
 - **Docs:** [docs/telemetry.md](../telemetry.md)
-- **Pull requests and issues:** [#121](https://github.com/KratosDataGod/fabric-desktop/pull/121)
+- **Pull requests and issues:** [#121](https://github.com/KratosDataGod/KratosForge/pull/121)
 - **Owning workstream:** Enterprise readiness (FD-137)
 - **Backlog:** [PB-093](PRODUCT_BACKLOG.md#pb-093)
 - **Recommended next action:** Implementation review of PR #121; nothing is sent until someone opts in and a connection string exists
@@ -1782,7 +1782,7 @@ on quality.
 - **Where people reach it:** None
 - **Evidence:** code: .github/workflows/ci.yml signs only when Trusted Signing secrets exist; doc: PR #28 blocked on the Trusted Signing account
 - **Source:** `.github/workflows/ci.yml`
-- **Pull requests and issues:** [#28](https://github.com/KratosDataGod/fabric-desktop/pull/28)
+- **Pull requests and issues:** [#28](https://github.com/KratosDataGod/KratosForge/pull/28)
 - **Owning workstream:** Enterprise readiness (FD-103, FD-104)
 - **Backlog:** [PB-001](PRODUCT_BACKLOG.md#pb-001)
 - **Recommended next action:** Chris creates the Azure Trusted Signing account (D-C3) (PB-001).
@@ -1811,7 +1811,7 @@ on quality.
 - **Source:** `.github/workflows/ci.yml`, `sidecar/constraints.txt`
 - **Docs:** [docs/security.md](../security.md)
 - **Known limitations:** docs.yml and codex-review.yml use tag-pinned actions; zensical install unpinned. release doesn't wait for audit.
-- **Pull requests and issues:** [#86](https://github.com/KratosDataGod/fabric-desktop/pull/86), [#88](https://github.com/KratosDataGod/fabric-desktop/pull/88)
+- **Pull requests and issues:** [#86](https://github.com/KratosDataGod/KratosForge/pull/86), [#88](https://github.com/KratosDataGod/KratosForge/pull/88)
 - **Owning workstream:** Enterprise readiness (FD-103)
 - **Backlog:** [PB-010](PRODUCT_BACKLOG.md#pb-010), [PB-074](PRODUCT_BACKLOG.md#pb-074)
 - **Recommended next action:** Fix docs/security.md, which still says there is no scanning, SBOM or provenance; pin docs.yml and codex-review.yml actions by SHA.
@@ -1827,7 +1827,7 @@ on quality.
 - **Source:** `.github/workflows/ci.yml`, `.github/workflows/promote.yml`
 - **Docs:** [docs/install.md](../install.md)
 - **Known limitations:** Only the newest build per channel. Promote can't choose a build; SBOMs not copied. cargo test never runs.
-- **Pull requests and issues:** [#111](https://github.com/KratosDataGod/fabric-desktop/pull/111)
+- **Pull requests and issues:** [#111](https://github.com/KratosDataGod/KratosForge/pull/111)
 - **Backlog:** [PB-064](PRODUCT_BACKLOG.md#pb-064), [PB-071](PRODUCT_BACKLOG.md#pb-071)
 - **Recommended next action:** Per-build release assets for pinning and rollback (PB-064).
 
@@ -1841,7 +1841,7 @@ on quality.
 - **Evidence:** code: .github/workflows/docs.yml; code: zensical.toml strict = true
 - **Source:** `zensical.toml`, `.github/workflows/docs.yml`
 - **Docs:** [docs/README.md](../README.md)
-- **Pull requests and issues:** [#40](https://github.com/KratosDataGod/fabric-desktop/pull/40)
+- **Pull requests and issues:** [#40](https://github.com/KratosDataGod/KratosForge/pull/40)
 - **Recommended next action:** Keep; add docs/product to the nav (this PR).
 
 ### FEAT-GIT-01
@@ -1856,7 +1856,7 @@ on quality.
 - **Tests:** `sidecar/tests/test_git.py`
 - **Docs:** [docs/source-control.md](../source-control.md)
 - **Known limitations:** Not tried with Git Credential Manager and SSH on many PCs. No line staging, rebase, tags.
-- **Pull requests and issues:** [#85](https://github.com/KratosDataGod/fabric-desktop/pull/85)
+- **Pull requests and issues:** [#85](https://github.com/KratosDataGod/KratosForge/pull/85)
 - **Owning workstream:** Git-native development
 - **Recommended next action:** Owned by the Git-native program.
 
@@ -1884,7 +1884,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/integrations/mcp_server.py`, `sidecar/fabric_desktop/integrations/http_server.py`, `sidecar/fabric_desktop/integrations/registry.py`, `sidecar/fabric_desktop/integrations/permissions.py`, `sidecar/fabric_desktop/integrations/executions.py`, `app/ui/integrations.js`
 - **Tests:** `sidecar/tests/test_integrations_conformance.py`
 - **Docs:** [docs/architecture/ai-integration.md](../architecture/ai-integration.md), [docs/ai/README.md](../ai/README.md)
-- **Pull requests and issues:** [#98](https://github.com/KratosDataGod/fabric-desktop/pull/98), [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99), [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100), [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101), [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102), [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103), [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104), [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105), [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106), [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107), [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108), [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110), [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112)
+- **Pull requests and issues:** [#98](https://github.com/KratosDataGod/KratosForge/pull/98), [#99](https://github.com/KratosDataGod/KratosForge/pull/99), [#100](https://github.com/KratosDataGod/KratosForge/pull/100), [#101](https://github.com/KratosDataGod/KratosForge/pull/101), [#102](https://github.com/KratosDataGod/KratosForge/pull/102), [#103](https://github.com/KratosDataGod/KratosForge/pull/103), [#104](https://github.com/KratosDataGod/KratosForge/pull/104), [#105](https://github.com/KratosDataGod/KratosForge/pull/105), [#106](https://github.com/KratosDataGod/KratosForge/pull/106), [#107](https://github.com/KratosDataGod/KratosForge/pull/107), [#108](https://github.com/KratosDataGod/KratosForge/pull/108), [#110](https://github.com/KratosDataGod/KratosForge/pull/110), [#112](https://github.com/KratosDataGod/KratosForge/pull/112)
 - **Owning workstream:** Bring your own AI integration
 - **Backlog:** [PB-095](PRODUCT_BACKLOG.md#pb-095), [PB-096](PRODUCT_BACKLOG.md#pb-096)
 - **Recommended next action:** Run the client checklist per named AI tool (PB-096); HD-006 and HD-014 harden approvals and workspace limits
@@ -1924,7 +1924,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/sqlcompat/analyzer.py`, `sidecar/fabric_desktop/sqlcompat/profiles.py`, `sidecar/fabric_desktop/sqlcompat/rules.py`, `app/ui/sqleditor.js`
 - **Tests:** `sidecar/tests/test_sql_compat.py`
 - **Docs:** [docs/sql-compatibility.md](../sql-compatibility.md)
-- **Pull requests and issues:** [#120](https://github.com/KratosDataGod/fabric-desktop/pull/120)
+- **Pull requests and issues:** [#120](https://github.com/KratosDataGod/KratosForge/pull/120)
 - **Owning workstream:** SQL development sprint (SQL-002)
 - **Recommended next action:** Compare its verdicts with a Fabric Warehouse run on a tenant (HD-054)
 
@@ -1939,7 +1939,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/capacity.py`, `sidecar/fabric_desktop/estate_service.py`, `app/ui/estate.js`
 - **Tests:** `sidecar/tests/test_capacity.py`
 - **Docs:** [docs/finops/capacity.md](../finops/capacity.md)
-- **Pull requests and issues:** [#123](https://github.com/KratosDataGod/fabric-desktop/pull/123)
+- **Pull requests and issues:** [#123](https://github.com/KratosDataGod/KratosForge/pull/123)
 - **Owning workstream:** Administration and FinOps sprint (FINOPS-002)
 - **Recommended next action:** Check against a live tenant's capacities (PB-002)
 
@@ -1954,7 +1954,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/localdata/engine.py`, `sidecar/fabric_desktop/localdata/discovery.py`, `sidecar/fabric_desktop/localdata/projects.py`, `sidecar/fabric_desktop/localdata_service.py`
 - **Tests:** `sidecar/tests/test_local_data.py`
 - **Docs:** [docs/local-data.md](../local-data.md), [docs/local-data-engine-plan.md](../local-data-engine-plan.md)
-- **Pull requests and issues:** [#126](https://github.com/KratosDataGod/fabric-desktop/pull/126)
+- **Pull requests and issues:** [#126](https://github.com/KratosDataGod/KratosForge/pull/126)
 - **Owning workstream:** Local data engine and OneLake publishing (FD-LDE-001, FD-LDE-002)
 - **Recommended next action:** Screens after the mockup is agreed; publishing to OneLake follows (FD-LDE-005..010)
 
@@ -1969,7 +1969,7 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/orchestration/definition.py`, `sidecar/fabric_desktop/orchestration/expressions.py`, `sidecar/fabric_desktop/orchestration/validate.py`, `sidecar/fabric_desktop/pipeline_service.py`, `sidecar/fabric_desktop/cli.py`
 - **Tests:** `sidecar/tests/test_pipeline_definitions.py`
 - **Docs:** [docs/orchestration/pipeline-definitions.md](../orchestration/pipeline-definitions.md)
-- **Pull requests and issues:** [#130](https://github.com/KratosDataGod/fabric-desktop/pull/130)
+- **Pull requests and issues:** [#130](https://github.com/KratosDataGod/KratosForge/pull/130)
 - **Owning workstream:** Local Fabric pipeline execution (ORCH-001)
 - **Recommended next action:** ORCH-002 activity registry, after Chris approves
 <!-- END GENERATED: details -->

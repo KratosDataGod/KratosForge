@@ -1515,6 +1515,68 @@ test("the Platform tab says what differs between Git and the platform, and what 
     "Policy names: publish it as a new version");
 });
 
+// FINOPS-004 follow-up: Data mesh Run all reads the risk in one batch and starts only what can.
+test("Run all checks the risk once and starts only entities that aren't blocked or waiting on one", async () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const calls = [];
+  let dialog = null;
+  const ctx = { ENV_LABEL: { dev: "Dev" }, h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, icon, onclick) => ({ label, onclick }), riskAckBox: () => null, riskPanel: (r) => r.entity,
+    riskProceed: async () => true, closeDialog: () => {}, showDialog: (title, body, buttons) => { dialog = { title, body, buttons }; } };
+  vm.runInNewContext(`${src.match(/async function metaRiskGate\([\s\S]*?\n}\n/)[0]}; this.gate = metaRiskGate;`, ctx);
+  const p = { project: { name: "proj" } };
+  const check = (entity, result) => ({ entity, result, note: "Reports only" });
+  ctx.rpc = async (method, args) => { calls.push([method, args]); return ctx.answer; };
+  ctx.answer = { checks: [check("a", "pass"), check("b", "pass")], blocked: [], held: {}, run: ["a", "b"] };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all 2 entities"), true);
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([["meta_risk_gate", { names: null, env: "dev" }]]));
+  assert.strictEqual(dialog, null);
+  ctx.answer = { checks: [check("a", "blocked"), check("b", "pass"), check("c", "warning")], blocked: ["a"],
+    held: { b: ["a"] }, run: ["c"] };
+  const asked = ctx.gate(p, null, "dev", "all 3 entities");
+  await new Promise((r) => setImmediate(r));
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = JSON.stringify(flat(dialog.body.kids));
+  assert.match(text, /b \(reads a\)/);
+  assert.match(text, /2 of 3 won't start; the other 1 run/);
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Cancel|Run the other 1");
+  await dialog.buttons[1].onclick();
+  assert.strictEqual(JSON.stringify(await asked), '["c"]');
+  ctx.answer = { checks: [check("a", "blocked")], blocked: ["a"], held: {}, run: [] };
+  const none = ctx.gate(p, ["a"], "dev", "a");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Close");
+  dialog.buttons[0].onclick();
+  assert.strictEqual(await none, false);
+  ctx.rpc = async () => { throw new Error("engine busy"); };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all"), true);  // the check is advice
+  assert.match(src, /meta_run", \{ names: only, env/);
+  assert.match(src, /if \(only !== names\) label = only\.join\(", "\);/);  // the toast and tray name only those
+});
+
+// Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
+// first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
+test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const move = mesh.match(/async function moveKeysIn\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(move, /^async function moveKeysIn\(\) \{\n  const plan = await attempt\(\(\) => rpc\("platform_share_keys", \{\}\)/);
+  assert.strictEqual((move.match(/approve: true/g) || []).length, 1);
+  assert.ok(move.indexOf('btn("Move keys in"') < move.indexOf("approve: true"), "the write happens only from the dialog's button");
+  assert.match(move, /Re-run Dev and Test/);
+  const cancel = mesh.match(/async function cancelKeysMove\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(cancel, /confirmDialog\("Cancel the move\?", [^)]*\), "Cancel the move", \{ danger: true \}\)/);
+  assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
+  assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
+});
+
 // Validate notebook (validate.js): the headline, the count chips, what changed since a result,
 // and which tidy-ups Apply makes.
 function validateHelpers() {

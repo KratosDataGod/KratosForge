@@ -23,7 +23,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "list_tables", "list_files", "preview_job", "run_job", "history",
            "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
-           "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_domains",
+           "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
@@ -49,7 +49,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -104,8 +104,10 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 METHODS |= OPTIMIZE_METHODS
 
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
+from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 
 METHODS |= TENANT_HISTORY_METHODS
+METHODS |= CAPACITY_HISTORY_METHODS
 
 # Governance's request and shortcut notices to Teams (platform_notify_service.py).
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402

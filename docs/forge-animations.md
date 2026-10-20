@@ -6,7 +6,7 @@ wolf and forge identity without getting in the way, and you can turn them off.
 | When | What you see | How long |
 | --- | --- | --- |
 | A cell you ran succeeds | A tiny orange spark leaves the **Succeeded** label | 0.4 s |
-| You run several cells (Run all, Run above, Run below) and it takes longer than 0.6 s | A track in the status bar says **Cell 3 of 8**, with the wolf at the share of cells done. When every cell has run, the wolf glows once at the end and the track goes | Until the run ends |
+| You run several cells (Run all, Run above, Run below) and it takes longer than 0.6 s | A track in the status bar says **Cell 3 of 8**, with the wolf at the share of cells done and a few embers rising behind it. When every cell has run, the wolf glows once at the end and the track goes | Until the run ends |
 | A cell fails | A small ember beside **Failed** dims and goes out. The red label and the error appear at once | 0.45 s |
 
 Nothing else changes: the labels, times, outputs and errors are the same with animations on or off,

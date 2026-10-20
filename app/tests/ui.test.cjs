@@ -1968,6 +1968,7 @@ test("Forge animations: the wolf track waits 600 ms, follows real progress and g
   assert.deepStrictEqual([p.attrs.role, p.attrs["aria-valuenow"], p.attrs["aria-valuemax"]], ["progressbar", "1", "4"]);
   assert.strictEqual(bar.querySelector(".wolf").style.left, "25%");
   assert.strictEqual(bar.querySelector(".wolf").attrs["aria-hidden"], "true");
+  assert.strictEqual(bar.querySelector(".wolf-embers").kids.length, 3, "the wolf has no embers behind it");
   assert.strictEqual(bar.querySelector(".wolf-fill").style.width, "25%");
   track.set(4, 4);
   track.arrive();

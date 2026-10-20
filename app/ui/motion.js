@@ -77,7 +77,9 @@ function wolfTrack(where, label, unit) {
   const show = () => {
     if (over || !where()) return;
     const fill = h("span", { class: "wolf-fill" });
-    const wolf = motionOn() ? h("span", { class: "wolf", "aria-hidden": "true" }, wolfIcon()) : null;
+    // A few embers rise behind the wolf while it runs (CSS only, three dots).
+    const wolf = motionOn() ? h("span", { class: "wolf", "aria-hidden": "true" },
+      h("span", { class: "wolf-embers" }, h("i"), h("i"), h("i")), wolfIcon()) : null;
     const bar = h("span", { class: "wolf-bar", role: "progressbar", "aria-label": label, "aria-valuemin": "0" }, fill, wolf);
     el = h("span", { class: "wolf-track" }, h("span", { class: "wolf-text" }), bar);
     paint();

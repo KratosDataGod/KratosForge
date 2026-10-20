@@ -1932,3 +1932,24 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Tables and files from the notebook's Explorer (nbdrag.js): what a drop inserts and the ways to load.
+test("dropping a table or file inserts its load code on an empty line, else its name for the cell's language", () => {
+  const src = fs.readFileSync(path.join(ui, "nbdrag.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, readSnippet: (p) => `df = lakehouse.read_csv("${p}")\ndf` };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { dataItemDropText, dataItemLoads };`, ctx);
+  const { dataItemDropText, dataItemLoads } = ctx.f;
+  const table = { kind: "table", schema: "dbo", table: "sales" };
+  assert.strictEqual(dataItemDropText(table, "python", { blankLine: true }), 'df = lakehouse.read_table("dbo.sales")\ndf');
+  assert.strictEqual(dataItemDropText(table, "python"), '"dbo.sales"');
+  assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Load with pandas", "Query with SQL"]);
+  const odd = { kind: "file", path: "Files/notes/readme.txt" };
+  assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
+  assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+});

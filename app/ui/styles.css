@@ -1459,3 +1459,8 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+
+/* Dragging a table or file from the Explorer into the notebook (nbdrag.js). */
+.explorer .tree-row[draggable="true"] { cursor: grab; }
+.cells.drop-ready .cell-box { outline: 1px dashed #c7d3e8; }
+.cells.drop-ready .cm-editor { background: #fbfcfe; }

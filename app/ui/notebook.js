@@ -769,6 +769,7 @@ function editorFor(cell) {
         CM.syntaxHighlighting(editorHighlight),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
+        dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),

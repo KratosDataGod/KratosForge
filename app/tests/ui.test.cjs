@@ -1932,3 +1932,11 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
+});

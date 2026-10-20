@@ -108,3 +108,29 @@ def test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out(
 def test_describe_is_log_safe():
     assert redact.describe(ValueError(f"refused Bearer {JWT}")) == "ValueError: refused Bearer [removed]"
     assert redact.describe(KeyError()) == "KeyError"
+
+
+G1, G2, G3 = ("11111111-2222-3333-4444-555555555555", "72f988bf-86f1-41af-91ab-2d7cd011db47",
+              "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+
+@pytest.mark.parametrize("url", [
+    f"https://contoso.webhook.office.com/webhookb2/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+    f"https://contoso.webhook.office.com/webhookb2/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}/V2xyzTOKEN",
+    f"https://outlook.office.com/webhook/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+    f"https://Outlook.Office365.com/webhook/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+])
+def test_office_365_connector_webhooks_are_removed(url):
+    # QA-016: the address is the credential, so none of its path may survive.
+    assert redact.secrets(f"POST {url} failed: 400") == "POST [removed] failed: 400"
+    body = json.dumps({"channel": "alerts", "url": url, "status": 400})
+    assert redact.secrets(body) == json.dumps({"channel": "alerts", "url": "[removed]", "status": 400})
+    assert "IncomingWebhook" not in redact.for_support(f"Teams said no ({url}).")
+
+
+@pytest.mark.parametrize("text", [
+    "open https://outlook.office.com/mail/inbox or https://www.office.com/launch/word",
+    "docs at https://learn.microsoft.com/office/webhooks and https://portal.office.com/",
+])
+def test_office_urls_without_a_webhook_path_are_kept(text):
+    assert redact.secrets(text) == text

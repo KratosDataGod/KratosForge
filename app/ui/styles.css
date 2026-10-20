@@ -44,6 +44,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 600; color: var(--accent); }
 .brand img { display: block; }
 .brand .brand-name { height: 19px; width: auto; }
+.nav-buttons { display: flex; align-items: center; gap: 2px; }
+.nav-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: 0; border-radius: 4px; background: none; color: var(--text); cursor: pointer;
+}
+.nav-btn:hover:not(:disabled) { background: var(--hover); }
+.nav-btn:disabled { color: var(--muted); opacity: .5; cursor: default; }
+.nav-btn.back svg { transform: scaleX(-1); }
 .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; }
 .breadcrumb .current { color: var(--text); font-weight: 600; background: none; border: 0; padding: 2px 4px; border-radius: 4px; cursor: pointer; }
 .breadcrumb .current:hover { background: var(--hover); }

@@ -1949,3 +1949,161 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// UX-008: Back, Forward and reopening the last page. The history block of app.js runs on features.js
+// with fake pages, a fake localStorage and a render() that counts.
+function navHarness({ stored = null, preview = true } = {}) {
+  const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    console, h: () => ({}), icon: () => ({}), renders: 0,
+    state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
+    monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
+    platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
+    agPage: { name: null }, sqlPage: { ref: null },
+    closeMenu() {},
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
+    document: { getElementById: (id) => (id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "features.js"), "utf8"), ctx);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const block = app.slice(app.indexOf("// ---------- navigation history (UX-008)"), app.indexOf("function renderChrome()"));
+  vm.runInContext(block + "\nthis.nav = nav; this.features = features;", ctx);
+  ctx.previewShown = () => preview;
+  ctx.render = () => { ctx.renders++; ctx.navSync(); };
+  const page = (id, views, extra = {}) => ctx.registerFeature({ id, views, ...extra });
+  page("home", { home() {} }, { rail: { label: "Home", icon: "home", order: 10 } });
+  page("workspaces", { workspaces() {}, workspace() {}, fabric() {} }, { rail: { label: "Workspaces", icon: "w", order: 30, also: ["workspace", "fabric"] } });
+  page("metadata", { metadata() {}, entity() {} }, { rail: { label: "Data mesh", icon: "m", order: 50, also: ["entity"] } });
+  page("monitor", { monitor() {} }, { rail: { label: "Monitor", icon: "monitor", order: 70 } });
+  page("platform", { platform() {} }, { rail: { label: "Platform", icon: "b", order: 55 }, preview: true });
+  page("notebook", { notebook() {} });
+  return { ctx, store, dialogRoot };
+}
+
+test("Back and Forward walk the pages you opened, with each page's tab (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.monitorPage.panel = "schedules";
+  ctx.go("monitor");
+  ctx.monitorPage.panel = "incidents"; ctx.render();  // a tab clicked on the page
+  ctx.state.meta.tab = "keys";
+  ctx.go("metadata");
+  assert.strictEqual(ctx.navCan(-1), true);
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.strictEqual(ctx.navBack(), true);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.monitorPage.panel, "incidents", "Back did not bring the tab back");
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.strictEqual(ctx.navBack(), false, "Back went past the first page");
+  ctx.navForward();
+  ctx.navForward();
+  assert.strictEqual(ctx.state.view, "metadata");
+  assert.strictEqual(ctx.state.meta.tab, "keys");
+  // Opening a page from the middle drops what was ahead.
+  ctx.navBack();
+  ctx.go("workspaces");
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "workspaces"]);
+});
+
+test("Back after Open in Fabric returns to the page before, and opening the same page twice adds one entry (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  ctx.go("monitor");
+  ctx.go("fabric");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "fabric"]);
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("Back brings back the workspace you had open and skips a notebook that was closed (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.state.openWorkspace = { id: "w1", displayName: "Sales" };
+  ctx.go("workspace");
+  ctx.state.notebook = { name: "nb" };
+  ctx.go("notebook");
+  ctx.state.openWorkspace = { id: "w2", displayName: "Finance" };
+  ctx.go("workspace");
+  ctx.state.notebook = null;  // closed from the rail
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "workspace", "Back opened a closed notebook");
+  assert.strictEqual(ctx.state.openWorkspace.id, "w1");
+});
+
+test("Back skips a preview page once preview features are hidden (UX-008)", () => {
+  const { ctx } = navHarness();
+  let shown = true;
+  ctx.previewShown = () => shown;
+  ctx.render();
+  ctx.go("platform");
+  ctx.go("monitor");
+  shown = false;
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+});
+
+test("the last page and its tab are saved and opened again on start, or Home if it's gone (UX-008)", () => {
+  const a = navHarness();
+  a.ctx.render();
+  assert.strictEqual(a.store.get("fd.nav.last"), undefined, "the last page was overwritten before it was read back");
+  a.ctx.navRestore();
+  a.ctx.state.meta.tab = "sources";
+  a.ctx.go("metadata");
+  assert.strictEqual(a.store.get("fd.nav.last"), JSON.stringify({ view: "metadata", tab: "sources" }));
+
+  const b = navHarness({ stored: { view: "metadata", tab: "sources" } });
+  assert.strictEqual(b.ctx.navRestore(), "metadata");
+  assert.strictEqual(b.ctx.state.meta.tab, "sources");
+  assert.strictEqual(b.ctx.navCan(-1), false);
+  assert.strictEqual(navHarness({ stored: { view: "removed-page" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "platform", tab: "keys" }, preview: false }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "workspace" } }).ctx.navRestore(), "workspaces", "an item page reopens on its rail page");
+  assert.strictEqual(navHarness({ stored: { view: "notebook" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness().ctx.navRestore(), "home");
+  // A broken or blocked store starts on Home.
+  const c = navHarness();
+  c.ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  c.ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  assert.strictEqual(c.ctx.navRestore(), "home");
+  assert.doesNotThrow(() => c.ctx.go("monitor"));
+});
+
+test("Alt+Left and Alt+Right go back and forward, but not while typing or in a dialog (UX-008)", () => {
+  const { ctx, dialogRoot } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  const key = (k, target = { closest: () => null }, mods = { altKey: true }) => ({ key: k, target, ...mods, prevented: false, preventDefault() { this.prevented = true; } });
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", { closest: (s) => (/textarea/.test(s) ? {} : null) })), false);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", undefined, { altKey: false })), false);
+  dialogRoot.childElementCount = 1;
+  assert.strictEqual(ctx.navKey(key("ArrowLeft")), false);
+  dialogRoot.childElementCount = 0;
+  const e = key("ArrowLeft");
+  assert.strictEqual(ctx.navKey(e), true);
+  assert.ok(e.prevented);
+  assert.strictEqual(ctx.state.view, "home");
+  ctx.navKey(key("ArrowRight"));
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("the command bar offers Go back and Go forward only when there is somewhere to go (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  const labels = () => ctx.features.commands.filter((c) => !c.when || c.when()).map((c) => c.label);
+  assert.ok(!labels().includes("Go back"));
+  ctx.go("monitor");
+  assert.ok(labels().includes("Go back"));
+  assert.ok(!labels().includes("Go forward"));
+  ctx.features.commands.find((c) => c.label === "Go back").run();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.ok(labels().includes("Go forward"));
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
+  assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+});

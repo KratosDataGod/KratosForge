@@ -296,13 +296,169 @@ function lakehouseRef(ws, lh) {
 
 // ---------- navigation and chrome ----------
 
+// ---------- navigation history (UX-008) ----------
+
+// Back and Forward walk a list of {view, values}: the page, plus the one field each page keeps its
+// tab in (or the item it shows). The entry you're on is kept up to date on every render, so a tab
+// clicked on a page comes back with it. The last page is remembered on this PC and opened on start.
+const NAV_LIMIT = 50;
+const NAV_KEY = "fd.nav.last";
+const nav = { stack: [], index: -1, restored: false };  // nothing is saved until the last page is read back
+// The fields that make up each page's place: [object, key] pairs, read when the entry is saved and
+// written back when you go Back or Forward to it. The first pair of a "tab" page is its tab.
+const NAV_FIELDS = {
+  metadata: () => [[state.meta, "tab"]],
+  monitor: () => [[monitorPage, "panel"]],
+  onelake: () => [[catalogPage, "tab"]],
+  optimize: () => [[optimizePage, "tab"]],
+  platform: () => [[platformPage, "tab"]],
+  source: () => [[gitPage, "tab"]],
+  settings: () => [[state, "settingsTab"]],
+  workspace: () => [[state, "openWorkspace"]],
+  lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
+  entity: () => [[state.meta, "entity"]],
+  workload: () => [[wlPage, "id"]],
+  incident: () => [[incPage, "id"], [incPage, "env_of"]],
+  agent: () => [[agPage, "name"]],
+};
+// Pages whose tab is remembered across a restart; the rest reopen on their rail page.
+const NAV_TAB_VIEWS = ["metadata", "monitor", "onelake", "optimize", "platform", "source", "settings"];
+
+function navFields(view) {
+  try { return (NAV_FIELDS[view] || (() => []))(); } catch { return []; }
+}
+
+function navEntry(view) {
+  return { view, values: navFields(view).map(([o, k]) => o?.[k]) };
+}
+
+function navSame(a, b) {
+  return !!a && !!b && a.view === b.view && JSON.stringify(a.values) === JSON.stringify(b.values);
+}
+
+// The feature a view belongs to, and whether it can be shown now (registered, and not a preview
+// feature while preview features are hidden).
+function navFeature(view) {
+  return features.list.find((f) => f.views && Object.prototype.hasOwnProperty.call(f.views, view));
+}
+function navShown(view) {
+  const f = navFeature(view);
+  return !!f && (!f.preview || previewShown());
+}
+
+// Whether an entry can be opened again: its page is shown, and what it showed is still there.
+function navAvailable(entry) {
+  if (!entry || !navShown(entry.view)) return false;
+  if (entry.view === "notebook") return !!state.notebook;
+  if (entry.view === "query") return !!sqlPage.ref;
+  if (NAV_FIELDS[entry.view] && !NAV_TAB_VIEWS.includes(entry.view)) return entry.values[0] != null;
+  return true;
+}
+
+// Keeps the entry you're on in step with the page as drawn, and remembers it on this PC.
+function navSync() {
+  const here = navEntry(state.view);
+  if (nav.index < 0) { nav.stack = [here]; nav.index = 0; } else nav.stack[nav.index] = here;
+  if (nav.restored) navSave(here);
+}
+
+function navSave(entry) {
+  const tab = NAV_TAB_VIEWS.includes(entry.view) && typeof entry.values[0] === "string" ? entry.values[0] : null;
+  try { localStorage.setItem(NAV_KEY, JSON.stringify({ view: entry.view, tab })); } catch { /* not remembered */ }
+}
+
+// Called by go() with the page about to open: the page being left is already saved by navSync.
+function navPush(view) {
+  if (nav.index < 0) navSync();
+  const next = navEntry(view);
+  if (navSame(nav.stack[nav.index], next)) return;
+  nav.stack = nav.stack.slice(0, nav.index + 1);
+  nav.stack.push(next);
+  if (nav.stack.length > NAV_LIMIT) nav.stack.shift();
+  nav.index = nav.stack.length - 1;
+}
+
+// The nearest entry Back (step -1) or Forward (step 1) opens, or -1.
+function navTarget(step) {
+  for (let i = nav.index + step; i >= 0 && i < nav.stack.length; i += step) {
+    if (navAvailable(nav.stack[i])) return i;
+  }
+  return -1;
+}
+function navCan(step) {
+  return navTarget(step) >= 0;
+}
+
+function navMove(step) {
+  const i = navTarget(step);
+  if (i < 0) return false;
+  if (nav.index >= 0) nav.stack[nav.index] = navEntry(state.view);
+  nav.index = i;
+  const entry = nav.stack[i];
+  navFields(entry.view).forEach(([o, k], n) => { if (o) o[k] = entry.values[n]; });
+  closeMenu();
+  state.view = entry.view;
+  render();
+  return true;
+}
+function navBack() { return navMove(-1); }
+function navForward() { return navMove(1); }
+
+// The page to open on start: the last one, its tab too, or its rail page when it showed an item
+// that isn't open any more; Home when that page no longer exists or is hidden.
+function navRestore() {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(NAV_KEY) || "null"); } catch { /* start on Home */ }
+  const view = navStartView(last?.view);
+  if (view === last?.view && NAV_TAB_VIEWS.includes(view) && typeof last.tab === "string") {
+    const [pair] = navFields(view);
+    if (pair?.[0]) pair[0][pair[1]] = last.tab;
+  }
+  state.view = view;
+  nav.stack = [navEntry(view)];
+  nav.index = 0;
+  nav.restored = true;
+  return view;
+}
+function navStartView(view) {
+  if (typeof view !== "string" || !navShown(view)) return "home";
+  const f = navFeature(view);
+  const main = Object.keys(f.views)[0];
+  if (f.rail && main === view) return view;
+  // An item page (a workspace, a run, a notebook) reopens on the rail page it sits under.
+  const parent = features.list.find((x) => x.rail && (x.rail.also || []).includes(view));
+  if (parent) return Object.keys(parent.views)[0];
+  return f.rail ? main : "home";
+}
+
+// Alt+Left and Alt+Right, except while typing or with a dialog open.
+function navKey(e) {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+  const t = e.target;
+  if (t?.closest?.("input, textarea, select, [contenteditable], .cm-editor")) return false;
+  if (document.getElementById("dialog-root")?.childElementCount) return false;
+  e.preventDefault();
+  if (e.key === "ArrowLeft") navBack(); else navForward();
+  return true;
+}
+
+function renderNavButtons() {
+  const back = document.getElementById("nav-back");
+  const fwd = document.getElementById("nav-forward");
+  if (back) back.disabled = !navCan(-1);
+  if (fwd) fwd.disabled = !navCan(1);
+}
+
 function go(view) {
   closeMenu();
+  navPush(view);
   state.view = view;
   render();
 }
 
 function renderChrome() {
+  renderNavButtons();
   renderEnvBar();
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
@@ -376,6 +532,7 @@ function renderChrome() {
 }
 
 function render() {
+  navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
   (features.views[state.view] || renderHome)();
@@ -2102,6 +2259,9 @@ searchBox.addEventListener("input", () => {
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
 });
+document.addEventListener("keydown", navKey);
+document.getElementById("nav-back").addEventListener("click", navBack);
+document.getElementById("nav-forward").addEventListener("click", navForward);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
@@ -2299,6 +2459,7 @@ hydrateIcons();
 renderChrome();
 // Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
 checkComponents().finally(() => {
+  navRestore();  // the page you were on last time, or Home
   render();
   attempt(async () => {
     const env = await rpc("environment");
@@ -2306,6 +2467,7 @@ checkComponents().finally(() => {
     state.user = env.user;
     state.tenant = env.tenant;
     await loadSettings();
+    if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
     showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
     // The environment pill needs the metadata project; there may not be one yet.
     state.meta.project = await rpc("meta_project").catch(() => state.meta.project);

@@ -222,3 +222,12 @@ function syncSearchBox() {
   box.value = state.query || "";
   document.querySelector(".search")?.classList.toggle("filtering", !!state.query);
 }
+
+// Back and Forward (UX-008; app.js keeps the history), also on Alt+Left and Alt+Right.
+registerFeature({
+  id: "navigation",
+  commands: [
+    { label: "Go back", icon: "history", keywords: "back previous page history alt+left", run: () => navBack(), when: () => navCan(-1) },
+    { label: "Go forward", icon: "chevronRight", keywords: "forward next page history alt+right", run: () => navForward(), when: () => navCan(1) },
+  ],
+});

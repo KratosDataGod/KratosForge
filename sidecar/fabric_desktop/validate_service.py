@@ -188,14 +188,14 @@ class ValidateMixin:
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"
         path, n = folder / f"{stem}.{ext}", 2
-        while True:
+        while n <= 1000:
             try:  # created exclusively: a file already there (even one made a moment ago) is never replaced
                 with path.open("x", encoding="utf-8") as f:
                     f.write(text)
-                break
+                return {"path": str(path), "format": format}
             except FileExistsError:
                 path, n = folder / f"{stem}-{n}.{ext}", n + 1
-        return {"path": str(path), "format": format}
+        raise ValueError("Couldn't find a free file name in Downloads for the report.")
 
     # ---- the clean run
 

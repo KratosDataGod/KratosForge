@@ -268,6 +268,19 @@ def test_save_report_is_created_exclusively_even_if_the_name_was_free_a_moment_a
     assert second == first.with_name(f"{first.stem}-2.md")
 
 
+
+def test_save_report_gives_up_after_999_taken_names(svc, monkeypatch):
+    st = done(svc, call(svc, "notebook_validate_start", name="Full", cells=[code("x = 1")])["id"])
+    tried, real_open = [], Path.open
+    def taken(self, mode="r", *a, **k):
+        if mode != "x":
+            return real_open(self, mode, *a, **k)
+        tried.append(self.name)
+        raise FileExistsError(self)
+    monkeypatch.setattr(Path, "open", taken)
+    assert "free file name" in refused(svc, "notebook_validate_save", id=st["id"])
+    assert len(tried) == 999
+
 def test_checks_and_status_are_not_audited_but_starting_and_saving_are():
     from fabric_desktop import audit, server
     assert {"notebook_validate_check", "notebook_validate_status", "notebook_validate_list"} <= audit.READ_ONLY

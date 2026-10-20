@@ -100,8 +100,14 @@ function matches(text) {
 
 // ---------- dialogs and menus ----------
 
+// The open dialog's onClose: closeDialog, or a new dialog replacing it, runs it once (UI-4).
+let dialogOnClose = null;
+
 function closeDialog() {
+  const onClose = dialogOnClose;
+  dialogOnClose = null;
   document.getElementById("dialog-root").replaceChildren();
+  onClose?.();
 }
 
 // Keyboard use of dialogs: focus starts inside, Tab stays inside, Escape closes one that a click
@@ -146,14 +152,18 @@ new MutationObserver(() => {
   }
 }).observe(document.getElementById("dialog-root"), { childList: true });
 
-function showDialog(title, body, actions = []) {
+// onClose runs once however the dialog goes: overlay click, the X, Escape, an action or a new dialog.
+function showDialog(title, body, actions = [], onClose = null) {
   const overlay = h("div", { class: "overlay", "data-dismiss": true, onmousedown: (e) => { if (e.target === overlay) closeDialog(); } },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
       h("div", { class: "dialog-head" }, title,
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  const previous = dialogOnClose;
+  dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
 }
@@ -163,7 +173,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
   return new Promise((resolve) => {
     const input = h("input", { value: initial });
     const problem = h("p", { class: "error-text", style: "font-size:13px;margin-top:8px", hidden: true });
-    const done = (value) => { closeDialog(); resolve(value); };
+    const done = (value) => { resolve(value); closeDialog(); };
     const submit = () => {
       const value = input.value.trim();
       if (!value) return;
@@ -179,7 +189,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
     showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
       btn("Cancel", null, () => done(null), "tool outline"),
       btn(okLabel, null, submit, "tool primary"),
-    ]);
+    ], () => resolve(null));
     input.select();
   });
 }
@@ -537,6 +547,7 @@ async function renderHome() {
     const problems = failing.length + cloudFailed.length;
     // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
     const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (meta.project_error) unread.unshift("the metadata project");
     if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
@@ -702,7 +713,10 @@ async function renderMonitor() {
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
-  note.textContent = unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`).join(" · ");
+  note.textContent = [
+    meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
+    ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+  ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -1405,9 +1419,9 @@ function pickWorkspace(workspaces, { title = "Choose a workspace", selected = nu
   return new Promise((resolve) => {
     const select = h("select", {}, workspaces.map((w) => h("option", { value: w.id, selected: w.id === selected }, w.displayName)));
     showDialog(title, h("div", {}, note ? h("p", { class: "text" }, note) : null, h("label", { class: "field" }, "Workspace", select)), [
-      btn("Cancel", null, () => { closeDialog(); resolve(null); }, "tool outline"),
-      btn(okLabel, null, () => { closeDialog(); resolve(workspaces.find((w) => w.id === select.value)); }, "tool primary"),
-    ]);
+      btn("Cancel", null, () => { resolve(null); closeDialog(); }, "tool outline"),
+      btn(okLabel, null, () => { resolve(workspaces.find((w) => w.id === select.value)); closeDialog(); }, "tool primary"),
+    ], () => resolve(null));
   });
 }
 

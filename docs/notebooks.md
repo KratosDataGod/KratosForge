@@ -167,6 +167,9 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.
+- `displayHTML(html)` shows HTML, as in Fabric and Databricks, in the same sandboxed frame as `%%html` (it can't reach the app or your files).
+- `from IPython.display import display, HTML, Markdown, JSON, Image, SVG, clear_output` works although IPython isn't installed: KratosForge provides those names. Markdown shows like a Markdown cell, JSON as a tree you can fold, images from bytes or a file on this PC (an image URL or an `IFrame` shows its address; nothing is fetched). `clear_output()` clears the cell's output, and `clear_output(wait=True)` clears it when the next output arrives, for a loop that redraws.
+- Any object with Jupyter's rich views (`_repr_mimebundle_`, `_repr_html_`, `_repr_markdown_`, `_repr_json_`, `_repr_png_`, `_repr_jpeg_`, `_repr_svg_`) shows its richest one. Bokeh plots show in the cell if Bokeh is installed.
 - Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views: **Table** (search, click a heading to sort), **Chart** (bar, line or scatter, with the X axis, values and aggregate you pick) and **Inspect** (missing, distinct, min, max, mean and a histogram per column). `display(df, summary=True)` opens Inspect.
 - Matplotlib charts show as images. Objects with an HTML view (Plotly, `%%html` cells) render in a sandboxed frame.
 

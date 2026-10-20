@@ -21,6 +21,7 @@ import inspect
 import io
 import json
 import keyword
+import logging
 import os
 import re
 import sys
@@ -33,8 +34,12 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from .redact import describe
+
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
+
+_log = logging.getLogger(__name__)
 
 PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
@@ -114,18 +119,98 @@ def display(value: Any) -> dict[str, Any]:
             return out
     if module.startswith("plotly") and hasattr(value, "to_html"):
         return {"type": "html", "html": value.to_html(include_plotlyjs=True, full_html=True)}
-    for method, make in (("_repr_html_", lambda r: {"type": "html", "html": r}),
-                         ("_repr_svg_", lambda r: {"type": "image", "mime": "image/svg+xml",
-                                                   "data": base64.b64encode(r.encode()).decode("ascii")}),
-                         ("_repr_png_", lambda r: {"type": "image", "mime": "image/png",
-                                                   "data": base64.b64encode(r).decode("ascii")})):
-        fn = getattr(value, method, None)
-        if callable(fn) and not isinstance(value, type):
-            with contextlib.suppress(Exception):
-                rendered = fn()
-                if rendered:
-                    return make(rendered)
+    if module.startswith("bokeh") and hasattr(value, "document"):  # a plot or layout: the page Bokeh's show() would open
+        with contextlib.suppress(Exception):
+            from bokeh.embed import file_html
+            from bokeh.resources import INLINE
+            return {"type": "html", "html": file_html(value, INLINE)}
+    if not isinstance(value, type):
+        bundle = _mime_bundle(value)
+        if bundle:
+            out = _from_bundle(bundle)
+            if out is not None:
+                return out
     return {"type": "text", "text": repr(value)}
+
+
+# What a value's rich views become, best first. HTML only ever reaches the app's sandboxed frame;
+# Markdown is drawn by the app's escaping Markdown renderer; JSON as a tree of text.
+_IMAGE_MIMES = ("image/png", "image/jpeg", "image/gif", "image/webp")
+_REPR_METHODS = (("text/html", "_repr_html_"), ("image/svg+xml", "_repr_svg_"), ("image/png", "_repr_png_"),
+                 ("image/jpeg", "_repr_jpeg_"), ("text/markdown", "_repr_markdown_"),
+                 ("application/json", "_repr_json_"), ("text/latex", "_repr_latex_"))
+
+
+def _mime_bundle(value: Any) -> dict[str, Any]:
+    """The value's views by mime type: ``_repr_mimebundle_`` (Altair, IPython objects) first, then
+    each ``_repr_*_`` method."""
+    bundle: dict[str, Any] = {}
+    fn = getattr(value, "_repr_mimebundle_", None)
+    if callable(fn):
+        try:
+            got = fn(include=None, exclude=None)
+        except TypeError:
+            got = fn()
+        except Exception as exc:  # noqa: BLE001 - a broken view falls back to the others
+            _log.info("_repr_mimebundle_ failed: %s", describe(exc))
+            got = None
+        if isinstance(got, tuple):
+            got = got[0]
+        if isinstance(got, dict):
+            bundle.update({k: v for k, v in got.items() if v is not None})
+    for mime, method in _REPR_METHODS:
+        fn = getattr(value, method, None)
+        if mime in bundle or not callable(fn):
+            continue
+        try:
+            rendered = fn()
+        except Exception as exc:  # noqa: BLE001 - as above
+            _log.info("%s failed: %s", method, describe(exc))
+            continue
+        if isinstance(rendered, tuple):
+            rendered = rendered[0]
+        if rendered is not None and rendered != "":
+            bundle[mime] = rendered
+    return bundle
+
+
+def _b64(data: Any) -> str:
+    if isinstance(data, str):  # already base64, as Jupyter bundles carry images
+        return data.replace("\n", "")
+    return base64.b64encode(data).decode("ascii")
+
+
+def _from_bundle(bundle: dict[str, Any]) -> dict[str, Any] | None:
+    if bundle.get("text/html"):
+        return {"type": "html", "html": str(bundle["text/html"])}
+    if bundle.get("image/svg+xml"):
+        svg = bundle["image/svg+xml"]
+        return {"type": "image", "mime": "image/svg+xml",
+                "data": base64.b64encode(svg.encode() if isinstance(svg, str) else svg).decode("ascii")}
+    for mime in _IMAGE_MIMES:
+        if bundle.get(mime):
+            return {"type": "image", "mime": mime, "data": _b64(bundle[mime])}
+    if bundle.get("text/markdown"):
+        return {"type": "markdown", "text": str(bundle["text/markdown"])}
+    if "application/json" in bundle:
+        data = bundle["application/json"]
+        try:
+            return {"type": "json", "data": json.loads(json.dumps(data, default=str))}
+        except (TypeError, ValueError):
+            return {"type": "text", "text": str(data)}
+    if bundle.get("text/latex"):
+        return {"type": "text", "text": str(bundle["text/latex"])}
+    if bundle.get("text/plain"):
+        return {"type": "text", "text": str(bundle["text/plain"])}
+    return None
+
+
+class _Html:
+    def __init__(self, html: str):
+        self.html = html
+
+    def _repr_html_(self) -> str:
+        return self.html
 
 
 class _Run:
@@ -142,11 +227,14 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
+        self.clear_pending = False
 
     def write(self, text: str) -> None:
         if not text:
             return
         with self.lock:
+            if self.clear_pending:
+                self.outputs, self.clear_pending = [], False
             if self.outputs and self.outputs[-1]["type"] == "stream":
                 self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
             else:
@@ -155,8 +243,20 @@ class _Run:
 
     def add(self, output: dict[str, Any]) -> None:
         with self.lock:
+            if self.clear_pending:
+                self.outputs, self.clear_pending = [], False
             self.outputs.append(output)
             self.version += 1
+
+    def clear(self, wait: bool = False) -> None:
+        """IPython's clear_output: now, or (``wait``) when the next output arrives, so a loop that
+        redraws doesn't flicker."""
+        with self.lock:
+            if wait:
+                self.clear_pending = True
+            else:
+                self.outputs, self.clear_pending = [], False
+                self.version += 1
 
     def finish(self, status: str) -> None:
         with self.lock:
@@ -229,7 +329,10 @@ class Kernel:
 
     def _base_namespace(self) -> dict[str, Any]:
         from . import notebookutils_local
-        ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display}
+        ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display,
+                              "displayHTML": self._display_html}
+        from . import ipython_display
+        ipython_display.install(ipython_display.build(self._display, self._clear_output))
         utils = notebookutils_local.build(notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
             variables=self.variable_libraries))
@@ -260,6 +363,15 @@ class Kernel:
         lakehouse.reads_reset()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
+
+    def _display_html(self, html: str) -> None:
+        """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""
+        self._display(_Html(str(html)))
+
+    def _clear_output(self, wait: bool = False) -> None:
+        run = getattr(self._local, "run", None)
+        if run is not None:
+            run.clear(wait)
 
     def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
@@ -545,7 +657,7 @@ class Kernel:
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
-        return ("input", "display", "notebookutils", "mssparkutils", "spark", "In", "Out")
+        return ("input", "display", "displayHTML", "notebookutils", "mssparkutils", "spark", "In", "Out")
 
     def _hidden(self, name: str, value: Any) -> bool:
         return bool(_SECRET_NAME.search(name)) or (isinstance(value, str) and value in self._secrets)

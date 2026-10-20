@@ -1468,3 +1468,11 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+
+/* Notebook Markdown and JSON outputs */
+.md-output h1 { font-size: 20px; } .md-output h2 { font-size: 17px; } .md-output h3 { font-size: 15px; }
+.json-output { font-family: var(--mono); font-size: 12px; }
+.json-node > summary { cursor: pointer; }
+.json-node > :not(summary), .json-node > .json-row { margin-left: 16px; }
+.json-key { color: var(--text-2); }
+.json-str { color: #0b6a0b; } .json-num { color: #1b3664; } .json-null, .json-count { color: var(--muted); }

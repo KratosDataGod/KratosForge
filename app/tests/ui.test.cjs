@@ -1957,3 +1957,22 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// Rich outputs: Markdown output uses the Markdown cell's escaping renderer, JSON is a tree of text,
+// and neither adds an HTML sink (HD-052).
+test("Markdown and JSON cell outputs render without new HTML sinks", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-output" \}, markdown\(o\.text \|\| ""\)\);/);
+  const fn = /function jsonTree\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.doesNotMatch(fn, /innerHTML|outerHTML|insertAdjacentHTML|srcdoc/);
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined) });
+  const ctx = { h: el };
+  vm.createContext(ctx);
+  vm.runInContext(fn + "this.t = jsonTree;", ctx);
+  const tree = ctx.t({ a: [1, "<b>x</b>", null], b: { c: true } }, null, 0);
+  const text = (n) => (typeof n === "string" || typeof n === "number" ? String(n) : (n.kids || []).map(text).join(""));
+  const t = text(tree);
+  assert.strictEqual(t, '{2}a: [3]0: 11: "<b>x</b>"2: nullb: {1}c: true');
+  assert.strictEqual(tree.attrs.open, true);
+  assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
+});

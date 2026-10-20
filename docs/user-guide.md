@@ -222,7 +222,7 @@ Who can reach your workspaces, and who can read which tables. The tab has three 
 - **Refresh changes** reads every workspace again as you, and writes only what changed. The first time, it asks before adding the cache's tables to the central lakehouse. Nothing in the workspaces it reads changes.
 - Filter by **Worth a look**, **Guests**, **Write roles by name** or **Out of date**, or find a workspace or person by name.
 - Click a workspace to see its people and its lakehouses' table roles, with **guided fixes**: people with write roles by name, guests, apps with Admin, and lakehouses without data access roles. **Review in Workspace roles** opens it in Environments, and **Table access** opens the lakehouse. Both ask before they change anything in Fabric.
-- **Who may read it** limits the cache to the people and groups you pick. It asks before it changes the central lakehouse's OneLake security roles: DefaultReader stops reading the cache's `access` schema, and a role named AccessCacheReaders reads it.
+- **Who may read it** limits the cache to the people and groups you pick. It asks before it changes the central lakehouse's OneLake security roles: DefaultReader stops reading the cache's `access` schema, and a role named AccessCacheReaders reads it. Until a check it relies on is built, it shows the planned change and then says it isn't available yet, changing nothing.
 
 Refreshing needs write access to the central lakehouse. Reading the cache needs read access.
 

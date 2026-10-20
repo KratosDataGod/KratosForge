@@ -149,7 +149,7 @@ def test_protect_never_writes_when_the_engine_cant_check_the_list(svc):
         svc.access_cache_protect(["obj-admins"])
     if getattr(asked.value, "changes", None) is not None:
         pytest.skip("central_restrict carries the change list")
-    with pytest.raises(PermissionError, match="can't check"):
+    with pytest.raises(PermissionError, match="isn.t available yet"):
         svc.access_cache_protect(["obj-admins"], approve=True, shown=str(asked.value))
     assert svc.onelake.puts == []
 

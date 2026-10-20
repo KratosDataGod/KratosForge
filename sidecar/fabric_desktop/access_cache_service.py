@@ -117,6 +117,6 @@ class AccessCacheMixin:
             if str(exc) != shown:
                 raise PermissionError(CHANGED_SINCE) from None
             if changes is None:  # an engine whose central_restrict can't check the list: never write blind
-                raise PermissionError("This version can't check the planned change before writing it, so "
-                                      "nothing was changed. Update KratosForge and try again.") from None
+                raise PermissionError("Choosing who may read the access cache isn't available yet: it needs a "
+                                      "check before writing that's still being built. Nothing was changed.") from None
         return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, True, changes)  # type: ignore[attr-defined]

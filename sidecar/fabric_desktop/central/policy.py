@@ -91,6 +91,12 @@ def _ready(db: Db) -> None:
         ensure_policy_schema(db)
 
 
+def policies_ready(db: Db) -> bool:
+    """Whether this platform has its policy tables. Only looks: unlike every other policy
+    operation it never creates them (a platform repository's export asks this first)."""
+    return all(db.exists("catalog", t) for t in _POLICY_TABLES)
+
+
 def policy_id(value: Any) -> str:
     value = str(value or "").strip().lower().replace(" ", "-")
     if not value or len(value) > 64 or not all(c.isalnum() or c in "-_." for c in value) or not value[0].isalnum():
@@ -753,5 +759,5 @@ OPERATIONS.update({
     "get_policy": get_policy, "policy_history": policy_history, "policy_version": policy_version,
     "save_assignment": save_assignment, "remove_assignment": remove_assignment, "list_assignments": list_assignments,
     "policy_applicability": policy_applicability, "resolve_policies": resolve_policies, "policy_snapshot": snapshot,
-    "policy_options": policy_options,
+    "policy_options": policy_options, "policies_ready": policies_ready,
 })

@@ -4,8 +4,8 @@ An independent review of whether KratosForge is built like one coherent product:
 
 This review builds on two earlier ones and doesn't repeat them:
 
-- The [enterprise hardening audit](https://github.com/KratosDataGod/fabric-desktop/pull/137) (`docs/hardening/`, findings DI-, EP-, EN-, SH-, AR-, TS-, backlog HD-001 to HD-057) covers security, OneLake write integrity, distribution and reliability.
-- The [UX and simplicity audit](https://github.com/KratosDataGod/fabric-desktop/pull/166) (`docs/ux/`, backlog UX-001 to UX-020) covers workflows, navigation, configuration and documentation coverage.
+- The [enterprise hardening audit](https://github.com/KratosDataGod/KratosForge/pull/137) (`docs/hardening/`, findings DI-, EP-, EN-, SH-, AR-, TS-, backlog HD-001 to HD-057) covers security, OneLake write integrity, distribution and reliability.
+- The [UX and simplicity audit](https://github.com/KratosDataGod/KratosForge/pull/166) (`docs/ux/`, backlog UX-001 to UX-020) covers workflows, navigation, configuration and documentation coverage.
 
 Where a finding here overlaps theirs, it cites their ID and adds only what is new.
 

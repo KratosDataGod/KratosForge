@@ -17,7 +17,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 | `LH_Meta` | Lakehouse | Run history from every project |
 | `VL_Platform` | Variable library | The ids of these items, so a notebook can find them |
 
-Domains, the glossary, data products and descriptions don't depend on the environment, so they live in the **Prod** platform. Keys are per environment: Dev keys never mix with Prod keys.
+Domains, the glossary, data products and descriptions don't depend on the environment, so they live in the **Prod** platform. Keys are per environment until you move them into [one keys database](#one-keys-database-for-dev-test-and-prod).
 
 Without a platform in Fabric, the same tables live in a SQLite file on your PC (`%LOCALAPPDATA%\FabricDesktop\platform\`), so one engineer can try domains, products and the catalog before the central team has set anything up. Moving to Fabric later doesn't change how anything works.
 
@@ -126,7 +126,7 @@ A platform made before this update gets ids for its sources the first time it's 
 
 ## One business key system
 
-Once an environment's platform is in Fabric, every project's surrogate keys in that environment come from `SQL_Platform`. A new project never gets an `LH_Keys` of its own, so Customer ABC has one key across every team. Keys are still kept apart per environment: Dev keys never mix with Prod keys.
+Once an environment's platform is in Fabric, every project's surrogate keys in that environment come from `SQL_Platform`. A new project never gets an `LH_Keys` of its own, so Customer ABC has one key across every team. Keys are kept apart per environment until they move into [one keys database](#one-keys-database-for-dev-test-and-prod).
 
 Key tables are the platform's, not a project's. Only platform admins create one (**Platform > Business keys > New key table**, or by approving a request), and it's made in every environment at once. A project picks the ones it uses on **Data mesh > Design > Surrogate keys > Use a key table**. A run that needs a key table the platform doesn't have stops before writing anything and says to request it.
 
@@ -142,6 +142,47 @@ Projects that already issue keys in `LH_Keys` keep them there until you move the
 
 **Back to LH_Keys** sets `keys = "lakehouse"` instead, but only while the platform hasn't issued keys that `LH_Keys` doesn't have. After that, going back would hand out the same numbers twice, so it's refused.
 
+## One keys database for Dev, Test and Prod
+
+!!! note "Preview"
+    Built and tested against SQLite, not yet on a live tenant. It's in **Settings > Platform**, on the **Keys** row: **Create** or **Join existing** for the Keys workspace, then **Move keys in**.
+
+A business key can have **one** surrogate key everywhere: Customer ABC is key 123 in Dev, Test and Prod. The keys then live in a dedicated **Keys workspace**, named `KratosForge Keys` unless you choose another name:
+
+| Item | Type | What it's for |
+| --- | --- | --- |
+| `SQL_Keys` | SQL database | Every key table (`keys.<name>`) and the platform admins who may add one |
+| `UDF_Keys` | User data functions | The same functions as `UDF_Platform`, connected to `SQL_Keys` in the same workspace |
+
+Setting it up creates only those two items and makes you its first admin. Nothing moves until a platform admin moves the keys in.
+
+**First, a preview.** **Move keys in** lists every key table in every environment, how many keys each holds, and how many Dev and Test keys would get a different number. It writes nothing until you confirm.
+
+**Then the move:**
+
+1. Every environment's keys **close**. No run can issue a key while they're copied: a run that needs a new key stops and says the keys are moving.
+2. Prod's key tables are copied with the **same numbers** and checked row by row.
+3. Test's and Dev's follow. A business key Prod already has takes Prod's key. One Prod doesn't have gets a new key. The result counts how many Dev and Test keys changed number.
+4. The platform admins of every environment become admins of the keys database, so they can still add key tables.
+5. Only when every key table checked out, and no environment's keys changed during the move, does every environment switch to the keys database. Each environment's own keys stay closed, with a note saying where keys are now, so a PC that hasn't joined the Keys workspace can't issue different keys.
+
+Each environment's own keys are only read, never changed or deleted.
+
+**If the move stops** (a network drop, a table that didn't check out), nothing switches and every environment's keys stay closed, so they can't change. Run Move keys in again and the same keys copy again. Or **cancel the move**: after a confirm, it removes what the move copied into the keys database and reopens every environment's keys. Keys that already moved and are in use can't be cancelled or cleared: the switch marks the keys database as live, and from then on it refuses to be filled by another move or emptied, whoever asks. A PC that joins the Keys workspace afterwards sees that mark and uses the shared keys straight away.
+
+In Fabric, each Platform workspace needs **Finish or repair** once after this update, so `UDF_Platform` has the functions that close and reopen keys. A platform that doesn't have them yet refuses the move before anything is copied.
+
+**After the move, re-run Dev and Test.** Their tables still hold the old numbers for any key that changed, so rebuild them before you compare them with Prod. Prod's tables don't change.
+
+From then on:
+
+- A key issued by a run in Dev is the same key in Prod. A test run that meets new business keys uses up key numbers in the shared database.
+- **New key table** makes it once, in the keys database. **Platform > Business keys** shows that one list, with no environment picker.
+- A project's own `LH_Keys` moves with **Move keys** as before. Prod keeps its numbers. Dev and Test take the shared database's numbers, and the result says how many changed.
+- Dev runs on this PC ask the keys database in Fabric for keys, so they need you signed in. Until the Keys workspace is in Fabric, the shared keys live in `%LOCALAPPDATA%\FabricDesktop\platform\keys.sqlite`.
+
+Engineers need **Viewer** on the Keys workspace and **Execute** on `UDF_Keys`, the same access as on `UDF_Platform`. No new sign-in permission is asked for.
+
 ## How keys are issued at scale
 
 - A run sends its business keys to `issue_keys` in batches of 20,000 and gets every key back in one answer.
@@ -156,6 +197,7 @@ These are built to Microsoft's documentation and tested against SQLite, but have
 - Calling user data functions with Microsoft's Fabric sign-in (the app uses the `Item.Execute.All` access it already asks for), and that the functions' context names the caller (`executing_user`), which platform admins and the audit trail rely on.
 - Creating a SQL database and user data functions through the Fabric items API, and the shape of the functions' definition.
 - The T-SQL that issues keys (`OPENJSON`, `IDENTITY_INSERT`, `DBCC CHECKIDENT`) on Fabric SQL database.
+- The Keys workspace: creating `SQL_Keys` and `UDF_Keys`, and moving every environment's keys into it.
 - Importing Fabric's domains with Microsoft's Fabric sign-in: whether it gets `Tenant.Read.All` for a Fabric administrator, and the exact shape of `GET /v1/admin/domains?preview=false`.
 
 If you try it, please say how it went in a [bug report or the Ideas forum](ideas.md).

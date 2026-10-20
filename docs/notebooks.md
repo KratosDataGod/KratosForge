@@ -116,7 +116,7 @@ from pyspark.sql import functions as F
 
 Printed output shows while a cell runs. Code stuck inside a library call can't always be interrupted; the app then offers **Restart kernel**.
 
-**Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process and any processes its cells started, a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
+**Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process and any processes its cells started (including ones that started their own session, like a server), a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
 
 With that setting on, two more Preview settings appear under it.
 
@@ -224,7 +224,7 @@ The note has a button to switch when the other place would work.
 
 **Schedule** opens one dialog for both places:
 
-- **On this PC:** Windows Task Scheduler runs the saved notebook, every cell in order, with its attached lakehouse. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
+- **On this PC:** Windows Task Scheduler runs the saved notebook in a fresh kernel of its own (not the one open in the app), every code cell in order with its attached lakehouse. Frozen cells are skipped, as Run all skips them, and the run record says how many were. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
 For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > Schedules**.
@@ -295,4 +295,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/fabric-desktop/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.

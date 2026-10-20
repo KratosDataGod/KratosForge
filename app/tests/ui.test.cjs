@@ -1500,6 +1500,45 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
 });
 
+// FINOPS-004 follow-up: Data mesh Run all reads the risk in one batch and starts only what can.
+test("Run all checks the risk once and starts only entities that aren't blocked or waiting on one", async () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const calls = [];
+  let dialog = null;
+  const ctx = { ENV_LABEL: { dev: "Dev" }, h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, icon, onclick) => ({ label, onclick }), riskAckBox: () => null, riskPanel: (r) => r.entity,
+    riskProceed: async () => true, closeDialog: () => {}, showDialog: (title, body, buttons) => { dialog = { title, body, buttons }; } };
+  vm.runInNewContext(`${src.match(/async function metaRiskGate\([\s\S]*?\n}\n/)[0]}; this.gate = metaRiskGate;`, ctx);
+  const p = { project: { name: "proj" } };
+  const check = (entity, result) => ({ entity, result, note: "Reports only" });
+  ctx.rpc = async (method, args) => { calls.push([method, args]); return ctx.answer; };
+  ctx.answer = { checks: [check("a", "pass"), check("b", "pass")], blocked: [], held: {}, run: ["a", "b"] };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all 2 entities"), true);
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([["meta_risk_gate", { names: null, env: "dev" }]]));
+  assert.strictEqual(dialog, null);
+  ctx.answer = { checks: [check("a", "blocked"), check("b", "pass"), check("c", "warning")], blocked: ["a"],
+    held: { b: ["a"] }, run: ["c"] };
+  const asked = ctx.gate(p, null, "dev", "all 3 entities");
+  await new Promise((r) => setImmediate(r));
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = JSON.stringify(flat(dialog.body.kids));
+  assert.match(text, /b \(reads a\)/);
+  assert.match(text, /2 of 3 won't start; the other 1 run/);
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Cancel|Run the other 1");
+  await dialog.buttons[1].onclick();
+  assert.strictEqual(JSON.stringify(await asked), '["c"]');
+  ctx.answer = { checks: [check("a", "blocked")], blocked: ["a"], held: {}, run: [] };
+  const none = ctx.gate(p, ["a"], "dev", "a");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Close");
+  dialog.buttons[0].onclick();
+  assert.strictEqual(await none, false);
+  ctx.rpc = async () => { throw new Error("engine busy"); };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all"), true);  // the check is advice
+  assert.match(src, /meta_run", \{ names: only, env/);
+  assert.match(src, /if \(only !== names\) label = only\.join\(", "\);/);  // the toast and tray name only those
+});
+
 // Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
 // first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
 test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {

@@ -72,3 +72,53 @@ def returns_rows(sql: str) -> bool:
 
 def _strip_comments(sql: str) -> str:
     return re.sub(r"^(\s*--[^\n]*(\n|$))+", "", sql)
+
+
+# ---- cell languages
+
+# Fabric marks a cell's language with %%name on its first line; Databricks with %name.
+FABRIC_HEADERS = {"%%sql": "sql", "%%pyspark": "python", "%%python": "python", "%%spark": "scala",
+                  "%%sparkr": "r", "%%csharp": "csharp", "%%html": "html", "%%configure": "configure",
+                  "%%markdown": "markdown", "%%md": "markdown"}
+# %sql and %python are headers only alone on the first line; "%sql SELECT 1" is the line magic.
+DATABRICKS_HEADERS = {"%sql": "sql", "%python": "python", "%scala": "scala", "%r": "r", "%md": "markdown"}
+_ALONE_ONLY = {"%sql", "%python"}
+# What Fabric calls the languages it runs, for publishing (markdown becomes a Markdown cell).
+_TO_FABRIC = {"sql": "%%sql", "scala": "%%spark", "r": "%%sparkr"}
+
+
+class Cell(NamedTuple):
+    language: str  # python, sql, markdown, html, scala, r, csharp or configure
+    header: str  # the header as written, "" when the cell has none
+    body: str  # the cell without its header; Python keeps its line numbers (the header line is blank)
+
+
+def cell(source: str) -> Cell:
+    """The language a code cell is written in, read from its first line, and its body."""
+    lead = len(source) - len(source.lstrip())
+    first, newline, rest = source[lead:].partition("\n")
+    word = first.split(None, 1)[0] if first.strip() else ""
+    language = FABRIC_HEADERS.get(word) or (DATABRICKS_HEADERS.get(word)
+                                             if word not in _ALONE_ONLY or first.strip() == word else None)
+    if language is None:
+        return Cell("python", "", source)
+    if language == "python":
+        return Cell("python", word, source[:lead].replace(" ", "").replace("\t", "") + newline + rest)
+    return Cell(language, word, first[len(word):] + newline + rest)
+
+
+def fabric_cell(c: dict) -> dict:
+    """A cell as Fabric reads it: Databricks headers become Fabric's (``%sql`` to ``%%sql``,
+    ``%scala`` to ``%%spark``, ``%r`` to ``%%sparkr``), ``%md`` and ``%%markdown`` become a Markdown
+    cell, and ``%python`` is dropped (Python is the notebook's language there)."""
+    if c.get("type") == "markdown":
+        return c
+    parsed = cell(c.get("source", ""))
+    if not parsed.header or parsed.header in FABRIC_HEADERS and parsed.language != "markdown":
+        return c
+    if parsed.language == "markdown":
+        return {**c, "type": "markdown", "source": parsed.body.strip("\n").removeprefix(" ")}
+    if parsed.language == "python":
+        return {**c, "source": parsed.body.lstrip("\n")}
+    return {**c, "source": _TO_FABRIC[parsed.language] + ("\n" if not parsed.body.startswith("\n") else "")
+            + parsed.body}

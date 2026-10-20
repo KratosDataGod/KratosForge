@@ -197,16 +197,14 @@ class _Cell(ast.NodeVisitor):
 
 def _python(source: str) -> tuple[str | None, list[int]]:
     """The cell's Python (magics blanked, keeping line numbers, ``x = %sql ...`` kept as
-    ``x = None``), or None for a %%sql cell."""
-    head = source.lstrip()
-    if head.startswith("%%sql"):
+    ``x = None``), or None for a cell in another language (SQL, Markdown, Scala...)."""
+    cell = magics.cell(source)
+    if cell.language != "python":
         return None, []
     found = []
-    lines = source.split("\n")
+    lines = cell.body.split("\n")
     for i, ln in enumerate(lines):
-        if re.match(r"^\s*%%", ln) and i == 0:
-            lines[i] = ""
-        elif re.match(r"^\s*(!|%%)", ln):
+        if re.match(r"^\s*(!|%%)", ln):
             found.append(i + 1)
             lines[i] = ""
     found += [m.line for m in magics.find("\n".join(lines))]
@@ -218,12 +216,12 @@ def analyze(source: str) -> dict[str, Any]:
     out: dict[str, Any] = {"parsed": True, "defines": [], "uses": [], "deferred": [], "reads": [], "writes": [],
                            "effects": [], "dynamic": []}
     code, lines = _python(source)
-    if code is None:
-        query = source.lstrip()[5:]
-        _sql(query, out, 1)
-        if magics.returns_rows(query):
+    cell = magics.cell(source)
+    if cell.language == "sql":
+        _sql(cell.body, out, 1)
+        if magics.returns_rows(cell.body):
             out["defines"].append("_sqldf")
-    else:
+    elif code is not None:
         for line in lines:
             text = source.split("\n")[line - 1].strip()
             sql = next((m.rest for m in magics.find(text) if m.name == "sql"), None)

@@ -42,7 +42,6 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
-_SPARK_ONLY = re.compile(r"^\s*%%(spark|sparkr|csharp)\b")
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 
 
@@ -376,23 +375,24 @@ class Kernel:
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error"."""
         from .notebookutils_local import NotebookExit
-        head = code.lstrip()
-        if head.startswith("%%sql"):
-            return self._run_sql(head[len("%%sql"):], run, namespace)
-        if head.startswith("%%html"):
-            self._emit(run, {"type": "html", "html": head[len("%%html"):]})
+        cell = magics.cell(code)
+        if cell.language == "sql":
+            return self._run_sql(cell.body, run, namespace)
+        if cell.language == "html":
+            self._emit(run, {"type": "html", "html": cell.body})
             return "ok"
-        if head.startswith("%%configure"):
+        if cell.language == "markdown":
+            self._emit(run, {"type": "markdown", "text": cell.body.strip("\n").removeprefix(" ")})
+            return "ok"
+        if cell.language == "configure":
             print("Note: %%configure sets Spark session options in Fabric. On this PC it has nothing to set.")
             return "ok"
-        if _SPARK_ONLY.match(head):
+        if cell.language != "python":
             self._emit(run, {"type": "error", "ename": "RunsInFabric", "evalue":
                              "Scala, R and .NET cells need Fabric's Spark. Switch Runs on to Fabric to run them.",
                              "traceback": ""})
             return "error"
-        if re.match(r"%%(pyspark|python)\b", head):
-            code = head.split("\n", 1)[1] if "\n" in head else ""
-        code = magics.rewrite(code)
+        code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
         self._patch_pyplot(run)
         try:

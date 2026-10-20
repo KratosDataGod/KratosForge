@@ -92,10 +92,13 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
         source = c.get("source") or ""
         if c.get("type") == "markdown" or not source.strip():
             continue
-        if source.lstrip().startswith("%%sql"):
+        language = magics.cell(source).language
+        if language == "sql":
             if m := _SQL_CHANGE.search(source):
                 add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
                     source, m.start())
+            continue
+        if language != "python":
             continue
         for rx, text in _BLOCKERS:
             if m := rx.search(source):

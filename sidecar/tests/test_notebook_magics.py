@@ -109,3 +109,80 @@ def test_publish_turns_sql_magics_into_calls_fabric_has():
     assert python[0]["source"].startswith("_sqldf = lakehouse.sql(")
     nb = fabric_ipynb(cells, None)
     assert "".join(nb["cells"][0]["source"]).startswith("_sqldf = spark.sql(")
+
+
+# ---- cell languages: Fabric %%name and Databricks %name headers
+
+def test_cell_reads_fabric_and_databricks_headers():
+    assert magics.cell("%sql\nSELECT 1") == magics.Cell("sql", "%sql", "\nSELECT 1")
+    assert magics.cell("%sql SELECT 1").language == "python"  # the line magic, not a header
+    assert magics.cell("  %%sql\nSELECT 2").language == "sql"
+    assert magics.cell("%%pyspark\nx = 1") == magics.Cell("python", "%%pyspark", "\nx = 1")
+    assert magics.cell("%python\nx = 1").body == "\nx = 1"
+    assert magics.cell("%md # Title\ntext") == magics.Cell("markdown", "%md", " # Title\ntext")
+    assert magics.cell("%%markdown\n# T").language == "markdown"
+    assert [magics.cell(s).language for s in ("%scala\nval x = 1", "%r\n1", "%%spark\n1", "%%sparkr\n1",
+                                              "%%csharp\n1", "%%configure\n{}", "%%html\n<b>")] == \
+        ["scala", "r", "scala", "r", "csharp", "configure", "html"]
+    assert magics.cell("%sqlx\n1").language == "python"
+
+
+def test_databricks_cells_run_on_this_pc():
+    k = Kernel()
+    _view(k)
+    out = k.run("%sql\nSELECT count(*) AS n FROM t")
+    assert out["status"] == "ok" and out["outputs"][0]["rows"] == [[3]]
+    assert k.run("_sqldf.columns")["outputs"] == [{"type": "text", "text": "['n']"}]
+    assert k.run("%md ## Notes\nSome *text*")["outputs"] == [{"type": "markdown", "text": "## Notes\nSome *text*"}]
+    assert k.run("%%markdown\n# Title")["outputs"] == [{"type": "markdown", "text": "# Title"}]
+    out = k.run("%python\nx = 40\nx + 2")
+    assert out["outputs"] == [{"type": "text", "text": "42"}]
+    out = k.run("%scala\nval x = 1")
+    assert out["status"] == "error" and out["outputs"][0]["ename"] == "RunsInFabric"
+
+
+def test_python_header_keeps_line_numbers_in_tracebacks():
+    out = Kernel().run("%python\nx = 1\nraise ValueError('boom')")
+    assert 'line 3' in out["outputs"][-1]["traceback"]
+
+
+def test_reading_tools_understand_databricks_headers():
+    sql = depgraph.analyze("%sql\nSELECT * FROM dbo.sales")
+    assert sql["parsed"] and {"kind": "table", "name": "dbo.sales", "line": 1} in sql["reads"]
+    assert "_sqldf" in sql["defines"]
+    md = depgraph.analyze("%md # Not Python at all (really)")
+    assert md["parsed"] and not md["uses"]
+    py = depgraph.analyze("%python\nimport polars as pl\ny = pl.DataFrame()")
+    assert py["parsed"] and "y" in py["defines"]
+    assert envprofile.imports("%sql\nSELECT 1")["modules"] == []
+    assert [m["module"] for m in envprofile.imports("%python\nimport polars")["modules"]] == ["polars"]
+
+
+def test_compute_check_sees_databricks_scala_and_sql_writes():
+    cells = [{"type": "code", "source": "%scala\nval x = 1"},
+             {"type": "code", "source": "%sql\nDELETE FROM dbo.sales WHERE id = 1"},
+             {"type": "code", "source": "%md # fine"}]
+    reasons = compute_check(cells, LH)["local"]["reasons"]
+    assert [(r["cell"], r["text"][:12]) for r in reasons] == [(1, "uses a Scala"), (2, "changes tabl")]
+
+
+def test_publish_writes_databricks_headers_as_fabric_ones():
+    cells = [{"type": "code", "source": "%sql\nSELECT * FROM sales"},
+             {"type": "code", "source": "%md ## Notes\nAbout *sales*"},
+             {"type": "code", "source": "%python\nx = 1"},
+             {"type": "code", "source": "%scala\nval y = 2"},
+             {"type": "code", "source": "%r\n1 + 1"},
+             {"type": "code", "source": "%%sql\nSELECT 1"},
+             {"type": "markdown", "source": "%md stays"}]
+    nb = fabric_ipynb(cells, None)
+    got = [(c["cell_type"], "".join(c["source"])) for c in nb["cells"]]
+    assert got == [("code", "%%sql\nSELECT * FROM sales"), ("markdown", "## Notes\nAbout *sales*"),
+                   ("code", "x = 1"), ("code", "%%spark\nval y = 2"), ("code", "%%sparkr\n1 + 1"),
+                   ("code", "%%sql\nSELECT 1"), ("markdown", "%md stays")]
+
+
+def test_python_notebook_publish_turns_databricks_sql_into_lakehouse_sql():
+    cells = [{"type": "code", "source": "from fabric_desktop import lakehouse"},
+             {"type": "code", "source": "%sql\nSELECT * FROM dbo.sales"}]
+    nb = fabric_ipynb(cells, LH)
+    assert "".join(nb["cells"][-1]["source"]) == 'lakehouse.sql("SELECT * FROM dbo.sales")'

@@ -2009,3 +2009,29 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// Organising cells (nbcells.js): which cells a collapsed heading hides, and the hooks in notebook.js.
+test("a collapsed heading hides the cells up to the next heading of the same or a higher level", () => {
+  const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
+  const ctx = { document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  const { collapsedCells, headingLevel, visibleCells } = ctx.f;
+  const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
+  const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
+  assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
+  assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
+  assert.strictEqual(headingLevel(code(1)), 0);
+  const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
+  const { hidden, counts } = collapsedCells(cells);
+  assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
+  assert.strictEqual(counts.get(1), 3);
+  assert.strictEqual(counts.get(7), 1);
+  assert.deepStrictEqual([...visibleCells(cells).map((c) => c.id)], [1, 5, 6, 7]);
+  assert.strictEqual(visibleCells(cells.slice(4, 6)).length, 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /\.\.\.cellHeadExtras\(cell\)/);
+  assert.match(nb, /return \[\.\.\.items, \.\.\.cellMenuExtras\(cell\)\];/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n {2}<script src="nbcells\.js"><\/script>/);
+});

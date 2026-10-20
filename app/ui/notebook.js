@@ -112,13 +112,16 @@ function renderNotebook() {
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
+      nb.cells.some((c) => c.meta?.heading_collapsed && headingLevel(c))
+        ? btn("Expand all sections", "chevronDown", () => setAllSections(false))
+        : btn("Collapse all sections", "chevronRight", () => setAllSections(true)),
       h("div", { class: "sep" }), toggleBtn("Line numbers", "code", state.lineNumbers, toggleLineNumbers)],
   };
 
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), visibleCells(nb.cells).map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -223,13 +226,14 @@ function renderOutline() {
     } else if (isParams(cell)) {
       items.push({ cell, level: 1, text: "Parameters" });
     }
+    if (cell.type === "code" && cell.meta?.title) items.push({ cell, level: 4, text: cell.meta.title, titled: true });
   });
   if (!items.length) {
     return h("div", { class: "muted-text", style: "padding:8px 4px" }, "Add Markdown headings (# Title) to build an outline.");
   }
   return h("nav", { class: "nb-outline", "aria-label": "Outline" }, items.map((it) => h("button", {
-    class: `outline-item l${it.level}${it.cell.id === state.selected ? " active" : ""}`,
-    onclick: () => { selectCell(it.cell); document.querySelector(`[data-cell="${it.cell.id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }); },
+    class: `outline-item l${it.level}${it.titled ? " titled" : ""}${it.cell.id === state.selected ? " active" : ""}`,
+    onclick: () => { revealCell(it.cell); selectCell(it.cell); document.querySelector(`[data-cell="${it.cell.id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }); },
   }, it.text)));
 }
 
@@ -310,6 +314,7 @@ function renderCell(cell) {
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
     cell.type === "code" ? depsHead(cell) : null,
+    ...cellHeadExtras(cell),
     h("span", { class: "spacer" }),
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
@@ -327,7 +332,7 @@ function renderCell(cell) {
     } else {
       body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source));
     }
-    node.append(h("div", { class: "gutter" }), h("div", { class: "cell-box" }, head, body));
+    node.append(h("div", { class: "gutter" }, cellGrip(cell), sectionToggle(cell)), h("div", { class: "cell-box" }, head, body, sectionHiddenBar(cell)));
     return node;
   }
 
@@ -353,7 +358,7 @@ function renderGutter(cell) {
     : h("button", { class: "tool small", "aria-label": "Run cell", title: "Run cell (Shift+Enter)",
       disabled: state.kernel === "busy" || cell.meta?.frozen || null, "data-run": true, onclick: () => runCell(cell) }, icon("play", 14));
   runBtn.querySelector("svg")?.classList.add("play");
-  return h("div", { class: "gutter" }, runBtn, running ? "[*]" : `[${cell.count ?? " "}]`);
+  return h("div", { class: "gutter" }, cellGrip(cell), runBtn, running ? "[*]" : `[${cell.count ?? " "}]`);
 }
 
 function cellResults(cell) {
@@ -394,7 +399,7 @@ function cellMenu(cell) {
   items.push({ label: "Copy cell", icon: "copyArrowRight", action: () => copyCell(cell) });
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
   items.push({ label: "Find and replace", icon: "search", action: () => findInCell(cell) });
-  return items;
+  return [...items, ...cellMenuExtras(cell)];
 }
 
 function statusLine(cell) {
@@ -437,7 +442,7 @@ function renderToolbar() {
 }
 
 function selectRelative(delta) {
-  const cells = state.notebook.cells;
+  const cells = visibleCells(state.notebook.cells);
   const i = cells.indexOf(selectedCell());
   const next = cells[Math.max(0, Math.min(cells.length - 1, i + delta))];
   selectCell(next);
@@ -448,8 +453,9 @@ function selectRelative(delta) {
 
 function focusNext(cell, edit = true) {
   const cells = state.notebook.cells;
+  const { hidden } = collapsedCells(cells);
   const i = cells.indexOf(cell);
-  let next = cells[i + 1];
+  let next = cells.slice(i + 1).find((c) => !hidden.has(c.id));
   if (!next) {
     next = cellFrom({ type: "code" });
     cells.push(next);
@@ -499,6 +505,7 @@ function moveCell(delta, cell = selectedCell()) {
   [cells[i], cells[j]] = [cells[j], cells[i]];
   state.selected = cell.id;
   markDirty();
+  revealCell(cell);  // moved into a collapsed section: open it rather than hide the cell
   renderNotebook();
   refreshOutline();
 }

@@ -245,6 +245,14 @@ class Kernel:
             self._secrets.add(value)
             return value
         utils.credentials.getSecret = remembered_secret
+
+        def restart_python() -> None:
+            from .dbutils_local import RestartPython
+            raise RestartPython()
+        # Fabric's session.restartPython and stop: on this PC both restart Python after the cell.
+        utils.session = types.SimpleNamespace(
+            restartPython=restart_python, stop=restart_python,
+            help=lambda *_a: print("notebookutils.session on this PC: restartPython, stop (both restart Python)"))
         sys.modules["notebookutils"] = utils
         sys.modules["mssparkutils"] = utils
         dbutils = dbutils_local.build(host, utils)

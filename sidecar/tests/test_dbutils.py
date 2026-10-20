@@ -150,3 +150,13 @@ def test_checks_know_dbutils():
     assert not check["fabric"]["ok"] and "dbutils" in check["fabric"]["reasons"][0]["text"]
     found = proof.check([{"type": "code", "source": "dbutils.fs.put('Files/x', 'y')"}], {"id": "lh"})
     assert "notebookutils.fs" in str(found) or "changes files" in str(found)
+
+
+def test_notebookutils_session_restarts_python_too():
+    from fabric_desktop.fabric_run import compute_check
+    k = Kernel()
+    k.run("x = 1")
+    out = k.run("notebookutils.session.restartPython()")
+    assert out["outputs"][-1]["text"] == "Python restarted. Variables were cleared."
+    assert "x" not in k.namespace
+    assert compute_check([{"type": "code", "source": "mssparkutils.session.stop()"}], {"id": "lh"})["local"]["ok"]

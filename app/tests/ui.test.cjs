@@ -1932,3 +1932,20 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
+// Workloads and Agents, linked to their own section of the guide.
+test("Queue, Incidents and Run as say how they work beside the list", () => {
+  const guide = fs.readFileSync(path.join(ui, "..", "..", "docs", "user-guide.md"), "utf8");
+  for (const [file, fn, id, anchor] of [["queue.js", "queuePanel", "monitor.queue", "queue-preview"],
+    ["incidents.js", "incidentsPanel", "monitor.incidents", "incidents-preview"], ["runas.js", "runAsPanel", "monitor.runas", "run-as-preview"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n\\}\\n`).exec(src)[0];
+    assert.match(body, new RegExp(`withHowItWorks\\(box, howItWorks\\("${id.replace(".", "\\.")}"`), file);
+    for (const part of ["reads:", "changes:", "results:", `anchor: "${anchor}"`]) assert.ok(body.includes(part), `${file} ${part}`);
+    const heading = { "queue-preview": "### Queue (Preview)", "incidents-preview": "### Incidents (Preview)", "run-as-preview": "### Run as (Preview)" }[anchor];
+    assert.ok(guide.includes(heading), heading);
+  }
+  const inc = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(inc, /Check now never posts/);
+});

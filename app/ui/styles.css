@@ -1355,7 +1355,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
 
-/* Monitor > Workloads and Agents: the list with How this works beside it */
+/* Monitor > Operations views (Workloads, Queue, Incidents, Agents, Run as): the list with How this works beside it */
 .mon-how { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
 .mon-how .wl-panel { overflow: visible; }
 

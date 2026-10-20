@@ -52,7 +52,7 @@ def _folder(root: Path, name: str) -> Path:
 
 
 def _check_id(vid: str) -> str:
-    if not isinstance(vid, str) or not _ID.match(vid):
+    if not isinstance(vid, str) or not _ID.fullmatch(vid):
         raise ValueError("That isn't a version of this notebook.")
     return vid
 
@@ -69,7 +69,10 @@ def _read(path: Path) -> dict[str, Any] | None:
         rec = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None  # a torn or unreadable version is skipped, never shown as the notebook
-    return rec if isinstance(rec, dict) and isinstance(rec.get("nb"), dict) else None
+    ok = (isinstance(rec, dict) and isinstance(rec.get("nb"), dict) and isinstance(rec.get("id"), str)
+          and _ID.fullmatch(rec["id"]) and isinstance(rec.get("t"), (int, float)) and rec.get("kind") in KINDS
+          and isinstance(rec.get("hash"), str) and isinstance(rec.get("at"), str))
+    return rec if ok else None  # a record missing a field (hand-made, or from another build) is skipped
 
 
 def _all(root: Path, name: str) -> list[dict[str, Any]]:
@@ -78,7 +81,7 @@ def _all(root: Path, name: str) -> list[dict[str, Any]]:
         return []
     out = []
     for p in folder.glob("*.json"):
-        if _ID.match(p.stem) and (rec := _read(p)):
+        if _ID.fullmatch(p.stem) and (rec := _read(p)) and rec["id"] == p.stem:
             out.append(rec)
     return sorted(out, key=lambda r: (r.get("t", 0), r["id"]), reverse=True)
 

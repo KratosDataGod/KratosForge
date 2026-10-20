@@ -46,6 +46,7 @@ async function nbVersions() {
       v.current ? h("span", { class: "pill-s pass" }, "Same as now") : null,
       h("span", { class: "muted-text small" }, when(v.at), ` · ${v.cells} ${v.cells === 1 ? "cell" : "cells"}`)),
     h("div", { class: "nbv-acts" },
+      btn("View", null, () => nbVersionView(v), "tool outline small", { "aria-label": `View ${nbvTitle(v)} ${relTime(v.at)}` }),
       btn("Compare", null, () => nbVersionCompare(v), "tool outline small", { disabled: v.current, "aria-label": `Compare with ${nbvTitle(v)} ${relTime(v.at)}` }),
       btn("Restore", null, () => nbVersionRestore(v), "tool small", { disabled: v.current, "aria-label": `Restore ${nbvTitle(v)} ${relTime(v.at)}` }),
       h("button", { class: "tool small", "aria-label": `Delete ${nbvTitle(v)} ${relTime(v.at)}`, title: "Delete this version",
@@ -82,6 +83,18 @@ async function nbVersionCompare(v) {
       h("b", {}, c.kind === "reordered" ? "Cells were reordered" : `Cell ${c.position}: ${c.kind}`),
       c.diff?.length ? h("pre", { class: "nbv-diff" }, c.diff.slice(0, 40).map((l) => h("span", { class: l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "" }, l))) : null))),
     [btn("Back to versions", null, nbVersions, "tool outline"), v && !v.current ? btn("Restore this version", null, () => nbVersionRestore(v), "tool primary") : null].filter(Boolean));
+}
+
+// The version's cells as they were, read only.
+async function nbVersionView(v) {
+  const nb = state.notebook;
+  const out = await attempt(() => rpc("notebook_version", { name: nb.name, version_id: v.id }), "Couldn't read the version");
+  if (!out) return;
+  showDialog(`${nbvTitle(v)}, ${relTime(v.at)}`, h("div", { class: "nbv" },
+    h("p", { class: "muted-text" }, `${out.cells.length} ${out.cells.length === 1 ? "cell" : "cells"}, as saved. Outputs aren't kept in versions.`),
+    out.cells.map((c, i) => h("div", { class: "nbv-change" }, h("b", {}, `Cell ${i + 1}${c.type === "markdown" ? " (Markdown)" : ""}`),
+      h("pre", { class: "nbv-diff" }, c.source || " ")))),
+    [btn("Back to versions", null, nbVersions, "tool outline"), v.current ? null : btn("Restore this version", null, () => nbVersionRestore(v), "tool primary")].filter(Boolean));
 }
 
 async function nbVersionRestore(v) {

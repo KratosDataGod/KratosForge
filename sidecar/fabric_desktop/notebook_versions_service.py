@@ -37,7 +37,7 @@ class NotebookVersionsMixin:
         """After a save: keep the saved file as a version. A failure here never fails the save."""
         try:
             versions.record(self._versions_root, name, self._saved_nb(name))
-        except (OSError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001 - the notebook is already saved; a version is never worth failing it
             _log.warning("Couldn't keep a version of %r: %s", name, describe(exc))
 
     def notebook_versions(self, name: str) -> dict[str, Any]:

@@ -138,3 +138,13 @@ def test_reads_are_read_only_in_the_audit_trail():
         assert m in audit.READ_ONLY
     for m in ("notebook_checkpoint", "notebook_version_restore", "notebook_version_delete"):
         assert m not in audit.READ_ONLY
+
+
+def test_a_record_missing_fields_is_skipped_and_never_breaks_a_save(svc, clock):
+    save(svc, "NB", "a = 1")
+    folder = svc.root / "notebook-versions" / "NB"
+    (folder / "20000101000000-deadbeef.json").write_text(json.dumps({"id": "20000101000000-deadbeef", "nb": {"cells": []}}))
+    clock["now"] += 10_000
+    save(svc, "NB", "a = 2")
+    assert len(call(svc, "notebook_versions", name="NB")["versions"]) == 2
+    assert "isn't a version" in error(svc, "notebook_version", name="NB", version_id="20000101000000-deadbeef\n")

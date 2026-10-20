@@ -513,6 +513,15 @@ def count(manager, table="orders"):
     ("CREATE TEMP VIEW v AS SELECT 1 x", [("local_mutation", False)]),
     ("COPY orders TO 'out.csv'", [("fabric_mutation", False)]),
     ("ATTACH 'other.db'", [("fabric_mutation", False)]),
+    ("CREATE OR REPLACE TABLE orders AS SELECT 1 id", [("local_project_write", True)]),
+    ("CREATE TABLE t AS SELECT 1 a; CREATE OR REPLACE TABLE t AS SELECT 2 a", [("local_project_write", False)] * 2),
+    ("INSERT OVERWRITE orders SELECT * FROM orders", [("local_project_write", True)]),
+    ("SELECT * FROM read_csv('C:/secret.csv')", [("fabric_mutation", False)]),
+    ("SELECT read_text('C:/secret.txt')", [("fabric_mutation", False)]),
+    ("SELECT * FROM 'C:/secret.parquet'", [("fabric_mutation", False)]),
+    ("CREATE TABLE t AS SELECT * FROM glob('C:/*')", [("fabric_mutation", False)]),
+    ("SET profiling_output = 'C:/out.json'", [("fabric_mutation", False)]),
+    ("PRAGMA enable_profiling", [("fabric_mutation", False)]),
 ])
 def test_local_target_classes(query, expected):
     verdicts = sql_policy.classify(sql.parse(query, "duckdb"), "local")
@@ -616,6 +625,21 @@ def test_local_files_and_extensions_are_refused_even_when_confirmed(local_runs, 
     assert not out.exists()
     with pytest.raises(PermissionError):
         start_local(local_runs, "SELECT 1", allow=["fabric_mutation"])
+
+
+def test_local_replace_asks_and_outside_files_stay_unread(local_runs, tmp_path):
+    for query in ("CREATE OR REPLACE TABLE orders AS SELECT 1 id, 1 kind", "INSERT OVERWRITE orders SELECT * FROM orders LIMIT 1"):
+        status = wait(local_runs, start_local(local_runs, query)["id"])
+        assert status["state"] == "failed" and status["refused"]["confirm_required"], query
+    assert count(local_runs) == 2500
+    secret = tmp_path / "secret.csv"
+    secret.write_text("a\n1\n")
+    profile = tmp_path / "profile.json"
+    for query in (f"SELECT * FROM read_csv('{secret.as_posix()}')", f"SELECT * FROM '{secret.as_posix()}'",
+                  f"SET enable_profiling = 'json'; SET profiling_output = '{profile.as_posix()}'; SELECT 1"):
+        status = wait(local_runs, start_local(local_runs, query, confirm=True)["id"])
+        assert status["state"] == "failed" and status["refused"]["permission"] == "fabric_mutation", query
+    assert not profile.exists()
 
 
 def test_a_dry_run_changes_nothing(local_runs, runs, lake):

@@ -48,6 +48,24 @@ How KratosForge protects your sign-in, your data and your PC, what it trusts, an
 | Secrets in project or agent files | Config validators refuse secret-looking fields; secrets come from Key Vault or environment variables | In place |
 | Command injection through schedules | Task Scheduler is called with argument lists, never a shell; XML values are escaped | In place |
 
+## Data copied to this PC
+
+Running on this PC means reading OneLake data into the PC: previews, notebook DataFrames, SQL results, proof sandboxes, local tables and exports. Fabric's own protections are checked when the data is read, and stop applying once it is here.
+
+| In Fabric | On this PC |
+| --- | --- |
+| OneLake data access roles decide which folders and tables a person can read | Checked once, when the app reads with your token. A copy on the PC has no roles: anyone or any program that can read your files can read it |
+| Row-level and column-level security (RLS, OLS) on a SQL analytics endpoint, Warehouse or semantic model filter what a query returns | Not applied. Notebooks and SQL on this PC read the Delta files in OneLake directly, the way Spark does, so they see every row and column your OneLake access allows |
+| Sensitivity labels and Purview policies stay attached to the item | Not carried onto local files or exports |
+| Data stays in the tenant's region and under its retention rules | Cached copies (previews, staged tables, download cache) are deleted after the `local_retention_days` policy (default 30 days, [Azure setup](azure-setup.md)). Local tables, notebook outputs and exports stay until someone deletes them. The tenant's retention rules don't reach them |
+| OneLake diagnostics can log who read what | The read is logged there like any other. What happens to the copy afterward is in the app's own audit log at most |
+
+What this means in practice:
+
+- Give people OneLake access only to the data they may hold on their PC. If a table must only ever be seen through RLS, keep it out of lakehouses those people can read directly, and query it through the SQL endpoint or the semantic model in Fabric instead.
+- The PC is the protection: BitLocker, a managed device and a per-user profile. KratosForge keeps local data under `%LOCALAPPDATA%\FabricDesktop` and project folders and doesn't encrypt it itself.
+- Running a notebook in Fabric (**Runs on: Fabric**) keeps the data in the tenant.
+
 ## Supply chain
 
 - Python packages are pinned exactly in `sidecar/constraints.txt` and CI installs with it; Rust builds use `Cargo.lock` with `--locked`.

@@ -427,7 +427,7 @@ async function platformSection() {
     return settingRow(`${ENV_LABEL[env]}: ${fabric ? c.workspace_name || c.workspace_id : "on this PC"}`,
       fabric ? "Catalog and run history for every team, in SQL_Platform and LH_Meta; keys too, until they move to the Keys workspace."
         : env === "prod" ? "Domains, products and catalog text are kept in a file on this PC until the Prod platform exists."
-          : "Keys stay in each project's LH_Keys until this environment has a platform.",
+          : "Keys stay in each project's LH_Keys until this environment has a platform or they move to the Keys workspace.",
       policy ? null : h("div", { class: "row" },
         btn(fabric ? "Finish or repair" : "Create", fabric ? "sync" : "add", () => platformSetupDialog(env, s), fabric ? "tool outline" : "tool primary"),
         fabric ? btn("Forget", null, async () => {

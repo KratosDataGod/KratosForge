@@ -146,3 +146,15 @@ def test_a_failed_webhook_post_does_not_leak_the_path():
     text = redact.describe(caught.value)
     assert "SECRETSECRET" not in text and "IncomingWebhook" not in text
     assert "127.0.0.1" in text  # the rest of the message still says what failed
+
+
+def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
+    # notify.failure is what the Teams outbox saves in its error column after a retry fails.
+    import requests
+    from fabric_desktop.workloads import notify
+    path = ("/webhook/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000/IncomingWebhook/"
+            "abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555")
+    with pytest.raises(requests.RequestException) as caught:
+        requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
+    stored = notify.failure(caught.value)
+    assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored

@@ -53,6 +53,8 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .notebook_versions_service import NotebookVersionsMixin
+from . import notebook_versions
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
@@ -69,7 +71,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookVersionsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -689,8 +691,9 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
         """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands."""
-        return (self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
-                | {"check": compute_check(cells, lakehouse_ref)})
+        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
+        self._keep_version(name)
+        return out | {"check": compute_check(cells, lakehouse_ref)}
 
     def notebook_diff(self, name: str, other: str | None = None) -> dict[str, Any]:
         """How the notebook's cells differ, by source only, from ``other`` (another notebook) or,
@@ -710,6 +713,10 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
         self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
+        try:
+            notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
+        except OSError as exc:
+            _log.warning("Couldn't move the versions of %r: %s", name, exc)
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:

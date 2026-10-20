@@ -1949,3 +1949,30 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
+function notebookVersionsHelpers() {
+  const ctx = { registerFeature: () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(`${fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8")}
+this.groups = nbvGroups; this.summary = nbvChangeSummary; this.title = nbvTitle;`, ctx);
+  return ctx;
+}
+
+test("version history groups versions by day and sums up a compare", () => {
+  const f = notebookVersionsHelpers();
+  const today = new Date("2026-10-20T15:00:00");
+  const v = (at, kind = "auto", label = "") => ({ at, kind, label });
+  const groups = f.groups([v("2026-10-20T14:00:00"), v("2026-10-20T09:00:00", "checkpoint", "Before refactor"), v("2026-10-19T22:00:00")], today);
+  assert.deepStrictEqual([...groups].map((g) => [g.day, g.rows.length]), [["Today", 2], ["Yesterday", 1]]);
+  assert.strictEqual(f.title(v("x", "checkpoint", "Before refactor")), "Before refactor");
+  assert.strictEqual(f.title(v("x", "before restore")), "Before a restore");
+  assert.strictEqual(f.summary([]), "No changes to cells.");
+  assert.strictEqual(f.summary([{ kind: "changed" }, { kind: "changed" }, { kind: "added" }, { kind: "reordered" }]),
+    "2 cells changed, 1 cell added, cells reordered.");
+  const src = fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8");
+  assert.match(src, /confirmDialog\(`Delete \$\{v\.kind === "checkpoint"[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /The notebook as it is now is kept as a version first/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save", "save", saveNotebook\), btn\("Versions", "history", nbVersions\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="validate\.js"><\/script>\n  <script src="notebook-versions\.js"><\/script>/);
+});

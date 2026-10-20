@@ -20,6 +20,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | Part | Where | What it does |
 | --- | --- | --- |
 | **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
@@ -42,7 +43,25 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - A menu (your account, Publish options, Git) opens on its first item. The **Up** and **Down** arrows move through it, **Enter** picks, and **Esc** closes it and goes back to its button.
 - Rows and cards that open something when clicked, such as a notebook, lakehouse, run or workload, can be reached with **Tab** and opened with **Enter** or **Space**.
 - In a row of tabs, **Left** and **Right** move to the next tab, and **Home** and **End** to the first and last. Some pages' tabs don't support this yet.
+- **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
+- While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+
+### Keyboard shortcuts
+
+Press **?** when you aren't typing in a box to see every shortcut. The list also opens from the command bar (**Keyboard shortcuts**) and from **Settings > Help and about > Keyboard shortcuts**. It is drawn from the same table the app reads its keys from, so it always matches what the keys do.
+
+| Keys | What they do |
+| --- | --- |
+| **Ctrl+K** | Open the command bar |
+| **?** | Show the list of shortcuts |
+| **Esc** | Close the command bar, a menu, a dialog or the activity tray |
+| **Tab**, **Shift+Tab** | Move to the next or previous control; in a dialog, focus stays inside it |
+| **Enter** or **Space** | Open the row or card that has focus |
+| **Up**, **Down**, **Home**, **End** | Move through an open menu |
+| **Left**, **Right**, **Home**, **End** | Move between tabs |
+
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. The notebook editor has more keys (run a cell, add, delete or move cells, command mode); they're in the [notebook guide](notebooks.md#editing).
 
 ### The bell: activity
 
@@ -77,7 +96,11 @@ Home shows a **Get started** list with these steps until you have a metadata pro
 
 ## Home
 
-Home answers "what happened since I was last here". From the top:
+Home answers "what happened since I was last here".
+
+Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and the **Start something** buttons wait. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
+
+From the top:
 
 | Section | What it shows |
 | --- | --- |
@@ -92,6 +115,10 @@ Home answers "what happened since I was last here". From the top:
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
+
+### All notebooks
+
+**All notebooks**, under **Recent notebooks**, lists every notebook on this PC and in your notebooks repositories, with search inside them. The [notebook files guide](notebook-files.md#all-notebooks) has the details.
 
 ### Ready to work
 
@@ -167,6 +194,10 @@ Previews only read; nothing is changed. They use the permissions sign-in already
 ### A lakehouse
 
 Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and file sizes) as a tree, with **Open in new notebook** and **New SQL query**. Click a table or file to [preview](#item-preview-preview) it beside the tree.
+
+### SQL queries
+
+**New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query).
 
 ## OneLake
 
@@ -427,7 +458,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 
 | Section | What's there |
 | --- | --- |
-| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
+| **Account** | Who you're signed in as and **Sign out**. When sign-in uses your organization's own app, **Admin approval** copies the link a Microsoft Entra admin opens once to approve it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
@@ -435,8 +466,21 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Usage data** (Preview) | Off unless you turn it on. Once a day it sends how often each action ran, failed and took, never your data or names. **See what's sent** shows the exact text. See [Usage data](telemetry.md). |
 | **Notifications** | **Teams alerts**: post new incidents (late and failed tables, missed objectives, agents that stopped) to a Teams channel, unless an agent already checks that environment. See [Freshness promises](metadata-guide.md#freshness-promises). |
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
+| **Advanced** | Folded until you open it: the App (client) ID, the notebook process and its limits, and the SQL query limits. See [Advanced settings](#advanced-settings). |
 
-Anything your organization has set shows "Set by your organization" and can't be changed there.
+Anything your organization has set shows "Set by your organization's policy" and can't be changed there.
+
+### Advanced settings
+
+At the bottom of **Settings > General**, folded. Click **Advanced** to open it; it stays open or closed on this PC as you left it. Most people never need it.
+
+| Group | What's there |
+| --- | --- |
+| **Sign-in** | The **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)). When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
+| **Notebooks** | **Run notebooks in their own process** (Preview) and, with it on, the **Cell time limit** and **Notebook memory limit**. |
+| **SQL queries** | Rows per page, time limit, memory, queries at once, how long results are kept, and the **Temp folder**. See [Running SQL queries on this PC](sql-execution.md#limits). |
+
+When your organization's policy file sets one of these, or the `FABRIC_DESKTOP_CLIENT_ID` environment variable sets the App ID, the field shows the value it uses, can't be edited and says which: "Set by your organization's policy" or "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable". To change an ID the variable sets, remove the variable (`setx FABRIC_DESKTOP_CLIENT_ID ""`) and restart KratosForge.
 
 ### Platform settings
 
@@ -478,9 +522,9 @@ A channel change takes effect the next time KratosForge starts. More detail, inc
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. To hide them, turn off **Settings > Preview features**. A few are core steps, such as Promote and the [risk check before a run](finops/risk-check.md): they always show, with their Preview tag.
 
-The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
+The one list of Preview features, with where each one is, is on the [documentation home](README.md#what-is-tested-and-what-isnt), which also says what is tested and what isn't.
 
 ## Report a problem
 

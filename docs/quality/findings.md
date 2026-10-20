@@ -270,6 +270,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 
 **Fix.** PR-QA-06: `sqlite_util.connect(path, durable=)` and `tx()`. **Verify:** the six modules use it; a `ResourceWarning` filter turned into an error in the notify tests.
 
+**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`); the other idioms are still open.
+
 ### QA-023 Prove and side by side are clones (Low)
 
 **Evidence: Code.** `prove_service.py:187-212,295-323,641-647` and `side_by_side_service.py:87-108,158-187,333-340`: the same lazy state dict, 200-line JSONL history, copy retry loop, status, list and cancel. One corrupt history line makes `json.loads` raise and breaks the whole list (`prove_service.py:197`, `side_by_side_service.py:97`). 31 `threading.Thread(` sites in 23 files; four pre-fetch tokens by hand to keep MSAL on one thread (`estate_service.py:216`, `workload_service.py:174`, `xray_service.py:110`, `schedule_service.py:198`).

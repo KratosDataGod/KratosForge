@@ -1,0 +1,73 @@
+"""QA-022: the Teams outbox and the platform ledger close every SQLite connection they open.
+
+``with sqlite3.connect(...)`` commits or rolls back but never closes; on Windows the open handle
+keeps the file locked."""
+
+import gc
+import sqlite3
+import warnings
+
+import pytest
+
+from fabric_desktop.workloads import notify, platform_notify
+
+
+class Tracked(sqlite3.Connection):
+    opened: list["Tracked"] = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.closed = False
+        Tracked.opened.append(self)
+
+    def close(self):
+        self.closed = True
+        super().close()
+
+
+@pytest.fixture
+def tracked(monkeypatch):
+    real = sqlite3.connect
+    Tracked.opened = []
+    monkeypatch.setattr(sqlite3, "connect", lambda *a, **k: real(*a, factory=Tracked, **k))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", ResourceWarning)
+        yield Tracked.opened
+        gc.collect()
+    Tracked.opened = []
+
+
+def assert_all_closed(opened):
+    assert opened, "expected the store to open connections"
+    still_open = [i for i, c in enumerate(opened) if not c.closed]
+    assert not still_open, f"{len(still_open)} of {len(opened)} connections left open"
+
+
+def test_outbox_closes_every_connection(tmp_path, tracked):
+    box = notify.Outbox(tmp_path / "o.sqlite")
+    box.add("t", ["a"], "boom")
+    [item] = box.pending()
+    box.failed(item["id"], "again")
+    box.done(item["id"])
+    assert box.pending() == []
+    assert_all_closed(tracked)
+
+
+def test_ledger_closes_every_connection(tmp_path, tracked):
+    ledger = platform_notify.Ledger(tmp_path / "o.sqlite")
+    ledger.mark("k", "request.waiting", True)
+    assert ledger.get("k") == ("request.waiting", True)
+    assert [r["key"] for r in ledger.open_keys()] == ["k"]
+    ledger.forget("k")
+    assert ledger.get("k") is None
+    assert_all_closed(tracked)
+
+
+def test_a_failed_write_rolls_back_and_still_closes(tmp_path, tracked):
+    box = notify.Outbox(tmp_path / "o.sqlite")
+    with pytest.raises(RuntimeError):
+        with box._db() as db:
+            db.execute("INSERT INTO outbox (created, title, lines) VALUES (0, 't', '[]')")
+            raise RuntimeError("stop")
+    assert box.pending() == []
+    assert_all_closed(tracked)

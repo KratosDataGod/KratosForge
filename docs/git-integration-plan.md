@@ -79,10 +79,10 @@ Each kind of definition has its own repository: notebooks (one per team or proje
 
 1. **Built:** the marker and the four kinds, starting files for each, the list grouped by kind, choosing a kind for an existing repository (marker only, confirm to change), and a warning when a notebook sits in a repository of another kind.
 2. **Built:** notebooks repositories are places to save notebooks (Save in, Move), and a notebook there takes its lakehouse for the current environment from `locations.toml` unless it has its own. Prove and Side by side don't read locations yet.
-3. Platform repository: export the current catalog as a commit to review, diff against the catalog, and deploy per environment. The Enterprise governance owners define the content and deploy rules.
+3. **Built:** platform repository: export the catalog as files to review, compare Git with each environment's platform, and deploy the committed files with a plan and one confirm (admins only, audited, no renumbering, removals ticked one by one, policies published as new versions). File shapes and deploy rules agreed with the Enterprise governance owners; see [Platform repository](source-control.md#platform-repository).
 4. Capacity repository: read-only, with a drift report against Fabric. No writes to capacities.
 
-Stages 1 and 2 need no new Entra scope. Any new scope for stages 3 and 4 goes in [permissions](permissions.md) first.
+Stages 1 to 3 need no new Entra scope (stage 3 uses the platform's functions as the Platform page does). Any new scope for stage 4 goes in [permissions](permissions.md) first.
 
 ## Known gaps after Phase 1
 

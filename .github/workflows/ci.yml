@@ -240,7 +240,7 @@ jobs:
         with:
           name: sbom-app
       # Signed proof that these exact files were built by this workflow from this commit.
-      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/fabric-desktop
+      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |

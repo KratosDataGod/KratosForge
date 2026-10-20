@@ -1129,6 +1129,12 @@ async function moveSourcesToPlatform(own, env, done) {
   done();
 }
 
+// The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
+registerShortcuts("Entity page", [
+  { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+]);
+
 registerFeature({
   id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },
   views: { metadata: renderMetadata, entity: renderEntity },

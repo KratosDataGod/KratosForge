@@ -21,7 +21,7 @@ test("? opens the list drawn from the shortcut registry, and Esc closes it", { s
   await page().keyboard.press("?");
   await dialog().waitFor();
   const rows = await dialog().locator("tr[data-shortcut]").evaluateAll((trs) => trs.map((t) => t.dataset.shortcut));
-  assert.deepStrictEqual(rows, await page().evaluate(() => shortcutRegistry.map((s) => s.id)));
+  assert.deepStrictEqual(rows, await page().evaluate(() => shortcutGroups().flatMap(([, list]) => list).filter((s) => s.id).map((s) => s.id)));
   const ctrlK = await dialog().locator("tr[data-shortcut=palette] kbd").allTextContents();
   assert.deepStrictEqual(ctrlK, ["Ctrl", "K"]);
   assert.match(await dialog().textContent(), /notebook guide/);
@@ -52,4 +52,15 @@ test("the command bar and Settings open it too", { skip }, async () => {
   await page().keyboard.press("Escape");
   assert.strictEqual(await dialog().count(), 0);
   assert.deepStrictEqual(app.errors, []);
+});
+
+test("a page's own keys show only on that page", { skip }, async () => {
+  const labels = () => dialog().locator("h3").allTextContents();
+  await page().evaluate(() => { state.view = "source"; shortcutsDialog(); });
+  assert.ok((await labels()).includes("Source control"));
+  assert.ok(!(await labels()).includes("Entity page"));
+  await page().keyboard.press("Escape");
+  await page().evaluate(() => { state.view = "home"; shortcutsDialog(); });
+  assert.deepStrictEqual(await labels(), ["Anywhere", "Moving around", "Menus and tabs"]);
+  await page().keyboard.press("Escape");
 });

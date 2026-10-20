@@ -40,6 +40,7 @@ registerShortcuts("Notebook", [
 - `keys` is what to press, each combination written with `+`; several mean any of them. `label` says what it does, in plain words. `when` (optional) lists it only while it returns true.
 - A key the app handles everywhere also gets an `id`, `match` (its `KeyboardEvent.key` values) and `mod: true` when Ctrl or Cmd is held. Its handler asks `isShortcut(e, id)`, so the key and its line in the list can't drift apart. Add it to the table in [Keyboard shortcuts](user-guide.md#keyboard-shortcuts) too.
 - A plain key (no Ctrl) must do nothing while someone is typing: check `typingIn(e.target)`.
+- Keys that work only on one page are registered too, description only (no `id`), with a `when` for that page, next to the page's code. The handler stays where it is.
 
 ## Preview features
 

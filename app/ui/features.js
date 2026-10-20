@@ -198,12 +198,11 @@ function shortcutsDialog() {
     ...groups.map(([group, list]) => h("section", {}, h("h3", {}, group),
       h("table", { class: "list" }, h("tbody", {},
         list.map((s) => h("tr", { "data-shortcut": s.id || null }, keys(s), h("td", {}, s.label))))))),
-    groups.some(([group]) => group === "Notebook") ? null
-      : h("p", { class: "text" }, "The notebook editor has keys of its own, such as running a cell or adding one: ",
-        h("a", { href: "#", class: "learn-more", onclick: (e) => {
-          e.preventDefault();
-          attempt(() => invoke("open_doc", { page: "notebooks.md#editing" }), "Could not open the guide");
-        } }, "see the notebook guide"), "."),
+    h("p", { class: "text" }, "The notebook editor has more keys of its own, such as running a cell or adding one: ",
+      h("a", { href: "#", class: "learn-more", onclick: (e) => {
+        e.preventDefault();
+        attempt(() => invoke("open_doc", { page: "notebooks.md#editing" }), "Could not open the guide");
+      } }, "see the notebook guide"), "."),
     h("p", { class: "text" }, learnMore("keyboard-shortcuts", "Keyboard shortcuts in the user guide")));
   showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
 }

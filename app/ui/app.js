@@ -2109,6 +2109,10 @@ document.addEventListener("keydown", (e) => {
     shortcutsDialog();
   }
 });
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
+registerShortcuts("Notebook", [
+  { keys: ["Ctrl+S"], label: "Save the notebook", when: () => state.view === "notebook" },
+]);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();

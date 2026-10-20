@@ -1453,3 +1453,33 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+
+/* Forge animations (motion.js): one aria-hidden element per effect, transform and opacity only */
+.fx-anchor { position: relative; }
+.fx { position: absolute; pointer-events: none; }
+.fx-spark { left: 100%; top: 50%; width: 0; height: 0; margin-left: 3px; }
+.fx-spark::before, .fx-spark::after {
+  content: ""; position: absolute; left: 0; top: -1px; width: 8px; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, rgba(248,153,28,0), #ffd08a 55%, var(--brand-orange)); transform-origin: left center;
+  animation: fx-spark .4s cubic-bezier(.2,.7,.3,1) both; }
+.fx-spark::after { width: 5px; animation-name: fx-spark-2; animation-delay: 40ms; }
+@keyframes fx-spark { from { opacity: 1; transform: rotate(-30deg) translateX(0) scaleX(1); } to { opacity: 0; transform: rotate(-30deg) translateX(16px) scaleX(.3); } }
+@keyframes fx-spark-2 { from { opacity: 1; transform: rotate(-65deg) translateX(0) scaleX(1); } to { opacity: 0; transform: rotate(-65deg) translateX(11px) scaleX(.3); } }
+.fx-fail { right: 100%; top: 50%; width: 6px; height: 6px; margin: -3px 6px 0 0; border-radius: 50%; background: #8a8886; animation: fx-fail-out .45s ease-in both; }
+.fx-fail::before { content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  background: radial-gradient(circle, #ffb347 0, var(--brand-orange) 45%, rgba(248,153,28,0) 72%); animation: fx-fail-heat .45s ease-in both; }
+@keyframes fx-fail-heat { 0% { opacity: 1; transform: scale(1.2); } 55% { opacity: .35; } 100% { opacity: 0; transform: scale(.6); } }
+@keyframes fx-fail-out { 0%, 50% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.6); } }
+.wolf-track { display: inline-flex; align-items: center; gap: 10px; }
+.wolf-bar { position: relative; width: 160px; height: 4px; border-radius: 2px; background: var(--border); }
+.wolf-fill { display: block; height: 100%; border-radius: 2px; background: var(--accent); transition: width .3s ease-out; }
+.wolf-bar:has(.wolf) .wolf-fill { background: linear-gradient(90deg, var(--accent) 0, var(--accent) calc(100% - 10px), var(--brand-orange) 100%); }
+.wolf { position: absolute; top: 50%; width: 16px; height: 16px; margin: -10px 0 0 -8px; color: var(--accent); transition: left .3s ease-out; }
+.wolf svg { display: block; }
+.wolf.arriving { animation: fx-fade .25s ease-in .3s both; }
+.fx-arrive { left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(248,153,28,.85) 0, rgba(248,153,28,0) 70%); animation: fx-glow .5s ease-out both; }
+@keyframes fx-glow { 0% { opacity: 0; transform: scale(.4); } 40% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.25); } }
+@keyframes fx-fade { to { opacity: 0; } }
+html[data-motion="off"] .fx, html[data-motion="off"] .wolf { display: none; }
+@media (prefers-reduced-motion: reduce) { .fx, .wolf { display: none; } .wolf-fill { transition: none; } }

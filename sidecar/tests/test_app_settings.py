@@ -61,6 +61,16 @@ def test_save_checks_values(dirs):
     assert app_settings.save({"client_id": ""})["client_id"]["source"] == "default"
 
 
+def test_forge_animations_default_on_saved_and_lockable(dirs):
+    assert app_settings.load()["forge_animations"] == {"value": True, "source": "default"}
+    assert app_settings.save({"forge_animations": False})["forge_animations"] == {"value": False, "source": "user"}
+    assert app_settings.load()["forge_animations"]["value"] is False  # kept for the next start
+    dirs.write_text(json.dumps({"forge_animations": False}))
+    assert app_settings.load()["forge_animations"]["source"] == "policy"
+    with pytest.raises(ValueError, match="organization"):
+        app_settings.save({"forge_animations": True})
+
+
 def test_service_uses_the_current_app_id(dirs, tmp_path):
     svc = Service(root=tmp_path / "app")
     assert svc.auth.client_id == MICROSOFT_CLIENT_ID and svc.auth.microsoft

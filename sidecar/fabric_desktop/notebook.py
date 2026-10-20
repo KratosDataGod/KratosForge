@@ -166,6 +166,7 @@ class _Run:
         self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
+        progress = _query_progress() if self.status == "running" else None
         with self.lock:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
@@ -173,7 +174,15 @@ class _Run:
                     "outputs": list(self.outputs) if changed else None}
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if progress is not None:
+                snap["progress"] = progress
             return snap
+
+
+def _query_progress() -> float | None:
+    """The running ``spark`` query's progress, without importing the Spark API for a cell that never used it."""
+    module = sys.modules.get("fabric_desktop.spark_local")
+    return module.progress() if module is not None else None
 
 
 class _Router(io.TextIOBase):

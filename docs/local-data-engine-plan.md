@@ -104,7 +104,7 @@ Each PR is independent, tested without Fabric, and reported before the next star
 6. **Transformations** (LDE-006): SQL scripts with parameters and dependency order, each step's output kept as a table for inspection.
 7. **OneLake destinations and Files transfer** (LDE-007, LDE-008).
 8. **Delta publish with validation** (LDE-009, LDE-010): dry run, preview, confirm, commit, check the committed snapshot.
-9. **Incremental and MERGE** (LDE-011).
+9. **Incremental and MERGE** (LDE-011). *Built for the project's own Delta tables:* `MERGE INTO` (every WHEN clause, including NOT MATCHED BY SOURCE), `UPDATE` and `DELETE` in both dialects through `delta_dml.py` and delta-rs, with an exact dry run on a linked copy, confirm for every-row changes and Spark's one-match rule. Still to come: notebook `spark.sql` and a `DeltaTable` builder (with the Notebook runtime thread), OneLake targets (Preview, with the per-table lease, after the tenant commit test), watermarks and idempotent job ids.
 10. **Local TDS endpoint** (LDE-012): needs Chris's go first.
 11. **Power BI Desktop** (LDE-013).
 12. **Quality, diagnostics and publish history** (LDE-016, 017, 018).

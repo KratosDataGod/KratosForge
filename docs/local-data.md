@@ -76,6 +76,25 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 **What stays read-only.** Delta tables in registered folders are never written: copy one into the project with `CREATE TABLE mine USING DELTA AS SELECT * FROM theirs`. Deleting a project table deletes its folder and every version, so it isn't done in SQL (`DROP TABLE` on one is refused) but with `local_drop_delta`, which only says what it would delete until it is called again with `confirm`.
 
+**Changing rows: MERGE, UPDATE and DELETE.** The project's Delta tables take the statements Fabric and Databricks notebooks use, in either dialect, each in one commit:
+
+```sql
+MERGE INTO customers AS t USING updates AS s ON t.id = s.id
+  WHEN MATCHED AND s.deleted THEN DELETE
+  WHEN MATCHED THEN UPDATE SET *                  -- or SET t.name = s.name, ...
+  WHEN NOT MATCHED THEN INSERT *                  -- or INSERT (id, name) VALUES (s.id, s.name)
+  WHEN NOT MATCHED BY SOURCE THEN DELETE;         -- rows the source no longer has
+UPDATE customers SET spend = spend * 1.1 WHERE region = 'EU';
+DELETE FROM customers WHERE last_order < '2020-01-01';
+```
+
+- The source (`USING`) is any query or table in the project, and can read a table as it was (`VERSION AS OF`). Column names match without regard to case, as in Spark.
+- As in Spark, a MERGE in which two source rows match the same table row is refused, because which one would win is undefined. Keep one row per key first (`QUALIFY row_number() OVER (PARTITION BY id ORDER BY updated DESC) = 1`). This is checked when `ON` is `t.col = s.col [AND ...]`.
+- An `UPDATE` or `DELETE` without `WHERE` changes every row, so it isn't run from a query. Run it with `local_change_delta` and `confirm`.
+- `local_change_delta` with `dry_run` runs the statement on a copy of the table (its log copied, its data files linked, deleted afterwards) and returns exactly how many rows it would insert, update and delete. The table isn't touched.
+- Conditions and values are run by delta-rs, so a subquery inside one (`WHERE id IN (SELECT ...)`) isn't supported. Join the rows in with `MERGE ... USING (SELECT ...)` instead. `UPDATE ... FROM` and `DELETE ... USING` are refused for the same reason.
+- `MERGE ... WITH SCHEMA EVOLUTION` (adding columns from the source) isn't supported yet.
+
 A Delta write isn't part of a DuckDB transaction: `ROLLBACK` doesn't undo it. Only one program should write a project's Delta tables at a time, as with its database.
 
 ## Where it is kept
@@ -105,6 +124,7 @@ Only one program can write to a project's database at a time. If another KratosF
 | `local_query(project, query, dialect, limit, timeout)` | Run SQL and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
 | `local_query_start` / `local_query_status` / `local_query_cancel` | The same, in the background, for long queries |
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
+| `local_change_delta(project, query, dialect, dry_run, confirm)` | Run one `MERGE INTO`, `UPDATE` or `DELETE` on a Delta table in the project; returns rows inserted, updated and deleted. `dry_run` changes nothing; `confirm` is needed for every row |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |
 | `local_drop_delta(project, table, confirm)` | Delete one of the project's Delta tables with every version (only with `confirm`) |
 | `local_close_project` / `local_forget_project` | Close the database / take the project off the list (its folder stays) |
@@ -115,4 +135,4 @@ Each query and change is recorded in the [audit trail](user-guide.md#audit-trail
 
 ## Not yet
 
-Excel, T-SQL, `MERGE`, `UPDATE` and `DELETE` on Delta tables, publishing to OneLake, a SQL Server-compatible endpoint, Power BI Desktop and the screens are later steps in the [plan](local-data-engine-plan.md#4-pr-plan). Delta tables are untested against a Fabric lakehouse until a publish exists; their profile is the one the app's other writes to OneLake already use.
+Excel, T-SQL, `MERGE` in notebook cells (`spark.sql` on this PC still refuses it), publishing to OneLake, a SQL Server-compatible endpoint, Power BI Desktop and the screens are later steps in the [plan](local-data-engine-plan.md#4-pr-plan). Delta tables are untested against a Fabric lakehouse until a publish exists; their profile is the one the app's other writes to OneLake already use.

@@ -61,6 +61,7 @@ NO_UI_CALLER: dict[str, str] = {
     "local_add_source": _LOCAL,
     "local_close_project": _LOCAL,
     "local_create_project": _LOCAL,
+    "local_change_delta": _LOCAL,
     "local_delta_history": _LOCAL,
     "local_drop_delta": _LOCAL,
     "local_forget_project": _LOCAL,

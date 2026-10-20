@@ -1842,7 +1842,7 @@ async function scheduleNotebook() {
     title: `Schedule ${nb.name}`,
     mode: fabricDefault && nbLakehouse(nb) ? "fabric" : "pc",
     pc: { target: { kind: "notebook", name: nb.name }, query: { kind: "notebook", name: nb.name },
-          intro: "This PC runs the saved notebook, every cell in order, with its attached lakehouse. Save your changes first." },
+          intro: "This PC runs the saved notebook in a fresh kernel, every code cell in order except frozen ones, with its attached lakehouse. Save your changes first." },
     fabric: {
       unavailable: nbLakehouse(nb) ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
       intro: `Fabric runs the published notebook in ${publishWorkspaceName(nb)} on its own capacity, even when this PC is off. Adding a schedule publishes what is on screen first.`,

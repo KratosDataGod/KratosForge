@@ -1949,3 +1949,11 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
+test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
+  assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
+  assert.match(card, /Keys come from \$\{e\.keys_from\}/);
+});

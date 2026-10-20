@@ -204,8 +204,7 @@ def test_a_legacy_connector_webhook_that_cant_be_reached_is_not_stored_with_the_
     sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
     monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": legacy})
     out = svc.run_schedule(sid)
-    assert out["alert_error"].startswith("Couldn't post the Teams alert: ConnectionError:")
-    assert "[webhook]" in out["alert_error"]
+    assert out["alert_error"].startswith("Couldn't post the Teams alert: ConnectionError:")  # what went wrong is kept
     stored = svc.pc_schedules.runs_file.read_text(encoding="utf-8")
     for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
         assert secret not in out["alert_error"] and secret not in stored

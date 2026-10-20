@@ -546,7 +546,8 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         if getattr(self, "_sql_runs", None) is None:
             self._sql_runs = sql_exec.SqlExecutions(
                 self.root, token=lambda: self.auth.storage_token(), audit=self._audit_sql_run,
-                schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]))
+                schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]),
+                local_engine=lambda project: self.local_data.engine(project))
         return self._sql_runs
 
     def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
@@ -555,11 +556,17 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
         self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
 
-    def sql_start(self, query: str, lakehouse_ref: dict[str, Any], dialect: str = "spark",
-                  allow: list[str] | None = None) -> dict[str, Any]:
+    def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
+                  allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
+                  confirm: bool = False, dry_run: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
-        lakehouse writes and Fabric changes are never allowed here (sql_policy.py)."""
-        return self.sql_runs.start(query, lakehouse_ref, dialect, allow)
+        lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
+
+        ``target="local"`` runs it in local data project ``project``: it may change the project's
+        own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
+        ``dry_run`` only says what each statement would do; nothing runs."""
+        return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
+                                   confirm=confirm, dry_run=dry_run)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)

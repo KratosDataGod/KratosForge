@@ -21,8 +21,21 @@ Snapshots live under ``sql_temp_dir`` (default ``<data>/sql-runs``) and are dele
 ``sql_result_retention_hours``, when more than MAX_KEPT runs are kept, and at start-up for runs
 from an earlier session that are past retention.
 
+A run's target is a lakehouse (above) or, with ``target="local"``, a local data project
+(KF-DE-027). A local run doesn't get a process of its own: it runs in the project's own DuckDB
+database through LocalEngine.execute_reader, on a thread here. The project's database is a file
+only one process can open for writing, and the engine already holds it, so a worker process
+couldn't open it; the engine also already stops a query cleanly with con.interrupt() for Stop and
+for the time limit. The run otherwise has the same states, queue, snapshot, paging and export.
+Its statements are classified for the local target first (sql_policy.py): writes to the project's
+own tables run, DROP, TRUNCATE and DELETE or UPDATE without WHERE run only when started again with
+``confirm``, and COPY, ATTACH, INSTALL and the like never run.
+
+``dry_run`` classifies the statements and says what would run, and what needs confirming, without
+running anything, for either target.
+
 Each finished run adds one ``sql_execution`` line to the audit trail: its id, dialect, lakehouse,
-state, permission class, rows and seconds. Never the SQL, the error text, the token or any data.
+state, permission class, rows and seconds (and target and project for a local run). Never the SQL, the error text, the token or any data.
 """
 
 from __future__ import annotations
@@ -43,7 +56,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
-from . import app_settings, sql_policy
+from . import app_settings, sql, sql_policy
 from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
@@ -51,6 +64,11 @@ FINISHED = ("completed", "failed", "cancelled", "timed_out")
 MAX_KEPT = 20  # finished runs whose snapshots are kept, newest first
 EXPORT_FORMATS = ("csv", "parquet")
 EXPORT_BATCH_ROWS = 65_536
+LOCAL_BATCH_ROWS = 65_536
+# What each target may ever allow. A local run allows all of its classes unless the caller narrows it.
+TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
+                 "local": ("read_only", "local_mutation", "local_project_write")}
+LOCAL_DIALECTS = ("duckdb", "spark")
 
 
 class RerunNeeded(Exception):
@@ -81,6 +99,11 @@ class Execution:
     timer: threading.Timer | None = field(default=None, repr=False)
     stop_reason: str = ""  # "cancel" or "timeout" once the engine ended the process
     time_limit_s: float = 0.0
+    target: str = "lakehouse"  # or "local": a local data project's database
+    project: str = ""  # local target: the project's id
+    project_name: str = ""
+    confirm: bool = False  # local target: DROP, TRUNCATE, DELETE/UPDATE without WHERE may run
+    timeout_s: float | None = None  # local target: a caller's own time limit, in seconds
 
     @property
     def snapshot(self) -> Path:
@@ -89,8 +112,8 @@ class Execution:
     def status(self) -> dict[str, Any]:
         """What the page shows: never the SQL or the token."""
         end = self.ended or time.time()
-        return {"id": self.id, "state": self.state, "target": "lakehouse", "dialect": self.dialect,
-                "lakehouse": self.lakehouse.get("name", ""),
+        return {"id": self.id, "state": self.state, "target": self.target, "dialect": self.dialect,
+                "lakehouse": self.lakehouse.get("name", ""), "project": self.project_name,
                 "created": self.created, "started": self.started, "ended": self.ended,
                 "seconds": round(end - self.started, 2) if self.started else 0.0,
                 "rows": self.rows, "columns": self.columns, "permission": self.permission,
@@ -122,8 +145,10 @@ class SqlExecutions:
     def __init__(self, root: Path, token: Callable[[], str], audit: Callable[..., None] | None = None,
                  limits: Callable[[], dict[str, Any]] = app_settings.sql_limits,
                  command: list[str] | None = None, downloads: Callable[[], Path] | None = None,
-                 schemas_enabled: Callable[[dict[str, Any]], bool] = lambda _ref: True, test_lake: Path | None = None):
+                 schemas_enabled: Callable[[dict[str, Any]], bool] = lambda _ref: True, test_lake: Path | None = None,
+                 local_engine: Callable[[str], Any] | None = None):
         self.root = Path(root)
+        self._local_engine = local_engine  # project id or name -> its LocalEngine (localdata/)
         self._token = token
         self._schemas_enabled = schemas_enabled
         self._audit = audit
@@ -151,27 +176,65 @@ class SqlExecutions:
 
     # ---- starting and stopping
 
-    def start(self, query: str, lakehouse_ref: dict[str, Any], dialect: str = "spark",
-              allow: list[str] | None = None) -> dict[str, Any]:
+    def start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
+              allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
+              confirm: bool = False, dry_run: bool = False, timeout: float | None = None) -> dict[str, Any]:
+        """Queue a run. ``target="local"`` runs it in local data project ``project`` instead of
+        against ``lakehouse_ref``; ``confirm`` lets its DROP, TRUNCATE and DELETE or UPDATE without
+        WHERE run; ``timeout`` (seconds, local only) replaces the SQL page's time limit."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("The query is empty.")
-        if not isinstance(lakehouse_ref, dict) or not all(isinstance(lakehouse_ref.get(k), str) and lakehouse_ref[k]
-                                                          for k in ("workspace_id", "lakehouse_id", "name")):
-            raise ValueError("Pick a lakehouse to run the query against.")
-        allowed = tuple(dict.fromkeys(["read_only", *(allow or [])]))
-        if any(a not in ("read_only", "local_mutation") for a in allowed):
+        if target not in TARGET_ALLOWS:
+            raise ValueError(f"target must be one of {tuple(TARGET_ALLOWS)}, got {target!r}")
+        engine = None
+        if target == "lakehouse":
+            if not isinstance(lakehouse_ref, dict) or not all(isinstance(lakehouse_ref.get(k), str) and lakehouse_ref[k]
+                                                              for k in ("workspace_id", "lakehouse_id", "name")):
+                raise ValueError("Pick a lakehouse to run the query against.")
+        else:
+            if not isinstance(project, str) or not project:
+                raise ValueError("Pick a local data project to run the query in.")
+            if dialect not in LOCAL_DIALECTS:
+                raise ValueError(f"A local data project runs {' or '.join(LOCAL_DIALECTS)} SQL, not {dialect!r}.")
+            if self._local_engine is None:
+                raise ValueError("Local data projects aren't available here.")
+            engine = self._local_engine(project)  # KeyError for a project that doesn't exist
+        permitted = TARGET_ALLOWS[target]
+        allowed = tuple(dict.fromkeys(["read_only", *(permitted[1:] if allow is None and target == "local" else allow or [])]))
+        if any(a not in permitted for a in allowed):
             # OneLake writes and Fabric changes are never allowed from the SQL page, whoever asks.
+            if target == "local":
+                raise PermissionError("A local data project run can read and change the project's own tables, "
+                                      "never files elsewhere on this PC, extensions or Fabric.")
             raise PermissionError("The SQL page can only read tables and change a run's own session on this PC.")
+        if dry_run:
+            return self._plan(query, dialect, target, allowed, confirm)
         if not self._cleaned_at_start:
             self._cleaned_at_start = True
             self.cleanup(earlier_sessions=True)
         run_id = uuid.uuid4().hex[:12]
         folder = self.base() / run_id
-        run = Execution(id=run_id, query=query, dialect=dialect, lakehouse=dict(lakehouse_ref), allow=allowed, folder=folder)
+        run = Execution(id=run_id, query=query, dialect=dialect, lakehouse=dict(lakehouse_ref or {}), allow=allowed,
+                        folder=folder, target=target, confirm=bool(confirm),
+                        timeout_s=None if timeout is None else float(timeout))
+        if engine is not None:
+            run.project, run.project_name = engine.project.id, engine.project.name
         with self._lock:
             self._runs[run_id] = run
         self._pump()
         return run.status()
+
+    def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool) -> dict[str, Any]:
+        """A dry run: what each statement is and whether the run would be refused or need
+        confirming. Nothing runs and no run is kept."""
+        verdicts = sql_policy.classify(sql.parse(query, dialect), target)
+        stop = sql_policy.refused(verdicts, allowed, bool(confirm))
+        return {"dry_run": True, "target": target, "dialect": dialect,
+                "permission": sql_policy.strongest(verdicts),
+                "statements": [{"statement": v.statement, "permission": v.kind, "reason": v.reason,
+                                "confirm": v.confirm} for v in verdicts],
+                "confirm_required": bool(stop is not None and stop.kind in allowed and stop.confirm),
+                "refused": None if stop is None else _refusal(stop)}
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         """Stop: a queued run never starts; a running one has its own process ended."""
@@ -229,6 +292,9 @@ class SqlExecutions:
 
     def _launch(self, run: Execution, limits: dict[str, Any]) -> None:
         run.folder.mkdir(parents=True, exist_ok=True)
+        if run.target == "local":
+            self._launch_local(run, limits)
+            return
         lh = run.lakehouse
         job = {"query": run.query, "dialect": run.dialect, "allow": list(run.allow),
                "lakehouse": {k: lh[k] for k in ("workspace_id", "lakehouse_id", "name", "workspace_name") if k in lh},
@@ -291,7 +357,13 @@ class SqlExecutions:
                 self._end_process(run)
 
     def _end_process(self, run: Execution) -> None:
-        """End this run's own process: the Popen this manager started for it, nothing else."""
+        """End this run's own process: the Popen this manager started for it, nothing else. A local
+        run has no process: its query is interrupted in the project's database (con.interrupt())."""
+        if run.target == "local":
+            if self._local_engine is not None:
+                # not_started: the run's thread may not have reached the engine yet; it stops as it starts.
+                self._local_engine(run.project).cancel(run.id, not_started=True)
+            return
         proc = run.proc
         if proc is not None and proc.poll() is None:
             try:
@@ -357,6 +429,70 @@ class SqlExecutions:
             self._finished(run)
         self._pump()
 
+    # ---- local data project runs (target="local")
+
+    def _launch_local(self, run: Execution, limits: dict[str, Any]) -> None:
+        minutes = float(limits["sql_time_limit_minutes"] or 0)
+        run.time_limit_s = run.timeout_s if run.timeout_s is not None else minutes * 60
+        run.state, run.started = "running", time.time()
+        threading.Thread(target=self._run_local, args=(run,), daemon=True, name=f"sql-run-{run.id}").start()
+
+    def _run_local(self, run: Execution) -> None:
+        """Run in the project's own database, streaming the last statement's result to the
+        snapshot as the worker does. The engine's own timer and cancel stop it with con.interrupt()."""
+        from .localdata import EngineBusy, QueryCancelled
+        state, kind, error, refused = "completed", "", "", None
+        rows, batches, columns = 0, [], []
+        try:
+            verdicts = sql_policy.classify(sql.parse(run.query, run.dialect), "local")
+            stop = sql_policy.refused(verdicts, run.allow, run.confirm)
+            if stop is not None:
+                refused = _refusal(stop)
+                state, kind = "failed", "permission"
+                if stop.kind in run.allow and stop.confirm:
+                    error = (f"Statement {stop.statement} needs confirming ({stop.reason}), so nothing ran. "
+                             "Run it again and confirm to let it change the project.")
+                else:
+                    error = (f"Statement {stop.statement} {sql_policy.LABELS[stop.kind]} ({stop.reason}), so nothing "
+                             "ran. A local data project run reads and changes the project's own tables only.")
+            else:
+                with self._lock:
+                    run.permission = sql_policy.strongest(verdicts)
+                engine = self._local_engine(run.project)  # type: ignore[misc]
+                with engine.execute_reader(run.query, dialect=run.dialect, timeout=run.time_limit_s or None,
+                                           query_id=run.id, batch_size=LOCAL_BATCH_ROWS) as stream:
+                    with pa.ipc.new_file(str(run.snapshot), stream.schema) as writer:
+                        for batch in stream:
+                            if not batch.num_rows:
+                                continue
+                            writer.write_batch(batch)
+                            rows += batch.num_rows
+                            batches.append(batch.num_rows)
+                            run.rows = rows
+                    columns = [{"name": f.name, "type": str(f.type)} for f in stream.schema]
+        except QueryCancelled:
+            state, error = "cancelled", "Stopped."
+        except TimeoutError as exc:
+            state, kind = "timed_out", "timeout"
+            error = (f"Stopped after the time limit ({run.time_limit_s / 60:g} minutes, Settings › SQL)."
+                     if run.timeout_s is None and run.time_limit_s else str(exc))  # else the caller's or project's limit
+        except EngineBusy as exc:
+            state, kind, error = "failed", "engine", str(exc)
+        except Exception as exc:  # noqa: BLE001 - the SQL's own error, shown in place of the rows
+            state, kind, error = "failed", "sql", (str(exc).strip() or type(exc).__name__)[:4000]
+        with self._lock:
+            run.ended = time.time()
+            run.state, run.error_kind, run.error, run.refused = state, kind, error, refused
+            if refused is not None:
+                run.permission = refused["permission"]
+            if state == "completed":
+                run.rows, run.batches, run.columns = rows, batches, columns
+                run.offsets = list(itertools.accumulate([0, *batches[:-1]])) if batches else []
+            else:
+                shutil.rmtree(run.folder, ignore_errors=True)
+            self._finished(run)
+        self._pump()
+
     def _finished(self, run: Execution) -> None:
         if self._audit is not None:
             lh = run.lakehouse
@@ -364,9 +500,9 @@ class SqlExecutions:
                 self._audit("sql_execution", "ok" if run.state == "completed" else "error",
                             (run.ended or time.time()) - (run.started or run.created),
                             {"execution": run.id, "state": run.state, "dialect": run.dialect,
-                             "permission": run.permission or "", "rows": run.rows,
+                             "permission": run.permission or "", "rows": run.rows, "target": run.target,
                              "workspace_id": lh.get("workspace_id", ""), "lakehouse_id": lh.get("lakehouse_id", ""),
-                             "lakehouse": lh.get("name", "")})
+                             "lakehouse": lh.get("name", ""), "project": run.project_name})
             except Exception as exc:  # noqa: BLE001 - an audit problem never fails the run
                 print(f"audit: could not record sql_execution: {type(exc).__name__}", file=sys.stderr)
         run.query = ""  # the SQL isn't kept once the run is over
@@ -413,7 +549,7 @@ class SqlExecutions:
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
         folder.mkdir(parents=True, exist_ok=True)
-        base = f"{file_stem(name or run.lakehouse.get('name') or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
+        base = f"{file_stem(name or run.lakehouse.get('name') or run.project_name or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
         export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=run.rows)
         with self._lock:
@@ -495,6 +631,11 @@ class SqlExecutions:
 
 class _Stopped(Exception):
     pass
+
+
+def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:
+    return {"permission": stop.kind, "statement": stop.statement, "label": sql_policy.LABELS.get(stop.kind, ""),
+            "reason": stop.reason, "confirm_required": stop.confirm}
 
 
 def _writer(fmt: str, sink: Any, schema: pa.Schema) -> Any:

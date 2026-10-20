@@ -11,6 +11,8 @@ frame and Markdown through the app's escaping renderer.
 from __future__ import annotations
 
 import base64
+import importlib.abc
+import importlib.machinery
 import json as _json
 import sys
 import types
@@ -161,21 +163,48 @@ def build(display: Callable[..., None], clear_output: Callable[..., None]) -> ty
     pkg = types.ModuleType("IPython", "IPython isn't installed here; KratosForge provides IPython.display.")
     pkg.display = mod  # type: ignore[attr-defined]
     pkg.__path__ = []  # type: ignore[attr-defined]  # so "import IPython.display" finds the submodule
-    pkg.get_ipython = lambda: None  # type: ignore[attr-defined]
+    pkg.get_ipython = lambda: None  # type: ignore[attr-defined]  # no interactive shell, so libraries take their plain path
+    pkg.version_info = (8, 30, 0, "")  # type: ignore[attr-defined]  # the IPython.display API this stands in for
+    pkg.__version__ = "8.30.0"  # type: ignore[attr-defined]
     return pkg
 
 
+class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
+    """Last on ``sys.meta_path``: ``import IPython`` finds the stand-in only when the real IPython
+    isn't installed, and only when cell code imports it. Nothing is put in ``sys.modules`` before
+    that, because libraries change course when they see an ``IPython`` module (matplotlib reads
+    ``IPython.version_info`` on every figure)."""
+
+    NAMES = ("IPython", "IPython.display")
+
+    def __init__(self) -> None:
+        self.pkg: types.ModuleType | None = None
+
+    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> importlib.machinery.ModuleSpec | None:
+        if fullname not in self.NAMES or self.pkg is None:
+            return None
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname == "IPython")
+
+    def create_module(self, spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
+        assert self.pkg is not None
+        return self.pkg if spec.name == "IPython" else self.pkg.display  # type: ignore[attr-defined]
+
+    def exec_module(self, module: types.ModuleType) -> None:
+        return None
+
+
+_finder = _Finder()
+
+
 def install(pkg: types.ModuleType) -> None:
-    """Put the stand-in in place, unless the real IPython is importable."""
-    real = sys.modules.get("IPython")
-    if real is not None and not getattr(real, "__kratosforge__", False):
-        return
-    if real is None:
-        try:
-            import IPython  # noqa: F401 - the real one wins when it's installed
-            return
-        except ImportError:
-            pass
+    """Make ``import IPython.display`` find ``pkg`` from now on, unless the real IPython is installed.
+    A stand-in a cell already imported is pointed at this kernel too."""
     pkg.__kratosforge__ = True  # type: ignore[attr-defined]
-    sys.modules["IPython"] = pkg
-    sys.modules["IPython.display"] = pkg.display  # type: ignore[attr-defined]
+    _finder.pkg = pkg
+    if _finder not in sys.meta_path:
+        sys.meta_path.append(_finder)
+    if getattr(sys.modules.get("IPython"), "__kratosforge__", False):
+        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display)):  # type: ignore[attr-defined]
+            mod = sys.modules.get(name)
+            if mod is not None:
+                mod.__dict__.update({k: v for k, v in fresh.__dict__.items() if not k.startswith("__")})

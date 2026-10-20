@@ -70,3 +70,21 @@ def test_clear_output_clears_now_or_on_the_next_output():
 
 def test_displayhtml_is_not_a_user_variable():
     assert "displayHTML" in Kernel._base_namespace_keys()
+
+
+def test_matplotlib_still_draws_once_kernels_exist():
+    # The stand-in must not be in sys.modules until a cell imports it: matplotlib reads
+    # IPython.version_info on every figure when it sees an IPython module.
+    k = Kernel()
+    out = k.run("import matplotlib.pyplot as plt\nplt.plot([1, 2, 3])\nplt.show()")
+    assert out["status"] == "ok" and out["outputs"][0]["type"] == "image", out
+    out = k.run("from IPython.display import Markdown\nimport matplotlib.pyplot as plt\nplt.plot([1])\nplt.show()")
+    assert out["status"] == "ok" and out["outputs"][0]["type"] == "image", out
+
+
+def test_a_second_kernel_takes_over_the_imported_stand_in():
+    first = Kernel()
+    assert first.run("from IPython.display import display, HTML")["status"] == "ok"
+    second = Kernel()
+    out = second.run("import IPython.display\nIPython.display.display(IPython.display.HTML('<p>2</p>'))")
+    assert out["outputs"] == [{"type": "html", "html": "<p>2</p>"}]

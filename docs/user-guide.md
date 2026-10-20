@@ -41,7 +41,7 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - A menu (your account, Publish options, Git) opens on its first item. The **Up** and **Down** arrows move through it, **Enter** picks, and **Esc** closes it and goes back to its button.
 - Rows and cards that open something when clicked, such as a notebook, lakehouse, run or workload, can be reached with **Tab** and opened with **Enter** or **Space**.
 - In a row of tabs, **Left** and **Right** move to the next tab, and **Home** and **End** to the first and last. Some pages' tabs don't support this yet.
-- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+- If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either, unless you untick **Respect Windows' reduced-motion setting** in [Motion and effects](#motion-and-effects).
 
 ### The bell: activity
 
@@ -432,6 +432,17 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 | **Help and about** | This guide, **Report a problem**, the **Guide for IT admins**, the build, the engine's Python version and where the organization settings file is. |
 
 Anything your organization has set shows "Set by your organization" and can't be changed there.
+
+### Motion and effects
+
+**Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is
+**0 Off** (nothing moves), **1 Minimal** (quick page and panel transitions only), **2 Refined**
+(the default: small sparks, embers and the wolf on real progress) or **3 Expressive** (the same
+moments with more character). Four switches turn off one family of effects at a time: wolf
+animations, forge sparks, achievement celebrations and ambient execution indicators. Changes apply
+at once and are kept. **Preview effects** plays each effect on a sample, and runs a three-step sample
+pipeline on this PC to show the pipeline flow. Progress, results and errors look the same at every
+level. See [Motion and effects](forge-animations.md) for every effect and when it plays.
 
 ### Platform settings
 

@@ -1162,6 +1162,7 @@ async function gitPlatformDeploy(root) {
     if (out.deployed) {
       closeDialog();
       toast(`Deployed ${out.done.length} step${out.done.length === 1 ? "" : "s"}.`);
+      forgeEvent("deploy.succeeded", document.getElementById("toast"));  // Anvil Strike (motion.js)
       gitPlatformReload();
     } else if (out.failed) {
       const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} of ${out.total} steps applied; the rest didn't run.`;

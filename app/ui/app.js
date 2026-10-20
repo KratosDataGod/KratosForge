@@ -382,7 +382,9 @@ function render() {
 }
 
 function setView(...children) {
-  document.getElementById("view").replaceChildren(...children);
+  const view = document.getElementById("view");
+  view.replaceChildren(...children);
+  viewTransition(view);  // motion.js: only when the page itself changed
 }
 
 function signInCallout() {

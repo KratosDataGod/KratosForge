@@ -97,7 +97,7 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | --- | --- | --- |
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
 | `fdacc_` | Governance (planned) | The access cache: who can reach what, updated with changes only |
-| `fdcap_` | FinOps (planned) | Capacity setting history |
+| `fdcap_` | FinOps (Preview) | [Capacity settings history](#capacity-settings-history) |
 | `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
 | `fdinc_` | Incident management (planned) | Incident history |
 
@@ -118,6 +118,21 @@ A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenant
 - **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
 - **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
 - **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
+
+### Capacity settings history
+
+A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`, no Fabric administrator role) is kept in three `fdcap_` tables with the same columns as the tenant settings history, so its history shows both:
+
+| Table | One row per |
+| --- | --- |
+| `fdcap_snapshot` | Capacity setting (`displayName`, `sku`, `region`, `state`) whose value differs from its last row; `scope_type` is `capacity` and `scope_id` the capacity id |
+| `fdcap_change` | Difference found, between two reads |
+| `fdcap_read` | Capacity read, or one row for a read that failed (`unreadable` without `Capacity.Read.All`, otherwise `failed`) |
+
+- **Only what you can see.** People see different capacities, so a capacity missing from your read isn't recorded as changed or deleted. It just isn't compared, and its last read shows how old its history is.
+- **When and by whom.** As for tenant settings, a change is only ever "between these two reads", and `read_by` is an Entra object id.
+- **Only reads.** It never resizes, pauses or changes a capacity.
+- **What's built.** The engine call `capacity_settings_read`, untested on a live tenant; `tenant_settings_history` returns its changes and gaps beside the tenant's. The page comes after a mockup.
 
 For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
 

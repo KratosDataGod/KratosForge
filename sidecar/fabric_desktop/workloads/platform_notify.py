@@ -19,9 +19,9 @@ import sqlite3
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, ContextManager
 
-from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure
+from .notify import DEFAULT_ROUTE, KEEP_TRYING, Outbox, Quiet, failure, transaction
 
 KINDS = ("request.waiting", "request.decided", "request.withdrawn", "shortcut.broken", "shortcut.fixed")
 OPENS = {"request.waiting": "request", "shortcut.broken": "shortcut"}  # kinds that open a dedupe key
@@ -173,8 +173,8 @@ class Ledger:
         with self._db() as db:
             db.execute("CREATE TABLE IF NOT EXISTS sent (key TEXT PRIMARY KEY, kind TEXT, at REAL, open INTEGER)")
 
-    def _db(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.path, timeout=30)
+    def _db(self) -> ContextManager[sqlite3.Connection]:
+        return transaction(self.path)
 
     def get(self, key: str) -> tuple[str, bool] | None:
         with self._db() as db:

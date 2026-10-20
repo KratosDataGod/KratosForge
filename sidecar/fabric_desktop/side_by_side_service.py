@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import threading
 import time
 import uuid
@@ -17,6 +18,8 @@ from . import depgraph, jsonfile, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .onelake import DFS_HOST, FileStore, storage_options
+
+_log = logging.getLogger(__name__)
 
 NOTEBOOK_JOB = "RunNotebook"
 POLL_SECONDS = 5
@@ -103,9 +106,14 @@ class SideBySideMixin:
                 rows.append(json.loads(line))
             except ValueError:
                 torn = True
-        if torn:  # keep the original aside and the rows that still read in place
-            jsonfile.set_aside(self.side_by_side_file, then=f"the {len(rows)} comparisons that could be read were kept")
-            jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        if torn:  # copy the original aside, then swap in the rows that still read
+            try:
+                jsonfile.set_aside(self.side_by_side_file, keep=True,
+                                   then=f"the {len(rows)} comparisons that could be read were kept")
+                jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+            except OSError as exc:  # the original stays in place, so the next read tries again
+                _log.warning("%s could not be repaired (%s); showing the comparisons that could be read.",
+                             self.side_by_side_file, exc)
         return rows
 
     def _sbs_save(self, record: dict[str, Any]) -> None:

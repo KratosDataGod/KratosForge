@@ -1829,3 +1829,55 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });
+
+// Notebook files (notebook-files.js): the Saved in chips, search hits, and what Publish says changed in Fabric.
+function notebookFilesHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registered: [], registerFeature(f) { ctx.registered.push(f); } };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFilesPlaces, nbFilesShown, nbHitParts, nbHitCount, nbChangeTitle });`, ctx);
+  return ctx;
+}
+
+test("All notebooks filters by where notebooks are saved", () => {
+  const { nbFilesPlaces, nbFilesShown } = notebookFilesHelpers();
+  const repo = { root: "C:/git/sales", label: "sales-notebooks" };
+  const list = [{ name: "A", place: null }, { name: "B", place: repo }, { name: "C", place: repo }];
+  assert.deepStrictEqual([...nbFilesPlaces(list).map((p) => `${p.label} ${p.count}`)], ["All 3", "This PC 1", "sales-notebooks 2"]);
+  assert.deepStrictEqual([...nbFilesShown(list, "pc").map((n) => n.name)], ["A"]);
+  assert.deepStrictEqual([...nbFilesShown(list, repo.root).map((n) => n.name)], ["B", "C"]);
+  assert.strictEqual(nbFilesShown(list, null).length, 3);
+});
+
+test("A search hit marks the match, and the count covers name-only matches", () => {
+  const { nbHitParts, nbHitCount } = notebookFilesHelpers();
+  assert.deepStrictEqual([...nbHitParts({ text: "x = region_map.join()", start: 4, end: 14 })], ["x = ", "region_map", ".join()"]);
+  const found = { notebooks: [{ name_match: true, hits: [] }, { name_match: false, hits: [{}, {}] }, { name_match: true, hits: [{}] }] };
+  assert.strictEqual(nbHitCount(found), 4);
+});
+
+test("Publish names each change made in Fabric", () => {
+  const { nbChangeTitle } = notebookFilesHelpers();
+  assert.strictEqual(nbChangeTitle({ kind: "changed", position: 3 }), "Cell 3: changed");
+  assert.strictEqual(nbChangeTitle({ kind: "added", position: 6 }), "Cell 6: added");
+  assert.strictEqual(nbChangeTitle({ kind: "reordered", position: null }), "Cells were reordered");
+});
+
+test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publish check are wired", () => {
+  const { registered } = notebookFilesHelpers();
+  assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
+  assert.ok(registered[0].views.notebooks);
+  assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["notebooks"\]/);
+  assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
+  assert.match(app, /rpc\("publish_notebook", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(app, /rpc\("run_notebook_in_fabric", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "item-preview.js"), "utf8"), /preview\("fabricEdit", btn\("Edit on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /fabricEdit: "Edit Fabric notebooks on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="validate\.js"><\/script>\n  <script src="notebook-files\.js"><\/script>/);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /confirmDialog\(`Delete \$\{name\}\?`, .*"Delete", \{ danger: true \}\)/);
+  assert.match(files, /"Replace with mine", \{ danger: true \}/);
+});

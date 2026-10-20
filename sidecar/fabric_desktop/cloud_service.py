@@ -20,9 +20,9 @@ from typing import Any
 import polars as pl
 from deltalake.exceptions import TableNotFoundError
 
-from . import maintenance, profiling, semantic
+from . import maintenance, notebook_files, profiling, semantic
 from .auth import FABRIC_SCOPES, STORAGE_SCOPES
-from .fabric_api import FabricClient
+from .fabric_api import FabricClient, FabricError
 from .fabric_compute import BUNDLE_DIR, RESULTS_DIR, RUNNER, bundle_files, bundle_hash, run_parameters, runner_ipynb
 from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_configuration, uses_local_module, uses_spark
 from .meta.engine import Engine, RunResult, apply_clean
@@ -34,6 +34,10 @@ from .onelake import FileStore
 from .redact import describe
 
 _log = logging.getLogger(__name__)
+
+
+class FabricChanged(RuntimeError):
+    """The notebook's Fabric item changed since this app last published it."""
 
 NOTEBOOK_JOB = "RunNotebook"
 FABRIC_APP = "https://app.fabric.microsoft.com"
@@ -161,34 +165,82 @@ class CloudMixin:
     def _publish(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                  compute: str | None = None, workspace: dict[str, str] | None = None,
                  fabric_cells: list[dict[str, Any]] | None = None,
-                 location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+                 location_ref: dict[str, str] | None = None, replace_fabric_changes: bool = False) -> dict[str, Any]:
         """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here).
         ``location_ref`` is the lakehouse from the notebook repository's locations for the current
         environment: Fabric gets it when the notebook has none of its own, but it isn't saved into
-        the notebook, so the notebook keeps following the environment."""
+        the notebook, so the notebook keeps following the environment.
+
+        When the Fabric item changed since this app last published it (someone edited it in Fabric),
+        nothing is sent and FabricChanged says so, unless ``replace_fabric_changes``."""
         self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
         saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
         self.notebooks.save(name, cells, saved_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                    if lakehouse_ref else True)
-        ipynb = json.dumps(fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)).encode()
-        item = self.fabric.save_notebook(ws["workspace_id"], name, ipynb)  # type: ignore[attr-defined]
+        doc = fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)
+        if not replace_fabric_changes:
+            change = self._fabric_change(name, ws["workspace_id"], doc)
+            if change and change["changed"]:
+                raise FabricChanged(f"{name} changed in Fabric after it was last published from here, so it wasn't "
+                                    "published. Publish it from the notebook to see the changes and choose.")
+        item = self.fabric.save_notebook(ws["workspace_id"], name, json.dumps(doc).encode())  # type: ignore[attr-defined]
         if not item.get("id"):  # a create can come back without the item; look it up
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]
                          if n["displayName"] == name), item)
         if item.get("id") and hasattr(self, "_record_notebook_item"):  # the workload keeps the item by id
             self._record_notebook_item(name, ws["workspace_id"], item["id"], ws["workspace_name"])  # type: ignore[attr-defined]
+        if item.get("id"):
+            try:
+                notebook_files.remember_published(Path(self.root) / "published", item["id"], ws["workspace_id"], doc)  # type: ignore[attr-defined]
+            except (OSError, ValueError) as exc:  # the publish happened; only the next change check is lost
+                _log.warning("Couldn't keep what was published for %r: %s", name, describe(exc))
         return {"name": name, "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"],
                 "id": item.get("id"),
                 "url": f"{FABRIC_APP}/groups/{ws['workspace_id']}/synapsenotebooks/{item.get('id')}"
                        "?experience=fabric-developer"}
 
+    def _fabric_change(self, name: str, workspace_id: str, doc: dict[str, Any] | None) -> dict[str, Any] | None:
+        """How the notebook's Fabric item changed since this app last published it, or None when
+        that isn't known (never published from here, or the item is gone)."""
+        link = self.workload_store.links().get(name) if hasattr(self, "workload_store") else None  # type: ignore[attr-defined]
+        if not link or link["workspace_id"] != workspace_id:
+            return None
+        base = notebook_files.published(Path(self.root) / "published", link["item_id"])  # type: ignore[attr-defined]
+        if not base:
+            return None
+        try:
+            definition = self.fabric.get_item_definition(workspace_id, link["item_id"], "ipynb")  # type: ignore[attr-defined]
+        except FabricError as exc:
+            if exc.status == 404:
+                return None  # deleted in Fabric: Publish makes it again
+            raise RuntimeError(f"Couldn't check whether {name} changed in Fabric ({describe(exc)}), so it wasn't "
+                               "published. Try again.") from exc
+        return notebook_files.fabric_changes(base, notebook_files.ipynb_of(definition), doc) | {"item_id": link["item_id"]}
+
+    def notebook_publish_check(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
+                               workspace: dict[str, str] | None = None,
+                               location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """Before Publish or Run in Fabric: whether the Fabric item changed since this app last
+        published it, what changed there and what changed here. Reads only."""
+        lakehouse_ref = lakehouse_ref or location_ref
+        try:
+            ws = self._publish_workspace(name, lakehouse_ref, workspace)
+        except ValueError:
+            return {"changed": False, "known": False}
+        schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
+                   if lakehouse_ref else True)
+        change = self._fabric_change(name, ws["workspace_id"], fabric_ipynb(cells, lakehouse_ref, schemas))
+        return change | {"known": True} if change else {"changed": False, "known": False}
+
     def run_notebook_in_fabric(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                                compute: str | None = None, workspace: dict[str, str] | None = None,
-                               location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+                               location_ref: dict[str, str] | None = None,
+                               replace_fabric_changes: bool = False) -> dict[str, Any]:
         """Publish the notebook, then run it on its workspace's Fabric capacity."""
-        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
+        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref,
+                             replace_fabric_changes=replace_fabric_changes)
         lakehouse_ref = lakehouse_ref or location_ref
         job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
         # As published: a Python notebook, or Spark (what the cost view counts it as).

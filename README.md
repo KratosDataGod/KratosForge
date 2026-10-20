@@ -44,6 +44,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
+| [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |

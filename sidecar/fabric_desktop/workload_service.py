@@ -292,7 +292,8 @@ class WorkloadMixin:
         return w
 
     def workload_capacity_use(self, id: str, days: int = 30) -> dict[str, Any]:
-        """The capacity this workload's runs used in the last ``days``, as far as it is known. Each
+        """The capacity used in the last ``days`` by the runs the workload record holds: the ones this
+        app started or scheduled, not Fabric's own job history (workload_detail reads that). Each
         Fabric run counts with its measured CU when an imported usage row matched it, else the app's
         estimate, else as unknown (left out of the total, not counted as 0). Runs on this PC start no
         Fabric job; their OneLake reads and writes still use some capacity, which isn't counted.

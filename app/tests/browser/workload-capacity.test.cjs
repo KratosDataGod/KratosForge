@@ -32,7 +32,7 @@ test("measured and estimated runs, and runs on this PC that aren't counted", { s
   use = { fabric_runs: 3, pc_runs: 2, measured_runs: 1, problem: "",
     measured: m("measured", 2), total: m("estimated", 3, { complete: false, unknown_parts: 1, parts: 3 }) };
   const text = await card();
-  for (const part of ["3 runs in Fabric used 3.00 CU h", "Estimated", "Incomplete", "1 of 3 matched imported usage", "2.00 CU h",
+  for (const part of ["3 runs this app started in Fabric used 3.00 CU h", "Estimated", "Incomplete", "1 of 3 matched imported usage", "2.00 CU h",
     "left out, not counted as 0", "2 runs on this PC started no Fabric job", "isn't counted here", "likely, not proven"]) {
     assert.ok(text.includes(part), part);
   }
@@ -48,7 +48,9 @@ test("nothing matched says the figure is an estimate and where to import usage",
 
 test("no runs says so, with no figure", { skip }, async () => {
   use = { fabric_runs: 0, pc_runs: 0, measured_runs: 0, problem: "", measured: null, total: null };
-  assert.match(await card(), /No runs in the last 30 days\.$/);
+  const text = await card();
+  assert.ok(text.includes("No runs started from this app in the last 30 days."));
+  assert.ok(text.includes("Runs Fabric started on its own schedule"));
 });
 
 test("no page errors", { skip }, () => assert.deepStrictEqual(app.errors, []));

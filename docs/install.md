@@ -50,7 +50,7 @@ The lasting fix is code signing: CI signs every file when the repository has an 
 
 ## Updates
 
-KratosForge updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. Then **What's new** lists what changed. You never run an old build by accident.
+KratosForge updates itself. Each time it starts it asks GitHub whether a newer build is out on your channel. If one is, it downloads it, checks it is the right file, swaps the exe in place and restarts. Then a full-window splash shows what changed (you can turn it off in Settings > Updates). You never run an old build by accident.
 
 | Channel | Who it's for | What you get |
 | --- | --- | --- |

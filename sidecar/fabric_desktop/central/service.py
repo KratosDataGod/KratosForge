@@ -319,8 +319,10 @@ class PlatformMixin:
         for d in fabric:
             try:
                 roles = admin.list_admin_domain_role_assignments(str(d["id"]))
-            except (FabricError, KeyError):
-                unread.append(str(d.get("displayName") or d.get("id") or ""))
+            except (FabricError, KeyError) as exc:
+                name = str(d.get("displayName") or d.get("id") or "")
+                busy = re.search(r"failed with 429\b", str(exc))  # still throttled after the client's retries
+                unread.append(f"{name} (Fabric is busy: import again later)" if busy else name)
                 continue
             d["admins"] = [{"name": (r.get("principal") or {}).get("displayName") or "",
                             "type": (r.get("principal") or {}).get("type") or "User"}

@@ -624,7 +624,7 @@ def test_fabric_domains_are_locked_and_admin_only(platform):
 class _FakeFabric:
     def __init__(self, domains=None, workspaces=None, status=200, roles=None, unreadable=()):
         self.domains, self.workspaces, self.status = domains or [], workspaces or {}, status
-        self.roles, self.unreadable = roles or {}, set(unreadable)
+        self.roles, self.unreadable, self.throttled = roles or {}, set(unreadable), set()
 
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
@@ -636,6 +636,8 @@ class _FakeFabric:
         from fabric_desktop.fabric_api import FabricError
         if domain_id in self.unreadable:
             raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 404: NotFound")
+        if domain_id in self.throttled:
+            raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 429: TooManyRequests")
         return self.roles.get(domain_id, [])
 
     def get_workspace(self, wid):
@@ -688,6 +690,8 @@ def test_import_reads_each_domains_fabric_admins_as_owners_from_fabric(svc, monk
     fake.unreadable, fake.roles = set(), {"f-sales": [_admin("Cy")]}
     assert "sales" in svc.platform_import_fabric_domains()["result"]["updated"]
     assert {d["id"]: d for d in svc.mesh_map()["domains"]}["sales"]["fabric_owners"] == '[{"name": "Cy", "type": "User"}]'
+    fake.throttled = {"f-sales"}
+    assert svc.platform_import_fabric_domains()["owners_unread"] == ["Sales (Fabric is busy: import again later)"]
 
 
 def test_fabric_owners_column_is_added_to_a_platform_made_before(platform):

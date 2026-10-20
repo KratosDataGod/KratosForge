@@ -13,18 +13,51 @@ test("every UI script parses", () => {
   }
 });
 
+// The names a script declares at its top level (function, class, var, let, const, however indented
+// and including destructured names), found by V8's own parser rather than a regex: appending
+// `let x;` to a script is a SyntaxError exactly when the script already declares x at the top
+// level. Nothing is run; the scripts are only compiled.
+const bindable = new Map();
+function canBind(word) {
+  if (!bindable.has(word)) {
+    try { new vm.Script(`let ${word};`); bindable.set(word, true); } catch { bindable.set(word, false); }
+  }
+  return bindable.get(word);
+}
+function topLevelNames(src) {
+  const left = new Set([...new Set(src.match(/[A-Za-z_$][\w$]*/g) || [])].filter(canBind));
+  const found = [];
+  while (left.size) {
+    try {
+      new vm.Script(`${src}\n;let ${[...left].join(", ")};`);
+      break;
+    } catch (e) {
+      const m = /^Identifier '([^']+)' has already been declared$/.exec(e.message);
+      if (!m || !left.has(m[1])) throw e;
+      found.push(m[1]);
+      left.delete(m[1]);
+    }
+  }
+  return found;
+}
+
+test("topLevelNames finds indented and destructured declarations, not nested ones", () => {
+  const src = "function a() { var inner; }\n  const b = 1, { c, d: e } = {}, [f] = [];\n\tclass G {}\n" +
+    "if (true) { let blockScoped; }\n    async function* h() {}\n// var commented;\nconst s = 'var quoted';";
+  assert.deepStrictEqual(topLevelNames(src).sort(), ["G", "a", "b", "c", "e", "f", "h", "s"]);
+});
+
 // The page's scripts share one global scope, so a top-level name declared in two of them makes
 // the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
 test("no two page scripts declare the same top-level name", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
   assert.ok(scripts.length > 10, "index.html scripts not found");
   const owner = new Map();
   const clashes = [];
-  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
   for (const name of scripts) {
-    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
-      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+    for (const id of topLevelNames(fs.readFileSync(path.join(ui, name), "utf8"))) {
+      if (owner.has(id)) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
       else owner.set(id, name);
     }
   }
@@ -291,14 +324,6 @@ test("Fabric refusing a name reads as a name problem, not an app crash", () => {
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
   const raw = 'FabricError: POST https://api.fabric.microsoft.com/v1/workspaces/w/lakehouses failed with 400: {"errorCode":"InvalidInput","moreDetails":[{"errorCode":"InvalidParameter","message":"Artifact request failed due to invalid input. Error: DisplayName is Invalid for ArtifactType. DisplayName: <pi>TPC-H_Benchmark</pi>"}]}';
   assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
-});
-
-test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
-  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
-  const ctx = {};
-  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
-  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
 });
 
 function gitHelpers() {

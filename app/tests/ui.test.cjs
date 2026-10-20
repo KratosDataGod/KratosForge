@@ -1852,4 +1852,6 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.strictEqual(ok, "Remove");
   assert.strictEqual(opts.danger, true);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });

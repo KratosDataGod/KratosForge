@@ -29,11 +29,12 @@ function nextRunText(iso) {
 }
 
 // UX-018: removing a schedule can't be undone, so say what stops and point at Off.
-function confirmRemoveSchedule(what, text, fabric) {
+// offHere: false where the list has no Off control (the Fabric tab of the schedule dialog).
+function confirmRemoveSchedule(what, text, fabric, offHere = true) {
   const how = fabric ? "Fabric deletes the schedule and stops starting runs from it."
     : "Its Windows task is deleted and it stops running on this PC.";
   return confirmDialog(`Remove the schedule for ${what}?`,
-    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off.`, "Remove", { danger: true });
+    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Schedules"}.`, "Remove", { danger: true });
 }
 
 // Rows for this PC's schedules; actions redraw through `changed`.
@@ -86,7 +87,7 @@ async function openScheduleDialog(o) {
       h("td", {}, s.enabled ? h("span", { class: "pill-s pass" }, "On") : h("span", { class: "pill-s neu" }, "Paused")),
       h("td", {}, s.text),
       h("td", { class: "n" }, btn("Remove", "delete", async () => {
-        if (!(await confirmRemoveSchedule(o.what, s.text, true))) return;
+        if (!(await confirmRemoveSchedule(o.what, s.text, true, false))) return;
         const next = await attempt(() => o.fabric.remove(s.id), "Not removed");
         if (next) showFabric(next);
       }, "tool link small"))))))

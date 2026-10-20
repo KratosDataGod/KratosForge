@@ -438,8 +438,8 @@ Anything your organization has set shows "Set by your organization" and can't be
 **Settings > Appearance > Motion & effects** sets how much the app moves. **Visual intensity** is
 **0 Off** (nothing moves), **1 Minimal** (quick page and panel transitions only), **2 Refined**
 (the default: small sparks, embers and the wolf on real progress) or **3 Expressive** (the same
-moments with more character). Four switches turn off one family of effects at a time: wolf
-animations, forge sparks, achievement celebrations and ambient execution indicators. Changes apply
+moments with more character). Switches turn off one family of effects at a time: wolf
+animations, forge sparks and running indicators. Changes apply
 at once and are kept. **Preview effects** plays each effect on a sample, and runs a three-step sample
 pipeline on this PC to show the pipeline flow. Progress, results and errors look the same at every
 level. See [Motion and effects](forge-animations.md) for every effect and when it plays.

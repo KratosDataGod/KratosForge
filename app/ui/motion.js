@@ -11,7 +11,8 @@
 //   2 Refined     subtle branded effects (the default)
 //   3 Expressive  the same moments with more character: extra sparks, halftone and offset rings
 // Windows' reduced-motion setting means level 0 unless the person unticked "Respect Windows'
-// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own.
+// reduced-motion setting". Each kind also belongs to a family the person can switch off on its own;
+// achievements are off unless turned on.
 const MOTION_LEVELS = ["Off", "Minimal", "Refined", "Expressive"];
 const MOTION = {
   spark: { ms: 400, gap: 300, level: 2, family: "sparks" },      // a cell succeeded
@@ -99,7 +100,7 @@ function motionLevel() {
 // Decorative (branded) motion is wanted: level 2 or 3, and the window can be seen.
 function motionOn(family) {
   if (motionLevel() < 2 || document.hidden) return false;
-  return !family || motionSetting(`motion_${family}`, true) !== false;
+  return !family || motionSetting(`motion_${family}`, family !== "achievements") === true;
 }
 
 // The setting, Windows' preference and the family switches, as attributes on <html>, so CSS also
@@ -297,7 +298,7 @@ function viewTransition(view) {
   const dir = at(state.view) >= at(from) ? 1 : -1;
   view.getAnimations?.().forEach((a) => a.cancel());
   const depth = motionLevel() >= 3 ? " scale(0.996)" : "";
-  view.animate([{ opacity: 0.35, transform: `translateY(${6 * dir}px)${depth}` }, { opacity: 1, transform: "none" }],
+  view.animate([{ opacity: 0.85, transform: `translateY(${6 * dir}px)${depth}` }, { opacity: 1, transform: "none" }],
     { duration: 160, easing: "cubic-bezier(.2,.7,.3,1)" });
 }
 

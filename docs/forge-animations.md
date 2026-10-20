@@ -19,14 +19,13 @@ wait for or change it, and none of them calls Fabric.
 | **2 Refined** (default) | Subtle sparks, embers and the wolf on real progress |
 | **3 Expressive** | The same moments with more character: a halftone ring and an offset outline on the anvil strike, a touch of depth on page changes |
 
-At Refined and Expressive, four switches each turn one family off:
+At Refined and Expressive, a switch for each family turns it off:
 
 | Switch | Effects |
 | --- | --- |
 | Wolf animations | The wolf on Run all progress, its arrival, the Wolf Run after long work |
 | Forge sparks | Forge Spark, Anvil Strike, the failure ember |
-| Achievement celebrations | Achievement Reveal (developer profile) |
-| Ambient execution indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
+| Running indicators | The glow on a running cell, the flow into a running pipeline step, the ring when Run all starts |
 
 **Preview effects** plays each effect on a sample, and runs a three-step sample pipeline on this PC
 (two short waits and a variable) to show Energy Flow. That run is kept in this PC's local pipeline
@@ -43,7 +42,7 @@ reduced-motion setting**.
 ### For IT
 
 Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-settings-to-everyone)):
-`"motion_level": 0` to `3`, `"motion_wolf"`, `"motion_sparks"`, `"motion_achievements"`,
+`"motion_level": 0` to `3`, `"motion_wolf"`, `"motion_sparks"`, `"motion_achievements"` (off by default),
 `"motion_ambient"` and `"motion_follow_system"` (`true` or `false`). The earlier
 `"forge_animations": false` still means Off when `motion_level` isn't set.
 
@@ -62,7 +61,7 @@ Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-s
 | A pipeline activity finishes | It settles with one glow (succeeded) or the failure ember | the activity | 0.45 s |
 | A pipeline run succeeds | **Anvil Strike** (shown in Preview effects until the pipeline run screen arrives) | the run's result | 0.65 s |
 | A platform deployment succeeds (Source control) | **Anvil Strike**: a small anvil drops onto the "Deployed" message and two sparks fly. No shake, no flash | beside the message | 0.65 s |
-| Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once | the badge | 0.9 s |
+| Your developer profile records a milestone | **Achievement Reveal**: a ring and an offset outline reveal the badge once. Off unless you turn on **Achievement celebrations**, which appears when the developer profile ships | the badge | 0.9 s |
 
 During Run all, cells don't spark one by one; the track shows the progress instead. Stop and
 Cancel show nothing. Activities inside ForEach and Until are counted on their parent

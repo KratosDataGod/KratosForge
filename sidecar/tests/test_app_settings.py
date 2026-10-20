@@ -80,6 +80,7 @@ def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
     assert app_settings.load()["motion_level"]["value"] == 3  # kept for the next start
     assert app_settings.save({"motion_wolf": False})["motion_wolf"] == {"value": False, "source": "user"}
     assert app_settings.load()["motion_follow_system"] == {"value": True, "source": "default"}
+    assert app_settings.load()["motion_achievements"] == {"value": False, "source": "default"}  # turned on, not off
     dirs.write_text(json.dumps({"motion_level": 0, "motion_sparks": False}))
     loaded = app_settings.load()
     assert loaded["motion_level"] == {"value": 0, "source": "policy"}

@@ -24,8 +24,8 @@ Keys:
                      false means motion_level 0 unless motion_level itself is set
     motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
                      transitions only), 2 Refined (default), 3 Expressive
-    motion_wolf, motion_sparks, motion_achievements, motion_ambient  true (default) to show that
-                     family of effects at levels 2 and 3
+    motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
+                     levels 2 and 3; motion_achievements the same, but false by default
     motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
                      off whatever the level; false lets the chosen level apply anyway
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
@@ -125,7 +125,8 @@ USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
 # Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
 MOTION_LEVELS = (0, 3)
 MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
-DEFAULTS.update({"motion_level": 2} | {key: True for key in MOTION_SWITCHES})
+# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
+DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
 TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
 USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 

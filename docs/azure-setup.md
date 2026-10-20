@@ -68,7 +68,8 @@ A policy file that sets everything an organization usually wants:
 | `channel` | `stable` or `preview` | Fixes the update channel |
 | `client_id` | Your own app's Application (client) ID | Only with step 3. Leave it out to keep Microsoft's sign-in |
 | `motion_level` | `0` to `3` (default `2`) | Visual intensity: 0 Off, 1 Minimal, 2 Refined, 3 Expressive ([Motion and effects](forge-animations.md)). Progress and results show the same at every level |
-| `motion_wolf`, `motion_sparks`, `motion_achievements`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
+| `motion_wolf`, `motion_sparks`, `motion_ambient` | `true` (default) or `false` | `false` turns that family of effects off |
+| `motion_achievements` | `true` or `false` (default) | `true` turns on achievement celebrations from the developer profile |
 | `motion_follow_system` | `true` (default) or `false` | `true`: Windows' reduced-motion setting turns motion off whatever the level |
 | `forge_animations` | `true` or `false` | Kept from the first version: `false` means `motion_level` 0 when `motion_level` isn't set |
 | `incident_sla` | Minutes per priority: `{"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}`, `0` for no target | Your own targets for acknowledging and resolving incidents; priorities left out keep the defaults ([Incidents](incidents.md#slas)) |

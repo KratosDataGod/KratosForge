@@ -323,10 +323,11 @@ const MOTION_LEVEL_HELP = ["No animation at all. Progress, results and errors st
   "Quick page and panel transitions only. No branded effects.",
   "Subtle sparks, embers and the wolf on real progress. Recommended.",
   "The same moments with more character: extra sparks, halftone and offset rings."];
+// Achievement celebrations (motion_achievements, off by default) gets its row when the developer
+// profile (#327) can award something to celebrate; a switch that does nothing would only confuse.
 const MOTION_FAMILIES = [["motion_wolf", "Wolf animations", "The wolf on run progress, its arrival and the Wolf Run after long work."],
   ["motion_sparks", "Forge sparks", "Sparks when work succeeds, the anvil strike after a deployment, the ember when something fails."],
-  ["motion_achievements", "Achievement celebrations", "A short reveal when your developer profile records a milestone."],
-  ["motion_ambient", "Ambient execution indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
+  ["motion_ambient", "Running indicators", "The glow on a running cell, the flow into a running pipeline step, the ring when work starts."]];
 
 function motionSettingsCard(s, locked) {
   const level = s.motion_level.value;
@@ -361,9 +362,9 @@ function showMotionGallery() {
   const stats = h("p", { class: "muted-text small", "aria-live": "polite" });
   const showStats = () => {
     const d = motionDiagnostics();
-    const skipped = Object.entries(d.skipped).map(([why, n]) => `${n} ${why}`).join(", ");
+    const played = Object.values(d.played).reduce((a, b) => a + b, 0);
     stats.textContent = `Level now: ${d.level} ${MOTION_LEVELS[d.level]}${d.level !== d.chosen ? ` (you chose ${d.chosen})` : ""}. `
-      + `Played ${Object.values(d.played).reduce((a, b) => a + b, 0)}${skipped ? `; skipped ${skipped}` : ""}.`;
+      + `${played} ${played === 1 ? "effect" : "effects"} played.`;
   };
   const sample = (label, cls = "ok") => h("span", { class: `motion-sample ${cls}` }, label);
   const row = (name, help, target, play) => h("div", { class: "motion-demo" },
@@ -374,7 +375,6 @@ function showMotionGallery() {
   const run = h("button", { class: "tool outline small", tabindex: "-1", "aria-hidden": "true" }, "Run all");
   const deployed = sample("Deployed 4 steps.");
   const lane = h("span", { class: "motion-lane" }, "Kernel idle");
-  const badge = sample("First Flame", "badge");
   const trackHost = h("span", { class: "motion-track" });
   const flowHost = h("div", { class: "motion-flow" });
   const flowNote = h("span", { class: "muted-text small" });
@@ -419,7 +419,6 @@ function showMotionGallery() {
     }),
     row("Wolf Run", "A cell that ran 10 s or more succeeded.", lane, () => forgeEvent("notebook.long.succeeded", lane)),
     row("Anvil Strike", "A deployment succeeded.", deployed, () => forgeEvent("deploy.succeeded", deployed)),
-    row("Achievement Reveal", "Your developer profile recorded a milestone.", badge, () => forgeEvent("achievement.unlocked", badge)),
     h("div", { class: "motion-demo" }, h("div", {}, h("b", {}, "Energy Flow"),
       h("div", { class: "muted-text small" }, "A pipeline's activities as they really run: the link into the running step flows, a finished step settles.")),
     h("div", { class: "motion-target" }, flowNote), btn("Run sample on this PC", "play", runPipeline, "tool small")),

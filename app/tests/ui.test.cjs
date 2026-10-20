@@ -2123,7 +2123,9 @@ test("Motion & effects settings: four levels, family switches, reduced-motion ch
   assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
   assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
   assert.match(card, /"Respect Windows' reduced-motion setting"/);
-  for (const key of ["motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
+  for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
+  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  assert.match(s, /\["motion_ambient", "Running indicators",/);
   assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
   assert.match(s, /\[account, updates, display, previews,/);
   assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);

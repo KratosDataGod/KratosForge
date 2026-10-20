@@ -70,7 +70,7 @@ test("Preview effects plays each effect, follows a real local pipeline run, and 
     await page.waitForTimeout(1100);  // past every effect's rate limit, so the next one plays
   }
   const made = await page.evaluate(() => window.__fx.join(" "));
-  for (const kind of ["spark", "fail", "pulse", "arrive", "wolfrun", "strike", "achieve"]) assert.match(made, new RegExp(`fx-${kind}\\b`), `no ${kind}`);
+  for (const kind of ["spark", "fail", "pulse", "arrive", "wolfrun", "strike"]) assert.match(made, new RegExp(`fx-${kind}\\b`), `no ${kind}`);
   // Energy Flow on a real pipeline run on this PC.
   await dialog.getByRole("button", { name: "Run sample on this PC" }).click();
   await dialog.locator(".flow-node").first().waitFor();

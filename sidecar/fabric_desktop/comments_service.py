@@ -26,7 +26,9 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 METHODS = {"notebook_comments_list", "notebook_comment_add", "notebook_comment_reply", "notebook_comment_edit",
@@ -101,6 +103,35 @@ def _lines(lines: Any, source: str) -> tuple[list[int] | None, str]:
     return [lines[0], lines[1]], "\n".join(code[lines[0] - 1:lines[1]])[:QUOTE_CHARS]
 
 
+def _read_pc_id(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _make_pc_id(path: Path) -> str:
+    """This PC's id, made once. The file is created exclusively, so when two first comments come at
+    the same moment the second reads the first's id instead of writing its own."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pc = uuid.uuid4().hex
+    try:
+        with open(path, "x", encoding="utf-8") as f:
+            f.write(pc)
+        return pc
+    except FileExistsError:
+        # The other writer may have created the file and not yet written to it.
+        deadline = time.monotonic() + 2.0
+        while True:
+            found = _read_pc_id(path)
+            if found or time.monotonic() > deadline:
+                break
+            time.sleep(0.02)
+        if not found:
+            raise ValueError(f"{path} is empty. Delete it and try again.")
+        return found
+
+
 class CommentsMixin:
     def _comment_author(self, create: bool = True) -> dict[str, str]:
         """Who is writing: {"name", "id"}. The signed-in account (only one already signed in; a
@@ -112,14 +143,9 @@ class CommentsMixin:
             oid = auth.signed_in_object_id() if hasattr(auth, "signed_in_object_id") else None
             return {"name": name, "id": f"aad:{oid}" if oid else f"user:{name.lower()}"}
         path = self.root / PC_ID_FILE  # type: ignore[attr-defined]
-        try:
-            pc = path.read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            pc = ""
+        pc = _read_pc_id(path)
         if not pc and create:
-            pc = uuid.uuid4().hex
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(pc, encoding="utf-8")
+            pc = _make_pc_id(path)
         return {"name": "", "id": f"pc:{pc}" if pc else ""}
 
     def _comments_out(self, threads: list[dict[str, Any]], me: dict[str, str] | None = None) -> dict[str, Any]:

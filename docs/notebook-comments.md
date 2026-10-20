@@ -47,4 +47,5 @@ Every comment change is its own call to the engine, which reads the notebook fil
 
 - Up to 500 threads in a notebook and 200 comments in a thread.
 - Comments made while signed out belong to this PC, not to an account. After you sign in, they're no longer yours to edit or delete (and on another PC they never are); resolve them instead.
+- Comments written before authors had an account id (an early preview of this feature) have no `author_id`, so they're locked: anyone can resolve or reopen their threads, but nobody can edit or delete them. They show their stored name.
 - Line ranges are kept as the line numbers they had. When code is added above them, the panel still shows the original lines' code, but the numbers can point at different lines.

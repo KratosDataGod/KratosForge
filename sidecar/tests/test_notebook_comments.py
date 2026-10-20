@@ -4,10 +4,11 @@ screen's saves, stay out of what is published to Fabric and out of the Git noteb
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
-from fabric_desktop import audit
+from fabric_desktop import audit, comments_service
 from fabric_desktop.fabric_run import fabric_ipynb
 from fabric_desktop.git.repo import notebook_text
 from fabric_desktop.server import METHODS, handle
@@ -166,3 +167,45 @@ def test_comments_stay_out_of_fabric_and_the_git_notebook_diff(svc):
 def test_malformed_saved_comments_are_ignored(svc):
     svc.notebooks.set_extra("NB", "comments", [{"id": 1}, "x", {"id": "t", "cell_id": "c1", "comments": []}])
     assert [t["id"] for t in call(svc, "notebook_comments_list", name="NB")["threads"]] == ["t"]
+
+
+def test_two_first_comments_at_once_share_one_pc_id(svc):
+    svc._auth = None
+    barrier = threading.Barrier(8)
+    ids = []
+
+    def first():
+        barrier.wait()
+        ids.append(svc._comment_author()["id"])
+
+    workers = [threading.Thread(target=first) for _ in range(8)]
+    for w in workers:
+        w.start()
+    for w in workers:
+        w.join()
+    assert len(set(ids)) == 1 and ids[0] == "pc:" + (svc.root / "comment-author-id").read_text(encoding="utf-8")
+
+
+def test_an_existing_pc_id_file_is_read_back_not_replaced(svc, monkeypatch):
+    svc._auth = None
+    path = svc.root / "comment-author-id"
+    path.write_text("abc123", encoding="utf-8")
+    # The file appears between the read and the exclusive create: the create fails and reads it back.
+    real, reads = comments_service._read_pc_id, []
+
+    def read(p):
+        reads.append(p)
+        return "" if len(reads) == 1 else real(p)
+
+    monkeypatch.setattr(comments_service, "_read_pc_id", read)
+    assert svc._comment_author()["id"] == "pc:abc123"
+    assert path.read_text(encoding="utf-8") == "abc123"
+
+
+def test_comments_from_before_author_ids_are_locked_but_can_be_resolved(svc):
+    svc.notebooks.set_extra("NB", "comments", [{"id": "old", "cell_id": "c1", "lines": None, "quote": "", "resolved": False,
+                                               "comments": [{"id": "k1", "author": "ann@contoso.com", "at": "2026-10-19T09:00:00+00:00",
+                                                             "text": "early"}]}])
+    assert "only edit your own" in error(svc, "notebook_comment_edit", name="NB", thread_id="old", comment_id="k1", text="x")
+    assert "only delete your own" in error(svc, "notebook_comment_delete", name="NB", thread_id="old", comment_id="k1")
+    assert call(svc, "notebook_comment_resolve", name="NB", thread_id="old", resolved=True)["threads"][0]["resolved"]

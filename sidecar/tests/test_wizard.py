@@ -165,6 +165,14 @@ def test_scd2_closes_the_old_version_and_adds_a_new_one_only_when_a_tracked_colu
     assert closed["valid_to"].to_list() == reopened["valid_from"].to_list(), "a new version starts when the old one ends"
     run_cells(built, monkeypatch, lake)  # nothing changed: same rows
     assert lake.tables["gold.dim_customer"].drop("valid_from", "valid_to").equals(out.drop("valid_from", "valid_to"))
+    # An untracked column alone (4's phone) changes the current row in place, with no new version.
+    lake.tables["dbo.customers"] = lake.tables["dbo.customers"].with_columns(
+        pl.when(pl.col("customer_id") == 4).then(pl.lit("444")).otherwise(pl.col("phone")).alias("phone"))
+    run_cells(built, monkeypatch, lake)
+    after = lake.tables["gold.dim_customer"]
+    assert after.height == 6
+    assert after.filter(pl.col("customer_id") == 4).select("version", "phone", "is_current").rows() == [(1, "444", True)]
+    assert after.filter(pl.col("customer_id") == 4)["valid_from"].to_list() == out.filter(pl.col("customer_id") == 4)["valid_from"].to_list()
     contract = built["proof"]["tables"]["gold.dim_customer"]
     assert contract == {"keys": ["customer_id", "version"], "ignore": ["valid_from", "valid_to"]}
 

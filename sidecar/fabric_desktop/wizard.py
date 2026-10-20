@@ -53,7 +53,7 @@ TEMPLATES: list[dict[str, Any]] = [
      "fields": ["source", "keys", "output"]},
     {"id": "scd2", "group": "model", "title": "Keep a dimension's history (SCD type 2)",
      "text": "When a tracked column changes, close the current row and add a new version, with valid_from, "
-             "valid_to, is_current and a version number per key.",
+             "valid_to, is_current and a version number per key. Other columns update the current row in place.",
      "fields": ["source", "keys", "tracked", "output"]},
     {"id": "date_dimension", "group": "model", "title": "Date dimension",
      "text": "A calendar table with one row per day between two dates: year, quarter, month, week, weekday and fiscal year.",
@@ -328,7 +328,9 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         md(f"# Keep the history of {output} from {source} (SCD type 2)\n\nCompares `{source}` with the current rows of "
            f"`{output}` by {', '.join(f'`{k}`' for k in keys)}. When "
            + (f"{', '.join(f'`{t}`' for t in tracked)} changes" if tracked else "any other column changes")
-           + ", the current row is closed (`valid_to` set, `is_current` false) and a new version is added. New keys "
+           + ", the current row is closed (`valid_to` set, `is_current` false) and a new version is added. "
+           + ("A change to another column alone updates the current row in place, without a new version. " if tracked else "")
+           + "New keys "
            "start at `version` 1. Keys that are no longer in the source stay current. `valid_from` and `valid_to` are "
            f"the time of the run, in UTC. The notebook rewrites `{output}` as a whole, which suits dimensions. "
            "Made by the new notebook wizard.")
@@ -358,7 +360,12 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
              f"    added = pl.concat([new, changed]).select(src.columns + [\"version\"]).with_columns(*opened)\n"
              f"    closed = current.join(changed.select(keys), on=keys, how=\"semi\").with_columns(\n"
              f"        pl.lit(now).alias(\"valid_to\"), pl.lit(False).alias(\"is_current\"))\n"
-             f"    same = current.join(changed.select(keys), on=keys, how=\"anti\")\n"
+             f"    # Untracked columns take the source's values on the current row, without a new version.\n"
+             f"    unchanged = joined.filter(pl.col(\"version\").is_not_null() & ~differs).select(src.columns)\n"
+             f"    refreshed = current.join(unchanged.select(keys), on=keys, how=\"semi\").drop(\n"
+             f"        [c for c in src.columns if c not in keys]).join(unchanged, on=keys, how=\"left\")\n"
+             f"    left_source = current.join(src.select(keys), on=keys, how=\"anti\")\n"
+             f"    same = pl.concat([refreshed, left_source], how=\"diagonal_relaxed\")\n"
              f"    print(f\"{{new.height:,}} new keys, {{changed.height:,}} changed, {{same.height:,}} unchanged\")\n"
              f"    out = pl.concat([history, closed, same, added], how=\"diagonal_relaxed\")\n"
              f"out = out.sort(keys + [\"version\"])\n"

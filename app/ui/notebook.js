@@ -80,7 +80,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
+      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
       h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",
@@ -99,7 +99,7 @@ function renderNotebook() {
       btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
+      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook)), runsToggle(nb)],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
       toggleBtn("Outline", "documentTable", state.showExplorer && state.explorerTab === "outline", () => {
         const on = state.showExplorer && state.explorerTab === "outline";
@@ -126,7 +126,7 @@ function renderNotebook() {
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       h("span", { class: "mode-hint" }, modeHint()),

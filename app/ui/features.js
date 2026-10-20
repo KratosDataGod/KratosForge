@@ -41,6 +41,7 @@ const PREVIEW_FEATURES = {
   sideBySide: "Side by side",
   prove: "Prove this notebook",
   validate: "Validate notebook",
+  notebookRuns: "Notebook runs",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",

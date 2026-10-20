@@ -92,6 +92,46 @@ class ScheduleMixin:
     def pc_schedule_runs(self, limit: int = 200) -> list[dict[str, Any]]:
         return self.pc_schedules.runs(limit)
 
+    def notebook_runs(self, name: str, limit: int = 50, refresh: bool = False) -> list[dict[str, Any]]:
+        """One notebook's recent runs, newest first: this PC's scheduled runs and the Fabric runs this app
+        started for it. Reads the two run logs; ``refresh`` asks Fabric for unfinished jobs' status, as
+        Monitor > Runs does (fabric_runs), and never starts a job."""
+        listing = self.pc_schedules.listing()
+        ours = {s["id"] for s in listing if s["target"]["kind"] == "notebook" and s["target"].get("name") == name}
+        meta = {s["id"] for s in listing if s["target"]["kind"] != "notebook"}
+        rows: list[dict[str, Any]] = []
+        for r in self.pc_schedules.runs(500):
+            # A removed schedule's runs still count: they carry the notebook's name as their label.
+            if r.get("schedule_id") in ours or (r.get("schedule_id") not in meta and r.get("label") == name):
+                rows.append({"source": "pc", "started": r.get("started"), "ended": r.get("ended"),
+                             "seconds": r.get("seconds"), "status": r.get("status", ""),
+                             "trigger": "manual" if r.get("trigger") == "manual" else "schedule",
+                             "message": r.get("message", ""), "alert_error": r.get("alert_error", ""),
+                             "cells": r.get("cells"), "schedule_id": r.get("schedule_id")})
+        fabric = self.fabric_runs(500, refresh=refresh)  # type: ignore[attr-defined]
+        mine = [r for r in fabric if r.get("name") == name and r.get("kind") == "Notebook run"]
+        items = {r.get("item_id") for r in mine}
+        # Run now on a Fabric schedule (Monitor > Schedules) logs no item type: count it when the item is
+        # one this notebook ran as, so a pipeline with the same name isn't listed.
+        mine += [r for r in fabric if r.get("kind") == "Scheduled item run" and r.get("name") == name
+                 and r.get("item_id") in items]
+        from .cloud_service import FABRIC_APP
+        for r in mine:
+            seconds = None
+            if r.get("finished_at") and r.get("started_at"):
+                seconds = round((dt.datetime.fromisoformat(r["finished_at"].replace("Z", "+00:00"))
+                                 - dt.datetime.fromisoformat(r["started_at"])).total_seconds(), 1)
+            url = r.get("url") or (f"{FABRIC_APP}/groups/{r['workspace_id']}/synapsenotebooks/{r['item_id']}"
+                                   "?experience=fabric-developer" if r.get("item_id") else "")
+            trigger = ("prove" if r.get("proof") else "side_by_side" if r.get("side_by_side")
+                       else "run_now" if r["kind"] == "Scheduled item run" else "fabric")
+            rows.append({"source": "fabric", "started": r.get("started_at"), "ended": r.get("finished_at"),
+                         "seconds": seconds, "status": r.get("status", ""), "trigger": trigger,
+                         "message": r.get("message", ""), "workspace_name": r.get("workspace_name", ""),
+                         "url": url, "job_id": r.get("job_id")})
+        rows.sort(key=lambda r: str(r["started"] or ""), reverse=True)
+        return rows[:limit]
+
     def sync_pc_schedules(self) -> dict[str, Any]:
         """Called when the app starts: point every task at this engine."""
         try:

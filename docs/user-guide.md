@@ -135,6 +135,10 @@ New items:
 
 In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
 
+## Notebook runs (Preview)
+
+In a notebook, **Recent runs** (Home or Run tab) lists the notebook's recent runs beside the cells: its scheduled runs on this PC and the runs this app started for it in Fabric, each with when, where, what started it, status and time taken. A run on this PC has **Details**, a Fabric run **Open in Fabric**. It reads the run logs Monitor > Runs reads; only **Refresh status**, for a Fabric run still going, asks Fabric, and it saves the answer in the app's run log on this PC. See [Recent runs](notebooks.md#recent-runs-preview).
+
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
@@ -473,7 +477,7 @@ A channel change takes effect the next time KratosForge starts. More detail, inc
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, Notebook runs, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
 
 The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
 

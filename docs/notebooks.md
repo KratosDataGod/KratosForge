@@ -168,6 +168,9 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.
 - Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views: **Table** (search, click a heading to sort), **Chart** (bar, line or scatter, with the X axis, values and aggregate you pick) and **Inspect** (missing, distinct, min, max, mean and a histogram per column). `display(df, summary=True)` opens Inspect.
+- **Table** works on the whole result, not only the first 1,000 rows. Pages hold 100 rows (**Previous**, **Next**); **Search all rows** and clicking a heading search and sort every row, and each heading shows its column type. The kernel keeps the last 20 results; a lakehouse query is read once, the first time you page, search or sort it, and that copy is reused. After a restart, or once 20 newer results have replaced it, the table asks you to run the cell again.
+- **Copy** puts the rows on the page on the clipboard, tab-separated, ready to paste into Excel.
+- **Download** (Preview) saves the whole result to your Downloads folder as **CSV**, **Excel** (.xlsx, up to 1,048,575 rows) or **Parquet**. The file is always new (`<notebook> result <date time>.csv`, then `(2)` and so on); a file already there is never replaced, and a download that fails leaves nothing behind. Values that look like formulas (`=...`) are saved as text in Excel. Downloading writes only to your PC; it reads nothing new from OneLake once the result is held.
 - Matplotlib charts show as images. Objects with an HTML view (Plotly, `%%html` cells) render in a sandboxed frame.
 
 ## Editing

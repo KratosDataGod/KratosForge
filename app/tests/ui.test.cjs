@@ -1932,3 +1932,73 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Notebook result viewer (frames.py): a table output with a `frame` pages, searches and sorts the
+// whole result in the engine and downloads it; a result the kernel no longer holds says to run again.
+function resultViewerHarness(pages) {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => {
+    const node = { tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false),
+      listeners: {}, textContent: "", disabled: false,
+      append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+      replaceChildren(...k) { this.kids = k; },
+      addEventListener(type, fn) { this.listeners[type] = fn; } };
+    if (attrs.value !== undefined) node.value = attrs.value;
+    return node;
+  };
+  const calls = [];
+  const toasts = [];
+  const ctx = { h: el, btn: (label, _i, onclick) => el("button", { onclick }, label), previewMarked: (_id, n) => n,
+    toast: (t, err) => toasts.push([t, !!err]), friendlyError: String, state: { notebook: { name: "Sales" } },
+    attempt: async (fn) => fn(), setTimeout: (fn) => fn(), clearTimeout() {},
+    rpc: async (method, args) => { calls.push([method, args]); return pages.shift(); } };
+  vm.createContext(ctx);
+  vm.runInContext(["resultTable", "renderResultViewer", "copyResultPage", "downloadResult"].map(grab).join("\n") +
+    "\nconst RESULT_PAGE = 100;\nthis.view = renderResultViewer; this.download = downloadResult;", ctx);
+  return { ctx, calls, toasts };
+}
+const findAll = (node, pred, out = []) => { if (node && typeof node === "object") { if (pred(node)) out.push(node); (node.kids || []).forEach((k) => findAll(k, pred, out)); } return out; };
+const texts = (node) => (typeof node === "string" || typeof node === "number" ? String(node) : (node.kids || []).map(texts).join(""));
+
+test("the notebook result viewer pages, searches and sorts the whole result in the engine", async () => {
+  const page = (offset, rows, total) => ({ frame: "f1", offset, rows, total, columns: ["n"], types: ["integer"] });
+  const { ctx, calls } = resultViewerHarness([page(100, [[100]], 5000), page(0, [[4999]], 5000), page(0, [[42]], 1)]);
+  const o = { frame: "f1", columns: ["n"], types: ["integer"], rows: Array.from({ length: 1000 }, (_, i) => [i]), total_rows: 5000 };
+  const wrap = ctx.h("div"); const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [true], "Showing the first 1000 of 5000 rows");
+  const status = findAll(wrap, (n) => n.attrs?.role === "status")[0];
+  assert.strictEqual(status.textContent, "Rows 1 to 100 of 5,000");
+  assert.match(texts(findAll(wrap, (n) => n.tag === "th")[0]), /^ninteger$/);
+  const [prev, next] = findAll(wrap, (n) => n.tag === "button" && ["Previous", "Next"].includes(texts(n)));
+  assert.strictEqual(prev.disabled, true);
+  await next.attrs.onclick();
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
+  assert.strictEqual(status.textContent, "Rows 101 to 101 of 5,000");
+  await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
+  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
+  const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
+  search.value = "42";
+  search.listeners.input();
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(calls[2][1].q, "42");
+  assert.strictEqual(status.textContent, "Rows 1 to 1 of 1 matching");
+});
+
+test("a result the kernel no longer holds says to run the cell again; downloads name the file saved", async () => {
+  const { ctx, toasts, calls } = resultViewerHarness([{ frame: "f1", gone: true }, { path: "C:\\Users\\me\\Downloads\\Sales result.xlsx", rows: 5000, format: "xlsx" }]);
+  const o = { frame: "f1", columns: ["n"], rows: [[1]], total_rows: 1 };
+  const wrap = ctx.h("div");
+  const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [true], "1 row");
+  await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
+  assert.match(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, /^Run the cell again/);
+  const items = findAll(bar, (n) => n.attrs?.role === "menuitem").map(texts);
+  assert.deepStrictEqual(plain(items), ["CSV", "Excel", "Parquet"]);
+  await ctx.download(o, "xlsx");
+  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales" }]);
+  assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
+  assert.match(nb, /previewMarked\("resultViewer", menu\)/);
+});

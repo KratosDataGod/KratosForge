@@ -16,8 +16,8 @@ simple and the advanced parts are there when needed.
                  {"method": "oauth-m2m", "client_id", "secret": "<ref>"}
 
 where ``<ref>`` is ``env:NAME`` (an environment variable) or ``credman:TARGET`` (Windows Credential
-Manager). Load, save and import refuse any value that looks like a secret (redact.secrets plus
-Databricks personal access tokens) and any secret-named field that isn't a reference. Export
+Manager). Load, save and import refuse any value that looks like a secret (redact.secrets, which
+knows Databricks personal access tokens) and any secret-named field that isn't a reference. Export
 drops machine-specific references so a shared file never points at someone else's secret.
 
 A hybrid profile keeps each platform's sign-in, workspace and deploy target separate: it needs one
@@ -60,8 +60,6 @@ DATABRICKS_CLOUDS = {"azure": (".azuredatabricks.net", True), "aws": (".cloud.da
                      "gcp": (".gcp.databricks.com", False)}
 _REF = re.compile(r"^(env:[A-Za-z_][A-Za-z0-9_]{0,127}|credman:[A-Za-z0-9 ._:/\\-]{1,200})$")
 _MACHINE_REF = ("env:", "credman:")
-# Databricks personal access tokens (dapi + 32 hex, sometimes a -N suffix); redact.secrets doesn't know them yet.
-_DATABRICKS_PAT = re.compile(r"\bdapi[0-9a-f]{32}(-\d+)?\b", re.I)
 _NAME = re.compile(r"^[^\x00-\x1f]{1,80}$")
 _ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 
@@ -78,7 +76,7 @@ class ProfileError(ValueError):
 
 
 def _looks_secret(text: str) -> bool:
-    return redact.secrets(text) != text or bool(_DATABRICKS_PAT.search(text))
+    return redact.secrets(text) != text
 
 
 def secret_problems(data: Any, path: str = "") -> list[str]:
@@ -88,7 +86,7 @@ def secret_problems(data: Any, path: str = "") -> list[str]:
         for key, value in data.items():
             where = f"{path}.{key}" if path else str(key)
             if redact.secret_key(key) and value not in (None, "", [], {}):
-                if not (isinstance(value, str) and _REF.match(value)):
+                if not (isinstance(value, str) and _REF.fullmatch(value)):
                     problems.append(f"{where} must be a reference (env:NAME or credman:TARGET), not a value.")
                     continue
             problems += secret_problems(value, where)
@@ -159,9 +157,9 @@ def problems(data: dict[str, Any]) -> list[str]:
     p = normalize(data)
     if p.get("schema") != SCHEMA:
         out.append(f"Profile schema {p.get('schema')} is newer than this app knows ({SCHEMA}). Update KratosForge.")
-    if not isinstance(p.get("name"), str) or not _NAME.match(p["name"].strip() or "\x00"):
+    if not isinstance(p.get("name"), str) or not _NAME.fullmatch(p["name"].strip() or "\x00"):
         out.append("A profile needs a name (up to 80 characters).")
-    if not _ID.match(str(p.get("id"))):
+    if not _ID.fullmatch(str(p.get("id"))):
         out.append("The profile id may use letters, digits, - and _ only.")
     kind = p.get("kind")
     if kind not in KINDS:
@@ -175,7 +173,7 @@ def problems(data: dict[str, Any]) -> list[str]:
             out.append(f"{where}.platform must be fabric or databricks.")
             continue
         by_platform[platform].append(conn)
-        if not _ID.match(str(conn.get("id"))):
+        if not _ID.fullmatch(str(conn.get("id"))):
             out.append(f"{where}.id may use letters, digits, - and _ only.")
         ids.append(conn["id"])
         cred = conn.get("credential") or {}
@@ -373,13 +371,15 @@ class ProfileStore:
         self.root = Path(root)
 
     def _path(self, profile_id: str) -> Path:
-        if not _ID.match(profile_id):
+        if not _ID.fullmatch(profile_id):
             raise ProfileError(["The profile id may use letters, digits, - and _ only."])
         return self.root / f"{profile_id}.json"
 
     def list(self) -> list[dict[str, Any]]:
         out = []
-        for path in sorted(self.root.glob("p-*.json")) + ([self.root / "default.json"] if (self.root / "default.json").exists() else []):
+        for path in sorted(self.root.glob("*.json")):
+            if path.name == "active.json":
+                continue
             data = read_json(path, None)
             if isinstance(data, dict):
                 out.append({"id": data.get("id"), "name": data.get("name"), "kind": data.get("kind"),

@@ -264,7 +264,10 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   const ctx = {};
   vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
   const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+  for (const c of cases) {
+    const input = Array.isArray(c.in) ? c.in.join("") : c.in;
+    assert.strictEqual(ctx.redactReport(input, c.level), c.out, input);
+  }
 });
 
 // Accessibility (FD-139): checks that need no browser.

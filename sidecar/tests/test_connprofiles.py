@@ -212,3 +212,16 @@ def test_store_saves_lists_and_keeps_an_active_profile(tmp_path):
     store.set_active("default")
     store.delete(p["id"])
     assert store.list() == []
+    store.save({"id": "abc", "name": "Mine", "kind": "local"})
+    assert [x["id"] for x in store.list()] == ["abc"]
+
+
+@pytest.mark.parametrize("bad", ["x\n", "a/b", "", "x" * 41])
+def test_ids_and_references_match_whole_values(bad):
+    assert any("letters, digits" in m for m in cp.problems({"id": bad, "name": "x", "kind": "local"}))
+
+
+def test_a_reference_with_a_trailing_newline_is_not_a_reference():
+    data = {"name": "x", "kind": "databricks", "connections": [{"platform": "databricks", "host": HOST,
+            "credential": {"method": "oauth-m2m", "client_id": "c", "secret": "env:X\n"}}]}
+    assert any("must be a reference" in m for m in cp.problems(data))

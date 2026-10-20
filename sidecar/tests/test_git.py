@@ -559,6 +559,7 @@ def test_scanning_ignores_placeholders_and_finds_tokens_in_outputs():
     assert out and out[0]["where"] == "cell 1 output"
     assert secrets.scan_text("Server=x;User Id=a;Password=Hunter2pass;")[0]["kind"] == "Password in a connection string"
     assert secrets.scan_text("ghp_" + "A" * 36)[0]["kind"] == "GitHub token"
+    assert secrets.scan_text("host = x\ntoken = dapi" + "0123456789abcdef" * 2)[0]["kind"] == "Databricks token"
     assert secrets.sensitive_name("certs/site.pfx") and not secrets.sensitive_name(".env.example")
 
 

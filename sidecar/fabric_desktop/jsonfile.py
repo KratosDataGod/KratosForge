@@ -51,12 +51,12 @@ def write_text(path: Path, text: str) -> None:
         raise
 
 
-def set_aside(path: Path) -> Path:
-    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so. Returns where it went."""
+def set_aside(path: Path, then: str = "it is being started again empty") -> Path:
+    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next)."""
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     dest = path.with_name(f"{path.name}.corrupt-{stamp}")
     os.replace(path, dest)
-    _log.warning("%s could not be read and was moved to %s; it is being started again empty.", path, dest.name)
+    _log.warning("%s could not be read and was moved to %s; %s.", path, dest.name, then)
     return dest
 
 

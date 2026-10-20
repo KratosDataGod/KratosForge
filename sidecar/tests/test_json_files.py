@@ -211,3 +211,13 @@ def test_a_failed_comparison_save_leaves_the_old_file(svc, write_fails_midway):
         svc._sbs_save({"id": "b", "name": "a longer comparison", "local": {}})
     assert svc.side_by_side_file.read_text(encoding="utf-8") == original
     assert [p.name for p in svc.side_by_side_file.parent.iterdir()] == [svc.side_by_side_file.name]
+
+
+def test_reading_a_torn_comparison_file_twice_keeps_the_good_rows(svc):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + json.dumps({"id": "b", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+    first, second = svc.side_by_side_list(), svc.side_by_side_list()
+    assert sorted(r["id"] for r in first) == sorted(r["id"] for r in second) == ["a", "b"]
+    aside = set_aside_files(svc.side_by_side_file)
+    assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == text

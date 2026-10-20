@@ -103,8 +103,9 @@ class SideBySideMixin:
                 rows.append(json.loads(line))
             except ValueError:
                 torn = True
-        if torn:  # keep the original; the next save writes back the rows that read
-            jsonfile.set_aside(self.side_by_side_file)
+        if torn:  # keep the original aside and the rows that still read in place
+            jsonfile.set_aside(self.side_by_side_file, then=f"the {len(rows)} comparisons that could be read were kept")
+            jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
         return rows
 
     def _sbs_save(self, record: dict[str, Any]) -> None:

@@ -227,7 +227,7 @@ expires = "2026-11-01"
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
 | **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected** (Preview): they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
-| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. |
+| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. Once the environment's keys come from the platform (SQL_Platform, or SQL_Keys when Dev, Test and Prod share one keys database), there's no MERGE: the card says where keys come from, and runs from Data mesh take them from there. |
 
 ### Freshness promises
 
@@ -409,6 +409,7 @@ lib.CRM_server_host
 
 - If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
 - A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A column whose type Direct Lake can't read (arrays, maps, structs) is left out of its table, and the result names each one with its type. A relationship that would use such a column is left out too, and named, rather than pointing at a column the model doesn't have.
 - A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.

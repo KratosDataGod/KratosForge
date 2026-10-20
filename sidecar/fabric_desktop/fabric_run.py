@@ -187,15 +187,15 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
 # ---- where a notebook can run
 
 # Code that needs Fabric's Spark runtime or its notebook services. On this PC, ``spark`` is
-# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials and
-# runtime, so most PySpark notebooks run here; these parts don't.
+# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
+# runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
     (re.compile(r"^\s*%%(spark|sparkr|csharp)\b", re.M), "uses a Scala, R or .NET cell"),
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
     (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse|warehouse|"
-                r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
+                r"udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
 _SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.

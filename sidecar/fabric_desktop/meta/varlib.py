@@ -69,3 +69,22 @@ def resolve(project: Project, env: str) -> dict[str, str]:
     """The values a notebook in ``env`` reads: what the active value set gives each variable."""
     env = env if env in ENVIRONMENTS else "dev"
     return {r["name"]: r[env] for r in values(project)}
+
+
+_TYPES = {"Integer": int, "Number": float, "Boolean": lambda v: v if isinstance(v, bool) else str(v).lower() == "true"}
+
+
+def read(parts: dict[str, str], value_set: str | None) -> dict[str, Any]:
+    """Any variable library's values from its definition files, with ``value_set``'s overrides:
+    what ``getLibrary`` gives in Fabric. Integer, Number and Boolean variables keep their type;
+    the rest (String, DateTime, Guid, item references) read as text."""
+    variables = json.loads(parts.get("variables.json") or "{}").get("variables") or []
+    out: dict[str, Any] = {v["name"]: v.get("value") for v in variables if v.get("name")}
+    kinds = {v["name"]: v.get("type", "String") for v in variables if v.get("name")}
+    if value_set and value_set != DEFAULT_SET:
+        overrides = next((json.loads(text) for path, text in parts.items() if path.startswith("valueSets/")
+                          and json.loads(text).get("name") == value_set), None)
+        if overrides is None:
+            raise LookupError(f"The active value set {value_set} isn't in the library's definition")
+        out.update({o["name"]: o.get("value") for o in overrides.get("variableOverrides") or [] if o.get("name") in out})
+    return {k: (None if v is None else _TYPES.get(kinds[k], str)(v)) for k, v in out.items()}

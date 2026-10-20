@@ -94,7 +94,7 @@ from pyspark.sql import functions as F
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
-| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
+| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)). Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace with its active value set; Integer, Number and Boolean variables keep their type. Read only (Preview, not yet run on a tenant) |
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.
 

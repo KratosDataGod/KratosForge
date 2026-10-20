@@ -8,7 +8,8 @@ The calls Fabric notebooks use most work the same here:
 - ``credentials``: getToken for storage and Fabric, getSecret from Azure Key Vault as you.
 - ``runtime.context``: the notebook, lakehouse and workspace, with ``isLocal`` set.
 - ``variableLibrary``: VL_Sources from the metadata project, with the values of the environment
-  whose workspace the attached lakehouse is in (Dev's when it is in none).
+  whose workspace the attached lakehouse is in (Dev's when it is in none); any other library is
+  read from the attached lakehouse's workspace with its active value set.
 
 What only Fabric has (mounting other storage, session settings) raises an error that says so.
 """
@@ -60,7 +61,7 @@ class Host:
     def __init__(self, token: Callable[[str], str] | None = None,
                  run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
                  notebook_name: Callable[[], str] | None = None,
-                 variables: Callable[[str], dict[str, str] | None] | None = None):
+                 variables: Callable[[str], dict[str, Any] | None] | None = None):
         self.token = token
         self.run_notebook = run_notebook
         self.notebook_name = notebook_name or (lambda: "")
@@ -436,11 +437,11 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
 class VariableLibrary:
     """A variable library's values, read as attributes: ``lib.CRM_server_host``."""
 
-    def __init__(self, name: str, values: dict[str, str]):
+    def __init__(self, name: str, values: dict[str, Any]):
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "_values", dict(values))
 
-    def __getattr__(self, key: str) -> str:
+    def __getattr__(self, key: str) -> Any:
         values = object.__getattribute__(self, "_values")
         if key in values:
             return values[key]
@@ -460,11 +461,11 @@ def _make_variable_library(host: Host) -> types.SimpleNamespace:
     def getLibrary(variableLibraryName: str) -> VariableLibrary:  # noqa: N802, N803
         values = host.variables(variableLibraryName) if host.variables else None
         if values is None:
-            raise LookupError(f"On this PC the variable library {variableLibraryName} comes from the metadata project; "
-                              "only VL_Sources is there (Data mesh > Design > Source systems).")
+            raise LookupError(f"Attach a lakehouse to read the variable library {variableLibraryName} from its workspace. "
+                              "VL_Sources also comes from the metadata project (Data mesh > Design > Source systems).")
         return VariableLibrary(variableLibraryName, values)
 
-    def get(variableReference: str) -> str:  # noqa: N803
+    def get(variableReference: str) -> Any:  # noqa: N803
         m = _REFERENCE.match(str(variableReference).strip())
         if not m:
             raise ValueError('Use a reference like "$(/**/VL_Sources/CRM_server_host)"')

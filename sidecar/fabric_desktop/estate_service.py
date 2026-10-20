@@ -543,16 +543,23 @@ class EstateMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         return self._publish_varlib(self._project(), env)  # type: ignore[attr-defined]
 
-    def _notebook_variables(self, library: str) -> dict[str, str] | None:
-        """notebookutils.variableLibrary on this PC: VL_Sources for the attached lakehouse's environment."""
-        if library != varlib_mod.LIBRARY:
-            return None
-        try:
-            project = self._project()  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
-            _log.info("No metadata project for notebook variables: %s", describe(exc))
-            return None
+    def _notebook_variables(self, library: str) -> dict[str, Any] | None:
+        """notebookutils.variableLibrary on this PC. VL_Sources comes from the metadata project, for
+        the attached lakehouse's environment; any other library is read (never changed) from the
+        attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None
-        env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
-        return varlib_mod.resolve(project, env)
+        if library == varlib_mod.LIBRARY:
+            try:
+                project = self._project()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                _log.info("No metadata project for notebook variables: %s", describe(exc))
+            else:
+                env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
+                return varlib_mod.resolve(project, env)
+        if not ws:
+            return None
+        found = self.fabric.read_variable_library(ws, library)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
+        return varlib_mod.read(*found)

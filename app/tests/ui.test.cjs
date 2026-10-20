@@ -2009,3 +2009,10 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// notebookutils.variableLibrary reads any library from the attached lakehouse's workspace, read only.
+test("notebook docs say any variable library is read from the lakehouse's workspace", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace/);
+  assert.match(doc, /Read only \(Preview, not yet run on a tenant\)/);
+});

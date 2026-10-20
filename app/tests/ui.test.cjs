@@ -1932,3 +1932,11 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
+test("notebook.run timeouts and validateDAG are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /`run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds`/);
+  assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
+  assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
+});

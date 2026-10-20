@@ -138,7 +138,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
-| HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
+| HD-042 | UI-4: every dialog close settles its prompt (done: `showDialog`'s `onClose` settles `askText`, `pickWorkspace` and `confirmDialog` on overlay, X and Escape) | Hardening | S |
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |

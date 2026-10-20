@@ -7,7 +7,7 @@ whole feature off with the ``allow_optimize_lakehouse`` policy key.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from . import app_settings, redact
 from .optimize import local_runs, schema, setup
@@ -41,10 +41,13 @@ class OptimizeMixin:
             raise PermissionError("Your organization has turned off shared optimization lakehouses "
                                   "(allow_optimize_lakehouse in its policy file).")
 
-    def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None) -> Any:
+    def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None,
+                       token: Callable[[], str] | None = None) -> Any:
+        """``token`` is a storage token taken earlier, for callers off the calling thread (sign-in
+        tokens are fetched on the thread that handles the call)."""
         if schemas is None:
             schemas = self._schemas_enabled(workspace_id, lakehouse_id)  # type: ignore[attr-defined]
-        return OneLakeLakehouse(workspace_id, lakehouse_id, schemas, self.auth.storage_token,
+        return OneLakeLakehouse(workspace_id, lakehouse_id, schemas, token or self.auth.storage_token,
                                 self.root / "optimize" / "cache")
 
     def optimize_status(self) -> dict[str, Any]:
@@ -131,12 +134,13 @@ class OptimizeMixin:
 
     # The shared results (optimize/shared.py)
 
-    def _optimize_shared(self) -> Shared:
+    def _optimize_shared(self, token: Callable[[], str] | None = None) -> Shared:
         self._optimize_allowed()
         conn = self.optimize_registry.active()
         if not conn:
             raise ValueError("Connect this PC to an optimization lakehouse first (Settings > Optimize lakehouses).")
-        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
+        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True),
+                                  **({"token": token} if token else {}))
         return Shared(lake, self.optimize_installation, access=conn.get("access") or "none")
 
     # ---------- the central lakehouse, for other features ----------

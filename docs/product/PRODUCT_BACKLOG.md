@@ -389,7 +389,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Proposed capability:** Key lookups limited to the business keys in the batch.
 - **Current-state evidence:** meta/keys.py read_keys
 - **Inventory features:** [FEAT-META-05](FEATURE_INVENTORY.md#feat-meta-05)
-- **Dependencies:** Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101), Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to a Fabric SQL database in a dedicated workspace; per environment or shared is Chris's open decision
+- **Dependencies:** Overlaps HD-032 T-SQL key import fails above 699 rows (staged roadmap) (Codebase audit and hardening backlog, PB-101), Direction change (Chris's unit testing, 2026-10-18, item 25): keys move to one Fabric SQL database in a dedicated workspace shared by all environments (Chris, 2026-10-20: one for all)
 - **Owner:** Staged roadmap (FD-115)
 - **Acceptance criteria:**
     - A keyed run reads only matching key rows, shown by a test on a large key table

@@ -1529,3 +1529,74 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
+
+// HD-044 (UI-6): the rail marks the page you're on, and the command bar is a modal dialog.
+function paletteHarness() {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs, kids: kids.flat(), on: {}, isConnected: true, value: attrs.value || "",
+      addEventListener(type, fn) { this.on[type] = fn; }, focus() { ctx.document.activeElement = this; },
+      setSelectionRange() {}, querySelector() { return null; }, replaceChildren(...k) { this.kids = k; },
+      remove() { this.isConnected = false; if (ctx.mounted === this) ctx.mounted = null; } };
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith("on") && typeof v === "function") n.on[k.slice(2)] = v;
+    return n;
+  };
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: { view: "home" }, rpc: () => new Promise(() => {}),
+    previewShown: () => true, go() {}, console, mounted: null, trapped: 0,
+    trapFocus() { ctx.trapped++; },
+    document: { activeElement: null, body: { append(b) { ctx.mounted = b; } },
+      getElementById: (id) => (id === "palette" ? ctx.mounted : id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [{ group: "Pages", label: "Home", icon: "home", run() {} }];
+  const key = (k) => { const e = { key: k, stopped: false, preventDefault() {}, stopPropagation() { e.stopped = true; } }; return e; };
+  return { ctx, node, dialogRoot, key };
+}
+
+test("the command bar is a modal dialog: focus goes in, Tab stays in, Escape closes it and focus returns (HD-044)", () => {
+  const { ctx, node, key } = paletteHarness();
+  const opener = node("button", { id: "opener" });
+  ctx.document.activeElement = opener;
+  ctx.openPalette();
+  const box = ctx.mounted;
+  assert.ok(box, "the command bar did not open");
+  const dialog = box.kids[0];
+  assert.strictEqual(dialog.attrs.role, "dialog");
+  assert.strictEqual(dialog.attrs["aria-modal"], "true");
+  assert.strictEqual(ctx.document.activeElement.tag, "input", "focus did not move into the command bar");
+  ctx.openPalette();  // Ctrl+K again keeps where focus came from
+  const reopened = ctx.mounted;
+  assert.ok(reopened.on.keydown, "the command bar has no keydown handler for Tab and Escape");
+  reopened.on.keydown(key("Tab"));
+  assert.strictEqual(ctx.trapped, 1, "Tab is not kept inside the command bar");
+  const esc = key("Escape");
+  reopened.on.keydown(esc);
+  assert.strictEqual(ctx.mounted, null, "Escape did not close the command bar");
+  assert.ok(esc.stopped, "Escape also reaches the activity tray behind the command bar");
+  assert.strictEqual(ctx.document.activeElement, opener, "focus did not go back to where it was");
+});
+
+test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
+  const { ctx, dialogRoot } = paletteHarness();
+  dialogRoot.childElementCount = 1;
+  ctx.openPalette();
+  assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /e\.key\.toLowerCase\(\) === "k"\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+});
+
+test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
+  const { ctx } = paletteHarness();
+  const f = { id: "x", rail: { label: "Home", icon: "home", order: 1, also: ["homeDetail"] }, views: { home() {} } };
+  ctx.state.view = "home";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "homeDetail";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "settings";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], null);
+  assert.doesNotMatch(ctx.railItem(f).attrs.class, /active/);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /class: `rail-item\$\{state\.view === view \? " active" : ""\}`, "aria-current": state\.view === view \? "page" : null/);
+});

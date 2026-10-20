@@ -32,6 +32,7 @@ from sqlglot.errors import SqlglotError
 _GO = re.compile(r"^[ \t]*GO[ \t]*(?:--[^\n]*)?$", re.IGNORECASE | re.MULTILINE)
 _INTEGERS = exp.DataType.INTEGER_TYPES
 _TEXT = exp.DataType.TEXT_TYPES
+_NUMBERS = exp.DataType.NUMERIC_TYPES
 _DROPPED_SETTINGS = {"NOCOUNT", "ANSI_NULLS", "QUOTED_IDENTIFIER", "ANSI_WARNINGS", "ANSI_PADDING", "XACT_ABORT"}
 
 _REFUSED = {
@@ -67,6 +68,7 @@ def translate(sql: str, columns: dict[str, dict[str, dict[str, str]]] | None = N
                 continue
             _refuse(tree)
             _temp_tables(tree)
+            _converts(tree)
             notes += _types(tree, schema)
             _functions(tree)
             try:
@@ -169,10 +171,11 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     from sqlglot.optimizer.annotate_types import annotate_types
     from sqlglot.optimizer.qualify import qualify
 
-    kinds = (exp.Div, exp.Avg, exp.Add)
+    kinds = (exp.Div, exp.Avg, exp.Add, exp.Cast, exp.TryCast)
     here = _in_order(tree, kinds)
     if not here:
         return []
+    sized = [n for n in here if isinstance(n, (exp.Cast, exp.TryCast))]
     typed = tree.copy()
     try:
         typed = qualify(typed, schema=schema, dialect="duckdb", db="dbo", expand_stars=False,
@@ -182,10 +185,14 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
     try:
         typed = annotate_types(typed, schema=schema, dialect="duckdb")
     except SqlglotError:
+        for node in sized:
+            _sized_text(node, None)
         return ["Couldn't tell the column types, so divisions and averages are done as DuckDB does them "
                 "(T-SQL divides and averages integers as integers)."]
     there = _in_order(typed, kinds)
     if len(there) != len(here):
+        for node in sized:
+            _sized_text(node, None)
         return ["Couldn't match the query's columns to their types, so divisions and averages are done as DuckDB "
                 "does them (T-SQL divides and averages integers as integers)."]
     notes: list[str] = []
@@ -201,9 +208,65 @@ def _types(tree: exp.Expression, schema: Any) -> list[str]:
             if _is(info.this.type, _INTEGERS):
                 node.replace(exp.Cast(this=exp.Trunc(this=node.copy()), to=exp.DataType.build("BIGINT")))
         elif isinstance(node, exp.Add):
-            if _is(info.this.type, _TEXT) or _is(info.expression.type, _TEXT):
+            a, b = info.this.type, info.expression.type
+            if _is(a, _TEXT) and _is(b, _TEXT):
                 node.replace(exp.DPipe(this=node.this, expression=node.expression, safe=False))
+            elif _is(a, _TEXT) and _is(b, _NUMBERS):
+                # A number outranks text in T-SQL: '1' + 1 is 2 (and 'x' + 1 is an error).
+                node.set("this", exp.Cast(this=node.this, to=b.copy()))
+            elif _is(b, _TEXT) and _is(a, _NUMBERS):
+                node.set("expression", exp.Cast(this=node.expression, to=a.copy()))
+            elif (_is(a, _TEXT) or _is(b, _TEXT)) and (_unknown(a) or _unknown(b)):
+                notes.append(f"Couldn't tell the types in {node.sql(dialect='tsql')}: T-SQL adds a number to text "
+                             "as numbers and joins two strings, and here it is done as DuckDB does it.")
+        else:
+            _sized_text(node, info.this.type)
     return notes
+
+
+_SIZED = {exp.DataType.Type.VARCHAR, exp.DataType.Type.NVARCHAR, exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
+_PADDED = {exp.DataType.Type.CHAR, exp.DataType.Type.NCHAR}
+
+
+def _sized_text(node: exp.Expression, source: exp.DataType | None) -> None:
+    """``CAST(x AS VARCHAR(3))`` cuts text to 3 characters in T-SQL (and ``CHAR(3)`` pads it); DuckDB
+    ignores the length. With no length a CAST or CONVERT to text is 30 characters long. A number too
+    long for the length is an error, not cut."""
+    to = node.args.get("to")
+    if not isinstance(to, exp.DataType) or to.this not in _SIZED:
+        return
+    size = to.expressions[0].this if to.expressions else exp.Literal.number(30)
+    if not (isinstance(size, exp.Literal) and not size.is_string):
+        to.set("expressions", [])  # VARCHAR(MAX): DuckDB's VARCHAR has no limit and takes no MAX
+        return
+    n = int(size.name)
+    text = exp.Cast(this=node.this, to=exp.DataType.build("VARCHAR"), safe=isinstance(node, exp.TryCast))
+    if isinstance(node, exp.TryCast):
+        text = exp.TryCast(this=node.this, to=exp.DataType.build("VARCHAR"))
+    if _is(source, _NUMBERS):
+        too_long = exp.GT(this=exp.func("LENGTH", text.copy()), expression=exp.Literal.number(n))
+        message = exp.Literal.string(f"The number doesn't fit in {to.sql(dialect='tsql')}.")
+        cut: exp.Expression = exp.Case(ifs=[exp.If(this=too_long, true=exp.func("ERROR", message))], default=text)
+    else:
+        cut = exp.func("LEFT", text, exp.Literal.number(n))
+    if to.this in _PADDED:
+        cut = exp.func("RPAD", cut, exp.Literal.number(n), exp.Literal.string(" "))
+    node.replace(cut)
+
+
+def _converts(tree: exp.Expression) -> None:
+    """``CONVERT`` fails on a value it can't convert, as ``CAST`` does; sqlglot writes it as TRY_CAST,
+    which gives NULL instead. Write it as sqlglot does, then make the outer conversion strict."""
+    for node in list(tree.find_all(exp.Convert)):
+        try:
+            new = sqlglot.parse_one(node.sql(dialect="duckdb", unsupported_level=ErrorLevel.RAISE), read="duckdb")
+        except SqlglotError as exc:
+            raise ValueError(f"This T-SQL can't be run on the local engine: {_first_line(exc)}") from None
+        if isinstance(new, (exp.Cast, exp.TryCast)):
+            # Keep CONVERT's own type, length included (the DuckDB text drops it), and TRY_CONVERT's NULL.
+            kind = exp.TryCast if node.args.get("safe") else exp.Cast
+            new = kind(this=new.this, to=node.this.copy())
+        node.replace(new)
 
 
 def _in_order(tree: exp.Expression, kinds: tuple) -> list[exp.Expression]:
@@ -220,6 +283,11 @@ def _unknown(kind: exp.DataType | None) -> bool:
 
 
 def _functions(tree: exp.Expression) -> None:
+    for kind in tree.find_all(exp.DataType):
+        # NVARCHAR(MAX) and VARBINARY(MAX): DuckDB's types have no limit and take no MAX.
+        if any(isinstance(p.this, exp.Var) and p.this.name.upper() == "MAX" for p in kind.expressions
+               if isinstance(p, exp.DataTypeParam)):
+            kind.set("expressions", [])
     for join in tree.find_all(exp.Join):
         # CROSS / OUTER APPLY come out as a LATERAL join, which DuckDB wants an ON for.
         apply = join.this.args.get("cross_apply") if isinstance(join.this, exp.Lateral) else None

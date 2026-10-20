@@ -118,3 +118,32 @@ def test_outer_apply_keeps_rows_with_no_match(engine):
     r = tsql(engine, "SELECT o.id, x.n FROM dbo.orders o OUTER APPLY (SELECT TOP 1 c.qty AS n FROM dbo.orders c "
                      "WHERE c.id = o.id AND c.qty > 0) x ORDER BY o.id")
     assert r["rows"] == [[1, 7], [2, None]]
+
+
+def test_plus_with_a_number_adds_as_numbers(engine):
+    r = tsql(engine, "SELECT '1' + 1 AS a, qty + '7' AS b, name + '!' AS c FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [[2, 14, "Ann  !"]]
+    with pytest.raises(Exception):
+        tsql(engine, "SELECT 'x' + 1")  # T-SQL can't convert 'x' to a number either
+
+
+def test_text_lengths_cut_and_pad_as_in_tsql(engine):
+    r = tsql(engine, "SELECT CAST('abcdef' AS VARCHAR(3)) AS a, CAST('ab' AS CHAR(4)) AS b, "
+                     "CAST(REPLICATE('x', 40) AS VARCHAR) AS c, CAST('abcdef' AS VARCHAR(MAX)) AS d")
+    assert r["rows"] == [["abc", "ab  ", "x" * 30, "abcdef"]]
+    with pytest.raises(Exception, match="doesn't fit in VARCHAR"):
+        tsql(engine, "SELECT CAST(12345 AS VARCHAR(2))")
+
+
+def test_convert_keeps_its_length_and_fails_where_tsql_fails(engine):
+    r = tsql(engine, "SELECT CONVERT(VARCHAR(10), day, 120) AS a, CONVERT(INT, '5') AS b, "
+                     "TRY_CONVERT(INT, 'x') AS c FROM dbo.orders WHERE id = 1")
+    assert r["rows"] == [["2026-10-18", 5, None]]
+    with pytest.raises(Exception):
+        tsql(engine, "SELECT CONVERT(INT, 'x')")  # an error in T-SQL, not NULL
+
+
+def test_max_lengths_in_table_definitions(engine):
+    r = tsql(engine, "CREATE TABLE #notes (body NVARCHAR(MAX)); INSERT INTO #notes VALUES ('hello'); "
+                     "SELECT body FROM #notes")
+    assert r["rows"] == [["hello"]]

@@ -374,7 +374,7 @@ class ProveMixin:
 
     def replay_sandboxes(self, name: str) -> list[dict[str, Any]]:
         """The sandboxes this notebook's replays wrote to (Files/_fabric_desktop/proofs/replay-...)."""
-        return [dict(x, folder=f"{PROOF_ROOT}/{x['id']}") for x in self.notebooks.extra(name, "replay_sandboxes") or []]  # type: ignore[attr-defined]
+        return [dict(x, folder=f"{PROOF_ROOT}/{x.get('id') or '?'}") for x in self.notebooks.extra(name, "replay_sandboxes") or []]  # type: ignore[attr-defined]
 
     def replay_delete_outputs(self, name: str) -> dict[str, Any]:
         """Delete what this notebook's replays wrote: each replay's folder under Files/. The

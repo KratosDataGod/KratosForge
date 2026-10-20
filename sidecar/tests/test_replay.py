@@ -435,7 +435,8 @@ def test_a_sandbox_that_cant_be_deleted_stays_listed_and_an_odd_id_is_never_a_pa
     try:
         name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
         good = {"id": "replay-20261020-120000-abcdef", "workspace_id": WS_GUID, "lakehouse_id": LH_GUID, "lakehouse": "LH"}
-        odd = [dict(good, id="../../Tables"), dict(good, lakehouse_id="lh1/../../other"), dict(good, workspace_id=None)]
+        odd = [dict(good, id="../../Tables"), dict(good, lakehouse_id="lh1/../../other"), dict(good, workspace_id=None),
+               {k: v for k, v in good.items() if k != "id"}]
         s.notebooks.set_extra(name, "replay_sandboxes", [good, *odd])
         tried = []
 
@@ -445,7 +446,8 @@ def test_a_sandbox_that_cant_be_deleted_stays_listed_and_an_odd_id_is_never_a_pa
         monkeypatch.setattr(s, "_proof_delete_folder", refuse)
         out = call(s, "replay_delete_outputs", name=name)
         assert tried == [f"Files/_fabric_desktop/proofs/{good['id']}"]  # nothing else became a path
-        assert out["deleted"] == [] and len(out["problems"]) == 4 and "abc.def.ghi" not in json.dumps(out)
+        assert len(s.replay_sandboxes(name)) == 5  # an entry without an id is still listed, not an error
+        assert out["deleted"] == [] and len(out["problems"]) == 5 and "abc.def.ghi" not in json.dumps(out)
         assert s.notebooks.extra(name, "replay_sandboxes") == [good, *odd]  # all of them stay listed
     finally:
         s.kernel.close()

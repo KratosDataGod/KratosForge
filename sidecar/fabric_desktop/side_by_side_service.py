@@ -13,7 +13,7 @@ from typing import Any, Callable
 
 from deltalake import DeltaTable
 
-from . import depgraph, receipts
+from . import depgraph, jsonfile, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .onelake import DFS_HOST, FileStore, storage_options
@@ -92,17 +92,28 @@ class SideBySideMixin:
     def _sbs_saved(self) -> list[dict[str, Any]]:
         try:
             lines = self.side_by_side_file.read_text(encoding="utf-8").splitlines()
-        except OSError:
+        except FileNotFoundError:
             return []
-        return [json.loads(line) for line in lines if line.strip()]
+        except ValueError:  # not UTF-8: keep the file, start again
+            jsonfile.set_aside(self.side_by_side_file)
+            return []
+        rows, torn = [], False
+        for line in filter(str.strip, lines):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                torn = True
+        if torn:  # keep the original aside and the rows that still read in place
+            jsonfile.set_aside(self.side_by_side_file, then=f"the {len(rows)} comparisons that could be read were kept")
+            jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        return rows
 
     def _sbs_save(self, record: dict[str, Any]) -> None:
         """Keep the finished comparison (without cell outputs, which can be large)."""
         keep = {k: v for k, v in record.items() if not k.startswith("_")}
         keep["local"] = {k: v for k, v in record["local"].items() if k != "cells"}
         rows = [r for r in self._sbs_saved() if r.get("id") != record["id"]] + [keep]
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.side_by_side_file.write_text("".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]), encoding="utf-8")
+        jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows[-200:]))
 
     # ---- what the app calls
 

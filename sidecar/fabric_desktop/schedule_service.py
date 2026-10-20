@@ -224,7 +224,7 @@ class ScheduleMixin:
                     threading.Thread(target=self._scan_fabric_schedules, args=(token, all_workspaces), daemon=True).start()
             fabric = dict(self._fabric_schedules or {})
         return {"pc": pc, "windows": self.pc_schedules.scheduler.available, "fabric": fabric,
-                "runs": self.pc_schedules.runs(200)}
+                "runs": self.pc_schedules.runs(200), "pc_set_aside": self.pc_schedules.set_aside()}
 
     def _scan_fabric_schedules(self, token: str, all_workspaces: bool) -> None:
         client = FabricClient(lambda: token)

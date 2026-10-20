@@ -10,7 +10,8 @@ wolf and forge identity without getting in the way, and you can turn them off.
 | A cell fails | A small ember beside **Failed** dims and goes out. The red label and the error appear at once | 0.45 s |
 
 Nothing else changes: the labels, times, outputs and errors are the same with animations on or off,
-and the animations never delay a run or move anything on the page. During Run all, cells don't
+and the animations never delay a run or push other content around. The only thing that appears is
+the progress track, at the end of the status bar, while several cells run. During Run all, cells don't
 spark one by one; the wolf track shows the progress instead. Stop and Cancel show no animation.
 
 ## Turn them off
@@ -27,7 +28,8 @@ Your organization can fix the setting with `"forge_animations": false` in the po
 ## Screen readers
 
 Animations are hidden from screen readers. Instead, the app says once when a cell you ran succeeds or
-fails, and once when a run of several cells finishes or stops ("Run finished: 8 cells succeeded").
+fails, and once when a run of several cells finishes, fails or is stopped ("Run finished: 8 cells
+succeeded", "Run stopped: cell 3 failed", "Run stopped").
 The progress track is a progress bar with its value.
 
 ## For developers

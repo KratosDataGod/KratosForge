@@ -1180,7 +1180,7 @@ async function runCells(cells) {
         track?.stop();
         code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
         setKernel(stopRequested ? "stopped" : "idle");
-        if (cell.status === "error") announce(`Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed`);
+        announce(cell.status === "error" ? `Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed` : "Run stopped");
         return;
       }
       track?.set(i + 1, code.length);

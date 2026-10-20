@@ -2039,6 +2039,7 @@ test("Forge animations in the notebook: runs of several cells use the wolf track
   const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
   assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell"\) : null/);
   assert.match(run, /if \(!ok \|\| cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
+  assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
   assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
   assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
   assert.match(run, /\} finally \{\n\s+runningAll = false;/);

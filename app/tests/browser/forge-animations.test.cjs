@@ -109,3 +109,16 @@ test("Windows reduced motion turns the effects off whatever the setting says", {
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-settings-reduced.png") });
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("Cancel during a run takes the track away and says the run stopped", { skip }, async () => {
+  const app = await open({ cells: [CELLS[0], { type: "code", cell_id: "s", source: "time.sleep(20)", meta: {} }, CELLS[2]] });
+  const { page } = app;
+  await page.getByRole("button", { name: "Run all" }).first().click();
+  await page.waitForFunction(() => state.notebook.cells[1].status === "running", null, { timeout: 30000 });
+  await page.getByRole("progressbar", { name: "Notebook run" }).waitFor();
+  await page.evaluate(() => cancelRun());
+  await page.waitForFunction(() => document.getElementById("announce").textContent === "Run stopped", null, { timeout: 30000 });
+  assert.strictEqual(await page.getByRole("progressbar", { name: "Notebook run" }).count(), 0);
+  assert.ok(!(await page.evaluate(() => window.__fx)).some((c) => /fx-(spark|fail|arrive)/.test(c)), "Cancel played an effect");
+  assert.deepStrictEqual(app.errors, []);
+});

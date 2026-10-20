@@ -70,7 +70,7 @@ Cost is an estimate: the Fabric job's time multiplied by the CUs of a Python not
 
 To test at scale with a standard workload, use the two TPC-H notebooks. TPC-H is the industry's standard decision-support benchmark: eight tables of orders, customers, parts and suppliers, and 22 queries.
 
-Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/fabric-desktop/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
+Add them from the Side by side panel (**Add the TPC-H benchmark notebooks**) or the command bar (Ctrl+K, *TPC-H*). They are also in the repository, to download or share: [examples/benchmark](https://github.com/KratosDataGod/KratosForge/tree/main/examples/benchmark). To use a downloaded copy, put the `.ipynb` files in `%LOCALAPPDATA%\FabricDesktop\notebooks` and they show in the app.
 
 ### 1. Make the data: TPC-H data
 

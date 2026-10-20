@@ -18,7 +18,7 @@ You do **not** need Python, Spark, Java or admin rights on the PC. The app bring
 
 ## Download and start
 
-1. Download **[fabric-desktop.exe](https://github.com/KratosDataGod/fabric-desktop/releases/download/stable/fabric-desktop.exe)** (the Stable channel). It is also on the repository's **Releases** page.
+1. Download **[fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe)** (the Stable channel). It is also on the repository's **Releases** page.
 2. Put it anywhere you like, for example a `Tools` folder or your Desktop. It is a single file; there is no installer.
 3. Double-click it.
 4. **Windows SmartScreen** may say "Windows protected your PC" because the exe isn't code-signed yet. Choose **More info > Run anyway**. You only see this the first time.
@@ -46,7 +46,7 @@ This isn't a broken install, so reinstalling won't help. The engine's Python pac
 | **Smart App Control** (Windows 11 on a home or personal PC) | It can't allow just one app. Either use a PC without it, or turn it off in **Windows Security > App & browser control > Smart App Control settings** and click **Retry**. Some Windows versions can't turn it back on without a reset, so decide that first. |
 | **An App Control policy** (set by your organization) | Ask IT to allow the Python packages in the folder the window names. They see each block in **Event Viewer > Microsoft > Windows > CodeIntegrity > Operational**. Then click **Retry**. |
 
-The lasting fix is code signing: CI signs every file when the repository has an Azure Trusted Signing account set up ([README: Code signing](https://github.com/KratosDataGod/fabric-desktop/blob/main/README.md#code-signing)). That isn't in place yet.
+The lasting fix is code signing: CI signs every file when the repository has an Azure Trusted Signing account set up ([README: Code signing](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#code-signing)). That isn't in place yet.
 
 ## Updates
 
@@ -68,10 +68,10 @@ Every build of `main` comes with proof of where it came from and a list of what 
 - **Build provenance.** GitHub signs a statement that `fabric-desktop.exe` and `fabric-desktop-engine.zip` were built by this repository's CI workflow from a named commit. With the [GitHub CLI](https://cli.github.com/), check a file you downloaded:
 
     ```powershell
-    gh attestation verify fabric-desktop.exe -R KratosDataGod/fabric-desktop
+    gh attestation verify fabric-desktop.exe -R KratosDataGod/KratosForge
     ```
 
-    It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works.
+    It prints the workflow and commit that built it, or fails if the file was changed. A file promoted to Stable is the same file, so the same check works. Builds made before the repository was renamed (October 2026) name the old repository, so check those with `-R KratosDataGod/fabric-desktop`.
 
 - **Software bill of materials.** The Preview (`latest`) release carries `sbom-engine.cdx.json` (every Python package in the engine, read from the engine itself) and `sbom-app.cdx.json` (every Rust crate in the exe), in CycloneDX format. Most vulnerability scanners and asset tools read it.
 
@@ -109,7 +109,7 @@ Nothing in Fabric is removed. Lakehouses, tables and notebooks you published sta
 
 ## For developers: run from source
 
-To work on KratosForge itself, see [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md). In short:
+To work on KratosForge itself, see [CONTRIBUTING.md](https://github.com/KratosDataGod/KratosForge/blob/main/CONTRIBUTING.md). In short:
 
 ```powershell
 cd sidecar

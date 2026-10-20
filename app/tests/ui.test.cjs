@@ -720,7 +720,7 @@ test("What's new lists the month's history and drops notes that only repeat its 
   assert.deepStrictEqual(plain(ctx.items("Old build", undefined)), { lines: ["Old build"], items: [] });
   const dialog = src.slice(src.indexOf("function showWhatsNew"), src.indexOf("function whatsNewItems"));
   assert.match(dialog, /items\.slice\(0, 10\)/);
-  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/fabric-desktop/);
+  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/KratosForge/);
 });
 
 // The pure helpers at the top of debugging.js.

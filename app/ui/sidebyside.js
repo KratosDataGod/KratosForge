@@ -51,15 +51,16 @@ async function runSideBySide() {
   followSideBySide(nb, run.id);
 }
 
+// Run id -> the notebook showing it, as proveFollows in prove.js.
+const sbsFollows = new Map();
+
 async function followSideBySide(nb, id) {
-  if (nb.sbsFollowing === id) return;
-  nb.sbsFollowing = id;
-  const end = await pollRun(() => rpc("side_by_side_status", { id }), {
-    live: () => state.notebook === nb,  // reopening the notebook follows the run again
-    onStatus: (now) => sbsUpdate(nb, now),
-  });
-  nb.sbsFollowing = null;
-  if (end.stopped === "closed") return;
+  const following = sbsFollows.has(id);
+  sbsFollows.set(id, nb);
+  if (following) return;
+  const end = await pollRun(() => rpc("side_by_side_status", { id }), { onStatus: (now) => sbsUpdate(sbsFollows.get(id), now) });
+  nb = sbsFollows.get(id);
+  sbsFollows.delete(id);
   if (end.stopped === "lost") nb.sbs = { ...nb.sbs, state: "failed", message: `Lost track of the run: ${end.message}` };
   (nb.sbsCells || []).forEach((c) => { if (c.status === "queued") { c.status = null; if (state.notebook === nb) updateResults(c); } });
   if (state.notebook === nb) setKernel("idle");

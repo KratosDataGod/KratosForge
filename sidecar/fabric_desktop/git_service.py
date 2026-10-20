@@ -184,18 +184,22 @@ class GitMixin:
 
     def _deployed(self, env: str | None = None) -> dict[str, Any]:
         """What the platform has deployed, as platform-file records. Only reads, with the calls the
-        Platform and Policies pages make. ``env`` None: what export writes (the catalog); otherwise
-        what that environment's platform holds. Key tables come from where that environment's keys
-        are: the shared keys database once keys have moved there."""
+        Platform and Policies pages make. ``env`` None: what export writes (the catalog, and key
+        tables from the shared keys database, or from every environment until keys have moved there);
+        otherwise what that environment's platform and keys hold."""
         from .central.service import CATALOG_ENV
         from .meta.project import ENVIRONMENTS
 
         if env is not None and env not in ENVIRONMENTS:
             raise GitError(f"{env!r} isn't an environment.", kind="invalid")
         cat = self._catalog()  # type: ignore[attr-defined]
-        here = cat if env is None else self._platform(env)  # type: ignore[attr-defined]
-        tables = self._keys_platform(env or CATALOG_ENV).call("list_key_tables")  # type: ignore[attr-defined]
-        admins = here.call("list_admins")
+        if env is not None:
+            tables = {env: self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            admins = self._platform(env).call("list_admins")  # type: ignore[attr-defined]
+        else:
+            where = sorted(self._key_platforms(), key=lambda e: e[0] != CATALOG_ENV)  # type: ignore[attr-defined]
+            tables = {e: client.call("list_key_tables") for e, client in where}
+            admins = cat.call("list_admins")
         # policies_ready only looks; list_policies would create the policy tables on an older platform.
         try:
             ready = cat.call("policies_ready")
@@ -234,7 +238,7 @@ class GitMixin:
             if exc.kind == "confirm":
                 return {"needs_confirm": True, "message": str(exc), "changes": getattr(exc, "changes", [])}
             raise
-        return out | {"policies_set_up": defs["policies"] is not None,
+        return out | {"disagree": defs["disagree"], "policies_set_up": defs["policies"] is not None,
                       "status": r.status()}
 
     def _deployed_envs(self) -> tuple[dict[str, dict[str, Any]], dict[str, Any], str]:
@@ -254,7 +258,7 @@ class GitMixin:
         if self._keys_config().get("shared"):  # type: ignore[attr-defined]
             keys = clients["keys"] = self._shared_keys()  # type: ignore[attr-defined]
             d = platform_files.from_platform({"admins": keys.call("list_admins"),
-                                              "key_tables": keys.call("list_key_tables")})
+                                              "key_tables": {"keys": keys.call("list_key_tables")}})
             envs["keys"] = {"admins": d["admins"], "key_tables": d["key_tables"]}
         return envs, clients, cat_env
 

@@ -161,11 +161,27 @@ def test_export_skips_policies_on_a_platform_without_policy_tables(tmp_path):
     assert "catalog__policy" not in names  # export looked, it didn't create them
 
 
+def test_key_tables_that_differ_between_environments_are_listed(tmp_path):
+    defs = platform_files.from_platform({"key_tables": {
+        "prod": [{"name": "customer", "business_key": "customer_code"}],
+        "dev": [{"name": "customer", "business_key": "cust_no"}, {"name": "product", "business_key": "sku"}]}})
+    assert defs["key_tables"]["customer"]["business_key"] == "customer_code"
+    assert set(defs["key_tables"]) == {"customer", "product"}
+    assert defs["disagree"] == [{"kind": "key_tables", "id": "customer", "env": "dev", "kept_from": "prod",
+                                 "changes": [{"field": "business_key", "git": "cust_no", "deployed": "customer_code"}]}]
+
+
+def test_before_keys_move_export_takes_key_tables_from_every_environment(svc, repo, tmp_path):
+    svc._platform("dev").call("ensure_key_table", name="devonly", business_key="x")
+    svc.git_platform_export(repo)
+    assert read(tmp_path, "key_tables/devonly.toml")["business_key"] == "x"
+
+
 def test_key_tables_export_from_the_shared_keys_database(svc, repo, tmp_path):
     assert svc.platform_share_keys(approve=True)["ok"]
     svc.platform_create_key_table("product", business_key="sku")  # only in the shared database
     out = svc.git_platform_export(repo)
-    assert "disagree" not in out
+    assert out["disagree"] == []
     assert read(tmp_path, "key_tables/product.toml")["business_key"] == "sku"
     for env in ("dev", "test", "prod"):
         assert svc.git_platform_diff(repo, env)["counts"]["changed"] == 0
@@ -350,7 +366,7 @@ def test_a_source_id_taken_meanwhile_stops_before_the_source_is_saved(other, exp
 def test_domains_are_created_parents_first_and_removed_deepest_first_at_any_depth():
     deployed = platform_files.from_platform({"domains": [
         {"id": "a", "name": "A"}, {"id": "b", "name": "B", "parent_id": "a"}, {"id": "c", "name": "C", "parent_id": "b"}],
-        "key_tables": []})
+        "key_tables": {"prod": []}})
     git = {"domains": {"z": platform_files.domain_record({"id": "z", "name": "Z", "parent": "y"}),
                        "y": platform_files.domain_record({"id": "y", "name": "Y", "parent": "x"}),
                        "x": platform_files.domain_record({"id": "x", "name": "X"})}, "problems": []}
@@ -380,7 +396,7 @@ def test_in_use_removals_are_caught_while_planning(svc, exported, tmp_path):
 def test_a_source_still_read_is_kept_in_the_plan():
     deployed = platform_files.from_platform({"sources": [{"name": "sap", "code": "SAP", "source_id": 1,
                                                           "readers": [{"project": "crm", "entities": []}]}],
-                                             "key_tables": []})
+                                             "key_tables": {"prod": []}})
     out = platform_files.plan({"sources": {}, "problems": []}, {"prod": deployed}, "prod", {("sources", "sap")}, "note")
     assert out["steps"] == [] and "still read by crm" in out["blocked"][0]["why"]
 
@@ -410,7 +426,7 @@ def test_deploy_reads_the_commit_not_a_hidden_local_edit(svc, exported, tmp_path
 def test_a_domain_under_a_skipped_parent_is_skipped_too():
     git = {"domains": {"west": platform_files.domain_record({"id": "west", "name": "West", "parent": "fab"}),
                        "fab": platform_files.domain_record({"id": "fab", "fabric_domain_id": "f-1"})}, "problems": []}
-    deployed = platform_files.from_platform({"key_tables": []})
+    deployed = platform_files.from_platform({"key_tables": {"prod": []}})
     out = platform_files.plan(git, {"prod": deployed}, "prod", set(), "note")
     assert out["steps"] == []
     assert [(b["id"], b["why"].split(".")[0]) for b in out["blocked"]] == [
@@ -419,7 +435,7 @@ def test_a_domain_under_a_skipped_parent_is_skipped_too():
 
 def test_a_parent_whose_child_stays_is_not_removed():
     deployed = platform_files.from_platform({"domains": [{"id": "a", "name": "A"}, {"id": "b", "name": "B", "parent_id": "a"}],
-                                             "projects": [{"name": "crm", "domain_id": "b"}], "key_tables": []})
+                                             "projects": [{"name": "crm", "domain_id": "b"}], "key_tables": {"prod": []}})
     out = platform_files.plan({"domains": {}, "problems": []}, {"prod": deployed}, "prod",
                               {("domains", "a"), ("domains", "b")}, "note")
     assert out["steps"] == []

@@ -112,7 +112,7 @@ def policy_record(p: dict[str, Any]) -> dict[str, Any]:
 
 def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
     """What a platform has deployed, as records. ``raw`` holds the platform's own reads:
-    domains, sources, key_tables, glossary, admins, shortcut_rules and policies
+    domains, sources, key_tables ({where: list}), glossary, admins, shortcut_rules and policies
     (get_policy results; None when the platform has no policy tables)."""
     out: dict[str, Any] = {"domains": {}, "sources": {}, "key_tables": {}, "glossary": {}, "policies": {},
                            "admins": sorted({_s(a.get("user_name")) for a in raw.get("admins") or []} - {""}, key=str.lower),
@@ -126,10 +126,20 @@ def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
         out["domains"][_s(d.get("id"))] = domain_record(d)
     for s in raw.get("sources") or []:
         out["sources"][_s(s.get("name")) or _s(s.get("code")).lower()] = source_record(s)
-    # Key tables: one list, from the shared keys database once keys have moved there.
-    for t in raw.get("key_tables") or []:
-        rec = key_table_record(t)
-        out["key_tables"][rec["name"]] = rec
+    # Key tables: {where: list}. Once keys have moved, one list from the shared keys database;
+    # before, each environment's, the catalog's first. Its fields win, and any environment that
+    # disagrees is listed rather than silently overruled.
+    out["disagree"] = []
+    first_env: dict[str, str] = {}
+    for env, tables in (raw.get("key_tables") or {}).items():
+        for t in tables or []:
+            rec = key_table_record(t)
+            name = rec["name"]
+            if name not in out["key_tables"]:
+                out["key_tables"][name], first_env[name] = rec, env
+            elif rec != out["key_tables"][name]:
+                out["disagree"].append({"kind": "key_tables", "id": name, "env": env, "kept_from": first_env[name],
+                                        "changes": _changes(rec, out["key_tables"][name])})
     for g in raw.get("glossary") or []:
         out["glossary"][_s(g.get("term"))] = term_record(g)
     if raw.get("policies") is None:

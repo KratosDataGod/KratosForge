@@ -1,8 +1,8 @@
 """Profile (progress.py has the rules): what the app calls, and the one place evidence comes in.
 
-``_progress_observe`` runs when a validation finishes (validate_service). It records a row only
-when the signed-in person has turned on Record my accomplishments, and it never changes the
-validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
+``_progress_observe`` runs when a validation finishes (validate_service). It records a row unless
+the signed-in person has turned off Record my accomplishments (on by default), and it never
+changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class ProgressMixin:
         return self._profile_view(progress.load(self._profile_path()))
 
     def profile_save(self, settings: dict[str, Any] | None = None, identity: dict[str, Any] | None = None,
-                     report_summary: str | None = None) -> dict[str, Any]:
+                     report_summary: str | None = None, dismiss_notice: bool = False) -> dict[str, Any]:
         path = self._profile_path()
         with _LOCK:
             profile = progress.load(path)
@@ -83,8 +83,8 @@ class ProgressMixin:
                 if k not in progress.DEFAULT_SETTINGS or k == "backfilled":
                     raise ValueError(f"{k} isn't a profile setting")
                 profile["settings"][k] = bool(v)
-            if (settings or {}).get("record"):
-                profile["notice"] = ""  # seen: they turned recording back on
+            if dismiss_notice:
+                profile["notice"] = ""
             for k, v in (identity or {}).items():
                 if k not in progress.IDENTITY_KEYS:
                     raise ValueError(f"{k} isn't part of the profile")

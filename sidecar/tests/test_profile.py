@@ -158,7 +158,9 @@ def progress_methods():
     return METHODS
 
 
-def test_nothing_is_recorded_until_the_person_turns_it_on(plain):
+def test_recording_is_on_from_the_start_and_turning_it_off_stops_it(plain):
+    assert call(plain, "profile_get")["settings"]["record"] is True
+    call(plain, "profile_save", settings={"record": False})
     assert plain._progress_observe(validation()) == []
     assert call(plain, "profile_get")["evidence"] == []
     call(plain, "profile_save", settings={"record": True})
@@ -198,6 +200,7 @@ def test_settings_and_identity_are_checked(plain):
 def test_backfill_adds_past_validations_once(plain):
     (plain.root).mkdir(parents=True, exist_ok=True)
     (plain.root / "validations.json").write_text(json.dumps([validation(), validation(name="Other", verdict="not_ready")]))
+    call(plain, "profile_save", settings={"record": False})
     with pytest.raises(AssertionError, match="Turn on Record"):
         call(plain, "profile_backfill")
     call(plain, "profile_save", settings={"record": True})
@@ -246,11 +249,12 @@ def test_a_torn_profile_is_set_aside_and_the_person_is_told(plain):
     path = next((plain.root / "profile").rglob("profile.json"))
     path.write_text('{"schema": "kratosforge/profile@1", "settings": {"rec')
     got = call(plain, "profile_get")
-    assert got["evidence"] == [] and not got["settings"]["record"]
+    assert got["evidence"] == [] and got["settings"]["record"]
     assert "couldn't be read" in got["notice"] and "profile.json.corrupt-" in got["notice"]
     assert list(path.parent.glob("profile.json.corrupt-*"))
     assert call(plain, "profile_get")["notice"] == got["notice"]  # kept until seen
-    assert call(plain, "profile_save", settings={"record": True})["notice"] == ""
+    assert call(plain, "profile_save", settings={"progression": False})["notice"] == got["notice"]
+    assert call(plain, "profile_save", dismiss_notice=True)["notice"] == ""
 
 
 def test_names_in_the_markdown_report_are_escaped_and_the_copy_text_is_not():

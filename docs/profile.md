@@ -4,7 +4,7 @@ Your profile is a private record of work KratosForge has verified, what it adds 
 review-ready report you can take to a performance or development conversation. Open it from the
 account button (top right) > **Profile**, or search for **Profile** in the command bar (Ctrl+K).
 
-It is off until you turn it on, it is stored only on this PC for the account you're signed in
+It is on from the start (turn it off in **Profile > Settings**), it is stored only on this PC for the account you're signed in
 with, and nothing in it is sent anywhere.
 
 ## What gets recorded
@@ -17,12 +17,12 @@ is recorded as a line that says what passed, when, and the id of the Validate re
 - Validating the same code again adds nothing. Changing the notebook and validating it records a
   new revision.
 - KratosForge can't tell who wrote a notebook, so it records what was validated, not who authored it.
-- **Settings > Include past validations** adds notebooks that passed before you turned recording
-  on (once), dated when they ran.
+- **Settings > Include past validations** adds notebooks that passed before this version (once),
+  dated when they ran.
 
 The file is `%LOCALAPPDATA%\FabricDesktop\profile\<id>\profile.json`, where `<id>` is a hash of
 your sign-in name. Backups include it; support bundles don't. If the file is ever damaged, it is set
-aside beside the new one and the Profile page says so; recording stays off until you turn it on again.
+aside beside the new one and the Profile page says so until you dismiss the notice.
 
 ## Levels and achievements
 

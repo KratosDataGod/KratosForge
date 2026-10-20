@@ -41,7 +41,7 @@ async function renderProfile() {
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
   const body = { overview: profileOverview, report: profileReport, settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
-    btn("Turn recording on", null, () => saveProfile({ settings: { record: true } }, "Recording is on"), "tool outline small")) : null;
+    btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
   setView(h("div", { class: "page profile" }, head, notice, profileTabs(), body));
 }
 
@@ -65,9 +65,9 @@ function editProfileIdentity() {
 function profileOverview(p) {
   if (!p.settings.record && !p.evidence.length) {
     return withHowItWorks(h("div", { class: "card pad" },
-      h("h2", {}, "Record your accomplishments"),
+      h("h2", {}, "Recording is off"),
       h("p", {}, "Keep a private record of work KratosForge has verified, starting with notebooks that pass Validate with a clean run. "
-        + "Use it to see your progress and to put together a review-ready report. It is off until you turn it on."),
+        + "Use it to see your progress and to put together a review-ready report. You turned it off; turn it on to start again."),
       h("div", { class: "row" }, btn("Turn on", null, () => saveProfile({ settings: { record: true } }, "Recording is on"), "tool primary"))),
       profileHowItWorks());
   }
@@ -218,7 +218,7 @@ function profileSettings(p) {
   const toggle = (key, on, after) => h("label", { class: "switch" }, h("input", { type: "checkbox", checked: on ? true : null,
     onchange: async (e) => { if (await saveProfile({ settings: { [key]: e.target.checked } }, null)) after?.(e.target.checked); } }), h("span", {}, on ? "On" : "Off"));
   const rows = h("section", { class: "card pad" },
-    settingRow("Record my accomplishments", "Keep a private record of work KratosForge verified, such as notebooks that pass Validate. Off until you turn it on.",
+    settingRow("Record my accomplishments", "Keep a private record of work KratosForge verified, such as notebooks that pass Validate. On unless you turn it off; turning it off keeps what's recorded.",
       toggle("record", s.record)),
     settingRow("Developer progression", "Show levels, XP and achievements. Turn off to keep only your accomplishments and the professional report.",
       toggle("progression", s.progression)),

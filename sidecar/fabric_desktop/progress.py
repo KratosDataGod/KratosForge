@@ -53,7 +53,7 @@ STEADY_HAND_NOTEBOOKS = 5
 TITLES = ((50, "Legend of the Forge"), (40, "Wolf Guardian"), (30, "Forge Architect"), (20, "Master Forger"),
           (15, "Steel Forger"), (10, "Iron Forger"), (5, "Forge Initiate"), (1, "Apprentice"))
 
-DEFAULT_SETTINGS = {"record": False, "progression": True, "notifications": True, "backfilled": False}
+DEFAULT_SETTINGS = {"record": True, "progression": True, "notifications": True, "backfilled": False}
 IDENTITY_KEYS = ("display_name", "role", "technologies")
 MAX_TEXT = 2000
 
@@ -87,7 +87,7 @@ def empty() -> dict[str, Any]:
 
 def load(path: Path) -> dict[str, Any]:
     """The profile; a fresh one when there is none. A file that can't be read is set aside (jsonfile)
-    and the fresh profile carries a notice saying so, kept until recording is turned on again."""
+    and the fresh profile carries a notice saying so, kept until the person dismisses it."""
     aside = set(path.parent.glob(f"{path.name}.corrupt-*")) if path.parent.exists() else set()
     data = jsonfile.read_json(path, None)
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
@@ -95,8 +95,8 @@ def load(path: Path) -> dict[str, Any]:
         new = sorted(set(path.parent.glob(f"{path.name}.corrupt-*")) - aside) if path.parent.exists() else []
         if new:
             out["notice"] = (f"Your profile file couldn't be read, so it was set aside as {new[-1].name} in the same folder "
-                             "and a new one started. Recording is off until you turn it on again.")
-            save(path, out)  # the notice stays until it has been seen and recording is back on
+                             "and a new one started. What it held is still in that file.")
+            save(path, out)  # the notice stays until it has been dismissed
         return out
     out = empty()
     out["notice"] = str(data.get("notice") or "")[:MAX_TEXT]

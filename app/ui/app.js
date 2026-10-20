@@ -314,7 +314,9 @@ async function ensureSignedIn() {
 async function loadWorkspaces() {
   if (!(await ensureSignedIn())) return [];
   if (!state.workspaces) {
-    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces")) || null;
+    // Listing workspaces only reads, so the error toast offers Retry; it fills the list and redraws (UX-011).
+    const again = async () => { state.workspaces = await rpc("list_workspaces"); render(); };
+    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces", { retry: again })) || null;
   }
   return state.workspaces || [];
 }

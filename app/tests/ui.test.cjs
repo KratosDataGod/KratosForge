@@ -2073,4 +2073,7 @@ test("the listed screens show a sentence or the error panel, never the raw excep
   assert.doesNotMatch(read("deps.js"), /problem: String\(err\)/);
   assert.match(read("query.js"), /errorPanel\(tab\.error, \{ retry: tab\.errorRetry \}\)/);
   assert.doesNotMatch(read("app.js"), /could not open: \$\{err\}/);
+  assert.match(read("app.js"), /attempt\(\(\) => rpc\("list_workspaces"\), "Could not list workspaces", \{ retry: again \}\)/,
+    "listing workspaces, a read, offers Retry on its toast");
+  assert.match(read("app.js"), /attempt\(\(\) => rpc\("list_workspaces"\), "Could not list workspaces", \{ retry: again \}\)/);
 });

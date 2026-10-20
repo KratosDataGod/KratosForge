@@ -76,3 +76,23 @@ test("an error toast is announced, offers Retry, and stays while hovered", { ski
   await t.getByRole("button", { name: "Retry" }).click();
   await page.waitForFunction(() => window.__tries === 2);
 });
+
+test("Could not list workspaces offers Retry, and Retry fills the list", { skip }, async () => {
+  let fails = 1;
+  const ws = await openApp({
+    mocks: {
+      environment: () => ({ python: "Python 3 (test)", user: { name: "Test", username: "t@example.com" } }),
+      list_workspaces: () => { if (fails-- > 0) throw new Error("ConnectionError: Max retries exceeded"); return [{ id: "w1", displayName: "Sales Dev" }]; },
+    },
+  });
+  try {
+    const page = ws.page;
+    await page.evaluate(() => { state.user = state.user || { name: "Test" }; state.workspaces = null; loadWorkspaces(); });
+    const t = page.locator("#toast");
+    await page.waitForFunction(() => /Could not list workspaces/.test(document.getElementById("toast")?.textContent || ""));
+    assert.strictEqual(await t.getAttribute("role"), "alert");
+    await t.getByRole("button", { name: "Retry" }).click();
+    await page.waitForFunction(() => state.workspaces?.[0]?.displayName === "Sales Dev");
+    assert.strictEqual(ws.calls.filter((c) => c.method === "list_workspaces").length, 2);
+  } finally { await ws.close(); }
+});

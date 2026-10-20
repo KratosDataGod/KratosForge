@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import threading
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
@@ -156,7 +156,7 @@ class XRayMixin:
             except Exception as exc:  # cost needs the run logs; the rest stands without it
                 _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
-            result["shared"] = self._xray_share(result)
+            result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
             state: dict[str, Any] = {"running": False}
@@ -165,17 +165,20 @@ class XRayMixin:
         with self._xray_lock:
             self._xray_state = state
 
-    def _xray_share(self, result: dict[str, Any]) -> dict[str, Any] | None:
+    def _xray_share(self, result: dict[str, Any], storage_token: Callable[[], str]) -> dict[str, Any] | None:
         """Add the scan's lakehouse and table findings to the central lakehouse this PC is connected
         to, so Optimize > Opportunities shows them for everyone using it (optimize.Shared). Nothing
         when the PC isn't connected, the policy turns it off, or the lakehouse is open read-only.
-        Never fails the scan: what went wrong is kept with the result."""
+        Never fails the scan: what went wrong is kept with the result. ``storage_token`` is the one
+        the scan took on the calling thread; this runs on the scan's own thread."""
         conn = self.central_lakehouse()  # type: ignore[attr-defined]
         if not conn or conn.get("access") != "write":
             return None
         try:
             records = xray.optimize_records(result)
-            out = self._optimize_shared().record_analysis(  # type: ignore[attr-defined]
+            self._xray_progress({"phase": f"Adding findings to {conn.get('lakehouse_name') or 'the central lakehouse'}",
+                                 "done": 0, "total": len(records["findings"])})
+            out = self._optimize_shared(storage_token).record_analysis(  # type: ignore[attr-defined]
                 records["run"], records["artifacts"], records["findings"], records["recommendations"])
             return {"lakehouse": conn.get("lakehouse_name"), "findings": out["findings"]}
         except Exception as exc:  # noqa: BLE001 - the scan stands without it

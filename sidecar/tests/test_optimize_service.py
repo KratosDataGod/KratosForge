@@ -42,10 +42,13 @@ def svc(tmp_path, monkeypatch):
     fabric = FakeFabric()
     monkeypatch.setattr(Service, "fabric", property(lambda self: fabric))
     lakes = tmp_path / "onelake"
+    tokens = []
     monkeypatch.setattr(Service, "_optimize_lake",
-                        lambda self, ws, lh, schemas=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
+                        lambda self, ws, lh, schemas=None, token=None: tokens.append(token) or
+                        LocalLakehouse(lakes / ws / lh, schemas is not False))
     s.fake = fabric
     s.lakes = lakes
+    s.tokens = tokens
     return s
 
 
@@ -209,14 +212,19 @@ def test_xray_findings_reach_optimize_without_people_or_cost():
 
 
 def test_an_xray_scan_is_added_to_the_connected_central_lakehouse(svc):
-    assert svc._xray_share(xray_result()) is None  # not connected: nothing is written anywhere
+    def taken():
+        return "token taken on the calling thread"
+    assert svc._xray_share(xray_result(), taken) is None  # not connected: nothing is written anywhere
     svc.optimize_create("w1", workspace_name="Platform")
-    shared = svc._xray_share(xray_result())
+    svc.tokens.clear()
+    shared = svc._xray_share(xray_result(), taken)
+    # The scan's thread never asks sign-in for a token: it uses the one the scan took first.
+    assert svc.tokens == [taken]
     assert shared["findings"] == 1 and "error" not in shared
-    assert svc._xray_share(xray_result())["findings"] == 1  # the same scan again adds nothing new
+    assert svc._xray_share(xray_result(), taken)["findings"] == 1  # the same scan again adds nothing new
     [found] = svc.optimize_findings()
     assert found["title"] == "dbo.orders has 900 small files" and found["occurrences"] == 1
     assert [r["kind"] for r in svc.optimize_recommendations()] == ["optimize"]
     conn = svc.central_lakehouse()
     svc.optimize_registry.add(dict(conn, access="read"))
-    assert svc._xray_share(xray_result()) is None  # read-only: X-ray doesn't try
+    assert svc._xray_share(xray_result(), taken) is None  # read-only: X-ray doesn't try

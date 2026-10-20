@@ -6,6 +6,9 @@ second writer wait: before running an entity, a worker creates a small lease fil
 table, keeps renewing it while it works, and deletes it when done. A worker that dies stops
 renewing; once the lease expires, the next writer takes it over.
 
+Every OneLake table write also holds a lease in the table's own lakehouse (``table_lease``), so a
+notebook or job writing a table and a metadata run writing the same table wait for each other.
+
 For an environment in OneLake the lease files live in its ``LH_Meta`` lakehouse under
 ``Files/_fabric_desktop/leases/`` and every change is conditional (``If-None-Match: *`` to
 create, ``If-Match: <etag>`` to renew, take over or delete), so agents on different machines
@@ -27,7 +30,7 @@ import socket
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from pathlib import Path
@@ -329,3 +332,21 @@ class Held:
 
 def table_key(lakehouse: str, schema: str, table: str) -> str:
     return f"{lakehouse}/{schema}.{table}"
+
+
+# Every writer of a OneLake table (a notebook's write_table, a job's publish, a metadata run on this PC
+# or an agent) also holds this lease, kept in the table's own lakehouse, so writers that know only
+# the table, not its metadata project, still see each other. Metadata runs hold their LH_Meta
+# lease (table_key) first and this one second; nothing takes them the other way round.
+TABLE_LEASE_WAIT = 60
+
+
+def table_lease(backend: Backend, schema: str, table: str, owner: str, wait: float | None = None,
+                ttl: float = 120) -> AbstractContextManager["Held"]:
+    """Hold the write lease on ``schema.table`` in the lakehouse ``backend`` keeps its files in."""
+    return Leases(backend, owner=owner, ttl=ttl, wait=TABLE_LEASE_WAIT if wait is None else wait).hold(f"{schema}.{table}")
+
+
+def onelake_table_lease(workspace_id: str, lakehouse_id: str, schema: str, table: str,
+                        token: Callable[[], str], owner: str, **kw: Any) -> AbstractContextManager["Held"]:
+    return table_lease(OneLakeBackend(workspace_id, lakehouse_id, token), schema, table, owner, **kw)

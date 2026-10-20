@@ -1965,3 +1965,10 @@ test("notebookutils.lakehouse and isValidToken are documented", () => {
   assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
   assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
 });
+
+// Notebook utilities: notebookutils.notebook reads Fabric notebook items; changes go through Publish.
+test("notebookutils.notebook item reads are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `notebook` items \| `get`, `list` and `getDefinition` read Fabric notebook items as you/);
+  assert.match(docs, /use \*\*Publish to OneLake\*\*, which shows what it replaces first/);
+});

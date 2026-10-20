@@ -411,8 +411,38 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
             raise error
         return results
 
-    return types.SimpleNamespace(run=run, exit=exit, runMultiple=runMultiple,
-                                 help=lambda *_a: print("notebookutils.notebook on this PC: run, exit, runMultiple"))
+    def find(name: str, workspaceId: str) -> dict[str, Any]:  # noqa: N803
+        ws = _workspace(workspaceId)
+        found = next((n for n in _client(host).list_notebooks(ws) if n.get("displayName") == name), None)
+        if found is None:
+            raise LookupError(f"No notebook named {name} in workspace {ws}.")
+        return found
+
+    def get(name: str, workspaceId: str = "") -> Item:  # noqa: N803
+        """A Fabric notebook item, read as you (not a notebook on this PC)."""
+        return Item(find(name, workspaceId))
+
+    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+        return [Item(n) for n in _client(host).list_notebooks(_workspace(workspaceId))[:maxResults]]
+
+    def getDefinition(name: str, workspaceId: str = "", format: str = "ipynb") -> str:  # noqa: N802, N803, A002
+        """The notebook's content as Fabric stores it (ipynb JSON by default), as text."""
+        item = find(name, workspaceId)
+        parts = _client(host).get_item_definition(item["workspaceId"], item["id"], format).get("definition", {}).get("parts", [])
+        part = next((p for p in parts if p.get("path", "").startswith("notebook-content")), None)
+        if part is None:
+            raise LookupError(f"Fabric returned no content for the notebook {name}.")
+        return base64.b64decode(part["payload"]).decode("utf-8")
+
+    def item_change(*_a: Any, **_kw: Any) -> None:
+        raise NotImplementedError("Creating, changing or deleting Fabric notebook items from a notebook runs in "
+                                  "Fabric. On this PC, use Publish to OneLake, which shows what it replaces first.")
+
+    return types.SimpleNamespace(run=run, exit=exit, runMultiple=runMultiple, get=get, list=list,
+                                 getDefinition=getDefinition, create=item_change, update=item_change,
+                                 updateDefinition=item_change, delete=item_change,
+                                 help=lambda *_a: print("notebookutils.notebook on this PC: run, exit, runMultiple, "
+                                                        "get, list, getDefinition (Fabric items, read only)"))
 
 
 def _make_runtime(host: Host) -> types.SimpleNamespace:
@@ -466,20 +496,29 @@ _ITEM_CHANGES = ("Creating, changing or deleting a lakehouse from a notebook run
                  "do it in Workspaces or Platform setup, where the change is confirmed first.")
 
 
+def _client(host: Host) -> Any:
+    """A Fabric API client that reads as you, with your sign-in."""
+    if host.token is None:
+        raise RuntimeError("Sign in first: item details come from Fabric as you.")
+    from .fabric_api import FabricClient
+    return FabricClient(lambda: host.token("pbi"))  # type: ignore[misc]
+
+
+def _workspace(workspaceId: str) -> str:  # noqa: N803
+    """The workspace given, else the attached lakehouse's, as Fabric defaults to the notebook's own."""
+    if workspaceId:
+        return workspaceId
+    lh = lakehouse._attached
+    if lh is None:
+        raise ValueError("Pass workspaceId, or attach a lakehouse: its workspace is the default, as in Fabric.")
+    return lh.workspace_id
+
+
 def _make_lakehouse(host: Host) -> types.SimpleNamespace:
     def client() -> Any:
-        if host.token is None:
-            raise RuntimeError("Sign in first: lakehouse details come from Fabric as you.")
-        from .fabric_api import FabricClient
-        return FabricClient(lambda: host.token("pbi"))  # type: ignore[misc]
+        return _client(host)
 
-    def workspace(workspaceId: str) -> str:  # noqa: N803
-        if workspaceId:
-            return workspaceId
-        lh = lakehouse._attached
-        if lh is None:
-            raise ValueError("Pass workspaceId, or attach a lakehouse: its workspace is the default, as in Fabric.")
-        return lh.workspace_id
+    workspace = _workspace
 
     def find(name: str, workspaceId: str) -> dict[str, Any]:  # noqa: N803
         ws = workspace(workspaceId)

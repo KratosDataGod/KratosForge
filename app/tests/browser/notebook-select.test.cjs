@@ -100,3 +100,14 @@ test("Shift+M merges the selected cells into the first", { skip }, async () => {
   assert.strictEqual(sources[0], "a = 1\nb = a + 1\nc = b + 1");
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("Z undoes a merge, and cells in different languages aren't merged", { skip }, async () => {
+  await page().keyboard.press("z");
+  assert.deepStrictEqual(await page().evaluate(() => state.notebook.cells.map((c) => c.source)), CELLS.map((c) => c.source));
+  await cell(3).locator(".gutter").click({ position: { x: 10, y: 40 } });
+  await page().keyboard.press("Shift+M");  // the loop cell and the %%sql cell below it
+  await page().locator("#toast").getByText(/different languages \(Python \(PySpark\) and Spark SQL\)/).waitFor();
+  assert.strictEqual(await page().evaluate(() => state.notebook.cells.length), 5);
+  assert.deepStrictEqual(app.errors, []);
+});
+

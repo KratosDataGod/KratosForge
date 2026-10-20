@@ -132,6 +132,8 @@ function deleteSelected() {
 // Undo for a deleted group: the cells go back in their old order.
 function undoDeleteGroup(last) {
   const cells = state.notebook.cells;
+  // Undoing a merge also puts the first cell's own text back, if it's still there.
+  if (last.merge && cells.includes(last.merge.head)) setSource(last.merge.head, last.merge.before);
   let restored = null;
   for (const { cell: saved, index } of last.group) {
     const cell = cellFrom(saved);
@@ -184,27 +186,44 @@ function freezeSelected() {
   selectionPaint();
 }
 
-// Shift+M: the selected cells become one, in order, the first cell's language kept. With one cell
-// selected it merges the cell below, as in Jupyter.
+// Shift+M: the selected cells become one, in order. With one cell selected it merges the cell
+// below, as in Jupyter. Cells in different languages (Python and %%sql, say) aren't merged, since
+// the second cell's magic line would end up in the middle of the first. Z undoes a merge.
 function mergeSelected() {
-  const cells = selectedCells();
-  if (cells.length < 2) return mergeBelow(selectedCell());
+  let cells = selectedCells();
+  if (cells.length < 2) {
+    const all = state.notebook.cells;
+    const next = all[all.indexOf(cells[0]) + 1];
+    if (!next) return;
+    cells = [cells[0], next];
+  }
   if (cells.some((c) => c.meta?.frozen)) { toast("A frozen cell can't be merged. Unfreeze it first."); return; }
   if (new Set(cells.map((c) => c.type)).size > 1) { toast("Select only code cells or only Markdown cells to merge them."); return; }
+  const langs = new Set(cells.map(cellLang));
+  if (langs.size > 1) {
+    const names = Object.fromEntries(LANGS);
+    toast(`These cells are in different languages (${[...langs].map((l) => names[l] || l).join(" and ")}), so they weren't merged. Change one cell's language first.`);
+    return;
+  }
   const [head, ...rest] = cells;
+  const all = state.notebook.cells;
+  const undo = { merge: { head, before: head.source }, group: rest.map((c) => ({
+    cell: { type: c.type, source: c.source, meta: structuredClone(c.meta || {}), cell_id: c.cell_id }, index: all.indexOf(c) })) };
   const magic = MAGIC[cellLang(head)];
   const tails = rest.map((c) => {
     const t = c.source;
     return magic && t.trimStart().startsWith(magic) ? t.trimStart().slice(magic.length).replace(/^\n/, "") : t;
   });
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
-  for (const c of rest) { state.notebook.cells.splice(state.notebook.cells.indexOf(c), 1); dropEditor(c); }
+  for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }
+  deletedCells.push(undo);
   nbSel.ids.clear();
   nbSel.anchor = null;
   state.selected = head.id;
   markDirty();
   renderNotebook();
   enterCommandMode(head);
+  toast(`Merged ${cells.length} cells. Press Z to undo.`);
 }
 
 // ---------- running part of a cell ----------

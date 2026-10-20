@@ -19,7 +19,7 @@ of them:
 | --- | --- | --- |
 | **Run selected** | **Ctrl+Enter** or **Shift+Enter** | Runs the selected code cells in notebook order, stopping at the first failure. Frozen cells are skipped. |
 | **Copy** | **C** | Copies the cells; **V** pastes them all below the current cell. **X** cuts them. |
-| **Merge** | **Shift+M** | Joins the selected cells into the first one, in order. Cells must all be code or all Markdown, and none frozen. With one cell selected, **Shift+M** merges the cell below. |
+| **Merge** | **Shift+M** | Joins the selected cells into the first one, in order. Cells must be in the same language (Python, Spark SQL, HTML or Markdown) and none frozen. With one cell selected, **Shift+M** (or **Merge with below**) merges the cell below. **Z** undoes a merge. |
 | **Freeze** / **Unfreeze** | | Freezes the selected cells, or unfreezes them if all are frozen. |
 | **Delete** | **DD** or **Delete** | Deletes the selected cells except frozen ones. **Z** puts them all back where they were. |
 | | **Alt+Up** / **Alt+Down** | Moves a block of neighbouring cells up or down. |

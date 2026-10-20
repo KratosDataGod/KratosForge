@@ -577,18 +577,10 @@ function splitCell(cell) {
   enterEditMode(fresh);
 }
 
+// Same as Shift+M on one cell (nbselect.js): refuses cells in different languages, and Z undoes it.
 function mergeBelow(cell) {
-  const cells = state.notebook.cells;
-  const next = cells[cells.indexOf(cell) + 1];
-  if (!next || cell.meta?.frozen || next.meta?.frozen) return;
-  let tail = next.source;
-  const magic = MAGIC[cellLang(cell)];
-  if (magic && tail.trimStart().startsWith(magic)) tail = tail.trimStart().slice(magic.length).replace(/^\n/, "");
-  setSource(cell, `${cell.source.replace(/\n$/, "")}\n${tail}`);
-  cells.splice(cells.indexOf(next), 1);
-  dropEditor(next);
-  markDirty();
-  renderNotebook();
+  if (state.selected !== cell.id) selectCell(cell);
+  mergeSelected();
 }
 
 function setLanguage(cell, lang) {

@@ -313,6 +313,11 @@ class FabricClient:
         (continuationUri) and limited to 25 calls a minute."""
         return self._paged("/admin/tenantsettings")
 
+    def list_capacity_tenant_setting_overrides(self) -> list[dict[str, Any]]:
+        """Tenant settings each capacity overrides: [{id (capacity id), tenantSettings: [...]}].
+        Fabric administrators only (Tenant.Read.All); documented as paged (continuationUri)."""
+        return self._paged("/admin/capacities/delegatedTenantSettingOverrides", key="overrides")
+
     # ---- workspaces: who has access
 
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:

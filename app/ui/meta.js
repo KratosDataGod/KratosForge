@@ -405,6 +405,7 @@ function keysCard(e) {
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
       }, "tool primary small") : null),
     e.keys_sql ? h("pre", { class: "sql-block" }, e.keys_sql)
+      : e.keys_from ? h("p", { class: "muted-text" }, `Keys come from ${e.keys_from}, so there's no MERGE into LH_Keys to copy. Each run of this entity takes its keys from ${e.keys_from}.`)
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 
@@ -1253,6 +1254,8 @@ async function renderModelTab(body) {
     result.replaceChildren(h("div", { class: "pass-box" }, icon("ok", 16),
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
       res.skipped.length ? ` Not written yet, so left out: ${res.skipped.join(", ")}.` : "",
+      res.columns_left_out?.length ? ` Direct Lake can't read these column types, so they were left out: ${res.columns_left_out.map((c) => `${c.table}.${c.column} (${c.type})`).join(", ")}.` : "",
+      res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
   };

@@ -19,6 +19,7 @@ import contextlib
 import ctypes
 import inspect
 import io
+import itertools
 import json
 import keyword
 import os
@@ -557,12 +558,13 @@ class Kernel:
         columns = _columns(value)
         if columns is not None:
             return {**out, "columns": columns}
-        if isinstance(value, dict):
-            pairs = list(zip(range(VAR_ITEMS), value.items()))
-            entries = [(repr(k), str(k), v) for _, (k, v) in pairs]
-        elif isinstance(value, (list, tuple, set, frozenset)):
-            seq = value if isinstance(value, (list, tuple)) else sorted(value, key=repr)
-            entries = [(str(i), "", v) for i, v in zip(range(VAR_ITEMS), seq)]
+        kind = type(value)
+        if kind is dict:
+            entries = [(repr(k), str(k), v) for k, v in itertools.islice(value.items(), VAR_ITEMS)]
+        elif kind in (list, tuple):
+            entries = [(str(i), "", v) for i, v in enumerate(value[:VAR_ITEMS])]
+        elif kind in (set, frozenset):  # sorted for a stable view of the items read, not the whole set
+            entries = [(str(i), "", v) for i, v in enumerate(sorted(itertools.islice(value, VAR_ITEMS), key=repr))]
         else:
             return out
         out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
@@ -678,8 +680,14 @@ def _size(value: Any) -> str:
 VAR_ITEMS = 100  # items shown when a variable is opened in the Variables pane
 
 
+# Only the built-in containers are opened or measured item by item: a subclass's own __iter__ or
+# __len__ is the user's code.
+_CONTAINERS = (dict, list, tuple, set, frozenset)
+_SCALARS = (str, bytes, bytearray, int, float, bool, complex, type(None))
+
+
 def _expandable(value: Any) -> bool:
-    if isinstance(value, (dict, list, tuple, set, frozenset)):
+    if type(value) in _CONTAINERS:
         return len(value) > 0
     return _columns(value) is not None
 
@@ -688,8 +696,10 @@ def _columns(value: Any) -> list[dict[str, str]] | None:
     """A data frame's columns and types, from its schema; None for anything else. Nothing is
     computed: Spark (DuckDB) frames give their types without running the query."""
     module = type(value).__module__
+    if type(value).__name__ == "LazyFrame":  # its schema would be resolved from the query plan
+        return None
     try:
-        if module.startswith("polars") and hasattr(value, "schema") and not module.startswith("polars.lazyframe"):
+        if module.startswith("polars") and hasattr(value, "schema"):
             return [{"name": str(k), "type": str(t)} for k, t in value.schema.items()]
         if isinstance(value, (pa.Table, pa.RecordBatch)):
             return [{"name": f.name, "type": str(f.type)} for f in value.schema]
@@ -716,17 +726,16 @@ def _memory(value: Any) -> int | None:
         if module.startswith("pandas") and hasattr(value, "memory_usage"):
             usage = value.memory_usage(deep=False)
             return int(usage.sum() if hasattr(usage, "sum") else usage)
-        if isinstance(value, (str, bytes, bytearray, int, float, bool, complex)) or value is None:
+        if type(value) in _SCALARS:
             return sys.getsizeof(value)
-        if isinstance(value, (dict, list, tuple, set, frozenset)):
-            items = value.items() if isinstance(value, dict) else value
+        if type(value) in _CONTAINERS:
+            items = value.items() if type(value) is dict else value
             sample = 0
             n = 0
-            for item in items:
-                if n == 10_000:
-                    break
-                parts = item if isinstance(value, dict) else (item,)
-                sample += sum(sys.getsizeof(p) for p in parts)
+            for item in itertools.islice(items, 10_000):
+                parts = item if type(value) is dict else (item,)
+                # A user object's own __sizeof__ isn't called: its base size counts instead.
+                sample += sum(sys.getsizeof(p) if type(p) in _SCALARS else type(p).__basicsize__ for p in parts)
                 n += 1
             return sys.getsizeof(value) + (sample * len(value) // n if n else 0)
     except Exception:  # noqa: BLE001  # silent-ok: an estimate that fails is shown as unknown

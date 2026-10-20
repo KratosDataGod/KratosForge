@@ -321,3 +321,25 @@ def test_a_secret_variable_is_not_opened():
     row = next(r for r in k.variables() if r["name"] == "db_password")
     assert row["value"] == "hidden" and not row["expandable"]
     assert k.variable_detail("db_password") == {"name": "db_password", "type": "list", "hidden": True}
+
+
+def test_variable_explorer_does_not_call_a_users_iter_or_sizeof_or_plan_a_lazy_frame():
+    k = Kernel()
+    k.run("import polars as pl\n"
+          "calls = []\n"
+          "class Loud(list):\n"
+          "    def __iter__(self):\n"
+          "        calls.append('iter'); return super().__iter__()\n"
+          "class Big:\n"
+          "    def __sizeof__(self):\n"
+          "        calls.append('sizeof'); return 10**9\n"
+          "loud = Loud([1, 2])\n"
+          "objs = [Big(), Big()]\n"
+          "lazy = pl.LazyFrame({'a': [1]}).select(pl.col('a') * 2)")
+    rows = {r["name"]: r for r in k.variables()}
+    assert not rows["loud"]["expandable"] and rows["loud"]["memory"] is None
+    assert rows["objs"]["memory"] < 10**6
+    assert not rows["lazy"]["expandable"]
+    assert k.variable_detail("loud") == {"name": "loud", "type": "Loud"}
+    assert k.variable_detail("lazy") == {"name": "lazy", "type": "LazyFrame"}
+    assert k.namespace["calls"] == []

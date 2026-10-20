@@ -1,8 +1,9 @@
 # The Variables pane
 
 **View > Variables** lists what the notebook's Python session holds on this PC: each variable's
-name, type, size and a short value. It's the same explorer Fabric and Databricks notebooks have, and
-reading it never runs your code: values are read from the session as they are.
+name, type, size and a short value. It's the same explorer Fabric and Databricks notebooks have. Reading
+it runs no cells and no queries; the only code of yours it can touch is a class's own `repr`,
+used for the short value, as any Python explorer does.
 
 ## Filter and sort
 
@@ -11,9 +12,10 @@ reading it never runs your code: values are read from the session as they are.
   variable holds, biggest first; variables whose memory can't be told cheaply go last.
 - The line under the table counts the variables and adds up their memory.
 
-Memory is an estimate: a Polars or Arrow frame's buffers, a NumPy array's bytes, or a list, dict
-or set with its first 10,000 items, scaled up. A Spark frame has no figure, because its rows aren't
-read until something asks for them. Hover a size to see the estimate.
+Memory is an estimate: a Polars or Arrow frame's buffers, a NumPy array's bytes, or a built-in
+list, dict or set with its first 10,000 items, scaled up (an object inside counts its base size).
+A Spark frame, a Polars LazyFrame and your own classes have no figure, because measuring them
+would mean running their query or their code. Hover a size to see the estimate.
 
 ## Open a variable
 
@@ -23,7 +25,7 @@ The arrow next to a data frame, list, tuple, set or dict opens it in place:
 | --- | --- |
 | Polars, Arrow or Spark data frame | Its columns and their types, read from the schema (a Spark frame's query isn't run) |
 | List or tuple | The first 100 items with their index, type and value |
-| Set | The first 100 items, in order |
+| Set | 100 of its items, sorted |
 | Dict | The first 100 keys with their type and value |
 
 Values whose name or content looks like a secret (`password`, `token`, `key` and the like, or a

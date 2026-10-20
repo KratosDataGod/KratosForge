@@ -494,7 +494,8 @@ async function renderHome() {
       btn("New notebook", "notebook", newNotebook, "tool outline"),
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
+    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
     xray);
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
@@ -1691,8 +1692,10 @@ async function publishNotebook() {
   if (!(await ensureSignedIn())) return;
   if (!nb.workspace?.workspace_id && !(await chooseNotebookWorkspace(nb, "Publish"))) return;
   const ws = nb.workspace.workspace_name;
+  const gate = await nbFabricChangeGate(nb);  // someone changed it in Fabric: they decide first
+  if (!gate) return;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", publishPayload()), "Publish failed");
+  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Publish failed");
   if (result) {
     nb.dirty = false;
     renderChrome();
@@ -1801,8 +1804,10 @@ async function runInFabric() {
   // not yet linked to its Fabric item can't be checked and runs as before.
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
     runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
+  const gate = await nbFabricChangeGate(nb);
+  if (!gate) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
-  const run = await attempt(() => rpc("run_notebook_in_fabric", publishPayload()), "Could not start the run in Fabric");
+  const run = await attempt(() => rpc("run_notebook_in_fabric", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Could not start the run in Fabric");
   if (!run) return;
   nb.dirty = false;
   nb.fabricRun = run;
@@ -2077,7 +2082,7 @@ function markdown(src) {
 
 // The core pages, in rail order. Pages from other files register themselves the same way
 // (meta.js, settings.js); features.js has the rules.
-registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10 }, views: { home: renderHome } });
+registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
   id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
   commands: [

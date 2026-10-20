@@ -29,8 +29,10 @@ cell, opens its code if the code was hidden, and opens a Markdown cell for editi
 
 - **Replace** (or **Enter** in the replace box) changes the current match and moves on.
 - **Replace all** (or **Ctrl+Enter**) changes every match. The bar then offers **Undo replace all**,
-  which puts every changed cell back as it was. Each cell's own **Ctrl+Z** also undoes its change.
-- With a regular expression, `$1` or `$<name>` in the replacement inserts that group.
+  which puts every changed cell back as it was. It goes away once you edit one of those cells, so it
+  never throws away later typing. Each cell's own **Ctrl+Z** also undoes its change.
+- With a regular expression, `$1` or `$<name>` in the replacement inserts that group. Lookarounds
+  and `^` / `$` see the whole cell, so `(?<=dbo\.)sales` replaces only the `sales` after `dbo.`.
 - **Frozen** cells are never changed. Replace all says how many matches it left in frozen cells.
 
 The notebook saves itself after a replace, as it does after typing.

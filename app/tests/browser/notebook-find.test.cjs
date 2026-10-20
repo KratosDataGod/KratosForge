@@ -75,6 +75,41 @@ test("Replace all changes every unfrozen cell, and Undo replace all puts them ba
   assert.strictEqual((await sources())[2], CELLS[2].source);
 });
 
+test("Undo replace all leaves a cell edited since as it is", { skip }, async () => {
+  const bar = page().locator(".nb-find");
+  await bar.getByRole("button", { name: "Replace all" }).click();  // "sales" -> "orders" again
+  assert.match((await sources())[1], /^orders = /);
+  await page().evaluate(() => setSource(state.notebook.cells[2], "%%sql\nSELECT 42"));  // an edit after Replace all
+  await page().waitForTimeout(300);
+  assert.strictEqual(await bar.getByRole("button", { name: "Undo replace all" }).isHidden(), true);
+  // The button went away; undoing the snapshot directly still spares the edited cell.
+  const out = await page().evaluate(() => {
+    nbFind.undo = [{ cell: state.notebook.cells[2], before: "old", after: "%%sql\nSELECT 1" }];
+    undoReplaceAll();
+    return state.notebook.cells[2].source;
+  });
+  assert.strictEqual(out, "%%sql\nSELECT 42");
+  await page().locator("#toast").getByText(/except in 1 cell changed since/).waitFor();
+  await page().evaluate((src) => { setSource(state.notebook.cells[1], src[1]); setSource(state.notebook.cells[2], src[2]); },
+    CELLS.map((c) => c.source));
+});
+
+test("a regular expression with a lookbehind replaces in context", { skip }, async () => {
+  const bar = page().locator(".nb-find");
+  await bar.getByLabel("Match whole word").click();
+  await bar.getByLabel("Use regular expression").click();
+  await bar.getByLabel("Find in notebook").fill("(?<=dbo\\.)sales");
+  await bar.getByText("1 of 2").waitFor();
+  await bar.getByLabel("Replace with").fill("orders_v2");
+  await bar.getByRole("button", { name: "Replace all" }).click();
+  assert.match((await sources())[1], /read_table\("dbo\.orders_v2"\)/);
+  assert.match((await sources())[1], /len\(sales\)/);
+  assert.match((await sources())[2], /FROM dbo\.orders_v2 GROUP/);
+  await bar.getByRole("button", { name: "Undo replace all" }).click();
+  await bar.getByLabel("Use regular expression").click();
+  await bar.getByLabel("Match whole word").click();
+});
+
 test("a regular expression replaces with its groups; a bad one says so", { skip }, async () => {
   const bar = page().locator(".nb-find");
   await bar.getByLabel("Match whole word").click();

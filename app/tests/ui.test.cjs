@@ -1952,6 +1952,16 @@ test("notebook find matches every cell with case, whole word and regex, and repl
   const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
   assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
   assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
+  // Lookarounds and anchors see the whole cell, as when they matched.
+  const xa = [{ type: "code", source: "xa ya xa" }];
+  const found = findMatches(xa, "(?<=x)a", { regex: true }).matches;
+  assert.strictEqual(found.length, 2);
+  assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
+  assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
+  const lines = [{ type: "code", source: "a1\nb2" }];
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
+  assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
   assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");
 });
 

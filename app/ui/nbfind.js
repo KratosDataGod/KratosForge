@@ -11,12 +11,16 @@ const findRefresh = CM.StateEffect.define();
 
 // Every match in the cells, in notebook order: [{ cell, from, to }]. The query's flags are the bar's.
 // Returns { matches, error } and never throws on a bad regular expression.
+function findRegex(q, opts = {}, flags = "g") {
+  const body = opts.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(opts.word ? `\\b(?:${body})\\b` : body, `${flags}u${opts.matchCase ? "" : "i"}`);
+}
+
 function findMatches(cells, q, opts = {}) {
   if (!q) return { matches: [], error: "" };
   let re;
   try {
-    const body = opts.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    re = new RegExp(opts.word ? `\\b(?:${body})\\b` : body, opts.matchCase ? "gu" : "giu");
+    re = findRegex(q, opts);
   } catch (err) {
     return { matches: [], error: "That isn't a valid regular expression." };
   }
@@ -34,10 +38,15 @@ function findMatches(cells, q, opts = {}) {
 }
 
 // The replacement for one match: with a regular expression, $1 and $<name> refer to its groups.
+// The pattern runs again at the match's place in the whole cell text (a sticky regex), so
+// lookarounds and anchors see the same context they matched in.
 function findReplacement(match, q, withText, opts = {}) {
   if (!opts.regex) return withText;
-  const re = new RegExp(opts.word ? `\\b(?:${q})\\b` : q, opts.matchCase ? "u" : "iu");
-  return match.text.replace(re, withText);
+  const source = match.cell.source;
+  const re = findRegex(q, opts, "y");
+  re.lastIndex = match.from;
+  const out = source.replace(re, withText);
+  return out.slice(match.from, out.length - (source.length - match.to));
 }
 
 // Applies replacements to a cell's text from the end, so earlier positions stay right.
@@ -88,11 +97,16 @@ function findHighlighter(cell) {
   }, { decorations: (v) => v.decorations });
 }
 
-// Called when a cell's text changes by typing: the matches move with it.
+// Called when a cell's text changes by typing: the matches move with it, and Undo replace all goes
+// away once a cell it would put back has been edited since.
 function findCellChanged() {
-  if (!nbFind.open || !nbFind.q) return;
+  if (!nbFind.open) return;
   clearTimeout(findCellChanged.t);
-  findCellChanged.t = setTimeout(() => findRecompute(), 120);
+  findCellChanged.t = setTimeout(() => {
+    if (nbFind.undo?.some((u) => u.cell.source !== u.after)) nbFind.undo = null;
+    if (nbFind.q) findRecompute();
+    else findCount();
+  }, 120);
 }
 
 function findCount() {
@@ -197,7 +211,8 @@ function replaceAll() {
     if (frozen) toast(`All ${frozen} match${frozen === 1 ? " is" : "es are"} in frozen cells, so nothing was changed.`);
     return;
   }
-  nbFind.undo = [...byCell.keys()].map((cell) => ({ cell, source: cell.source }));
+  // Undo puts back each cell's text from before, but only while the cell still has the replaced text.
+  nbFind.undo = [...byCell.entries()].map(([cell, edits]) => ({ cell, before: cell.source, after: findApply(cell.source, edits) }));
   let count = 0;
   byCell.forEach((edits, cell) => { findWrite(cell, edits); count += edits.length; findAfterEdit(cell); });
   markDirty();
@@ -210,14 +225,16 @@ function undoReplaceAll() {
   const undo = nbFind.undo;
   if (!undo) return;
   nbFind.undo = null;
-  for (const { cell, source } of undo) {
-    if (!state.notebook.cells.includes(cell)) continue;
-    setSource(cell, source);
+  let kept = 0;
+  for (const { cell, before, after } of undo) {
+    if (!state.notebook.cells.includes(cell) || cell.source !== after) { kept += 1; continue; }  // changed since
+    setSource(cell, before);
     findAfterEdit(cell);
   }
   markDirty();
   findRecompute(false);
-  toast("Replace all was undone.");
+  toast(kept ? `Replace all was undone, except in ${kept} cell${kept === 1 ? "" : "s"} changed since, which ${kept === 1 ? "was" : "were"} left as ${kept === 1 ? "it is" : "they are"}.`
+    : "Replace all was undone.");
 }
 
 // What typing in the cell would have refreshed: a rendered Markdown cell, the outline, dependencies.

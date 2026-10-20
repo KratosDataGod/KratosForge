@@ -246,3 +246,74 @@ def test_a_legacy_connector_webhook_that_cant_be_reached_is_not_stored_with_the_
     stored = svc.pc_schedules.runs_file.read_text(encoding="utf-8")
     for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
         assert secret not in out["alert_error"] and secret not in stored
+
+
+def test_an_alert_teams_didnt_take_waits_and_goes_marked_delayed_after_the_next_run(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    from fabric_desktop.schedule_service import SCHEDULE_ALERTS
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    svc.notebooks.save("Good", [{"type": "code", "source": "x = 1"}])
+    bad = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    good = svc.add_pc_schedule({"kind": "notebook", "name": "Good"}, {"kind": "daily", "times": ["07:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x?sig=SECRET"})
+    sent: list[tuple[str, list[str]]] = []
+
+    def down(url, title, lines):
+        raise RuntimeError(f"Teams answered 503 for {url}")
+    monkeypatch.setattr(dataops_service, "post_teams", down)
+    out = svc.run_schedule(bad)
+    assert "waits on this PC and is sent, marked Delayed, after the next scheduled run here" in out["alert_error"]
+    assert (svc.root / SCHEDULE_ALERTS).exists() and "SECRET" not in (svc.root / SCHEDULE_ALERTS).read_bytes().decode("latin-1")
+    still = svc.run_schedule(good)  # still down: it keeps waiting, and the good run has nothing to say about it
+    assert len(svc._schedule_alerts().pending()) == 1 and "alert_error" not in still
+
+    monkeypatch.setattr(dataops_service, "post_teams", lambda url, title, lines: sent.append((title, lines)))
+    assert "alert_error" not in svc.run_schedule(good)
+    [(title, lines)] = sent
+    assert title == "Delayed: Scheduled run failed on this PC: Bad" and lines[0].startswith("From ")
+    assert lines[1].startswith("Cell 1 of 1 failed: ZeroDivisionError")
+    assert svc._schedule_alerts().pending() == []
+
+
+def test_waiting_alerts_go_before_the_new_one_and_only_one_run_sends_them(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    from fabric_desktop.schedule_service import ALERTS_LOCK
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x"})
+    svc._schedule_alerts().add("Scheduled run failed on this PC: Older", ["boom"], "RuntimeError: down")
+    sent: list[str] = []
+    monkeypatch.setattr(dataops_service, "post_teams", lambda url, title, lines: sent.append(title))
+    lock = svc._lock(ALERTS_LOCK)  # another run is sending them right now
+    svc.run_schedule(sid)
+    assert sent == ["Scheduled run failed on this PC: Bad"] and len(svc._schedule_alerts().pending()) == 1
+    lock.unlink()
+    sent.clear()
+    svc.run_schedule(sid)
+    assert sent == ["Delayed: Scheduled run failed on this PC: Older", "Scheduled run failed on this PC: Bad"]
+
+
+def test_a_legacy_webhook_never_reaches_the_alert_outbox(svc, monkeypatch):
+    from fabric_desktop.schedule_service import SCHEDULE_ALERTS
+    legacy = ("https://127.0.0.1:9/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000"
+              "/IncomingWebhook/abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123")
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": legacy})
+    svc.run_schedule(sid)
+    svc.run_schedule(sid)  # the waiting one fails again: what the outbox keeps of that is scrubbed too
+    stored = (svc.root / SCHEDULE_ALERTS).read_bytes().decode("latin-1")
+    assert len(svc._schedule_alerts().pending()) == 2
+    for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
+        assert secret not in stored
+
+
+def test_a_run_with_nothing_waiting_makes_no_alert_file(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    from fabric_desktop.schedule_service import SCHEDULE_ALERTS
+    svc.notebooks.save("Good", [{"type": "code", "source": "x = 1"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Good"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x"})
+    monkeypatch.setattr(dataops_service, "post_teams", lambda *a: (_ for _ in ()).throw(AssertionError("nothing to post")))
+    assert svc.run_schedule(sid)["status"] == "ok"
+    assert not (svc.root / SCHEDULE_ALERTS).exists()

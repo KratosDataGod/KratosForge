@@ -47,6 +47,14 @@ TEMPLATES: list[dict[str, Any]] = [
     {"id": "join_aggregate", "group": "model", "title": "Join and aggregate",
      "text": "Read a table, join another on a column, group by columns, write the result.",
      "fields": ["source", "join_table", "join_on", "group_by", "output", "mode"]},
+    {"id": "scd1", "group": "model", "title": "Update a dimension in place (SCD type 1)",
+     "text": "Upsert: rows of the source replace the rows with the same key in the dimension, new keys are added, "
+             "and keys missing from the source stay.",
+     "fields": ["source", "keys", "output"]},
+    {"id": "scd2", "group": "model", "title": "Keep a dimension's history (SCD type 2)",
+     "text": "When a tracked column changes, close the current row and add a new version, with valid_from, "
+             "valid_to, is_current and a version number per key.",
+     "fields": ["source", "keys", "tracked", "output"]},
     {"id": "date_dimension", "group": "model", "title": "Date dimension",
      "text": "A calendar table with one row per day between two dates: year, quarter, month, week, weekday and fiscal year.",
      "fields": ["start", "end", "fiscal_start", "output"]},
@@ -79,6 +87,7 @@ FIELDS = {
     "end": "Last date (YYYY-MM-DD)",
     "fiscal_start": "Fiscal year starts in",
     "sums": "Columns whose totals must match",
+    "tracked": "Columns whose change starts a new version (every other column when empty)",
     "notebooks": "Notebooks to run, in order (one per line)",
     "retries": "Retries for each notebook",
     "keys": "Columns that identify a row",
@@ -287,6 +296,80 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
              f"print(f\"{{df.height:,}} new rows\")\ndf.head()")
         code(_check_cell("df", keys))
         code(f"if df.height:\n    lakehouse.write_table(df, {output!r}, mode=\"append\")\nelse:\n    print(\"Nothing new to load.\")")
+    elif template == "scd1":
+        source = _table(v.get("source"), "The table to read")
+        need_keys()
+        mode = "overwrite"
+        md(f"# Update {output} from {source} (SCD type 1)\n\nEach row of `{source}` replaces the row of `{output}` with "
+           f"the same {', '.join(f'`{k}`' for k in keys)}, and keys `{output}` doesn't have yet are added. Keys that "
+           f"are no longer in `{source}` stay as they were. No history is kept: use the SCD type 2 template for that. "
+           f"The notebook rewrites `{output}` as a whole, which suits dimensions. Made by the new notebook wizard.")
+        code(head)
+        code(f"src = lakehouse.read_table({source!r})\nsrc.head()")
+        code(_check_cell("src", keys))
+        code(f"keys = {keys!r}\n"
+             f"if lakehouse.table_exists({output!r}):\n"
+             f"    dim = lakehouse.read_table({output!r})\n"
+             f"    kept = dim.join(src.select(keys), on=keys, how=\"anti\")\n"
+             f"    added = src.join(dim.select(keys), on=keys, how=\"anti\").height\n"
+             f"    print(f\"{{src.height - added:,}} rows replaced, {{added:,}} added, {{kept.height:,}} kept\")\n"
+             f"    out = pl.concat([kept, src], how=\"diagonal_relaxed\")\n"
+             f"else:\n"
+             f"    out = src  # the first run copies every row\n"
+             f"out = out.sort(keys)\nout.head()")
+        code(f"lakehouse.write_table(out, {output!r}, mode=\"overwrite\")")
+    elif template == "scd2":
+        source = _table(v.get("source"), "The table to read")
+        tracked = _names(v.get("tracked"))
+        need_keys()
+        if set(tracked) & set(keys):
+            raise ValueError("A key column can't also be a tracked column: a new key is a new row, not a new version.")
+        mode = "overwrite"
+        md(f"# Keep the history of {output} from {source} (SCD type 2)\n\nCompares `{source}` with the current rows of "
+           f"`{output}` by {', '.join(f'`{k}`' for k in keys)}. When "
+           + (f"{', '.join(f'`{t}`' for t in tracked)} changes" if tracked else "any other column changes")
+           + ", the current row is closed (`valid_to` set, `is_current` false) and a new version is added. New keys "
+           "start at `version` 1. Keys that are no longer in the source stay current. `valid_from` and `valid_to` are "
+           f"the time of the run, in UTC. The notebook rewrites `{output}` as a whole, which suits dimensions. "
+           "Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import datetime, timezone")
+        code(f"src = lakehouse.read_table({source!r})\nsrc.head()")
+        code(_check_cell("src", keys))
+        code(f"keys = {keys!r}\n"
+             f"tracked = {tracked!r} or [c for c in src.columns if c not in keys]\n"
+             f"missing = [c for c in tracked if c not in src.columns]\n"
+             f"assert not missing, f\"{source} has no column {{missing}}\"\n"
+             f"now = datetime.now(timezone.utc)\n"
+             f"opened = [pl.lit(now).alias(\"valid_from\"), pl.lit(None, dtype=pl.Datetime(\"us\", \"UTC\")).alias(\"valid_to\"),\n"
+             f"          pl.lit(True).alias(\"is_current\")]")
+        code(f"if not lakehouse.table_exists({output!r}):\n"
+             f"    out = src.with_columns(pl.lit(1, dtype=pl.Int64).alias(\"version\"), *opened)  # the first run\n"
+             f"    print(f\"{{out.height:,}} keys, all new\")\n"
+             f"else:\n"
+             f"    dim = lakehouse.read_table({output!r})\n"
+             f"    gone = [c for c in tracked if c not in dim.columns]\n"
+             f"    assert not gone, f\"{output} has no column {{gone}}: add it to the dimension before tracking it\"\n"
+             f"    current, history = dim.filter(pl.col(\"is_current\")), dim.filter(~pl.col(\"is_current\"))\n"
+             f"    old = current.select(keys + [pl.col(c).alias(f\"{{c}}__old\") for c in tracked] + [\"version\"])\n"
+             f"    joined = src.join(old, on=keys, how=\"left\")\n"
+             f"    differs = pl.any_horizontal([pl.col(c).ne_missing(pl.col(f\"{{c}}__old\")) for c in tracked])\n"
+             f"    new = joined.filter(pl.col(\"version\").is_null()).with_columns(pl.lit(1, dtype=pl.Int64).alias(\"version\"))\n"
+             f"    changed = joined.filter(pl.col(\"version\").is_not_null() & differs).with_columns(pl.col(\"version\") + 1)\n"
+             f"    added = pl.concat([new, changed]).select(src.columns + [\"version\"]).with_columns(*opened)\n"
+             f"    closed = current.join(changed.select(keys), on=keys, how=\"semi\").with_columns(\n"
+             f"        pl.lit(now).alias(\"valid_to\"), pl.lit(False).alias(\"is_current\"))\n"
+             f"    same = current.join(changed.select(keys), on=keys, how=\"anti\")\n"
+             f"    print(f\"{{new.height:,}} new keys, {{changed.height:,}} changed, {{same.height:,}} unchanged\")\n"
+             f"    out = pl.concat([history, closed, same, added], how=\"diagonal_relaxed\")\n"
+             f"out = out.sort(keys + [\"version\"])\n"
+             f"# Check: one current row per key\n"
+             f"assert out.filter(pl.col(\"is_current\")).select(keys).is_duplicated().sum() == 0, \"A key has two current rows\"\n"
+             f"out.head()")
+        code(f"lakehouse.write_table(out, {output!r}, mode=\"overwrite\")")
+        # Each version is one row: the key and its version number identify it. The validity times are the
+        # time of the run, so they differ between this PC and Fabric and a proof leaves them out.
+        keys = keys + ["version"]
+        ignore = sorted(set(ignore) | {"valid_from", "valid_to"})
     elif template == "standardize":
         source = _table(v.get("source"), "The table to read")
         dates, numbers = _names(v.get("dates")), _names(v.get("numbers"))

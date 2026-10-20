@@ -1076,6 +1076,22 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .provepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
 .provepane .explorer-head .row { gap: 6px; }
 .prove-body { display: flex; flex-direction: column; gap: 12px; padding: 8px 16px 16px; font-size: 13px; }
+/* Validate notebook (validate.js): a panel like Prove's, with two tabs. */
+.validatepane { width: 400px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+.validatepane .explorer-head .row { gap: 6px; }
+.validate-tabs { padding: 0 8px; border-bottom: 1px solid var(--border); }
+.validate-find { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.validate-find.error { border-color: #f3c3c8; }
+.validate-find p { margin: 0; }
+.validate-find .fix { font-weight: 600; }
+.validate-change { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; }
+.validate-change input { margin-top: 3px; }
+.validate-change > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.validate-diff { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: var(--danger-soft); color: var(--danger); font: 12px/1.5 "Cascadia Code", Consolas, monospace; white-space: pre; overflow-x: auto; }
+.validate-diff span { display: block; }
+.validatepane .link-btn { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.validatepane .spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+.validate-how { padding: 0 16px 16px; }
 .prove-banner { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 4px; font-size: 14px; }
 .prove-banner.ok { background: #e7f4e8; color: #0e5c2a; }
 .prove-banner.bad { background: var(--danger-soft); color: var(--danger); }

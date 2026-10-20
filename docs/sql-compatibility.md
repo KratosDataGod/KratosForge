@@ -57,7 +57,7 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 
 ## Rules
 
-Rule set **2026.10.1**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview.
+Rule set **2026.10.2**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview.
 
 | Rule | Finding | Severity | Engines | Confidence | Source |
 | --- | --- | --- | --- | --- | --- |

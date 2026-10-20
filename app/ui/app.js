@@ -82,6 +82,18 @@ async function attempt(fn, label) {
   }
 }
 
+// A click whose handler throws (or whose promise fails) outside attempt() would otherwise do
+// nothing at all on screen: say so, with the error in Activity.
+function reportUncaught(err) {
+  const f = friendlyError(err);
+  if (f.cancelled) return;
+  toast(`Something didn't work: ${f.text}`, true, { details: f.details || (err?.stack ?? "") });
+}
+// Only thrown errors: an event without one is browser noise, such as WebView2's "ResizeObserver loop
+// completed with undelivered notifications", or a resource that didn't load.
+window.addEventListener("error", (e) => { if (e.error) reportUncaught(e.error); });
+window.addEventListener("unhandledrejection", (e) => reportUncaught(e.reason));
+
 function matches(text) {
   return !state.query || String(text).toLowerCase().includes(state.query.toLowerCase());
 }

@@ -1463,6 +1463,8 @@ test("the access cache view flags what's worth a look and asks before setting an
   const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
   assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
   assert.match(panel, /OneLake security roles/);
+});
+
 // The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
 test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");

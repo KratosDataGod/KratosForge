@@ -168,7 +168,7 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
 
-**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); `meta_service.py` waits for #293, and `app_settings.py`, favorites/pins and `_sbs_save` remain.
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there sets the original aside and keeps the lines that still read. `meta_service.py` waits for #293, and `app_settings.py` remains.
 
 ### QA-012 Two audit-chain writers (Medium)
 

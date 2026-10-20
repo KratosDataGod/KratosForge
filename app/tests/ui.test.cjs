@@ -1554,3 +1554,10 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
+
+test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedules (QA-013)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});

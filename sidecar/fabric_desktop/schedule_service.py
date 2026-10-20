@@ -122,9 +122,11 @@ class ScheduleMixin:
         finally:
             lock.unlink(missing_ok=True)
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
-        schedules.log_run(row)
         if row["status"] == "failed":
-            self._alert_failed_schedule(row)
+            problem = self._alert_failed_schedule(row)
+            if problem:  # recorded with the run, so Monitor shows the alert didn't go out
+                row["alert_error"] = problem
+        schedules.log_run(row)
         return row
 
     def _run_notebook_here(self, name: str) -> dict[str, Any]:
@@ -151,16 +153,19 @@ class ScheduleMixin:
         return {"status": "ok", "tables": len(results), "rows": rows,
                 "message": f"{len(results)} tables, {rows:,} rows written"}
 
-    def _alert_failed_schedule(self, row: dict[str, Any]) -> None:
-        url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
-        if not url:
-            return
+    def _alert_failed_schedule(self, row: dict[str, Any]) -> str:
+        """Post the failed run to Teams. Returns why the alert didn't go out, or "" (sent, or no webhook)."""
         from .dataops_service import post_teams
         try:
+            url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
+            if not url:
+                return ""
             post_teams(url, f"Scheduled run failed on this PC: {row['label']}", [row.get("message") or "See Monitor > Schedules"])
-        except Exception as exc:
-            _log.warning("Couldn't post the failed-schedule alert to Teams; Monitor still shows it: %s",
-                         describe(exc))
+            return ""
+        except Exception as exc:  # the run is still logged; describe() drops the webhook's signature
+            problem = f"Couldn't post the Teams alert: {describe(exc)}"
+            _log.warning("%s (schedule %s)", problem, row.get("schedule_id"))
+            return problem
 
     # ---- every schedule, in one list
 

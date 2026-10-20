@@ -359,6 +359,7 @@ class ProveMixin:
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = name
+        kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]
         kernel.bind_proof(config, "pc", root, options)
         self._replay_session = {"name": name, "id": rid, "pid": kernel.pid, "marked": marked}
         return {"id": rid, "pins": pins, "marked": marked, "sandbox": f"{PROOF_ROOT}/{rid}/pc"}
@@ -694,6 +695,7 @@ class ProveMixin:
         kernel = self.kernel  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = record["name"]
+        kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:

@@ -53,6 +53,7 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .notebook_resources_service import NotebookResourcesMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
@@ -69,7 +70,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin):
+class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -437,6 +438,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
+            self.kernel.resources_dir = self._resources_dir(notebook)
             if isinstance(self.kernel, ProcessKernel):
                 return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
             return self.kernel.start(code, check_watches(watches))
@@ -713,8 +715,8 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
-        self.notebooks.delete(name)
-        return {"deleted": name}
+        """Deletes the notebook and its resources folder; ``resources_deleted`` says how many files went."""
+        return {"deleted": name} | self.notebooks.delete(name)
 
     def publish_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                          compute: str | None = None, workspace: dict[str, str] | None = None,

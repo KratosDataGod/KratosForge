@@ -37,6 +37,7 @@ nav = [
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
+    { "Notebook resources" = "notebook-resources.md" },
     { "Validate a notebook" = "validate-notebook.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },

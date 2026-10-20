@@ -7,6 +7,8 @@ The calls Fabric notebooks use most work the same here:
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``credentials``: getToken for storage and Fabric, getSecret from Azure Key Vault as you.
 - ``runtime.context``: the notebook, lakehouse and workspace, with ``isLocal`` set.
+- ``nbResPath``: the notebook's resources folder on this PC; its files are in ``builtin/``
+  (notebook_resources).
 - ``variableLibrary``: VL_Sources from the metadata project, with the values of the environment
   whose workspace the attached lakehouse is in (Dev's when it is in none).
 
@@ -60,11 +62,13 @@ class Host:
     def __init__(self, token: Callable[[str], str] | None = None,
                  run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
                  notebook_name: Callable[[], str] | None = None,
-                 variables: Callable[[str], dict[str, str] | None] | None = None):
+                 variables: Callable[[str], dict[str, str] | None] | None = None,
+                 resources: Callable[[], str] | None = None):
         self.token = token
         self.run_notebook = run_notebook
         self.notebook_name = notebook_name or (lambda: "")
         self.variables = variables
+        self.resources = resources or (lambda: "")
 
 
 def _store() -> FileStore:
@@ -481,5 +485,15 @@ def build(host: Host) -> types.ModuleType:
     mod.runtime = _make_runtime(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary")
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary, nbResPath")
+
+    def attribute(name: str) -> Any:
+        # nbResPath follows the notebook that is running, so it is looked up on each use.
+        if name == "nbResPath":
+            folder = host.resources()
+            if not folder:
+                raise AttributeError("nbResPath is the notebook's resources folder; it is set while a saved notebook runs.")
+            return folder
+        raise AttributeError(f"notebookutils on this PC has no {name}")
+    mod.__getattr__ = attribute  # type: ignore[method-assign]
     return mod

@@ -182,7 +182,8 @@ function renderExplorer() {
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
   } else if (state.explorerTab === "resources") {
-    content.append(h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
+    content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
+      h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
       ...SNIPPETS.map(([title, code]) => h("button", { class: "snippet", onclick: () => insertCell(code) },
         h("div", { class: "t" }, title), h("code", {}, code))));
   } else if (lh) {

@@ -220,7 +220,7 @@ function resolveIncident(i, reload) {
 // ---------- one incident ----------
 
 async function renderIncident() {
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const list = await attempt(() => rpc("incidents_list", { env: incPage.env_of }), "Couldn't read the incident");
   if (state.view !== "incident") return;
   const inc = (list?.incidents || []).find((x) => x.id === incPage.id);

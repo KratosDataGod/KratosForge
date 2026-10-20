@@ -55,10 +55,16 @@ function hydrateIcons(root = document) {
 }
 
 // A short message at the bottom of the window. Errors, and messages marked log, also go to the
-// activity tray, which keeps them; quiet ones (the tray already has them) don't.
+// activity tray, which keeps them; quiet ones (the tray already has them) don't. opts.action
+// ({label, run}) adds a button, such as Retry. Errors are announced at once (role=alert), and the
+// toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  if (opts.action) {
+    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
+      "tool small toast-action"));
+  }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
     const body = title === text ? "" : opts.title && text.startsWith(`${opts.title}: `) ? text.slice(opts.title.length + 2) : text;
@@ -66,18 +72,41 @@ function toast(text, isError = false, opts = {}) {
   }
   // On Monitor the bottom of the window is Fabric's native view, which would cover the toast.
   t.className = `toast${isError ? " error" : ""}${state.view === "monitor" ? " top" : ""}`;
+  t.setAttribute("role", isError ? "alert" : "status");
   t.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, isError ? 8000 : 4000);
+  toast.wait = isError ? 8000 : 4000;
+  if (!toast.wired) {
+    toast.wired = true;
+    const hold = () => { toast.held = true; clearTimeout(toast.timer); };
+    const release = () => {
+      if (t.matches(":hover") || t.contains(document.activeElement)) return;
+      toast.held = false;
+      toast.later();
+    };
+    t.addEventListener("mouseenter", hold);
+    t.addEventListener("focusin", hold);
+    t.addEventListener("mouseleave", release);
+    t.addEventListener("focusout", () => setTimeout(release));
+  }
+  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  if (!toast.held) toast.later(); else clearTimeout(toast.timer);
 }
 
-async function attempt(fn, label) {
+// Runs fn and shows a failure as an error toast titled label. With retry (true, or another
+// function to run instead), the toast has a Retry button. Pass it only for a read or an action that
+// is safe to repeat; Retry runs it again with no further question. What the caller does with the
+// result doesn't run after a Retry, so pass a function that does both when that matters.
+async function attempt(fn, label, opts = {}) {
   try {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
     if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
-    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    const again = opts.retry === true ? fn : opts.retry;
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, {
+      title: label, details: f.details,
+      action: typeof again === "function" ? { label: "Retry", run: () => attempt(again, label, opts) } : null,
+    });
     return undefined;
   }
 }
@@ -285,7 +314,9 @@ async function ensureSignedIn() {
 async function loadWorkspaces() {
   if (!(await ensureSignedIn())) return [];
   if (!state.workspaces) {
-    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces")) || null;
+    // Listing workspaces only reads, so the error toast offers Retry; it fills the list and redraws (UX-011).
+    const again = async () => { state.workspaces = await rpc("list_workspaces"); render(); };
+    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces", { retry: again })) || null;
   }
   return state.workspaces || [];
 }
@@ -544,6 +575,22 @@ function setView(...children) {
   document.getElementById("view").replaceChildren(...children);
 }
 
+// The shared look for a part of a page that is still being read (UX-020): a small spinner and the
+// label, announced once to screen readers. cls adds classes a page already lays out with; live: false
+// leaves out role="status" where one line elsewhere already speaks for the whole page.
+function loading(label = "Loading...", cls = "", { live = true } = {}) {
+  return h("div", { class: `loading muted-text${cls ? ` ${cls}` : ""}`, role: live ? "status" : null },
+    h("span", { class: "spinner", "aria-hidden": "true" }), label);
+}
+
+// The shared look for a list with nothing in it yet (UX-020): an optional icon, a title, a line
+// saying what goes here, and an optional button (or several) to add the first one.
+function emptyState({ icon: name, title, text, action } = {}) {
+  return h("div", { class: "empty" }, name ? icon(name, 32) : null,
+    title ? h("span", { class: "title" }, title) : null,
+    text ? h("span", { class: "text" }, text) : null, action);
+}
+
 function signInCallout() {
   if (state.user) return null;
   return h("div", { class: "callout" }, icon("person", 20),
@@ -582,10 +629,30 @@ function homeUpdatedText() {
   return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
 }
 
+// Home while the component and update check runs (UX-020): drawn at once, with placeholders where
+// the engine's answers go. It calls nothing, since nothing may start the sidecar until the check is
+// done; the real Home replaces it when the check returns. Nothing here is kept in homeCache.
+function startingHome() {
+  // One line speaks for the page; the other placeholders only show, so a screen reader says it once.
+  const quiet = (label) => loading(label, "", { live: false });
+  const later = (label, iconName) => btn(label, iconName, null, "tool outline",
+    { disabled: true, title: "Ready once the local engine has started" });
+  return h("div", { class: "page home", "data-starting": "" },
+    h("div", { class: "row home-head" }, h("h1", { class: "grow" }, "Welcome to KratosForge")),
+    loading("Starting the local engine...", "sub"),
+    h("div", { class: "home-two" },
+      h("section", { class: "card pad" }, h("h2", {}, "Running now"), quiet()),
+      h("section", { class: "card pad" }, h("h2", {}, "Coming up"), quiet())),
+    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
+      later("New notebook", "notebook"), later("New lakehouse", "lakehouse"), later("OneLake catalog", "onelake")),
+    h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), quiet("Loading notebooks...")));
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (state.starting) { setView(startingHome()); return; }
   if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
     homeCache.stamp.textContent = homeUpdatedText();
     setView(homeCache.page);
@@ -594,10 +661,10 @@ async function renderHome() {
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
-  const running = h("div", { class: "muted-text" }, "Loading...");
-  const upcoming = h("div", { class: "muted-text" }, "Loading...");
+  const running = loading();
+  const upcoming = loading();
   const envCards = h("div", { class: "home-envs" });
-  const list = h("div", { class: "muted-text" }, "Loading notebooks...");
+  const list = loading("Loading notebooks...");
   const xray = previewShown() ? xrayCard() : null;
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
@@ -798,7 +865,7 @@ async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
-  const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
+  const local = loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
@@ -964,7 +1031,7 @@ function placeFabricView() {
     fabricView.force = false;
     invoke("fabric_view_show", { x: r.left, y: r.top, width: r.width, height: r.height, tenant: state.tenant || null,
       page: fabricView.page, force }).catch((err) => {
-      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${err}`));
+      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${friendlyError(err).text}`));
     });
   });
 }
@@ -979,7 +1046,7 @@ const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {} 
 
 async function renderWorkspaces() {
   const wp = workspacesPage;
-  const body = h("div", {}, h("p", { class: "muted-text" }, state.user ? "Loading workspaces..." : ""));
+  const body = h("div", {}, state.user ? loading("Loading workspaces...") : "");
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
@@ -1141,7 +1208,7 @@ function openWorkspace(ws) {
 
 async function renderWorkspace() {
   const ws = state.openWorkspace;
-  const body = h("div", { class: "muted-text" }, "Loading items...");
+  const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
@@ -1269,8 +1336,8 @@ async function renderOneLake() {
   const cp = catalogPage;
   const nav = h("nav", { class: "catalog-nav" });
   const head = h("div", { class: "catalog-head" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" },
-    state.user ? "Loading items from all workspaces..." : ""));
+  const list = h("div", { class: "catalog-list" },
+    state.user ? loading("Loading items from all workspaces...") : "");
   const note = h("span", { class: "muted-text" });
   const search = h("input", { class: "catalog-search", placeholder: "Search by name, workspace or table", value: cp.query, "aria-label": "Search the catalog" });
   search.addEventListener("input", () => { cp.query = search.value; draw(); });
@@ -2032,7 +2099,7 @@ async function openDataItems() {
   if (!(await ensureSignedIn())) return;
   const pick = { scope: "all", query: "", selected: null, catalog: null, layers: {} };
   const nav = h("nav", { class: "catalog-nav" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" }, "Loading lakehouses from all workspaces..."));
+  const list = h("div", { class: "catalog-list" }, loading("Loading lakehouses from all workspaces..."));
   const head = h("div", { class: "catalog-head" });
   const detail = h("aside", { class: "catalog-detail" });
   const note = h("span", { class: "muted-text" });
@@ -2465,7 +2532,11 @@ async function checkComponents(afterInstall = false) {
 hydrateIcons();
 renderChrome();
 // Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
+// Home draws at once with placeholders while the check runs (UX-020), then fills in when it returns.
+state.starting = true;
+if (state.view === "home") renderHome();
 checkComponents().finally(() => {
+  state.starting = false;
   navRestore();  // the page you were on last time, or Home
   render();
   attempt(async () => {

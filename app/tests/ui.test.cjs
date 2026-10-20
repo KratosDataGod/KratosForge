@@ -2009,3 +2009,22 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
+test("domain owners from Fabric show only until the platform sets its own", () => {
+  const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const pick = (name) => src.slice(src.indexOf(`function ${name}(`)).split("\n}\n")[0] + "\n}\n";
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : [].concat(n.children || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter((c) => c != null && c !== false) }) };
+  vm.runInNewContext(["fabricOwners", "domainOwnersCell", "domainOwnerLine"].map(pick).join("\n") +
+    "\nthis.cell = domainOwnersCell; this.line = domainOwnerLine;", ctx);
+  const fabric = JSON.stringify([{ name: "Ana", type: "User" }, { name: "Sales leads", type: "Group" }]);
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: fabric })), "Ana, Sales leads From Fabric");
+  assert.strictEqual(text(ctx.cell({ owners: "lee@contoso.com", fabric_owners: fabric })), "lee@contoso.comIn Fabric: Ana, Sales leads");
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: "not json" })), "not set");
+  assert.strictEqual(text(ctx.line({ owners: "", fabric_owners: fabric })), "Owner: Ana +1 (from Fabric)");
+  assert.strictEqual(text(ctx.line({ owners: "lee@contoso.com", fabric_owners: fabric })), "Owner: lee@contoso.com");
+  assert.strictEqual(ctx.line({ owners: "", fabric_owners: null }), null);
+  const map = fs.readFileSync(path.join(ui, "meshmap.js"), "utf8");
+  assert.match(map, /domainOwnerLine\(d\)/);
+});

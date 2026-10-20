@@ -42,6 +42,7 @@ function drawMeshMap(m) {
   const box = (d, sub) => h("div", { class: sub ? "mesh-sub" : "mesh-domain" },
     h("div", { class: "mesh-domain-head" }, h("b", {}, d.name),
       d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "Fabric") : null),
+    domainOwnerLine(d),
     h("div", { class: "mesh-nodes" }, inDomain(d.id).map(node)),
     sub ? null : m.domains.filter((s) => s.parent_id === d.id).map((s) => box(s, true)),
     !inDomain(d.id).length && !m.domains.some((s) => s.parent_id === d.id)

@@ -299,15 +299,33 @@ class PlatformMixin:
         """Bring Fabric's domains and subdomains into the catalog, so everyone sees their names.
         Needs a Fabric administrator (Fabric's domain list is an admin API) who is also a platform admin."""
         try:
-            fabric = self._fabric_admin().list_admin_domains()
+            admin = self._fabric_admin()
+            fabric = admin.list_admin_domains()
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
                                       "Platform > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
+        unread = self._read_domain_admins(admin, fabric)
         result = self._catalog().call("import_fabric_domains", domains=fabric)
-        return {"result": result, "fabric": len(fabric), "domains": self.platform_domains()}
+        return {"result": result, "fabric": len(fabric), "owners_unread": unread, "domains": self.platform_domains()}
+
+    @staticmethod
+    def _read_domain_admins(admin: FabricClient, fabric: list[dict[str, Any]]) -> list[str]:
+        """Add each Fabric domain's admins (names and kinds, no email) as ``admins``. A domain whose
+        admins can't be read gets no ``admins``, so the catalog keeps what it had; its name is returned."""
+        unread = []
+        for d in fabric:
+            try:
+                roles = admin.list_admin_domain_role_assignments(str(d["id"]))
+            except (FabricError, KeyError):
+                unread.append(str(d.get("displayName") or d.get("id") or ""))
+                continue
+            d["admins"] = [{"name": (r.get("principal") or {}).get("displayName") or "",
+                            "type": (r.get("principal") or {}).get("type") or "User"}
+                           for r in roles if str(r.get("role") or "").lower() in ("admin", "admins")]
+        return unread
 
     def mesh_workspace_domains(self) -> dict[str, Any]:
         """The Fabric domain of each workspace the open project writes to. Any workspace member can
@@ -586,7 +604,8 @@ class PlatformMixin:
         links = [{"from": c["consumer_project"], "product": p["id"], "to": p["project"]}
                  for p in products for c in p.get("consumers", [])]
         return {"me": me, "problem": "",
-                "domains": [{k: d.get(k) for k in ("id", "name", "parent_id", "fabric_domain")} for d in domains],
+                "domains": [{k: d.get(k) for k in ("id", "name", "parent_id", "fabric_domain", "owners", "fabric_owners")}
+                            for d in domains],
                 "projects": [{k: p.get(k) for k in ("name", "domain_id", "subdomain_id", "team")} for p in projects],
                 "products": [{k: p.get(k) for k in ("id", "project", "name", "domain_id", "access", "status")}
                              for p in products if p["status"] != "draft"],

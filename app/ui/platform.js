@@ -385,12 +385,13 @@ async function platformDomainsTab(body) {
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
+      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
         h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
-        h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+        h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),

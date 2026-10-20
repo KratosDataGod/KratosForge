@@ -122,7 +122,7 @@ async function renderMeshDomainsTab(body) {
       d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "From Fabric") : null,
       h("div", { class: "muted-text small mono" }, d.id)),
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
-    h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+    h("td", {}, domainOwnersCell(d)),
     h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
   // Domains are edited in one place, Platform > Domains (UX-009); this list is for reading.
   const domainsCard = h("div", { class: "card pad" },
@@ -138,6 +138,30 @@ async function renderMeshDomainsTab(body) {
       : h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
         h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains.")));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
+}
+
+// A domain's Fabric domain admins, read during Import from Fabric: names only, never used to grant anything.
+function fabricOwners(d) {
+  try { return (JSON.parse(d?.fabric_owners || "[]") || []).map((p) => p.name).filter(Boolean); } catch { return []; }
+}
+
+// The owners cell: the platform's owners, else Fabric's domain admins marked "From Fabric".
+function domainOwnersCell(d) {
+  const fabric = fabricOwners(d);
+  const tag = h("span", { class: "badge", title: "This domain's admins in Fabric (Admin portal > Domains), read by Import from Fabric" }, "From Fabric");
+  if (d.owners) {
+    return h("span", {}, d.owners, fabric.length ? h("div", { class: "muted-text small" }, "In Fabric: ", fabric.join(", ")) : null);
+  }
+  return fabric.length ? h("span", {}, fabric.join(", "), " ", tag) : h("span", { class: "muted-text" }, "not set");
+}
+
+// One line for Home's map: the first owner, and how many more.
+function domainOwnerLine(d) {
+  const own = String(d.owners || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const people = own.length ? own : fabricOwners(d);
+  if (!people.length) return null;
+  const more = people.length > 1 ? ` +${people.length - 1}` : "";
+  return h("div", { class: "muted-text small", title: people.join(", ") }, `Owner: ${people[0]}${more}${own.length ? "" : " (from Fabric)"}`);
 }
 
 function domainDialog(o, d, done) {
@@ -169,10 +193,11 @@ async function importFabricDomains(done) {
   if (!out) return;
   const r = out.result;
   const parts = [r.added.length && `${r.added.length} added`, r.linked.length && `${r.linked.length} matched by name`,
-    r.updated.length && `${r.updated.length} renamed or moved`].filter(Boolean);
+    r.updated.length && `${r.updated.length} renamed, moved or with new admins`].filter(Boolean);
   toast(`Imported ${out.fabric} Fabric domains${parts.length ? `: ${parts.join(", ")}` : ", nothing changed"}`);
   if (r.skipped.length) toast(`Skipped (deeper than one subdomain): ${r.skipped.join(", ")}`);
   if (r.gone.length) toast(`No longer in Fabric, kept here: ${r.gone.join(", ")}`);
+  if (out.owners_unread?.length) toast(`Domain admins couldn't be read for: ${out.owners_unread.join(", ")}. Their owners from Fabric stay as they were.`);
   done();
 }
 

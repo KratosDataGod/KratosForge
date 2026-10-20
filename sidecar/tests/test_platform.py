@@ -622,14 +622,21 @@ def test_fabric_domains_are_locked_and_admin_only(platform):
 
 
 class _FakeFabric:
-    def __init__(self, domains=None, workspaces=None, status=200):
+    def __init__(self, domains=None, workspaces=None, status=200, roles=None, unreadable=()):
         self.domains, self.workspaces, self.status = domains or [], workspaces or {}, status
+        self.roles, self.unreadable = roles or {}, set(unreadable)
 
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
         if self.status != 200:
             raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
         return self.domains
+
+    def list_admin_domain_role_assignments(self, domain_id):
+        from fabric_desktop.fabric_api import FabricError
+        if domain_id in self.unreadable:
+            raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 404: NotFound")
+        return self.roles.get(domain_id, [])
 
     def get_workspace(self, wid):
         return {"id": wid, "displayName": f"WS {wid}", **({"domainId": self.workspaces[wid]} if wid in self.workspaces else {})}
@@ -654,6 +661,44 @@ def test_import_needs_a_fabric_admin_and_workspaces_suggest_the_domain(svc, monk
     assert got["unnamed"] == ["f-unknown"] and got["imported"]
     assert {(r["env"], r["designation"], r["domain"]) for r in got["workspaces"]} == {
         ("test", "", None), ("prod", "", "sales-emea"), ("prod", "ingest", None)}
+
+
+def _admin(name, kind="User", role="Admins"):
+    return {"id": f"ra-{name}", "role": role,
+            "principal": {"id": f"obj-{name}", "displayName": name, "type": kind,
+                          "userDetails": {"userPrincipalName": f"{name.lower()}@example.com"}}}
+
+
+def test_import_reads_each_domains_fabric_admins_as_owners_from_fabric(svc, monkeypatch):
+    roles = {"f-sales": [_admin("Ana"), _admin("Sales leads", "Group"), _admin("Bo", role="Contributors")]}
+    fake = _FakeFabric(FABRIC_DOMAINS, roles=roles, unreadable={"f-fin"})
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self: fake)
+    out = svc.platform_import_fabric_domains()
+    assert out["owners_unread"] == ["Finance & Risk"]
+    got = {d["id"]: d for d in out["domains"]}
+    sales = got["sales"]
+    assert json.loads(sales["fabric_owners"]) == [{"name": "Ana", "type": "User"}, {"name": "Sales leads", "type": "Group"}]
+    assert "@" not in sales["fabric_owners"]  # names only: no email is stored
+    assert not sales["owners"] and not got["sales-emea"]["fabric_owners"]  # only Admins, and the platform's owners stay unset
+    # a later import that can't read a domain's admins keeps what it had; a change to the admins is an update
+    fake.unreadable = {"f-sales"}
+    again = svc.platform_import_fabric_domains()
+    assert again["result"]["unchanged"].count("sales") == 1
+    assert json.loads({d["id"]: d for d in svc._catalog().call("list_domains")}["sales"]["fabric_owners"])[0]["name"] == "Ana"
+    fake.unreadable, fake.roles = set(), {"f-sales": [_admin("Cy")]}
+    assert "sales" in svc.platform_import_fabric_domains()["result"]["updated"]
+    assert {d["id"]: d for d in svc.mesh_map()["domains"]}["sales"]["fabric_owners"] == '[{"name": "Cy", "type": "User"}]'
+
+
+def test_fabric_owners_column_is_added_to_a_platform_made_before(platform):
+    with platform._db() as db:
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} DROP COLUMN fabric_owners")
+        db.commit()
+        assert "fabric_owners" not in core._columns(db, "domain")
+    platform.call("import_fabric_domains", domains=[{**FABRIC_DOMAINS[0], "admins": [{"name": "Ana", "type": "User"}]}])
+    with platform._db() as db:
+        assert "fabric_owners" in core._columns(db, "domain")
+    assert platform.call("list_domains")[0]["fabric_owners"] == '[{"name": "Ana", "type": "User"}]'
 
 
 def test_mesh_map_lists_domains_projects_products_and_links(svc):

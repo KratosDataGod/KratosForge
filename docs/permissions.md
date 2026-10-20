@@ -43,7 +43,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from KratosForge on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in KratosForge's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in KratosForge's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names and each domain's admins, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 

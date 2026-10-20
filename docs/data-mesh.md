@@ -62,7 +62,7 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. No app registration |
+| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
@@ -70,6 +70,7 @@ How the import works:
 
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
+- Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Platform > Domains, Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".

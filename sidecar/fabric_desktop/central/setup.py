@@ -4,7 +4,8 @@ For each environment, one Platform workspace (the central team's) holds:
 
     LH_Landing     lakehouse: the one landing zone, raw files from every source; each team builds its own Bronze
     LH_Meta        lakehouse: run history from every project (meta.runs) and the catalog's home in OneLake
-    SQL_Platform   SQL database: surrogate keys (keys.*), source systems (config.*), the catalog (catalog.*)
+    SQL_Platform   SQL database: source systems (config.*), the catalog (catalog.*), and this environment's
+                   surrogate keys (keys.*) until they move to the shared Keys workspace (keys_home.py)
     UDF_Platform   User Data Functions: the platform's API, run against SQL_Platform
     VL_Platform    variable library: these items' ids, so notebooks can find them
 
@@ -68,7 +69,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         wanted = (name or default_name(env)).strip()
         found = next((w for w in fabric.list_workspaces() if w.get("displayName") == wanted), None)
         ws = found or fabric.create_workspace(wanted, capacity_id, f"{env.title()} platform for KratosForge: "
-                                              "surrogate keys, catalog and run history for every team")
+                                              "catalog, run history and keys for every team")
         cfg.update(workspace_id=ws["id"], workspace_name=ws.get("displayName") or wanted)
         return ("Found " if found else "Created ") + cfg["workspace_name"]
 
@@ -92,7 +93,7 @@ def setup(fabric: Any, execute_token: Callable[[], str], env: str, name: str = "
         return ("Created " if created else "Kept ") + LANDING
 
     def sql() -> str:
-        item = fabric.save_item(ws, SQL_TYPE, SQL, description="Surrogate keys, source systems and the catalog")
+        item = fabric.save_item(ws, SQL_TYPE, SQL, description="Source systems, the catalog, and keys until they move to the Keys workspace")
         cfg["sql_id"] = item["id"]
         return ("Created " if item.get("created") else "Kept ") + SQL
 

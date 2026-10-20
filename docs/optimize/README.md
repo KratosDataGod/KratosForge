@@ -87,7 +87,7 @@ Every installation adds what its analysis finds to the shared lakehouse, and eve
 
 ## The tables
 
-All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/fabric-desktop/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
+All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
 
 ## Table families
 

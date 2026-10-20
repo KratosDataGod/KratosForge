@@ -425,7 +425,7 @@ async function platformSection() {
     const c = s.environments[env];
     const fabric = c.kind === "fabric";
     return settingRow(`${ENV_LABEL[env]}: ${fabric ? c.workspace_name || c.workspace_id : "on this PC"}`,
-      fabric ? "Surrogate keys, catalog and run history for every team, in SQL_Platform and LH_Meta."
+      fabric ? "Catalog and run history for every team, in SQL_Platform and LH_Meta; keys too, until they move to the Keys workspace."
         : env === "prod" ? "Domains, products and catalog text are kept in a file on this PC until the Prod platform exists."
           : "Keys stay in each project's LH_Keys until this environment has a platform.",
       policy ? null : h("div", { class: "row" },
@@ -437,7 +437,7 @@ async function platformSection() {
       policy ? "policy" : null);
   };
   section.replaceChildren(h("h2", {}, "Platform ", previewTag()),
-    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), one key system for every team (SQL_Platform, which also holds the catalog), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
+    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), the catalog (SQL_Platform, which also holds each environment's keys until they move to the Keys workspace below), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
     ...MESH_ENVS.map(row), keysRow(s, policy));
   return section;
 }

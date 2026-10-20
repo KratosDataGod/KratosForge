@@ -5,7 +5,7 @@ Each feature, its doc page, whether its screen has a working help link, and whet
 ## How help opens today
 
 - `learnMore(anchor)` (`features.js:83-87`) always opens `user-guide.md#anchor`.
-- The shell's `open_doc` (`main.rs:958-970`) always builds `https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/<page>`. A Stable user reads docs for `main`, which may describe behavior they don't have yet. The published docs site (built by `.github/workflows/docs.yml`) is not used.
+- The shell's `open_doc` (`main.rs:958-970`) always builds `https://github.com/KratosDataGod/KratosForge/blob/main/docs/<page>`. A Stable user reads docs for `main`, which may describe behavior they don't have yet. The published docs site (built by `.github/workflows/docs.yml`) is not used.
 - No test checks a help link the app opens. The docs build runs in strict mode, but only when `docs/` changes, and it can't see links that live in JavaScript.
 
 ## Coverage

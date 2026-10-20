@@ -7,9 +7,9 @@ body:
       value: |
         **Report a problem** in the app (account menu) copies a report with your build and recent errors. Paste it below.
 
-        This is **public**. Don't include tenant names, workspace or item IDs, data, connection strings or passwords. Ideas and feature requests go to the [Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas) instead.
+        This is **public**. Don't include tenant names, workspace or item IDs, data, connection strings or passwords. Ideas and feature requests go to the [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas) instead.
 
-        Common problems and their fixes: [docs/troubleshooting.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/troubleshooting.md)
+        Common problems and their fixes: [docs/troubleshooting.md](https://github.com/KratosDataGod/KratosForge/blob/main/docs/troubleshooting.md)
   - type: textarea
     id: what
     attributes:

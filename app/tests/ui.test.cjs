@@ -2007,3 +2007,10 @@ test("notebook magics page lists the IPython magics", () => {
     assert.ok(page.includes(m), m);
   }
 });
+
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});

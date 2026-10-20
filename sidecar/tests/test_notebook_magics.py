@@ -362,3 +362,37 @@ def test_reading_tools_and_publish_with_ipython_cell_magics():
     assert depgraph.analyze("%reset -f")["dynamic"][0]["text"] == "%reset clears every variable"
     cells = [{"type": "code", "source": "%%time\nx = 1"}, {"type": "code", "source": "%%writefile a.py\nx"}]
     assert ["".join(c["source"]) for c in fabric_ipynb(cells, None)["cells"]] == ["%%time\nx = 1", "%%writefile a.py\nx"]
+
+
+# ---- %run in Fabric's and Databricks' forms
+
+from fabric_desktop.notebook import NotebookStore, _run_target
+
+
+def test_run_target_reads_both_forms():
+    assert _run_target("Load sales") == ("Load sales", {})
+    assert _run_target('Load sales {"day": "2026-01-01", "full": true, "n": null}') == \
+        ("Load sales", {"day": "2026-01-01", "full": True, "n": None})
+    assert _run_target("helpers {'x': 1}") == ("helpers", {"x": 1})
+    assert _run_target('./etl/Load sales $day="2026-01-01" $full=true $who=\'me\'') == \
+        ("Load sales", {"day": "2026-01-01", "full": "true", "who": "me"})
+    assert _run_target('"My nb.ipynb"') == ("My nb", {})
+    assert _run_target("..\\\\shared\\\\helpers") == ("helpers", {})
+    with pytest.raises(ValueError, match="needs a notebook name"):
+        _run_target("")
+    with pytest.raises(ValueError, match="couldn't read"):
+        _run_target("nb {oops}")
+
+
+def test_run_passes_json_parameters_into_the_parameter_cell(tmp_path):
+    store = NotebookStore(tmp_path)
+    store.save("Load sales", [
+        {"type": "code", "source": "day = 'x'\nfull = False", "meta": {"tags": ["parameters"]}},
+        {"type": "code", "source": "summary = f'{day} {full}'"},
+    ])
+    k = Kernel(load_notebook=lambda name: store.load(name)["cells"])
+    out = k.run('%run ./Load sales {"day": "2026-01-01", "full": true}\nsummary')
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1] == {"type": "text", "text": "'2026-01-01 True'"}
+    out = k.run('%run Load sales $day="2026-02-02"\nsummary')
+    assert out["outputs"][-1] == {"type": "text", "text": "'2026-02-02 False'"}

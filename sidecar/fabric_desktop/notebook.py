@@ -583,9 +583,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
-            target, _, rest = line.strip().partition(" ")
-            args = ast.literal_eval(rest.strip()) if rest.strip() else {}
-            return self._run_notebook_in(target.strip("\"'"), self.namespace, args)
+            target, args = _run_target(line)
+            return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
             return self._sql_value(line)
         if name in ("system", "sx", "sh"):
@@ -813,6 +812,40 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+    """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
+    ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
+    ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
+    A name may have spaces and be quoted; a folder path or .ipynb ending is dropped."""
+    text = line.strip()
+    if text[:1] in ("'", '"') and (end := text.find(text[0], 1)) > 0:
+        name, rest = text[1:end], text[end + 1:]
+    else:
+        m = re.search(r"\s+(?=\{|\$\w+\s*=)", text)
+        name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
+    if not name:
+        raise ValueError("%run needs a notebook name, like: %run Load sales")
+    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    rest = rest.strip()
+    if not rest:
+        return name, {}
+    if rest.startswith("{"):
+        try:
+            args = json.loads(rest)
+        except json.JSONDecodeError:
+            try:
+                args = ast.literal_eval(rest)
+            except (ValueError, SyntaxError) as exc:
+                raise ValueError(f"%run couldn't read the arguments {rest!r}: they're neither JSON nor a Python dict.") from exc
+        if not isinstance(args, dict):
+            raise ValueError("%run arguments are a {name: value} object.")
+        return name, args
+    pairs = re.findall(r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))""", rest)
+    if not pairs:
+        raise ValueError(f"%run couldn't read the arguments {rest!r}. Use {{\"name\": value}} or $name=\"value\".")
+    return name, {k: a or b or c for k, a, b, c in pairs}
 
 
 def _duration(seconds: float) -> str:

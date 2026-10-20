@@ -37,12 +37,12 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_profile
-from . import delta
+from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
-DIALECTS = ("duckdb", "spark")
+DIALECTS = ("duckdb", "spark", "tsql")
 OWN = "delta table"            # catalog kind of the project's own Delta tables
 OWN_KEY = "<project tables>"   # their entry in project.refreshed
 _WRITE_BATCH = 100_000
@@ -474,9 +474,6 @@ class LocalEngine:
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False):
         if dialect not in DIALECTS:
-            if dialect == "tsql":
-                raise ValueError("T-SQL isn't translated for the local engine yet (FD-LDE-004). "
-                                 "Use DuckDB or Spark SQL.")
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
             raise ValueError("The query is empty.")
@@ -504,7 +501,7 @@ class LocalEngine:
             as_of: list[str] = []
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
-                statements = self._statements(con, sql, dialect)
+                statements = self._statements(con, sql, dialect, run)
                 if write is not None:
                     statements = [self._as_write(statements, write)]
                 result = None
@@ -541,9 +538,10 @@ class LocalEngine:
 
     # Statements, and the project's own Delta tables
 
-    def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str) -> list[dict[str, Any]]:
+    def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str,
+                    run: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Each statement as DuckDB SQL, or as the Delta write it makes, with any tables it reads
-        at a version or time."""
+        at a version or time. T-SQL is translated first (tsql.py), and ``run`` gets what may differ."""
         steps: list[dict[str, Any]] = []
         n = 0
         if dialect == "spark":
@@ -565,6 +563,11 @@ class LocalEngine:
                 steps.append({"sql": text, "write": write, "as_of": found,
                               "kind": "write delta" if write else _kind(text)})
             return steps
+        if dialect == "tsql":
+            texts, notes = tsql.translate(sql, self._column_types(con))
+            if run is not None:
+                run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
+            return self._duckdb_steps(con, texts, n)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -573,6 +576,10 @@ class LocalEngine:
             texts = _split_script(sql)
             if not any(delta.parse(t, self._is_own) for t in texts):
                 raise ValueError(_short(exc)) from None
+        return self._duckdb_steps(con, texts, n)
+
+    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
+        steps: list[dict[str, Any]] = []
         for text in texts:
             write = delta.parse(text, self._is_own)
             if write is None and len(texts) > 1:
@@ -589,6 +596,16 @@ class LocalEngine:
             steps.append({"sql": "" if write else text, "write": write, "as_of": found,
                           "kind": "write delta" if write else _kind(text)})
         return steps
+
+    def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
+        """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,
+        so T-SQL divisions and ``+`` can follow the column types."""
+        found: dict[str, dict[str, dict[str, str]]] = {}
+        rows = con.execute("SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() "
+                           "WHERE NOT internal").fetchall()
+        for schema, table, column, kind in rows:
+            found.setdefault(schema, {}).setdefault(table, {})[column] = kind
+        return found
 
     def _refuse_drop(self, statement: str) -> None:
         m = _DROP.match(statement)
@@ -1023,8 +1040,21 @@ class ResultStream:
 
 
 def _about(run: dict[str, Any], project: str) -> dict[str, Any]:
-    return {"query_id": run["query_id"], "statements": run["statements"], "engine": "local",
-            "dialect": run["dialect"], "project": project}
+    about = {"query_id": run["query_id"], "statements": run["statements"], "engine": "local",
+             "dialect": run["dialect"], "project": project}
+    if "translation" in run:
+        about["translation"] = run["translation"]
+    return about
+
+
+def _fabric_check(sql: str) -> dict[str, Any]:
+    """What SQL-002's static check says about running this T-SQL in a Fabric Warehouse. Running here is
+    no proof it runs there; this says what's known not to."""
+    from ..sqlcompat import analyze
+    report = analyze(sql, "warehouse")
+    return {"target": report["target"]["id"], "outcome": report["outcome"], "counts": report["counts"],
+            "findings": [{k: d[k] for k in ("severity", "rule", "title", "line", "col")}
+                         for d in report["diagnostics"] if d["severity"] in ("error", "warning")][:20]}
 
 
 def _chain(first: pa.RecordBatch, rest: Any) -> Any:

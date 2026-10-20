@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import uuid
 
 from .server import main as serve
 from .service import Service
@@ -84,8 +85,8 @@ def main(argv: list[str] | None = None) -> None:
             p.add_argument("--json", action="store_true", help="print the whole report as JSON")
     p = pipe_sub.add_parser("activities", help="print the activity registry, or one type's entry, as JSON")
     p.add_argument("type", nargs="?", help="an activity type, such as Copy or TridentNotebook")
-    p = pipe_sub.add_parser("run", help="run the pipeline on this PC (control flow, child pipelines and mocks; "
-                                        "nothing is sent to Fabric); exit 0 if it succeeds")
+    p = pipe_sub.add_parser("run", help="run the pipeline on this PC (control flow, child pipelines, notebooks and "
+                                        "mocks; no Fabric job is started); exit 0 if it succeeds")
     p.add_argument("path", help="pipeline-content.json, a getDefinition result, or a <name>.DataPipeline folder")
     p.add_argument("--param", action="append", default=[], metavar="NAME=VALUE", help="a pipeline parameter")
     p.add_argument("--mocks", help="JSON file: {activity name: {status, output, error, seconds}}")
@@ -94,6 +95,12 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--max-parallel", type=int, default=4)
     p.add_argument("--wait-scale", type=float, default=1.0, help="multiply every wait by this (0 for none)")
     p.add_argument("--timeout", type=float, help="stop the run after this many seconds")
+    p.add_argument("--notebook", action="append", default=[], metavar="KEY=NOTEBOOK",
+                   help="run a Notebook activity (by activity name or notebookId) with a notebook saved in "
+                        "KratosForge; its writes go to the run's own folder in the lakehouse")
+    p.add_argument("--allow-uncontained", action="store_true",
+                   help="let notebooks call the network or read files on this PC")
+    p.add_argument("--keep-outputs", action="store_true", help="keep the run's folder in the lakehouse")
     p.add_argument("--json", action="store_true", help="print the whole run record as JSON")
     args = parser.parse_args(argv)
 
@@ -308,14 +315,32 @@ def _pipeline_run(args: argparse.Namespace) -> int:
         print(f"error: {exc}")
         return 2
     params = dict(item.partition("=")[::2] for item in args.param)
+    run_id, notebooks = str(uuid.uuid4()), None
+    if args.notebook:
+        from .pipeline_notebooks import LocalNotebooks
+        svc = Service()
+        notebooks = LocalNotebooks(svc, run_id, dict(item.partition("=")[::2] for item in args.notebook),
+                                   args.allow_uncontained, args.keep_outputs)
     run = PipelineRun(imp, parameters=params, mocks=mocks, children=children, max_parallel=args.max_parallel,
-                      wait_scale=args.wait_scale, timeout_seconds=args.timeout)
+                      wait_scale=args.wait_scale, timeout_seconds=args.timeout, run_id=run_id, notebooks=notebooks)
     try:
+        problems = run.check()
+        if not problems and notebooks is not None and notebooks.lakehouses(imp.pipeline.all_activities()):
+            svc.auth.storage_token()  # sign in before anything runs
         run.run()
     except RunRefused as exc:
         for p in exc.problems:
             print(f"refused: {p['code']}" + (f" [{p['activity']}]" if p.get("activity") else "") + f": {p['message']}")
         return 2
+    except KeyboardInterrupt:
+        run.cancel()
+        if notebooks is not None:
+            notebooks.stop()
+        print("cancelled")
+        return 1
+    finally:
+        if notebooks is not None:
+            notebooks.finish()
     record = run.to_json()
     if args.json:
         print(json.dumps(record, indent=2, default=str))

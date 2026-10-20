@@ -4,7 +4,14 @@
 // Loaded after features.js; everything here runs after startup.
 
 const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null };
-const RECORDING_ON = "Recording is on: notebooks that pass Validate are kept in a private record on this PC. Turn it off in Profile > Settings.";
+const RECORDING_ON = "Recording is on: notebooks that pass Validate or Prove are kept in a private record on this PC. Turn it off in Profile > Settings.";
+// Badge glyphs (20x22), from the approved mockup. Locked achievements show the lock.
+const BADGE_GLYPHS = {
+  flame: "M10 2c1 4 6 6 6 11a6 6 0 0 1-12 0c0-3 2-4 2-7 2 1 3 3 3 5 1-2 1-5 1-9z",
+  check: "M3 11.5l4.5 4.5L17 6l-1.6-1.6L7.5 12.8 4.6 9.9z",
+  proof: "M3 4h9l5 5v9H3zM11 4v5h6",
+  lock: "M6 9V7a4 4 0 0 1 8 0v2h1v10H5V9zm2 0h4V7a2 2 0 0 0-4 0z",
+};
 
 async function loadProfile() {
   profilePage.data = await attempt(() => rpc("profile_get", {}), "Could not open your profile");
@@ -17,11 +24,13 @@ async function saveProfile(params, done = "Saved") {
   return out;
 }
 
-function profileTabs() {
+function profileTabs(p) {
   const tab = (id, label) => h("button", { class: `tab${profilePage.tab === id ? " active" : ""}`, role: "tab",
     "aria-selected": profilePage.tab === id ? "true" : "false", onclick: () => { profilePage.tab = id; render(); } }, label);
   return h("div", { class: "subtabs", role: "tablist", "aria-label": "Profile" },
-    tab("overview", "Overview"), tab("report", "Professional report"), tab("settings", "Settings"));
+    tab("overview", "Overview"), p.settings.progression ? tab("journey", "Journey") : null,
+    p.settings.progression ? tab("achievements", "Achievements") : null,
+    tab("report", "Professional report"), tab("settings", "Settings"));
 }
 
 async function renderProfile() {
@@ -40,10 +49,13 @@ async function renderProfile() {
         h("p", { class: "sub" }, [who.role, who.technologies, state.user ? `Signed in as ${state.user}` : "Not signed in: this profile is kept for this PC"]
           .filter(Boolean).join(" · "), " ", learnMore("profile-preview")))),
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
-  const body = { overview: profileOverview, report: profileReport, settings: profileSettings }[profilePage.tab](p);
+  // Journey and Achievements are progression: with it off they aren't shown.
+  if (!p.settings.progression && ["journey", "achievements"].includes(profilePage.tab)) profilePage.tab = "overview";
+  const body = { overview: profileOverview, journey: profileJourney, achievements: profileAchievements, report: profileReport,
+    settings: profileSettings }[profilePage.tab](p);
   const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
     btn("Dismiss", null, () => saveProfile({ dismiss_notice: true }, null), "tool outline small")) : null;
-  setView(h("div", { class: "page profile" }, head, notice, profileTabs(), body));
+  setView(h("div", { class: "page profile" }, head, notice, profileTabs(p), body));
 }
 
 function editProfileIdentity() {
@@ -77,9 +89,10 @@ function profileOverview(p) {
     h("section", { class: "card pad" },
       h("h2", {}, "Recorded accomplishments", h("span", { class: "muted-text small" }, ` ${p.evidence.filter((r) => !r.excluded).length} verified · stored only on this PC`)),
       p.evidence.length ? h("div", { class: "profile-rows" }, p.evidence.map(profileRow))
-        : h("div", {}, h("p", { class: "muted-text" }, "Nothing yet. Validate a notebook that reads or writes a lakehouse table; when its clean run finishes Ready, it is recorded here."),
+        : h("div", {}, h("p", { class: "muted-text" }, "Nothing yet. Validate a notebook that reads or writes a lakehouse table; when its clean run finishes Ready, it is recorded here. "
+          + "A proof whose tables all match in Fabric is recorded too."),
           h("p", { class: "muted-text small" }, RECORDING_ON)),
-      p.evidence.length ? h("p", { class: "muted-text small" }, "Validating the same code again adds nothing. Change the notebook and validate it to record a new revision.") : null),
+      p.evidence.length ? h("p", { class: "muted-text small" }, "Validating or proving the same code again adds nothing. Change the notebook to record a new revision.") : null),
     h("section", { class: "card pad" },
       h("h2", {}, "Skills", h("span", { class: "muted-text small" }, ` Evidence coverage, rules v${pr.rules_version}`)),
       h("div", { class: "profile-skills" }, p.skills.map((s) => h("div", { class: "profile-skill" }, h("span", {}, s.name),
@@ -95,15 +108,22 @@ function profileOverview(p) {
 }
 
 function profileRow(r) {
-  const verdict = r.verdict === "ready" ? "Ready" : "Ready with warnings";
   const d = r.detail || {};
+  const proved = r.type === "prove.match";
+  const m = r.measurement || {};
+  const times = [["this PC", m.pc_seconds], ["Fabric", m.fabric_seconds]].filter(([, v]) => typeof v === "number")
+    .map(([where, v]) => `${where} ${v} s`).join(", ");
+  const text = proved
+    ? `Same results on this PC and in Fabric: ${d.tables || 0} table${d.tables === 1 ? "" : "s"} compared.${times ? ` Measured end to end: ${times}.` : ""}`
+    : `Clean run finished ${r.verdict === "ready" ? "Ready" : "Ready with warnings"} on this PC. Reads ${d.reads || 0} lakehouse table${d.reads === 1 ? "" : "s"}, writes ${d.writes || 0} (sandboxed).`;
+  const ref = proved ? `Run receipt ${String(r.ref.id).slice(0, 12)}` : `Validate ${r.ref.id}`;
   return h("div", { class: `profile-row${r.excluded ? " excluded" : ""}` },
     h("div", { class: "grow" },
-      h("div", { class: "row wrap" }, h("b", {}, `Validated notebook ${r.artifact.name}`),
+      h("div", { class: "row wrap" }, h("b", {}, `${proved ? "Proved" : "Validated"} notebook ${r.artifact.name}`),
         r.excluded ? h("span", { class: "pill-s neu" }, "Excluded") : h("span", { class: "pill-s pass" }, "Verified"),
         r.origin === "backfill" ? h("span", { class: "pill-s neu" }, "Added from history") : null),
-      h("div", {}, `Clean run finished ${verdict} on this PC. Reads ${d.reads || 0} lakehouse table${d.reads === 1 ? "" : "s"}, writes ${d.writes || 0} (sandboxed).`),
-      h("div", { class: "muted-text small mono" }, `Validate ${r.ref.id} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${new Date(r.at).toLocaleString()}`),
+      h("div", {}, text),
+      h("div", { class: "muted-text small mono" }, `${ref} · code revision ${String(r.ref.revision || "").slice(0, 12)} · ${new Date(r.at).toLocaleString()}`),
       h("div", { class: "muted-text small" }, `Skills: ${r.dimensions.join(", ")}${profilePage.data.settings.progression && r.xp ? ` · +${r.xp} XP` : ""}`)),
     btn(r.excluded ? "Include" : "Exclude", null, async () => {
       const out = await attempt(() => rpc("profile_exclude", { id: r.id, excluded: !r.excluded }), "Could not change the accomplishment");
@@ -129,18 +149,87 @@ function profileAchievementsCard(pr) {
   return h("section", { class: "card pad" },
     h("h2", {}, "Achievements"),
     pr.achievements.length ? pr.achievements.map((a) => h("div", { class: "profile-badge-row" },
-      h("div", { class: "profile-badge", "aria-hidden": "true" }, icon(a.badge === "flame" ? "flash" : "ok", 18)),
+      h("div", { class: "profile-badge", "aria-hidden": "true" }, profileGlyph(a.badge, true)),
       h("div", {}, h("b", {}, a.name), h("div", { class: "muted-text small" }, `${a.description} · ${new Date(a.at).toLocaleDateString()} · +${a.xp} XP`))))
       : h("p", { class: "muted-text" }, "None yet."),
     pr.next.length ? h("div", { class: "profile-next" }, h("div", { class: "muted-text small" }, "Next"),
       pr.next.map((n) => h("div", { class: "profile-skill" }, h("span", {}, n.name), h("span", { class: "muted-text small" }, n.progress)))) : null);
 }
 
+function profileGlyph(badge, earned) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "20"); svg.setAttribute("height", "22"); svg.setAttribute("viewBox", "0 0 20 22");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", BADGE_GLYPHS[earned ? badge : "lock"] || BADGE_GLYPHS.check);
+  svg.append(path);
+  return svg;
+}
+
+// ---------- Journey ----------
+
+function profileJourney(p) {
+  const pr = p.progression;
+  const span = pr.next_level_xp - pr.level_xp;
+  const into = pr.xp - pr.level_xp;
+  const got = new Set(pr.achievements.map((a) => a.id));
+  const when = (at) => (at ? new Date(at).toLocaleDateString() : "");
+  const ring = h("div", { class: "profile-ring", style: `--profile-ring:${Math.round((100 * into) / span)}%`, "aria-hidden": "true" },
+    h("img", { src: "wolf-forge-emblem.png", alt: "", width: 96, height: 96 }));
+  const level = h("section", { class: "card pad profile-journey-level" }, ring,
+    h("div", { class: "muted-text" }, `Level ${pr.level}`), h("b", { class: "profile-title" }, pr.title),
+    h("div", { class: "muted-text small" }, `${pr.xp} XP · ${pr.next_level_xp - pr.xp} to level ${pr.level + 1}`),
+    h("div", { class: "profile-bar", role: "progressbar", "aria-label": `XP to level ${pr.level + 1}`,
+      "aria-valuemin": "0", "aria-valuemax": String(span), "aria-valuenow": String(into) },
+      h("div", { style: `width:${Math.round((100 * into) / span)}%` })),
+    h("div", { class: "row muted-text small profile-bar-ends" }, h("span", {}, `Level ${pr.level} at ${pr.level_xp}`),
+      h("span", {}, `Level ${pr.level + 1} at ${pr.next_level_xp}`)));
+  const recent = h("section", { class: "card pad" }, h("h2", {}, "Recent milestones"),
+    pr.milestones.length ? pr.milestones.slice(0, 8).map((m) => h("div", { class: "profile-skill" }, h("span", {}, m.text),
+      h("span", { class: "muted-text small" }, when(m.at))))
+      : h("p", { class: "muted-text" }, "None yet. Your first validated notebook earns First Flame."));
+  const badges = h("section", { class: "card pad" },
+    h("h2", {}, "Achievements", h("span", { class: "muted-text small" }, ` ${got.size} of ${p.catalog.length} earned`)),
+    h("div", { class: "profile-badges" }, p.catalog.map((a) => {
+      const earned = pr.achievements.find((x) => x.id === a.id);
+      return h("div", { class: `profile-shield-cell${earned ? " earned" : ""}`, title: a.criteria },
+        h("div", { class: "profile-shield" }, profileGlyph(a.badge, Boolean(earned))),
+        h("span", {}, a.name), h("span", { class: "muted-text small" }, earned ? when(earned.at) : "Not yet"));
+    })));
+  const next = h("section", { class: "card pad" }, h("h2", {}, "Next you could earn"),
+    pr.next.length ? pr.next.map((n) => h("div", { class: "profile-skill" }, h("span", {}, h("b", {}, n.name), ` · ${n.progress}`),
+      h("span", { class: "muted-text small" }, `+${n.xp} XP`)))
+      : h("p", { class: "muted-text" }, "You've earned every achievement there is so far."));
+  return h("div", { class: "profile-grid" }, h("div", { class: "profile-col" }, level, recent), h("div", { class: "profile-col" }, badges, next));
+}
+
+// ---------- Achievements: the rules, in full ----------
+
+function profileAchievements(p) {
+  const pr = p.progression;
+  return h("div", { class: "profile-col" },
+    h("p", { class: "muted-text" }, `Every achievement, what earns it and the evidence it rests on (rules v${pr.rules_version}). `
+      + "Achievements come from milestones, never from hours, run counts or compute used."),
+    p.catalog.map((a) => {
+      const earned = pr.achievements.find((x) => x.id === a.id);
+      return h("section", { class: "card pad" }, h("div", { class: "profile-badge-row" },
+        h("div", { class: `profile-shield${earned ? "" : " locked"}` }, profileGlyph(a.badge, Boolean(earned))),
+        h("div", { class: "grow" },
+          h("div", { class: "row wrap" }, h("b", {}, a.name), h("span", { class: `pill-s ${earned ? "pass" : "neu"}` },
+            earned ? `Earned ${new Date(earned.at).toLocaleDateString()}` : "Not yet"), h("span", { class: "muted-text small" }, `+${a.xp} XP`)),
+          h("div", {}, a.description),
+          h("div", { class: "muted-text small" }, `How to earn it: ${a.criteria}`),
+          h("div", { class: "muted-text small" }, `Evidence: ${a.evidence}`))));
+    }),
+    h("p", { class: "muted-text small" }, "After your first notebook, each new notebook validated earns 10 XP and each new notebook proven earns 20 XP, "
+      + "up to three new notebooks a day. New revisions of a notebook are kept as evidence and earn no XP."));
+}
+
 function profileHowItWorks() {
   return howItWorks("profile", {
-    reads: "Notebooks that pass Validate with a clean run (the result Validate already keeps on this PC). Nothing else yet.",
+    reads: "Notebooks that pass Validate with a clean run, and proofs whose tables all matched (the results and run receipts already kept on this PC). Nothing else yet.",
     changes: "Writes one line per verified accomplishment to a file in %LOCALAPPDATA%\\FabricDesktop\\profile\\, for the account you're signed in with: "
-      + "what passed, when, and the id of the Validate result. It never stores code, cell outputs, table rows, passwords or tokens.",
+      + "what passed, when, and the id of the Validate result or run receipt. It never stores code, cell outputs, table rows, passwords or tokens.",
     results: "Only on this PC. Nothing is sent anywhere, no Fabric job is started and no telemetry is added. Reports and exports go to Downloads as new files.",
     more: [["Fair by design", "Running the same code again adds nothing. XP comes from milestones, never from hours, run counts or compute used. "
       + "KratosForge can't tell who wrote a notebook, so it records what was validated, not who authored it."]],

@@ -201,39 +201,24 @@ def included(profile: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def progression(profile: dict[str, Any]) -> dict[str, Any]:
-    """XP per row, achievements earned and the level, from the included rows in date order."""
+    """XP per row, achievements earned, the level and the milestones on the way (newest first), from the
+    included rows in date order."""
     seen: set[str] = set()
     proven: set[str] = set()
     per_day: dict[str, int] = {}
     xp_by_row: dict[str, int] = {}
     earned: list[dict[str, Any]] = []
+    milestones: list[dict[str, Any]] = []
+    reached = 1
     for r in included(profile):
-        xp_by_row[r["id"]] = 0
-        name = r["artifact"]["name"]
-        day = (r.get("at") or "")[:10]
-        if r["type"] == "prove.match":
-            if name in proven:
-                continue  # the same notebook proven again: evidence, no XP
-            proven.add(name)
-            if len(proven) == 1:
-                earned.append(_award("proof-forged", r))
-            elif per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
-                per_day[day] = per_day.get(day, 0) + 1
-                xp_by_row[r["id"]] = NEW_PROOF_XP
-            continue
-        if r["type"] != "validate.pass":
-            continue
-        if name in seen:
-            continue  # a new revision of a notebook already counted: evidence, no XP
-        seen.add(name)
-        if len(seen) == 1:
-            earned.append(_award("first-flame", r))
-        else:
-            if per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
-                per_day[day] = per_day.get(day, 0) + 1
-                xp_by_row[r["id"]] = NEW_NOTEBOOK_XP
-        if len(seen) == STEADY_HAND_NOTEBOOKS:
-            earned.append(_award("steady-hand", r))
+        before = len(earned)
+        _progress_row(r, seen, proven, per_day, xp_by_row, earned)
+        milestones += [{"kind": "achievement", "at": a["at"], "id": a["id"], "text": f"Earned {a['name']} (+{a['xp']} XP)"}
+                       for a in earned[before:]]
+        now = level_for(sum(xp_by_row.values()) + sum(a["xp"] for a in earned))
+        milestones += [{"kind": "level", "at": r.get("at"), "level": lv, "text": f"Reached level {lv}, {title_for(lv)}"}
+                       for lv in range(reached + 1, now + 1)]
+        reached = now
     xp = sum(xp_by_row.values()) + sum(a["xp"] for a in earned)
     level = level_for(xp)
     got = {a["id"] for a in earned}
@@ -248,7 +233,38 @@ def progression(profile: dict[str, Any]) -> dict[str, Any]:
                          "progress": "Prove a notebook gives the same results on this PC and in Fabric (optional: it runs in Fabric)"})
     return {"xp": xp, "level": level, "title": title_for(level), "level_xp": xp_for_level(level),
             "next_level_xp": xp_for_level(level + 1), "achievements": earned, "next": upcoming,
-            "xp_by_row": xp_by_row, "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
+            "xp_by_row": xp_by_row, "milestones": milestones[::-1], "rules_version": RULES_VERSION, "level_curve": LEVEL_CURVE}
+
+
+def _progress_row(r: dict[str, Any], seen: set[str], proven: set[str], per_day: dict[str, int],
+                  xp_by_row: dict[str, int], earned: list[dict[str, Any]]) -> None:
+    """One included row's XP and any achievement it completes (rules v1)."""
+    xp_by_row[r["id"]] = 0
+    name = r["artifact"]["name"]
+    day = (r.get("at") or "")[:10]
+    if r["type"] == "prove.match":
+        if name in proven:
+            return  # the same notebook proven again: evidence, no XP
+        proven.add(name)
+        if len(proven) == 1:
+            earned.append(_award("proof-forged", r))
+        elif per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
+            per_day[day] = per_day.get(day, 0) + 1
+            xp_by_row[r["id"]] = NEW_PROOF_XP
+        return
+    if r["type"] != "validate.pass":
+        return
+    if name in seen:
+        return  # a new revision of a notebook already counted: evidence, no XP
+    seen.add(name)
+    if len(seen) == 1:
+        earned.append(_award("first-flame", r))
+    else:
+        if per_day.get(day, 0) < DAILY_NOTEBOOK_XP_CAP:
+            per_day[day] = per_day.get(day, 0) + 1
+            xp_by_row[r["id"]] = NEW_NOTEBOOK_XP
+    if len(seen) == STEADY_HAND_NOTEBOOKS:
+        earned.append(_award("steady-hand", r))
 
 
 def _award(aid: str, row: dict[str, Any]) -> dict[str, Any]:

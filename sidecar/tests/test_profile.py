@@ -155,6 +155,15 @@ def test_proof_forged_is_awarded_once_and_more_proofs_earn_capped_xp():
     assert "proof-forged" not in {u["id"] for u in got["next"]}
 
 
+
+def test_the_journey_lists_achievements_and_levels_newest_first():
+    p = profile_with(validation())
+    progress.add(p, progress.from_proof(proof(), "a" * 64))
+    got = progress.progression(p)["milestones"]
+    assert [m["text"] for m in got] == ["Reached level 2, Apprentice", "Earned Proof Forged (+150 XP)",
+                                        "Earned First Flame (+50 XP)"]
+    assert got[0]["at"] == "2026-10-20T12:00:00+00:00"
+
 def test_the_report_names_proofs_their_receipts_and_measured_times():
     now = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
     p = profile_with(validation())

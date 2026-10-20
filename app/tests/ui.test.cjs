@@ -140,7 +140,7 @@ function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference, pollRun });`, ctx);
   return ctx;
 }
 
@@ -1553,6 +1553,111 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+// HD-035: Prove and side-by-side status polling stops on finish, an unknown run and errors.
+function pollHarness(answers, { limit } = {}) {
+  const { pollRun } = proveHelpers();
+  const waits = [];
+  let calls = 0;
+  const run = pollRun(async () => {
+    const a = answers[calls++];
+    if (a instanceof Error || typeof a === "string") throw a;  // Tauri rejects with the engine's text
+    return a;
+  }, { limit, onStatus: (now) => now.state === "running", sleep: async (ms) => { waits.push(ms); } });
+  return run.then((end) => ({ end, waits, calls: () => calls }));
+}
+
+test("status polling stops when the run finishes", async () => {
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "done" }, { state: "running" }]);
+  assert.strictEqual(end.stopped, "finished");
+  assert.strictEqual(calls(), 3);
+});
+
+test("status polling stops at once when the engine doesn't know the run", async () => {
+  // the engine replies "LookupError: No proof p-1" (server.py)
+  const { end, calls } = await pollHarness([{ state: "running" }, "LookupError: No proof p-1"]);
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "LookupError: No proof p-1" });
+  assert.strictEqual(calls(), 2);
+  const sbs = await pollHarness(["LookupError: No side-by-side run s-1"]);
+  assert.strictEqual(sbs.end.stopped, "lost");
+});
+
+test("status polling backs off on errors and gives up after the limit", async () => {
+  const down = new Error("The engine isn't answering");
+  const { end, waits, calls } = await pollHarness([down, { state: "running" }, down, down, down, down, down, { state: "done" }], { limit: 5 });
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "The engine isn't answering" });
+  assert.strictEqual(calls(), 7, "an answer in between resets the count");
+  assert.deepStrictEqual(waits, [1500, 3000, 1500, 3000, 6000, 12000, 12000]);
+});
+
+// followProof and followSideBySide with the engine, the bell and the page stubbed out.
+function followHarness(statuses) {
+  const ctx = { console, Promise, Map, Set, Object, String, Math, RegExp, Number, Error, JSON };
+  const calls = { status: 0, bell: [], toasts: [] };
+  Object.assign(ctx, {
+    state: { notebook: null, view: "notebook" },
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    rpc: async (method) => {
+      if (method.endsWith("_status")) {
+        const s = statuses[Math.min(calls.status++, statuses.length - 1)];
+        return typeof s === "function" ? s() : s;
+      }
+      return [];
+    },
+    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    logActivity: (item) => calls.bell.push(item),
+    toast: (text) => calls.toasts.push(text),
+    document: { querySelector: () => null, querySelectorAll: () => [] },
+  });
+  vm.createContext(ctx);
+  for (const file of ["prove.js", "sidebyside.js"]) vm.runInContext(fs.readFileSync(path.join(ui, file), "utf8"), ctx, { filename: file });
+  return { ctx, calls };
+}
+
+for (const [kind, follow, slot, prefix] of [["Prove", "followProof", "prove", "prove:"], ["Side by side", "followSideBySide", "sbs", "sbs:"]]) {
+  test(`${kind}: closing the notebook mid-run still settles the bell entry`, async () => {
+    let closed = false;
+    const done = { state: "done", verdict: { text: "Same.", verdict: "same", same: true } };
+    const { ctx, calls } = followHarness([{ state: kind === "Prove" ? "pc" : "local" }, () => { ctx.state.notebook = null; closed = true; return { state: kind === "Prove" ? "fabric" : "fabric" }; }, done]);
+    const nb = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = nb;
+    await ctx[follow](nb, "r-1");
+    assert.ok(closed, "the notebook was closed during the run");
+    const last = calls.bell.at(-1);
+    assert.strictEqual(last.id, `${prefix}r-1`);
+    assert.strictEqual(last.status, "ok");
+    assert.match(calls.toasts.at(-1), /^nb: Same\./);
+  });
+
+  test(`${kind}: reopening the notebook mid-run doesn't start a second loop`, async () => {
+    const running = { state: kind === "Prove" ? "pc" : "local" };
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { ctx, calls } = followHarness([running, () => gate, { state: "cancelled" }]);
+    const first = { name: "nb", prove: {}, cells: [] };
+    const second = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = first;
+    const loop = ctx[follow](first, "r-2");
+    await new Promise((r) => setImmediate(r));
+    ctx.state.notebook = second;
+    await ctx[follow](second, "r-2");  // returns at once: the first loop takes the new notebook over
+    release(running);
+    await loop;
+    assert.strictEqual(calls.status, 3);
+    assert.strictEqual(slot === "prove" ? second.prove.record.state : second.sbs.state, "cancelled");
+    assert.deepStrictEqual(calls.toasts, ["nb: Cancelled."]);
+  });
+}
+
+test("Prove and side by side follow runs only through pollRun", () => {
+  for (const [file, fn] of [["prove.js", "followProof"], ["sidebyside.js", "followSideBySide"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = src.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n}\\n`))[0];
+    assert.match(body, /pollRun\(/, fn);
+    assert.doesNotMatch(body, /for \(;;\)|while \(true\)/, fn);
+    assert.match(body, /if \(following\) return;/, `${fn} guards against two loops for one run`);
+  }
 });
 
 // UI-4 (HD-042): closing a prompt by its overlay, its X or Escape settled nothing, so the code

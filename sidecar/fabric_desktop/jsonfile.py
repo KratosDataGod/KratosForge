@@ -1,4 +1,4 @@
-"""Shared JSON files (settings, schedules) written so a crash or a second writer never leaves half a file.
+"""Shared JSON files (settings, schedules, favorites, saved comparisons) written so a crash or a second writer never leaves half a file.
 
 ``write_json`` writes a temporary file in the same folder, flushes it to disk and swaps it in with
 ``os.replace``, so readers see the old file or the new one, never a mix. ``read_json`` returns the
@@ -26,11 +26,16 @@ _REPLACE_BACKOFF = 0.05
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
+    write_text(path, json.dumps(data, indent=indent))
+
+
+def write_text(path: Path, text: str) -> None:
+    """Swap ``text`` in as the whole file: readers see the old file or the new one, never half of it."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=indent))
+            f.write(text)
             f.flush()
             os.fsync(f.fileno())
         for attempt in range(_REPLACE_ATTEMPTS):
@@ -46,12 +51,12 @@ def write_json(path: Path, data: Any, indent: int = 2) -> None:
         raise
 
 
-def set_aside(path: Path) -> Path:
-    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so. Returns where it went."""
+def set_aside(path: Path, then: str = "it is being started again empty") -> Path:
+    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next)."""
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     dest = path.with_name(f"{path.name}.corrupt-{stamp}")
     os.replace(path, dest)
-    _log.warning("%s could not be read and was moved to %s; it is being started again empty.", path, dest.name)
+    _log.warning("%s could not be read and was moved to %s; %s.", path, dest.name, then)
     return dest
 
 

@@ -281,3 +281,43 @@ def test_run_multiple_refuses_what_it_cant_honor_before_running(tmp_path, dag, w
                 f"notebookutils.notebook.runMultiple({dag!r})")
     assert out["status"] == "error" and why in str(out["outputs"])
     assert k.run("builtins.order")["outputs"][-1]["text"] == "[]"
+
+
+def test_variable_explorer_opens_frames_and_containers_and_estimates_memory():
+    k = Kernel()
+    k.run("import polars as pl, pyarrow as pa\n"
+          "sales = pl.DataFrame({'id': [1, 2, 3], 'name': ['a', 'b', 'c']})\n"
+          "arrow = pa.table({'v': [1.5]})\n"
+          "sdf = spark.createDataFrame([(1, 'x')], ['n', 's'])\n"
+          "cfg = {'region': 'west', 'api_token': 'abc', 'nested': [1, 2]}\n"
+          "nums = list(range(250))\n"
+          "tags = {'b', 'a'}\n"
+          "empty = []\n"
+          "n = 5")
+    rows = {r["name"]: r for r in k.variables()}
+    assert rows["sales"]["expandable"] and rows["sales"]["memory"] > 0
+    assert rows["nums"]["memory"] > 250 * 20 and rows["n"]["memory"] > 0
+    assert rows["sdf"]["memory"] is None and rows["sdf"]["expandable"]
+    assert not rows["empty"]["expandable"] and not rows["n"]["expandable"]
+
+    assert k.variable_detail("sales")["columns"] == [{"name": "id", "type": "Int64"}, {"name": "name", "type": "String"}]
+    assert k.variable_detail("arrow")["columns"] == [{"name": "v", "type": "double"}]
+    assert k.variable_detail("sdf")["columns"] == [{"name": "n", "type": "integer"}, {"name": "s", "type": "string"}]
+
+    cfg = k.variable_detail("cfg")
+    assert cfg["total"] == 3
+    assert {i["key"]: i["value"] for i in cfg["items"]} == {"'region'": "'west'", "'api_token'": "hidden", "'nested'": "[1, 2]"}
+    nums = k.variable_detail("nums")
+    assert nums["total"] == 250 and len(nums["items"]) == 100 and nums["items"][3] == {"key": "3", "type": "int", "size": "", "value": "3"}
+    assert [i["value"] for i in k.variable_detail("tags")["items"]] == ["'a'", "'b'"]
+    assert k.variable_detail("n") == {"name": "n", "type": "int"}
+    assert k.variable_detail("nope") == {"name": "nope", "missing": True}
+    assert k.variable_detail("__builtins__") == {"name": "__builtins__", "missing": True}
+
+
+def test_a_secret_variable_is_not_opened():
+    k = Kernel()
+    k.run("db_password = ['p1', 'p2']")
+    row = next(r for r in k.variables() if r["name"] == "db_password")
+    assert row["value"] == "hidden" and not row["expandable"]
+    assert k.variable_detail("db_password") == {"name": "db_password", "type": "list", "hidden": True}

@@ -456,6 +456,9 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def kernel_complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
 
+    def kernel_variable_detail(self, name: str) -> dict[str, Any]:
+        return self.kernel.variable_detail(str(name))
+
     def _token_for(self, audience: str) -> str:
         """notebookutils.credentials.getToken on this PC: a token for you, from your sign-in."""
         from .notebookutils_local import _AUDIENCES

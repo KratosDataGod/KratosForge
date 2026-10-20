@@ -269,14 +269,7 @@ function renderVariables() {
       : h("div", { class: "var-list" }, state.variables ? variableTable(state.variables) : h("div", { class: "muted-text" }, "Loading...")));
 }
 
-function variableTable(rows) {
-  if (!rows.length) return h("div", { class: "muted-text", style: "padding:8px" }, "No variables yet. Run a cell to see them here.");
-  return h("table", { class: "vars" },
-    h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Size"), h("th", {}, "Value"))),
-    h("tbody", {}, rows.map((r) => h("tr", { title: "Click to display it in a new cell", class: "click",
-      onclick: () => insertCell(`display(${r.name})`) },
-    h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", { class: "val" }, r.value)))));
-}
+// variableTable is in nbvars.js.
 
 async function refreshVariables() {
   if (!state.showVariables || nbWhere(state.notebook).fabric) return;

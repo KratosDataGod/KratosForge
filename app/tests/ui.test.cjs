@@ -2009,3 +2009,26 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
+test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
+  const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = variableRows;`, ctx);
+  const rows = [
+    { name: "sales", type: "DataFrame", memory: 50000 },
+    { name: "Count", type: "int", memory: 28 },
+    { name: "sdf", type: "DataFrame", memory: null },
+    { name: "cfg", type: "dict", memory: 400 },
+  ];
+  const names = (opts) => [...ctx.f(rows, opts).map((r) => r.name)];
+  assert.deepStrictEqual(names(), ["cfg", "Count", "sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: "frame" }), ["sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: " CO " }), ["Count"]);
+  assert.deepStrictEqual(names({ sort: "memory" }), ["sales", "cfg", "Count", "sdf"]);
+  assert.deepStrictEqual(names({ sort: "type" }), ["sales", "sdf", "cfg", "Count"]);
+  assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
+  assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});

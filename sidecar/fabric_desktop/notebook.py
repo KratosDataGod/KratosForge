@@ -539,9 +539,36 @@ class Kernel:
             if name.startswith("_") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
                     or inspect.isroutine(value):
                 continue
+            hidden = self._hidden(name, value)
             rows.append({"name": name, "type": type(value).__name__, "size": _size(value),
-                         "value": "hidden" if self._hidden(name, value) else _preview(value)})
+                         "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                         "expandable": not hidden and _expandable(value)})
         return sorted(rows, key=lambda r: r["name"].lower())
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        """One variable opened up, read without running code: a data frame's columns and their
+        types, or the first VAR_ITEMS items of a list, tuple, set or dict. Secrets stay hidden."""
+        value = self.namespace.get(name, _MISSING)
+        if value is _MISSING or name.startswith("_"):
+            return {"name": name, "missing": True}
+        out: dict[str, Any] = {"name": name, "type": type(value).__name__}
+        if self._hidden(name, value):
+            return {**out, "hidden": True}
+        columns = _columns(value)
+        if columns is not None:
+            return {**out, "columns": columns}
+        if isinstance(value, dict):
+            pairs = list(zip(range(VAR_ITEMS), value.items()))
+            entries = [(repr(k), str(k), v) for _, (k, v) in pairs]
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            seq = value if isinstance(value, (list, tuple)) else sorted(value, key=repr)
+            entries = [(str(i), "", v) for i, v in zip(range(VAR_ITEMS), seq)]
+        else:
+            return out
+        out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
+                         "value": "hidden" if self._hidden(label, v) else _preview(v)} for key, label, v in entries]
+        out["total"] = len(value)
+        return out
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
@@ -646,6 +673,65 @@ def _size(value: Any) -> str:
     if isinstance(value, (str, bytes, list, tuple, dict, set)):
         return str(len(value))
     return ""
+
+
+VAR_ITEMS = 100  # items shown when a variable is opened in the Variables pane
+
+
+def _expandable(value: Any) -> bool:
+    if isinstance(value, (dict, list, tuple, set, frozenset)):
+        return len(value) > 0
+    return _columns(value) is not None
+
+
+def _columns(value: Any) -> list[dict[str, str]] | None:
+    """A data frame's columns and types, from its schema; None for anything else. Nothing is
+    computed: Spark (DuckDB) frames give their types without running the query."""
+    module = type(value).__module__
+    try:
+        if module.startswith("polars") and hasattr(value, "schema") and not module.startswith("polars.lazyframe"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.schema.items()]
+        if isinstance(value, (pa.Table, pa.RecordBatch)):
+            return [{"name": f.name, "type": str(f.type)} for f in value.schema]
+        if module.startswith("duckdb.experimental.spark") and hasattr(value, "dtypes"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.dtypes]
+        if module.startswith("pandas") and hasattr(value, "dtypes") and hasattr(value, "columns"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.dtypes.items()]
+    except Exception:  # noqa: BLE001  # silent-ok: a frame whose schema can't be read just isn't expandable
+        return None
+    return None
+
+
+def _memory(value: Any) -> int | None:
+    """Bytes a variable holds, estimated: a frame's or array's buffers, or a container and its
+    first 10,000 items scaled up. None when it can't be told cheaply (a Spark frame, an object)."""
+    module = type(value).__module__
+    try:
+        if module.startswith("polars") and hasattr(value, "estimated_size"):
+            return int(value.estimated_size())
+        if isinstance(value, (pa.Table, pa.RecordBatch, pa.Array, pa.ChunkedArray)):
+            return int(value.nbytes)
+        if module.startswith("numpy") and hasattr(value, "nbytes"):
+            return int(value.nbytes)
+        if module.startswith("pandas") and hasattr(value, "memory_usage"):
+            usage = value.memory_usage(deep=False)
+            return int(usage.sum() if hasattr(usage, "sum") else usage)
+        if isinstance(value, (str, bytes, bytearray, int, float, bool, complex)) or value is None:
+            return sys.getsizeof(value)
+        if isinstance(value, (dict, list, tuple, set, frozenset)):
+            items = value.items() if isinstance(value, dict) else value
+            sample = 0
+            n = 0
+            for item in items:
+                if n == 10_000:
+                    break
+                parts = item if isinstance(value, dict) else (item,)
+                sample += sum(sys.getsizeof(p) for p in parts)
+                n += 1
+            return sys.getsizeof(value) + (sample * len(value) // n if n else 0)
+    except Exception:  # noqa: BLE001  # silent-ok: an estimate that fails is shown as unknown
+        return None
+    return None
 
 
 def _count(n: Any) -> str:

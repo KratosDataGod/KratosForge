@@ -350,6 +350,11 @@ class ProcessKernel:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self._request("complete", code=code, cursor=cursor)
 
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        if self._proc is None or self._proc.poll() is not None:
+            return {"name": name, "missing": True}
+        return self._request("variable_detail", name=name)
+
     def reads(self) -> dict[str, Any]:
         """What the cells read since this process started; nothing once it has ended."""
         if self._proc is None or self._proc.poll() is not None:

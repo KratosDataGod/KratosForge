@@ -106,15 +106,29 @@ class SideBySideMixin:
                 rows.append(json.loads(line))
             except ValueError:
                 torn = True
-        if torn:  # copy the original aside, then swap in the rows that still read
-            try:
-                jsonfile.set_aside(self.side_by_side_file, keep=True,
-                                   then=f"the {len(rows)} comparisons that could be read were kept")
-                jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
-            except OSError as exc:  # the original stays in place, so the next read tries again
-                _log.warning("%s could not be repaired (%s); showing the comparisons that could be read.",
-                             self.side_by_side_file, exc)
+        if torn:
+            self._sbs_repair(rows)
         return rows
+
+    def _sbs_repair(self, rows: list[dict[str, Any]]) -> None:
+        """Copy the torn file aside, then swap in the rows that still read.
+
+        If that fails, the original stays in place and the next save rewrites it. Until the file
+        changes, reads don't try again, so Monitor's polls don't pile up copies or wait on retries."""
+        path = self.side_by_side_file
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        seen = (stat.st_mtime_ns, stat.st_size)
+        if getattr(self, "_sbs_failed_repair", None) == seen:
+            return
+        try:
+            jsonfile.set_aside(path, keep=True, then=f"the {len(rows)} comparisons that could be read were kept")
+            jsonfile.write_text(path, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        except OSError as exc:
+            self._sbs_failed_repair = seen
+            _log.warning("%s could not be repaired (%s); showing the comparisons that could be read.", path, exc)
 
     def _sbs_save(self, record: dict[str, Any]) -> None:
         """Keep the finished comparison (without cell outputs, which can be large)."""

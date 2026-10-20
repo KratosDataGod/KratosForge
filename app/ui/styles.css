@@ -1459,3 +1459,11 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+
+/* Several cells selected (nbselect.js). */
+.cell.multi .cell-box { background: #f5f8fd; border-color: var(--accent); }
+.cell.multi .cell-head { visibility: visible; }
+.nb-sel-bar { position: sticky; top: -20px; z-index: 4; display: flex; align-items: center; gap: 4px; padding: 4px 8px 4px 12px; background: var(--accent-soft); border: 1px solid #c7d3e8; border-radius: 6px; font-size: 13px; color: var(--accent-dark); }
+.nb-sel-bar b { margin-right: 8px; }
+.nb-sel-bar .spacer { flex: 1; }
+.statusbar .last-run:empty { display: none; }

@@ -1932,3 +1932,31 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Running part of a cell (nbselect.js): the selected text, or the cursor's line dedented, in the
+// cell's language.
+test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
+  const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
+  ctx.cellLang = (c) => c.lang;
+  const py = { lang: "python" };
+  const code = "for i in range(3):\n    x = i\n    print(x)";
+  assert.strictEqual(ctx.f(py, code, 25, 25), "x = i");  // cursor on line 2, nothing selected
+  assert.strictEqual(ctx.f(py, code, 23, code.length), "x = i\nprint(x)");
+  assert.strictEqual(ctx.f(py, "a = 1\n\nb", 6, 6), null);  // a blank line has nothing to run
+  const sql = { lang: "sql" };
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+});
+
+test("several selected cells: the notebook hooks are in place", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(selectionClick\(cell, e\)\) return;/);
+  assert.match(nb, /if \(last\.group\) return undoDeleteGroup\(last\);/);
+  assert.match(nb, /if \(code == null\) depsRan\(cell, ok\);/);
+  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : \{\}\) \}\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbselect.js"') > html.indexOf('src="notebook.js"'));
+});

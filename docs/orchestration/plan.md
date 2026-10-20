@@ -4,7 +4,7 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 
 ## Rules for the whole program
 
-- Nothing here consumes Fabric capacity or calls a tenant without the person's explicit go. ORCH-001 to ORCH-003 make no Fabric calls at all.
+- Nothing here consumes Fabric capacity or calls a tenant without the person's explicit go. ORCH-001 to ORCH-003 make no Fabric calls at all. ORCH-004's notebook steps read and write OneLake (in the run's own folder), which uses some capacity, and start no Fabric job.
 - No claim that a run on this PC behaves like Fabric unless that has been tested against Fabric. Anything untested is labelled Preview.
 - Expressions are read, never evaluated by a general-purpose evaluator, and imported code is never run while reading a definition.
 - Reuse what exists: the Service methods (desktop, CLI), the capability registry for external tools (`integrations/`), the job queue and run history for runs, Prove's execution path for notebooks.
@@ -17,8 +17,9 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 | --- | --- | --- | --- | --- |
 | ORCH-001 | Pipeline definition engine: import, validate, inspect, export | Merged | #130 | none |
 | ORCH-002 | Activity compatibility registry | Merged | #150 | ORCH-001 |
-| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | In review | #218 | ORCH-001, ORCH-002 |
-| ORCH-004 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
+| ORCH-003 | Local pipeline execution engine (DAG, states, cancel, timeouts, run records) | Merged | #218 | ORCH-001, ORCH-002 |
+| ORCH-004 | Notebook steps: a Notebook activity runs a notebook saved on this PC | In review | | ORCH-003, Validate notebook (#282) |
+| ORCH-005 to ORCH-010 | Later stages (breakpoints, step and replay, more adapters, Fabric hand-off) | Not defined yet | | ORCH-003 |
 
 ## ORCH-001: pipeline definition engine
 
@@ -83,6 +84,29 @@ KratosForge's program for importing, checking and, later, running Microsoft Fabr
 
 **Rollback.** Revert the PR. It adds four modules, one mixin with five Service methods (names in `server.METHODS`, the three reads in `audit.READ_ONLY`), five capabilities and one CLI subcommand, and moves eleven registry entries to `local` (registry version 2). Run records in `pipeline_runs/` can be deleted.
 
+## ORCH-004: notebook steps
+
+Chris picked this stage on 2026-10-20 ("Notebook steps").
+
+**Source files.** `sidecar/fabric_desktop/pipeline_notebooks.py` (`LocalNotebooks`, the run's notebook runner), the `Notebook` adapter in `orchestration/adapters.py`, the `NotebookRunner` protocol and checks in `runner.py`, the `notebooks`, `allow_uncontained` and `keep_outputs` options of `pipeline_run_check` and `pipeline_run_start`, and `--notebook`, `--allow-uncontained` and `--keep-outputs` on `fabric-desktop pipeline run`. User guide: [Notebook steps](local-runs.md#notebook-steps).
+
+**Design.** A Notebook activity names a notebook saved in KratosForge (by activity name or `notebookId`). Each step runs the way Validate notebook's clean run does: a fresh kernel process (`_CleanKernel`), the proof runtime bound with pinned table versions and writes redirected to `Files/_fabric_desktop/proofs/pipeline-<run id>/pc/`. Pins are taken once per lakehouse per run, and later steps are seeded with the tables earlier steps wrote, so they read each other's output. Parameters go in a cell after the parameter cell (first when there is none); `notebookutils.notebook.exit` becomes `output.result.exitValue`. The checks before the run reuse Validate's run plan, so the run is refused for Spark cells and writes the folder can't contain, and asks for `allow_uncontained` for network and local file access. The folder is deleted when the run ends unless `keep_outputs`.
+
+**What was reused, and what wasn't.** Validate notebook's clean kernel, run plan and secret removal; Prove's proof runtime (pins, sandbox, seeded tables) and folder deletion; the saved notebooks. Prove's own proof path isn't used: it also runs the notebook in Fabric, which uses capacity, and it uses the person's kernel.
+
+**Test evidence.** `sidecar/tests/test_pipeline_notebooks.py` (23 tests, a local folder as the lakehouse, no network): two notebook steps passing a table and exit values to a Set Variable, parameters from pipeline expressions, the lakehouse's tables untouched and the folder deleted, keep_outputs, every refusal, a failing cell with secrets removed, cancel and policy timeout stopping the kernel, parameter placement and types, the CLI, and external tools' runs still needing mocks. The ORCH-002 and ORCH-003 tests cover the registry change (version 4).
+
+**Compatibility claims.** None against Fabric. The output shape (`result.exitValue`) and parameter placement follow Microsoft's documentation and haven't been compared with a Fabric run.
+
+**Known limitations.**
+
+- Python notebooks only; Spark notebooks need a mock.
+- External AI tools can't run notebook steps: the approval shows the pipeline, not the notebooks' code, so their runs still need mocks. Binding the approval to each notebook's code (as `fabric_desktop_run_notebook` does) would lift this.
+- Two notebook steps writing the same table at once (a parallel ForEach) write the same folder; Fabric would write the same table too, but the result isn't defined here.
+- No UI yet.
+
+**Rollback.** Revert the PR. It adds one module and three options; the registry goes back to version 3. Folders kept with `keep_outputs` stay in the lakehouse until deleted in Fabric.
+
 ## Next recommended PR
 
-After ORCH-003 is reviewed: a Notebook adapter through Prove's execution path (it needs Prove to accept parameters outside a proof, so it is a joint change with the Prove program), or a mockup for a pipeline runs page, whichever Chris prefers. Both need his go.
+A mockup for a pipeline runs page (needs Chris's go), or Lookup and Get Metadata as `simulated` against a local table.

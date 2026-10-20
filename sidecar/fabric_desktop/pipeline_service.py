@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from .orchestration.definition import Activity, DefinitionError, ImportedPipelin
 from .orchestration.runner import PipelineRun, RunRefused
 from .orchestration.runs import RunStore
 from .orchestration.validate import own_json, summary, validate
+from .pipeline_notebooks import LocalNotebooks
 
 HIDDEN = "(hidden)"
 
@@ -150,24 +152,34 @@ class PipelineRunMixin:
             self._pipeline_live: dict[str, PipelineRun] = {}
         return self._pipeline_run_store, self._pipeline_live
 
-    @staticmethod
-    def _prepare(text: str | None, path: str | None, parameters: dict[str, Any] | None,
-                 mocks: dict[str, Any] | None, children: dict[str, str] | None, **options: Any) -> PipelineRun:
+    def _prepare(self, text: str | None, path: str | None, parameters: dict[str, Any] | None,
+                 mocks: dict[str, Any] | None, children: dict[str, str] | None,
+                 notebooks: dict[str, str] | None = None, allow_uncontained: bool = False,
+                 keep_outputs: bool = False, **options: Any) -> PipelineRun:
         imp = read(text, path)
         kids = {}
         for key, definition_text in (children or {}).items():
             if not isinstance(definition_text, str):
                 raise DefinitionError(f"The child definition for {key!r} must be given as text.", "bad_request")
             kids[key] = definition.loads(definition_text)
-        return PipelineRun(imp, parameters=parameters, mocks=mocks, children=kids, **options)
+        if notebooks is not None and not isinstance(notebooks, dict):
+            raise DefinitionError("notebooks must be {activity name or notebookId: notebook name}.", "bad_request")
+        run_id = str(uuid.uuid4())
+        # Notebook steps need the engine's notebooks and clean kernel (validate_service.py), and a
+        # caller that names the notebooks: external tools' calls (integrations/services.py) don't.
+        runner = (LocalNotebooks(self, run_id, notebooks, allow_uncontained, keep_outputs)
+                  if notebooks is not None and hasattr(self, "_validate_kernel") and hasattr(self, "notebooks") else None)
+        return PipelineRun(imp, parameters=parameters, mocks=mocks, children=kids, run_id=run_id, notebooks=runner,
+                           **options)
 
     def pipeline_run_check(self, text: str | None = None, path: str | None = None,
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
-                           children: dict[str, str] | None = None) -> dict[str, Any]:
-        """Whether this pipeline can run on this PC with these parameters and mocks, and if not, why,
-        activity by activity. Runs nothing."""
+                           children: dict[str, str] | None = None, notebooks: dict[str, str] | None = None,
+                           allow_uncontained: bool = False) -> dict[str, Any]:
+        """Whether this pipeline can run on this PC with these parameters, mocks and notebooks, and
+        if not, why, activity by activity. Runs nothing."""
         try:
-            run = self._prepare(text, path, parameters, mocks, children)
+            run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
@@ -177,9 +189,16 @@ class PipelineRunMixin:
     def pipeline_run_start(self, text: str | None = None, path: str | None = None,
                            parameters: dict[str, Any] | None = None, mocks: dict[str, Any] | None = None,
                            children: dict[str, str] | None = None, max_parallel: int = 4, wait_scale: float = 1.0,
-                           timeout_seconds: float | None = None) -> dict[str, Any]:
+                           timeout_seconds: float | None = None, notebooks: dict[str, str] | None = None,
+                           allow_uncontained: bool = False, keep_outputs: bool = False) -> dict[str, Any]:
         """Start a local run in the background and return its id at once. Refuses (with the
-        problems) when an activity can't run here and has no mock. Nothing is sent to Fabric."""
+        problems) when an activity can't run here and has no mock. Nothing is sent to Fabric.
+
+        ``notebooks`` says which notebook on this PC each Notebook activity runs ({activity name or
+        notebookId: notebook name}). Notebook steps read the lakehouse's tables and write to the
+        run's own folder in it, deleted when the run ends unless ``keep_outputs``; a notebook that
+        calls the network or reads files on this PC needs ``allow_uncontained``. Without
+        ``notebooks``, Notebook activities need a mock."""
         store, live = self._runs()
         store.recover(set(live))
         if sum(1 for r in live.values() if r.state in ("pending", "running")) >= MAX_RUNS:
@@ -187,13 +206,15 @@ class PipelineRunMixin:
                                                "on this PC; wait for one to finish or cancel it.", "activity": None,
                                                "path": "$"}]}
         try:
-            run = self._prepare(text, path, parameters, mocks, children, max_parallel=max_parallel,
-                                wait_scale=wait_scale, timeout_seconds=timeout_seconds)
+            run = self._prepare(text, path, parameters, mocks, children, notebooks, allow_uncontained, keep_outputs,
+                                max_parallel=max_parallel, wait_scale=wait_scale, timeout_seconds=timeout_seconds)
         except DefinitionError as exc:
             return {"ok": False, "problems": [exc.to_json()]}
         problems = run.check()
         if problems:
             return {"ok": False, "problems": problems}
+        if run.notebooks is not None and run.notebooks.lakehouses(run.pipeline.all_activities()):
+            self.auth.storage_token()  # type: ignore[attr-defined]  # sign in now, while the app is in front
         last = [0.0]
 
         def save(r: PipelineRun) -> None:
@@ -213,6 +234,8 @@ class PipelineRunMixin:
             except RunRefused:
                 pass
             finally:
+                if run.notebooks is not None:
+                    run.notebooks.finish()
                 store.save(run.to_json())
                 store.trim()
                 for rid in [k for k, r in live.items() if r.state not in ("pending", "running")][:-MAX_RUNS]:
@@ -243,6 +266,8 @@ class PipelineRunMixin:
         if run is None or run.state not in ("pending", "running"):
             return {"cancelled": False, "state": run.state if run else "unknown"}
         run.cancel()
+        if run.notebooks is not None:
+            run.notebooks.stop()
         return {"cancelled": True, "state": "cancelling"}
 
     def pipeline_runs(self, limit: int = 50) -> dict[str, Any]:

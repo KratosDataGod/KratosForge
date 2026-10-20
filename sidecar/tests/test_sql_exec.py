@@ -340,6 +340,13 @@ def test_an_existing_file_is_never_replaced(runs, lake, tmp_path, monkeypatch):
     assert status["path"].endswith("sales query 2026-10-17 120000 (2).csv")
 
 
+def test_a_hostile_name_stays_in_downloads(runs, lake, tmp_path):
+    run = wait(runs, runs.start("SELECT 1 AS a", lake)["id"])
+    status = wait_export(runs, runs.export(run["id"], "csv", "../..\\evil/sales")["id"])
+    path = Path(status["path"])
+    assert path.parent == tmp_path / "Downloads" and path.name.startswith("evilsales query ")
+
+
 def test_parquet_export_renames_repeated_columns_so_it_reads_back(runs, lake):
     run = wait(runs, runs.start("SELECT id, amount, id FROM sales ORDER BY id", lake)["id"])
     status = wait_export(runs, runs.export(run["id"], "parquet")["id"])

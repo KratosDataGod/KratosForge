@@ -22,6 +22,7 @@ from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from .filenames import file_stem
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -731,11 +732,6 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
         return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
-
-
-def file_stem(name: str, default: str = "SQL") -> str:
-    """A name safe to use in a file name: letters, digits, spaces, - and _ only (no separators or ..)."""
-    return "".join(ch for ch in (name or default) if ch.isalnum() or ch in " -_").strip()[:60] or default
 
 
 def _json_value(value: Any) -> Any:

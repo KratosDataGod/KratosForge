@@ -44,6 +44,7 @@ from typing import Any, Callable
 import pyarrow as pa
 
 from . import app_settings, sql_policy
+from .filenames import file_stem
 
 STATES = ("queued", "running", "cancelling", "completed", "failed", "cancelled", "timed_out")
 FINISHED = ("completed", "failed", "cancelled", "timed_out")
@@ -412,8 +413,7 @@ class SqlExecutions:
             return {"rerun_needed": True, "message": "This result was cleaned up. Run the query again to export it."}
         folder = self._downloads()
         folder.mkdir(parents=True, exist_ok=True)
-        stem = "".join(ch for ch in (name or run.lakehouse.get("name") or "SQL") if ch.isalnum() or ch in " -_").strip()[:60]
-        base = f"{stem or 'SQL'} query {time.strftime('%Y-%m-%d %H%M%S')}"
+        base = f"{file_stem(name or run.lakehouse.get('name') or '')} query {time.strftime('%Y-%m-%d %H%M%S')}"
         path = _reserve(folder, base, "." + fmt)
         export = Export(id=uuid.uuid4().hex[:12], execution=run.id, format=fmt, path=path, total=run.rows)
         with self._lock:

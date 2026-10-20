@@ -729,7 +729,8 @@ async function renderMonitor() {
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
       kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
-      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "", reason: r.status === "ok" ? "" : r.message,
+      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
+      reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...(writes || []).map((r) => ({

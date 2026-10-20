@@ -1,6 +1,7 @@
 """The result viewer behind a notebook table output: paging, search, sort and downloads (frames.py)."""
 
 import datetime as dt
+import sys
 import zipfile
 
 import polars as pl
@@ -186,3 +187,51 @@ def test_service_profile_after_restart_asks_to_run_again():
     assert svc.notebook_frame_profile(out["frame"])["columns"][0]["max"] == 2
     svc.kernel.restart()
     assert svc.notebook_frame_profile(out["frame"])["gone"]
+
+def test_time_zone_timestamps_page_sort_and_search_without_pytz(monkeypatch):
+    # Delta's default timestamp has a time zone; DuckDB's fetchall() would need pytz for it.
+    monkeypatch.setitem(sys.modules, "pytz", None)
+    store = Frames()
+    ts = pa.array([dt.datetime(2026, 10, 20, h, tzinfo=dt.timezone.utc) for h in range(3)], pa.timestamp("us", tz="UTC"))
+    fid = store.keep(pa.table({"at": ts, "n": [1, 2, 3]}))
+    page = store.page(fid, sort=0, desc=True)
+    assert page["types"][0] == "timestamp" and page["rows"][0][1] == 3 and "2026-10-20 02:00:00" in page["rows"][0][0]
+    assert store.page(fid, q="01:00")["total"] == 1
+
+
+def test_profile_counts_infinite_values_and_leaves_them_out_of_the_statistics():
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"v": [1.0, 3.0, float("inf"), float("-inf"), None]})))
+    (v,) = p["columns"]
+    assert (v["infinite"], v["missing"], v["min"], v["max"], v["mean"]) == (2, 1, 1.0, 3.0, 2.0)
+    assert sum(v["histogram"]) == 2
+
+
+def test_profile_of_time_zone_timestamps_without_pytz(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pytz", None)
+    store = Frames()
+    ts = pa.array([dt.datetime(2026, 1, d, tzinfo=dt.timezone.utc) for d in (1, 9)], pa.timestamp("us", tz="UTC"))
+    (c,) = store.profile(store.keep(pa.table({"at": ts})))["columns"]
+    assert c["kind"] == "date" and c["min"].startswith("2026-01-01") and c["max"].startswith("2026-01-09")
+
+
+def test_one_column_that_cant_be_profiled_doesnt_hide_the_others(monkeypatch):
+    store = Frames()
+    real = Frames._profile_column
+
+    def flaky(con, c, f, n):
+        if f.name == "bad":
+            raise ValueError("Out of Range Error")
+        return real(con, c, f, n)
+    monkeypatch.setattr(Frames, "_profile_column", staticmethod(flaky))
+    p = store.profile(store.keep(pa.table({"bad": [1], "good": [2]})))
+    assert "Out of Range" in p["columns"][0]["error"] and p["columns"][1]["max"] == 2
+
+
+def test_a_large_result_is_profiled_from_an_even_sample(monkeypatch):
+    monkeypatch.setattr(frames, "PROFILE_ROWS", 100)
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"n": list(range(1000))})))
+    assert p["sampled"] and (p["rows"], p["profiled_rows"]) == (1000, 100)
+    (n,) = p["columns"]
+    assert n["min"] == 0 and n["max"] == 990

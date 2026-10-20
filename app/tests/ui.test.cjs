@@ -1913,6 +1913,58 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });
 
+// Notebook files (notebook-files.js): the Saved in chips, search hits, and what Publish says changed in Fabric.
+function notebookFilesHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registered: [], registerFeature(f) { ctx.registered.push(f); } };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFilesPlaces, nbFilesShown, nbHitParts, nbHitCount, nbChangeTitle });`, ctx);
+  return ctx;
+}
+
+test("All notebooks filters by where notebooks are saved", () => {
+  const { nbFilesPlaces, nbFilesShown } = notebookFilesHelpers();
+  const repo = { root: "C:/git/sales", label: "sales-notebooks" };
+  const list = [{ name: "A", place: null }, { name: "B", place: repo }, { name: "C", place: repo }];
+  assert.deepStrictEqual([...nbFilesPlaces(list).map((p) => `${p.label} ${p.count}`)], ["All 3", "This PC 1", "sales-notebooks 2"]);
+  assert.deepStrictEqual([...nbFilesShown(list, "pc").map((n) => n.name)], ["A"]);
+  assert.deepStrictEqual([...nbFilesShown(list, repo.root).map((n) => n.name)], ["B", "C"]);
+  assert.strictEqual(nbFilesShown(list, null).length, 3);
+});
+
+test("A search hit marks the match, and the count covers name-only matches", () => {
+  const { nbHitParts, nbHitCount } = notebookFilesHelpers();
+  assert.deepStrictEqual([...nbHitParts({ text: "x = region_map.join()", start: 4, end: 14 })], ["x = ", "region_map", ".join()"]);
+  const found = { notebooks: [{ name_match: true, hits: [] }, { name_match: false, hits: [{}, {}] }, { name_match: true, hits: [{}] }] };
+  assert.strictEqual(nbHitCount(found), 4);
+});
+
+test("Publish names each change made in Fabric", () => {
+  const { nbChangeTitle } = notebookFilesHelpers();
+  assert.strictEqual(nbChangeTitle({ kind: "changed", position: 3 }), "Cell 3: changed");
+  assert.strictEqual(nbChangeTitle({ kind: "added", position: 6 }), "Cell 6: added");
+  assert.strictEqual(nbChangeTitle({ kind: "reordered", position: null }), "Cells were reordered");
+});
+
+test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publish check are wired", () => {
+  const { registered } = notebookFilesHelpers();
+  assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
+  assert.ok(registered[0].views.notebooks);
+  assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["notebooks"\]/);
+  assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
+  assert.match(app, /rpc\("publish_notebook", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(app, /rpc\("run_notebook_in_fabric", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "item-preview.js"), "utf8"), /preview\("fabricEdit", btn\("Edit on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /fabricEdit: "Edit Fabric notebooks on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="validate\.js"><\/script>\n  <script src="notebook-files\.js"><\/script>/);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /confirmDialog\(`Delete \$\{name\}\?`, .*"Delete", \{ danger: true \}\)/);
+  assert.match(files, /"Replace with mine", \{ danger: true \}/);
+});
+
 test("the update splash lists the build's notes and each change since the build this PC ran before", () => {
   const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   const ctx = {};
@@ -2028,6 +2080,25 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);
 });
 
+test("a slow search answer that arrives after a newer one is dropped", async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const answers = [slow, Promise.resolve({ frame: "f1", offset: 0, rows: [["new"]], total: 1 })];
+  const { ctx } = resultViewerHarness([]);
+  ctx.rpc = () => answers.shift();
+  const o = { frame: "f1", columns: ["s"], rows: [["a"]], total_rows: 1 };
+  const wrap = ctx.h("div"); const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [false], "1 row");
+  const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
+  search.value = "o"; search.listeners.input();
+  search.value = "new"; search.listeners.input();
+  await new Promise((r) => setImmediate(r));
+  release({ frame: "f1", offset: 0, rows: [["old"]], total: 9 });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(o.viewer.page.rows), [["new"]]);
+  assert.strictEqual(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, "Rows 1 to 1 of 1 matching");
+});
+
 // Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
 test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
@@ -2037,7 +2108,10 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
     querySelector(sel) { return findAll(this, (n) => n.attrs?.class === sel.slice(1))[0]; } });
   const answers = [{ frame: "f", rows: 10000, more_columns: 0, columns: [
     { name: "n", type: "integer", kind: "number", missing: 0, distinct: 9990, min: 0, max: 9999, mean: 4999.5, std: 2886.9, q1: 2499.75, median: 4999.5, q3: 7499.25, histogram: [5, 10] },
-    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] }] }, { frame: "f", gone: true }];
+    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] },
+    { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
+    { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
+    { frame: "f", gone: true }];
   const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
   vm.createContext(ctx);
   vm.runInContext(grab("renderProfile") + grab("renderInspect") + "this.p = renderProfile;", ctx);
@@ -2050,6 +2124,11 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
   assert.match(t, /Distinct≈ 9,990/);
   assert.match(t, /Median4999\.5/);
   assert.match(t, /null3/);
+  assert.match(t, /baddoubleCouldn't profile this column: Out of Range/);
+  const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
+  await new Promise((r) => setImmediate(r));
+  assert.match(texts(big), /Infinite3/);
+  assert.match(texts(big), /Profile of an even sample of 1,000,000 of 5,000,000 rows$/);
   assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
   const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
   const box2 = ctx.p(o2, [true], "1 row");

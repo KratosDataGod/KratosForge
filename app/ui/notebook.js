@@ -80,6 +80,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -1004,14 +1005,17 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
         : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q ? " matching" : ""}`;
   };
   async function load(offset) {
+    const ask = (v.asked = (v.asked || 0) + 1);
     v.busy = true;
     draw();
     try {
       const p = await rpc("notebook_frame_page", { frame: o.frame, offset: Math.max(0, offset), limit: RESULT_PAGE,
         sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
+      if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
       if (p.gone) v.gone = true;
       else { v.page = p; v.offset = p.offset; }
     } catch (err) {
+      if (ask !== v.asked) return;
       toast(`Could not load rows: ${friendlyError(err)}`, true);
     }
     v.busy = false;
@@ -1149,7 +1153,9 @@ function renderProfile(o, numeric, count) {
   const show = (p) => {
     const fmt = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString() : +v.toPrecision(6)) : String(v));
     box.replaceChildren(h("div", { class: "inspect" }, p.columns.map((c) => {
+      if (c.error) return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)), h("div", { class: "muted-text" }, c.error));
       const stats = [["Missing", fmt(c.missing)], ["Distinct", `≈ ${fmt(c.distinct)}`]];
+      if (c.infinite) stats.push(["Infinite", fmt(c.infinite)]);
       let picture = null;
       if (c.histogram) {
         stats.push(["Min", fmt(c.min)], ["Max", fmt(c.max)], ["Mean", fmt(c.mean)], ["Std dev", fmt(c.std)],
@@ -1167,7 +1173,8 @@ function renderProfile(o, numeric, count) {
       }
       return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)),
         picture, h("dl", {}, stats.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
-    })), h("div", { class: "more" }, `Profile of all ${p.rows.toLocaleString()} row${p.rows === 1 ? "" : "s"}` +
+    })), h("div", { class: "more" }, (p.sampled ? `Profile of an even sample of ${p.profiled_rows.toLocaleString()} of ${p.rows.toLocaleString()} rows`
+      : `Profile of all ${p.rows.toLocaleString()} row${p.rows === 1 ? "" : "s"}`) +
       (p.more_columns ? `. ${p.more_columns} more column${p.more_columns === 1 ? " isn't" : "s aren't"} profiled; select fewer columns to see them.` : "")));
   };
   if (o.profile) { show(o.profile); return box; }

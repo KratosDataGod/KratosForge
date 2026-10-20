@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import logging
 import os
 import threading
 import uuid
@@ -30,12 +31,17 @@ from xml.sax.saxutils import escape
 
 import pyarrow as pa
 
+from .redact import describe
+
+_log = logging.getLogger(__name__)
+
 MAX_FRAMES = 20
 PAGE_ROWS = 100
 MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
 PROFILE_COLUMNS = 200
+PROFILE_ROWS = 250_000  # above this, an even sample: about 5 s for 50 columns on a laptop
 HISTOGRAM_BINS = 12
 class FrameGone(LookupError):
     """The result an output points at isn't held any more."""
@@ -112,6 +118,13 @@ def _num(v: Any) -> float | int | None:
     f = float(v)
     return round(f, 6) if f == f else None
 
+def _rows(result: Any) -> list[list[Any]]:
+    """A query's rows through Arrow: DuckDB's own fetchall() needs pytz for time zone-aware
+    timestamps (Delta's default), and the engine doesn't ship pytz."""
+    table = (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+    cols = [c.to_pylist() for c in table.columns]
+    return [list(r) for r in zip(*cols)] if cols else []
+
 
 def _cell(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
@@ -177,7 +190,7 @@ class Frames:
             if sort is not None and 0 <= int(sort) < len(cols):
                 order = f" ORDER BY {cols[int(sort)]} {'DESC' if desc else 'ASC'} NULLS LAST"
             total = con.execute(f"SELECT count(*) FROM t{where}", params).fetchone()[0] if q else table.num_rows
-            rows = con.execute(f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params).fetchall()
+            rows = _rows(con.execute(f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
         finally:
             con.close()
         return {"frame": fid, "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema],
@@ -189,9 +202,19 @@ class Frames:
     def profile(self, fid: str) -> dict[str, Any]:
         """A profile of every row, per column: missing, distinct (approximate), and for numbers min,
         max, mean, standard deviation, quartiles and a histogram; for dates their range; for
-        everything else the most common values. NaN counts as missing, as in Fabric's summary."""
+        everything else the most common values. NaN counts as missing, as in Fabric's summary;
+        infinite values are counted but left out of the number statistics.
+
+        A result over ``PROFILE_ROWS`` rows is profiled from an even sample of that many rows (the
+        answer says so), so Inspect stays quick on a large result. A column that can't be
+        profiled says why and the others still are."""
         import duckdb
-        table = self.table(fid)
+        whole = self.table(fid)
+        table = whole
+        sampled = whole.num_rows > PROFILE_ROWS
+        if sampled:
+            step = whole.num_rows / PROFILE_ROWS
+            table = whole.take(pa.array([int(i * step) for i in range(PROFILE_ROWS)]))
         fields = list(table.schema)[:PROFILE_COLUMNS]
         cols = [f"c{i}" for i in range(table.num_columns)]
         con = duckdb.connect()
@@ -200,37 +223,54 @@ class Frames:
             con.register("t", table.rename_columns(cols))
             n = table.num_rows
             for i, f in enumerate(fields):
-                c, t = cols[i], f.type
-                kind = _kind(t)
-                missing_sql = f"{c} IS NULL" + (f" OR isnan({c})" if pa.types.is_floating(t) else "")
-                present = f"NOT ({missing_sql})"
-                missing, distinct = con.execute(
-                    f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t").fetchone()
-                col: dict[str, Any] = {"name": f.name, "type": type_name(t), "kind": kind, "missing": missing,
-                                       "distinct": distinct or 0}
-                if kind == "number" and n - missing:
-                    lo, hi, mean, std, q1, med, q3 = con.execute(
-                        f"SELECT min({c}), max({c}), avg({c}), stddev_samp({c}), quantile_cont({c}, 0.25), "
-                        f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}").fetchone()
-                    col.update(min=_num(lo), max=_num(hi), mean=_num(mean), std=_num(std), q1=_num(q1), median=_num(med), q3=_num(q3))
-                    span = float(hi) - float(lo)
-                    bins = [0] * HISTOGRAM_BINS
-                    for b, count in con.execute(
-                            f"SELECT least({HISTOGRAM_BINS - 1}, floor((CAST({c} AS DOUBLE) - ?) / ? * {HISTOGRAM_BINS}))::INT AS b, "
-                            f"count(*) FROM t WHERE {present} GROUP BY b", [float(lo), span or 1.0]).fetchall():
-                        bins[int(b)] = count
-                    col["histogram"] = bins
-                elif kind == "date" and n - missing:
-                    lo, hi = con.execute(f"SELECT min({c}), max({c}) FROM t WHERE {present}").fetchone()
-                    col.update(min=str(lo), max=str(hi))
-                elif n - missing:
-                    col["top"] = [[_cell(v), k] for v, k in con.execute(
-                        f"SELECT {c}, count(*) AS k FROM t WHERE {present} GROUP BY {c} ORDER BY k DESC, {c} LIMIT 5").fetchall()]
-                out.append(col)
+                try:
+                    out.append(self._profile_column(con, cols[i], f, n))
+                except Exception as exc:  # noqa: BLE001 - one odd column mustn't hide the others
+                    _log.info("Couldn't profile column %s: %s", f.name, describe(exc))
+                    out.append({"name": f.name, "type": type_name(f.type), "kind": _kind(f.type),
+                                "error": f"Couldn't profile this column: {describe(exc)}"})
         finally:
             con.close()
-        return {"frame": fid, "rows": table.num_rows, "columns": out,
+        return {"frame": fid, "rows": whole.num_rows, "profiled_rows": n, "sampled": sampled, "columns": out,
                 "more_columns": max(0, table.num_columns - PROFILE_COLUMNS)}
+
+    @staticmethod
+    def _profile_column(con: Any, c: str, f: pa.Field, n: int) -> dict[str, Any]:
+        t = f.type
+        kind = _kind(t)
+        floating = pa.types.is_floating(t)
+        missing_sql = f"{c} IS NULL" + (f" OR isnan({c})" if floating else "")
+        present = f"NOT ({missing_sql})"
+        missing, distinct = con.execute(
+            f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t").fetchone()
+        col: dict[str, Any] = {"name": f.name, "type": type_name(t), "kind": kind, "missing": missing,
+                               "distinct": distinct or 0}
+        if floating:
+            infinite = con.execute(f"SELECT count(*) FROM t WHERE isinf({c})").fetchone()[0]
+            if infinite:
+                col["infinite"] = infinite
+                present = f"isfinite({c})"
+        if kind == "number":
+            if not con.execute(f"SELECT count(*) FROM t WHERE {present}").fetchone()[0]:
+                return col
+            lo, hi, mean, std, q1, med, q3 = con.execute(
+                f"SELECT min({c}), max({c}), avg({c}::DOUBLE), stddev_samp({c}::DOUBLE), quantile_cont({c}, 0.25), "
+                f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}").fetchone()
+            col.update(min=_num(lo), max=_num(hi), mean=_num(mean), std=_num(std), q1=_num(q1), median=_num(med), q3=_num(q3))
+            span = float(hi) - float(lo)
+            bins = [0] * HISTOGRAM_BINS
+            for b, count in con.execute(
+                    f"SELECT least({HISTOGRAM_BINS - 1}, floor((CAST({c} AS DOUBLE) - ?) / ? * {HISTOGRAM_BINS}))::INT AS b, "
+                    f"count(*) FROM t WHERE {present} GROUP BY b", [float(lo), span or 1.0]).fetchall():
+                bins[int(b)] = count
+            col["histogram"] = bins
+        elif kind == "date" and n - missing:
+            lo, hi = con.execute(f"SELECT CAST(min({c}) AS VARCHAR), CAST(max({c}) AS VARCHAR) FROM t WHERE {present}").fetchone()
+            col.update(min=str(lo), max=str(hi))
+        elif n - missing:
+            col["top"] = [[r[0], r[1]] for r in _rows(con.execute(
+                f"SELECT CAST({c} AS VARCHAR) AS v, count(*) AS k FROM t WHERE {present} GROUP BY v ORDER BY k DESC, v LIMIT 5"))]
+        return col
 
     # ---- downloads
 

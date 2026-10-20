@@ -215,7 +215,7 @@ secrets("webhook https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhoo
 
 **Fix.** PR-QA-06: `redact.secrets` includes the Git patterns and URL user info; delete the fallback; `livetest.scrub` calls it. **Verify:** the two strings above in `app/tests/redact-cases.json`.
 
-**Status.** URL user info, provider tokens and `*.webhook.office.com` webhooks fixed on `main` (#181); the legacy Office 365 connector form (`outlook.office.com/webhook/...`) added after.
+**Status.** URL user info, provider tokens and `*.webhook.office.com` webhooks fixed on `main` (#181); the legacy Office 365 connector form (`outlook.office.com/webhook/...`) and the bare webhook path a failed post prints (`url: /webhookb2/...`) added in #303.
 
 ### QA-017 RPC methods with no screen (Medium)
 

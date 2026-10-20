@@ -134,3 +134,15 @@ def test_office_365_connector_webhooks_are_removed(url):
 ])
 def test_office_urls_without_a_webhook_path_are_kept(text):
     assert redact.secrets(text) == text
+
+
+def test_a_failed_webhook_post_does_not_leak_the_path():
+    # QA-016: requests names the host and the path apart, so the full-URL pattern never sees the URL.
+    import requests
+    path = ("/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000/IncomingWebhook/"
+            "abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123456789")
+    with pytest.raises(requests.RequestException) as caught:
+        requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)  # refused: the same message shape as DNS or network failures
+    text = redact.describe(caught.value)
+    assert "SECRETSECRET" not in text and "IncomingWebhook" not in text
+    assert "127.0.0.1" in text  # the rest of the message still says what failed

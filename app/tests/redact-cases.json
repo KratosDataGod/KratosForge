@@ -21,6 +21,7 @@
     {"level": "secrets", "in": "fatal: unable to access 'https://ann:s3cretPAT@dev.azure.com/contoso/_git/repo/'", "out": "fatal: unable to access 'https://[removed]@dev.azure.com/contoso/_git/repo/'"},
     {"level": "secrets", "in": "posting to https://contoso.webhook.office.com/webhookb2/abc@def/IncomingWebhook/123/456 failed", "out": "posting to [removed] failed"},
     {"level": "secrets", "in": "legacy connector https://outlook.office.com/webhook/a1b2@c3d4/IncomingWebhook/9f8e7d/e5f6 returned 400", "out": "legacy connector [removed] returned 400"},
+    {"level": "secrets", "in": "HTTPSConnectionPool(host='contoso.webhook.office.com', port=443): Max retries exceeded with url: /webhookb2/aaaa1111-2222@bbbb3333-4444/IncomingWebhook/abcdef0123/cccc5555/V2SECRET0123 (Caused by NewConnectionError(\"Failed to establish a new connection: [Errno 111] Connection refused\"))", "out": "HTTPSConnectionPool(host='contoso.webhook.office.com', port=443): Max retries exceeded with url: [removed] (Caused by NewConnectionError(\"Failed to establish a new connection: [Errno 111] Connection refused\"))"},
     {"level": "secrets", "in": "see https://outlook.office.com/mail/inbox and https://www.office.com/", "out": "see https://outlook.office.com/mail/inbox and https://www.office.com/"},
     {"level": "secrets", "in": "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA rejected", "out": "token [removed] rejected"},
     {"level": "secrets", "in": "client secret abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx expired", "out": "client secret [removed] expired"},

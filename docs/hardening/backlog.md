@@ -150,7 +150,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 
 | Id | What | Cx |
 | --- | --- | --- |
-| HD-050 | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls | L |
+| HD-050 | AR-2: replace the 18-mixin `Service` with small injected services; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). | L |
 | HD-055 | AR-4: lint rule against new silent `except Exception`; clear the 53 existing ones | M |
 | HD-056 | Split `app.js` along `registerFeature` boundaries | L |
 | HD-057 | Registry (ADMX) policy alongside `policy.json` | M |

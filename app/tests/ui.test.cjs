@@ -1952,4 +1952,14 @@ test("dropping a table or file inserts its load code on an empty line, else its 
   assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+  // Names are quoted wherever they go into code, so a quote in a file name can't end the string.
+  const ctx2 = { document: { addEventListener() {} } };
+  vm.createContext(ctx2);
+  vm.runInContext(`${/function readSnippet\([\s\S]*?\n}\n/.exec(app)[0]}\n${src}\nthis.f = { dataItemLoads, dataItemDropText };`, ctx2);
+  const evil = { kind: "file", path: 'Files/x"); import os; os.system("calc"); (".csv' };
+  assert.strictEqual(ctx2.f.dataItemLoads(evil)[0][1], `df = lakehouse.read_csv(${JSON.stringify(evil.path)})\ndf`);
+  assert.match(app, /onInsert\(`df = lakehouse\.read_table\(\$\{JSON\.stringify\(`\$\{schema\}\.\$\{t\}`\)\}\)\\ndf`\)/);
+  const odd2 = { kind: "table", schema: "dbo", table: "my `odd` table" };
+  assert.strictEqual(ctx2.f.dataItemDropText(odd2, "sql"), "dbo.`my ``odd`` table`");
+  assert.match(ctx2.f.dataItemLoads(odd2)[2][1], /FROM dbo\.`my ``odd`` table` LIMIT/);
 });

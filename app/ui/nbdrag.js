@@ -7,6 +7,12 @@ const DATA_ITEM_MIME = "application/x-kratosforge-data-item";
 
 const dataItemQuote = (s) => JSON.stringify(s);
 
+// A table name for Spark SQL: plain parts as they are, others in backticks.
+function dataItemSqlName(item) {
+  if (item.kind !== "table") return item.path;
+  return [item.schema, item.table].map((p) => (/^[A-Za-z_]\w*$/.test(p) ? p : `\`${p.replace(/`/g, "``")}\``)).join(".");
+}
+
 function dataItemName(item) {
   return item.kind === "table" ? `${item.schema}.${item.table}` : item.path;
 }
@@ -18,7 +24,7 @@ function dataItemLoads(item) {
     return [
       ["Load with Polars", `df = lakehouse.read_table(${dataItemQuote(name)})\ndf`],
       ["Load with Spark", `df = spark.read.table(${dataItemQuote(name)})\ndisplay(df)`],
-      ["Query with SQL", `%%sql\nSELECT * FROM ${name} LIMIT 1000`],
+      ["Query with SQL", `%%sql\nSELECT * FROM ${dataItemSqlName(item)} LIMIT 1000`],
     ];
   }
   const ext = name.split(".").pop().toLowerCase();
@@ -35,7 +41,7 @@ function dataItemLoads(item) {
 // the name, quoted in Python unless it lands inside a string, as code in Markdown.
 function dataItemDropText(item, lang, { blankLine = false, inString = false } = {}) {
   const name = dataItemName(item);
-  if (lang === "sql") return name;
+  if (lang === "sql") return dataItemSqlName(item);
   if (lang === "markdown") return `\`${name}\``;
   if (lang === "html") return name;
   if (inString) return name;

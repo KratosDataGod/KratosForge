@@ -38,6 +38,7 @@ nav = [
     { "Running SQL queries" = "sql-execution.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
     { "Validate a notebook" = "validate-notebook.md" },
+    { "Engines and connection profiles" = "engines.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },

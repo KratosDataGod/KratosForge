@@ -215,6 +215,8 @@ secrets("webhook https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhoo
 
 **Fix.** PR-QA-06: `redact.secrets` includes the Git patterns and URL user info; delete the fallback; `livetest.scrub` calls it. **Verify:** the two strings above in `app/tests/redact-cases.json`.
 
+**Status.** URL user info, provider tokens and `*.webhook.office.com` webhooks fixed on `main` (#181); the legacy Office 365 connector form (`outlook.office.com/webhook/...`) and the bare webhook path a failed post prints (`url: /webhookb2/...`) added in #303.
+
 ### QA-017 RPC methods with no screen (Medium)
 
 **Evidence: Count.** Every method name the UI passes to `rpc`, `metaCall`, `platformCall` or `pollSidecar` exists (211 names). The reverse doesn't hold: 17 allowlisted methods have no caller in `app/ui`, including `delete_notebook` (`service.py:636`), `platform_revoke` (`central/service.py:358`), `pipeline_import` (`pipeline_service.py:70`), `export_sql_csv` (`service.py:568`, superseded by `sql_export`), `integrations_approvals` (superseded by `integrations_pending`), `meta_preview`, `meta_preflight`, `meta_diff`, `notebook_diff`, `git_scan`, `git_ops`, `workload_actions`. The 15 `local_*` methods (`localdata_service.py:25-79`, `server.py:88-90`) have no screen; `docs/local-data.md:5` says so, but `README.md:40` and `docs/README.md:15` present local data as something to do. `cancel_fabric_run` has no button in Activity.

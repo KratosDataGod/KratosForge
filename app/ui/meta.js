@@ -347,7 +347,7 @@ async function renderEntity() {
         h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
-          h("span", { class: "mono" }, e.path))),
+          h("span", { class: "mono" }, e.path), " ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
           if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;

@@ -1164,7 +1164,7 @@ test("with platform keys, no Keys button makes a project key table", () => {
 test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
   const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
   const features = read("features.js");
-  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["quarantineReplay", "dataops.js"]]) {
     assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
     assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
   }
@@ -1177,7 +1177,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1757,7 +1757,9 @@ function dialogHelpers() {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
-  const code = section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const keys = features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("));
+  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
   const node = (tag, attrs = {}, ...kids) => {
     const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
       addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
@@ -1889,7 +1891,7 @@ test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
   ctx.openPalette();
   assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /e\.key\.toLowerCase\(\) === "k"\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+  assert.match(app, /isShortcut\(e, "palette"\)\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
 });
 
 test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
@@ -1948,4 +1950,99 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+// UX-019: the Preview list in the docs is the app's own list, once.
+test("the documentation's Preview list matches PREVIEW_FEATURES", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const block = features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1];
+  const entries = [...block.matchAll(/^ {2}(\w+): "([^"]+)",/gm)].map(([, id, name]) => [id, name]);
+  assert.ok(entries.length > 20, `only ${entries.length} preview features found`);
+  const ids = entries.map(([id]) => id);
+  assert.deepStrictEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], "an id listed twice keeps only its last name");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "README.md"), "utf8");
+  const table = readme.split("| Preview feature | Where |")[1];
+  assert.ok(table, "docs/README.md has the Preview feature table");
+  const rows = [];
+  for (const line of table.split("\n").slice(2)) {
+    if (!line.startsWith("|")) break;
+    rows.push(line.split("|")[1].trim());
+  }
+  assert.deepStrictEqual([...rows].sort(), entries.map(([, name]) => name).sort());
+  // The steps that stay visible are the ones the table says are always shown.
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1]);
+  const names = Object.fromEntries(entries);
+  const shownRows = table.split("\n").filter((l) => /always shown/.test(l)).map((l) => l.split("|")[1].trim());
+  assert.deepStrictEqual(shownRows.sort(), always.map((id) => names[id]).sort());
+  // The user guide points at that list instead of keeping a second one.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("## Preview features\n")[1].split("\n## ")[0];
+  assert.match(section, /README\.md#what-is-tested-and-what-isnt/);
+});
+
+// UX-019: one shortcut table, read by the global key handlers and drawn by the Keyboard shortcuts dialog.
+test("the global key handlers and the Keyboard shortcuts dialog read one table", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("))}
+    Object.assign(this, { shortcutRegistry, registerShortcuts, isShortcut, typingIn, shortcutGroups });`, ctx);
+  const appWide = [...ctx.shortcutRegistry];
+  const ids = appWide.map((s) => s.id);
+  assert.strictEqual(new Set(ids).size, ids.length);
+  // Every entry is a key app.js actually handles, through the table.
+  for (const id of ids) assert.ok(app.includes(`isShortcut(e, "${id}")`), `app.js handles ${id} through the table`);
+  assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"/, "Ctrl+K is read from the table");
+  const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
+  assert.ok(ctx.isShortcut(key("K", { ctrlKey: true }), "palette"));
+  assert.ok(ctx.isShortcut(key("k", { metaKey: true }), "palette"));
+  assert.ok(!ctx.isShortcut(key("k"), "palette"));
+  assert.ok(ctx.isShortcut(key("?"), "shortcuts"));
+  assert.ok(ctx.isShortcut(key("Escape"), "close"));
+  assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
+  assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
+  assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  // "?" typed in a box stays a character.
+  const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
+  assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
+  assert.ok(!ctx.typingIn(el("BUTTON")) && !ctx.typingIn(null));
+  // Another feature (the notebook) registers its keys once and they join the same list, shown only when it says.
+  let inNotebook = false;
+  ctx.registerShortcuts("Notebook", [{ keys: ["Shift+Enter"], label: "Run the cell", when: () => inNotebook },
+    { keys: ["Ctrl+Shift+Enter"], label: "Run the selected cells", when: () => { throw new Error("broken"); } }]);
+  assert.deepStrictEqual([...ctx.shortcutGroups().map(([g]) => g)], ["Anywhere", "Moving around", "Menus and tabs"]);
+  inNotebook = true;
+  const groups = ctx.shortcutGroups();
+  assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
+    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+  assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
+  // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
+  const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];
+  assert.match(dialog, /shortcutGroups\(\)/);
+  assert.match(dialog, /notebooks\.md#editing/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /btn\("Keyboard shortcuts", "help", shortcutsDialog/);
+  assert.match(settings, /\{ label: "Keyboard shortcuts", [^}]*run: shortcutsDialog \}/);
+  // The user guide's table has a row for every entry.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
+  const rows = section.split("\n").filter((l) => l.startsWith("| **"));
+  assert.strictEqual(rows.length, appWide.length);
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
+});
+
+// UX-019: every page has a help link into the user guide.
+test("every page links to its section of the user guide", () => {
+  const all = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
+  const body = (fn) => all.match(new RegExp(`\\n(?:async )?function ${fn}\\([\\s\\S]*?\\n}\\n`))?.[0] || "";
+  const views = new Map();
+  for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
+  assert.ok(views.size > 15, `only ${views.size} pages found`);
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
+  const elsewhere = { notebook: null, agent: "agAdvice" };
+  const missing = [...views].filter(([view, fn]) => {
+    if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
+    return !/learnMore\(|howItWorks\(/.test(body(fn));
+  }).map(([view]) => view);
+  assert.deepStrictEqual(missing, []);
 });

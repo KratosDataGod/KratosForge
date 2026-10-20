@@ -72,7 +72,7 @@ const PREVIEW_FEATURES = {
   promote: "Promote",
   syncKeys: "Sync keys",
   varlib: "Variable library",
-  replay: "Quarantine replay",
+  quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
 };
 
@@ -94,7 +94,7 @@ function preview(id, node) {
 
 // Core steps that are untested on a tenant but must not disappear when preview features are hidden:
 // they always show, always with the Preview tag (previewMarked).
-const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "replay", "risk"];
+const PREVIEW_ALWAYS_SHOWN = ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"];
 
 // The node with a Preview tag, whatever the Settings switch says.
 function previewMarked(id, node) {
@@ -124,6 +124,88 @@ function howItWorks(id, { reads, changes, results, more = [], anchor }) {
 
 function withHowItWorks(main, panel) {
   return h("div", { class: "with-how" }, h("div", { class: "with-how-main" }, main), panel);
+}
+
+// ---------- keyboard shortcuts ----------
+
+// One registry of keyboard shortcuts. The Keyboard shortcuts dialog ("?", the command bar, Settings >
+// Help and about) lists whatever is registered, so a feature that adds keys adds them here once and
+// they can't go missing from the list:
+//
+//   registerShortcuts("Notebook", [{ keys: ["Shift+Enter"], label: "Run the cell and select the next one",
+//     when: () => state.view === "notebook" }]);
+//
+// keys: what to press, each a combination written with "+" ("Ctrl+K"); several mean "any of these".
+// label: what it does. when (optional): list it only while this returns true.
+// An entry with an id is also matched by isShortcut(e, id): match lists KeyboardEvent.key values and
+// mod means Ctrl (or Cmd) is held. The app-wide handlers in app.js read their keys that way.
+const shortcutRegistry = [];
+
+function registerShortcuts(group, list) {
+  for (const s of list) shortcutRegistry.push({ ...s, group });
+}
+
+// The keys that work everywhere in the window (app.js handles each through isShortcut).
+registerShortcuts("Anywhere", [
+  { id: "palette", keys: ["Ctrl+K"], match: ["k"], mod: true,
+    label: "Open the command bar: find a page, action, notebook, workspace or entity" },
+  { id: "shortcuts", keys: ["?"], match: ["?"], label: "Show this list (when you aren't typing in a box)" },
+  { id: "close", keys: ["Esc"], match: ["Escape"],
+    label: "Close the command bar, a menu, a dialog or the activity tray, then go back to where you were" },
+]);
+registerShortcuts("Moving around", [
+  { id: "focus", keys: ["Tab"], match: ["Tab"],
+    label: "Move to the next control (Shift+Tab: the previous one). In a dialog, it stays inside the dialog" },
+  { id: "open", keys: ["Enter", "Space"], match: ["Enter", " "],
+    label: "Open the row or card that has focus, such as a notebook, run or workload" },
+]);
+registerShortcuts("Menus and tabs", [
+  { id: "menu", keys: ["Up", "Down", "Home", "End"], match: ["ArrowDown", "ArrowUp", "Home", "End"],
+    label: "Move through an open menu. Enter picks the item" },
+  { id: "tabs", keys: ["Left", "Right", "Home", "End"], match: ["ArrowLeft", "ArrowRight", "Home", "End"],
+    label: "On a tab: move to the previous, next, first or last tab" },
+]);
+
+// Whether a key press is the registered shortcut with this id. Without mod, held modifiers are left
+// to the handler.
+function isShortcut(e, id) {
+  const s = shortcutRegistry.find((x) => x.id === id);
+  if (!s?.match || (s.mod && !(e.ctrlKey || e.metaKey))) return false;
+  const key = String(e.key || "");
+  return s.match.some((k) => (k.length === 1 ? key.toLowerCase() === k : key === k));
+}
+
+// Whether focus is in a box someone types in, where a plain "?" must stay a character.
+function typingIn(el) {
+  return !!el && (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName) || !!el.isContentEditable
+    || !!el.closest?.(".cm-editor"));
+}
+
+// The shortcuts to list now, by group, in the order they were registered.
+function shortcutGroups() {
+  const shown = shortcutRegistry.filter((s) => {
+    try { return !s.when || s.when(); } catch { return false; }
+  });
+  return [...new Set(shown.map((s) => s.group))].map((group) => [group, shown.filter((s) => s.group === group)]);
+}
+
+function shortcutsDialog() {
+  const keys = (s) => h("td", { class: "kbd-keys" }, ...s.keys.flatMap((combo, i) => [
+    i ? h("span", { class: "muted-text" }, "/") : null,
+    ...combo.split(/(?<=.)\+(?=.)/).flatMap((k, j) => [j ? h("span", { class: "muted-text" }, "+") : null, h("kbd", {}, k)])]));
+  const groups = shortcutGroups();
+  const body = h("div", { class: "scroll shortcuts-list" },
+    ...groups.map(([group, list]) => h("section", {}, h("h3", {}, group),
+      h("table", { class: "list" }, h("tbody", {},
+        list.map((s) => h("tr", { "data-shortcut": s.id || null }, keys(s), h("td", {}, s.label))))))),
+    groups.some(([group]) => group === "Notebook") ? null
+      : h("p", { class: "text" }, "The notebook editor has keys of its own, such as running a cell or adding one: ",
+        h("a", { href: "#", class: "learn-more", onclick: (e) => {
+          e.preventDefault();
+          attempt(() => invoke("open_doc", { page: "notebooks.md#editing" }), "Could not open the guide");
+        } }, "see the notebook guide"), "."),
+    h("p", { class: "text" }, learnMore("keyboard-shortcuts", "Keyboard shortcuts in the user guide")));
+  showDialog("Keyboard shortcuts", body, [btn("Close", null, closeDialog, "tool primary")]);
 }
 
 // ---------- command bar (Ctrl+K) ----------

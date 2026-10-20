@@ -107,7 +107,7 @@ Each PR is independent, tested without Fabric, and reported before the next star
 9. **Incremental and MERGE** (LDE-011).
 10. **Local TDS endpoint** (LDE-012): needs Chris's go first.
 11. **Power BI Desktop** (LDE-013).
-12. **Quality, diagnostics and publish history** (LDE-016, 017, 018).
+12. **Quality, diagnostics and publish history** (LDE-016, 017, 018). *Built (LDE-017, first part):* `local_explain`, the plan and the plan as it ran, with per-operator rows and time, peak memory, spill and bytes read. Not yet: diagnostics for publishes and the CU classes from FINOPS-001.
 13. **Large datasets and developer tool interfaces** (LDE-019, 020).
 
 UI for the Local Data Explorer, Delta browser, destination picker, publish preview, progress and history comes from a mockup Chris approves first. The likely home is the OneLake page (a "This PC" section beside the OneLake catalog) and the SQL page's target picker, since the rail is full.

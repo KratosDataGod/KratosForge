@@ -78,6 +78,15 @@ Times are UTC. A time picks the last version committed at or before it. To resto
 
 A Delta write isn't part of a DuckDB transaction: `ROLLBACK` doesn't undo it. Only one program should write a project's Delta tables at a time, as with its database.
 
+## Why is a query slow
+
+`local_explain` shows how DuckDB runs one query that reads, in any of the project's dialects, as a tree of operators (`plan`) and as indented text (`text`).
+
+- Without `analyze`, it gives the plan with DuckDB's row estimates and runs nothing.
+- With `analyze = true`, it runs the query and reports each operator's rows, rows scanned and time, the three slowest operators with their share of the time, and the query's totals: seconds, CPU seconds, rows, rows scanned, peak memory, bytes spilled to the project's `tmp` folder and bytes read. A query that spilled says so, with what to change.
+
+Only a single `SELECT`, `WITH ... SELECT`, `FROM` or `VALUES` query is explained, because `analyze` runs it: statements that change data, and scripts of several statements, are refused before anything runs. Profiling is switched off again afterwards, so later queries aren't slowed by it.
+
 ## Where it is kept
 
 Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or one you choose, for example inside a Git repository):
@@ -103,6 +112,7 @@ Only one program can write to a project's database at a time. If another KratosF
 | `list_local_tables(project)` | Schemas, tables, views, temporary tables and columns, with each file's format, size and status |
 | `local_set_types(project, table, columns)` | Read a discovered table's columns as these types |
 | `local_query(project, query, dialect, limit, timeout)` | Run SQL and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
+| `local_explain(project, query, dialect, analyze, timeout)` | How the engine runs one query that reads: its plan, or with `analyze` the plan as it ran (see [Why is a query slow](#why-is-a-query-slow)) |
 | `local_query_start` / `local_query_status` / `local_query_cancel` | The same, in the background, for long queries |
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |

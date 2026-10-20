@@ -29,6 +29,17 @@ class LocalTables:
                 for d in sorted(self.root.glob("*/*")) if (d / "_delta_log").exists()}
 
 
+def delete_folder(path):
+    # OneLake deletes the folder in one call. On Windows a file a stopped kernel just wrote can stay
+    # locked for a moment after its process has ended (the virus scanner), so the local stand-in retries.
+    for _ in range(50):
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return
+        time.sleep(0.1)
+    shutil.rmtree(path)
+
+
 @pytest.fixture
 def svc(tmp_path, monkeypatch):
     for name in ("DeltaTable", "FileStore", "publish", "_attached", "write_guard"):
@@ -46,7 +57,7 @@ def svc(tmp_path, monkeypatch):
     s._schema_cache = {"lh1": True}
     monkeypatch.setattr(s, "_proof_location", lambda ref: (str(lh), lambda: {}))
     monkeypatch.setattr(s, "_proof_tables", lambda ref: LocalTables(lh / "Tables"))
-    monkeypatch.setattr(s, "_proof_delete_folder", lambda ref, rel: shutil.rmtree(lh / rel, ignore_errors=True))
+    monkeypatch.setattr(s, "_proof_delete_folder", lambda ref, rel: delete_folder(lh / rel))
     s.lh, s.signed_in = lh, signed_in
     return s
 

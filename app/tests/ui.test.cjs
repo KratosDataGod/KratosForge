@@ -1555,6 +1555,90 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
 
+// UI-4 (HD-042): closing a prompt by its overlay, its X or Escape settled nothing, so the code
+// awaiting it hung. Runs the dialog code from app.js and meta.js on a small fake DOM.
+function dialogHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
+  const code = section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type, e = {}) { for (const fn of this.on[type] || []) fn({ target: this, preventDefault() {}, stopImmediatePropagation() {}, ...e }); },
+      focus() {}, select() {}, contains: () => false, querySelector: () => null, querySelectorAll: () => [] };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) n.addEventListener(k.slice(2), v);
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const root = node("div");
+  Object.defineProperty(root, "childElementCount", { get: () => root.kids.length });
+  Object.assign(root, {
+    replaceChildren(...k) { this.kids = k; },
+    querySelector(sel) { return sel === ".overlay[data-dismiss]" ? find(this.kids[0], (n) => "data-dismiss" in n.attrs) : null; },
+  });
+  const docOn = {};
+  const ctx = {
+    h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
+    MutationObserver: class { observe() {} disconnect() {} },
+    document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
+  const overlay = () => root.kids[0];
+  return {
+    ...ctx, root,
+    clickOverlay: () => overlay().fire("mousedown", { target: overlay() }),
+    clickX: () => find(overlay(), (n) => n.attrs["aria-label"] === "Close").fire("click"),
+    pressEscape: () => docOn.keydown.forEach((fn) => fn({ key: "Escape", preventDefault() {}, stopImmediatePropagation() {} })),
+    clickButton: (label) => find(overlay(), (n) => n.tag === "button" && n.kids[0] === label).fire("click"),
+  };
+}
+
+const settledOrHung = (p) => Promise.race([p.then((v) => ({ v })), new Promise((r) => setTimeout(() => r("hung"), 20))]);
+
+test("closing a text prompt by its overlay, its X or Escape answers null", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const answer = d.askText("Rename", "Name", "orders");
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(answer), { v: null }, close);
+    assert.strictEqual(d.root.childElementCount, 0, close);
+  }
+  const d = dialogHelpers();
+  const answer = d.askText("Rename", "Name", "orders");
+  d.clickButton("Cancel");
+  assert.deepStrictEqual(await settledOrHung(answer), { v: null });
+});
+
+test("a workspace picker and a confirmation settle however they close", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const pick = d.pickWorkspace([{ id: "w1", displayName: "Sales" }]);
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(pick), { v: null }, close);
+    const e = dialogHelpers();
+    const ok = e.confirmDialog("Delete Orders?", "x", "Delete", { danger: true });
+    e[close]();
+    assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
+  }
+});
+
+test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
+  const d = dialogHelpers();
+  let closed = 0;
+  d.showDialog("One", d.h("p"), [], () => { closed++; });
+  d.clickX();
+  d.closeDialog();
+  d.pressEscape();
+  assert.strictEqual(closed, 1);
+  let replaced = 0;
+  d.showDialog("Two", d.h("p"), [], () => { replaced++; });
+  d.showDialog("Three", d.h("p"));
+  d.closeDialog();
+  assert.strictEqual(replaced, 1);
+  assert.strictEqual(d.root.childElementCount, 0);
+});
+
 // HD-044 (UI-6): the rail marks the page you're on, and the command bar is a modal dialog.
 function paletteHarness() {
   const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");

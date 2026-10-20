@@ -65,7 +65,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-11 | Low | Shell | RPC replies aren't matched to request ids; the pipe runs one call at a time with no limit for long calls | HD-041 |
 | SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | HD-027 |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
-| UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise | HD-042 |
+| UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise. Done in HD-042: `showDialog` takes an `onClose` that runs once however the dialog goes (overlay, X, Escape, an action, or another dialog replacing it); `askText` and `pickWorkspace` answer null and `confirmDialog` false through it | HD-042 |
 | UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
 | UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal. Done in HD-044: the rail already marked the page you're on with `aria-current="page"` (now tested); the command bar is a modal dialog (`aria-modal`), focus moves into it, Tab stays inside, Escape closes it without also closing the activity tray, focus goes back to where it was, and Ctrl+K does nothing while another dialog is open | HD-044 |
 | AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 (first slice: METHODS guard test with listed exceptions, no behaviour change) |
@@ -237,7 +237,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
 | SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`) |
 | SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
-| UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt |
+| UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt. Done in HD-042: closing by overlay, X or Escape answers null (`askText`, `pickWorkspace`) or false (`confirmDialog`), tested in `app/tests/ui.test.cjs` |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |
 | UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open. Done in HD-044: `openPalette` in `features.js` |
 

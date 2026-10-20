@@ -425,13 +425,9 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    const overlay = showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok]);
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+      () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && !typed) cancel.focus();
-    new MutationObserver((_, watch) => {
-      if (overlay.isConnected) return;
-      watch.disconnect();
-      if (!settled) { settled = true; resolve(false); }
-    }).observe(document.getElementById("dialog-root"), { childList: true });
   });
 }
 

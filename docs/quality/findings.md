@@ -168,6 +168,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
 
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); `meta_service.py` waits for #293, and `app_settings.py`, favorites/pins and `_sbs_save` remain.
+
 ### QA-012 Two audit-chain writers (Medium)
 
 **Evidence: Code.** `AuditLog` (`sidecar/fabric_desktop/audit.py:100-110,135-146`) caches the chain head in `self._prev` under a `threading.Lock`. The desktop (`service.py:79`), Task Scheduler runs (`cli.py:279-283`) and the agent (`agent.py:69`) all write the same folder. `integrations/audit.py:128` writes inside a store transaction, "one writer at a time across every process". The two copies also disagree on which fields are content (`audit.py:67` lists nine names the integration copy lacks).

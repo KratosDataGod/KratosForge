@@ -8,7 +8,6 @@ interactive sign-in: the project and the identity come from ``agent.toml``.
 
 from __future__ import annotations
 
-import json
 import os
 import socket
 from contextlib import contextmanager
@@ -21,6 +20,7 @@ from .cloud_service import CloudMixin
 from .credentials import Credential, from_config
 from .dataops_service import DataOpsMixin
 from .fabric_api import FabricClient
+from .jsonfile import read_json, write_json
 from .leases import Backend, Leases, LocalBackend, OneLakeBackend, table_key
 from .meta import Engine, LocalStore, OneLakeStore, Project
 from .meta.store import META_LAKEHOUSE, Store
@@ -60,9 +60,9 @@ class Runtime(PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin):
                                       "teams_webhook": self.config.teams_webhook}
 
     def _save_settings(self, **changes: Any) -> None:
-        kept = {k: v for k, v in (MetaMixin._settings(self) | changes).items() if k not in _FROM_CONFIG}
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(json.dumps(kept, indent=2), encoding="utf-8")
+        # read_json sets a torn file aside instead of letting this save drop everything in it (QA-011)
+        kept = {k: v for k, v in (read_json(self.settings_file, {}) | changes).items() if k not in _FROM_CONFIG}
+        write_json(self.settings_file, kept, indent=2)
 
     # ---- guard rails
 

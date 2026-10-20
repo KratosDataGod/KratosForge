@@ -15,7 +15,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .fabric_api import FabricClient
-from .fabric_run import describe_schedule
+from .fabric_run import TERMINAL, describe_schedule
 from .local_schedules import LocalSchedules, target_label
 from .redact import describe
 from .workloads.notify import Outbox, send, single
@@ -116,13 +116,11 @@ class ScheduleMixin:
                              "trigger": "manual" if r.get("trigger") == "manual" else "schedule",
                              "message": r.get("message", ""), "alert_error": r.get("alert_error", ""),
                              "cells": r.get("cells"), "schedule_id": r.get("schedule_id")})
-        fabric = self.fabric_runs(500, refresh=refresh)  # type: ignore[attr-defined]
-        mine = [r for r in fabric if r.get("name") == name and r.get("kind") == "Notebook run"]
-        items = {r.get("item_id") for r in mine}
-        # Run now on a Fabric schedule (Monitor > Schedules) logs no item type: count it when the item is
-        # one this notebook ran as, so a pipeline with the same name isn't listed.
-        mine += [r for r in fabric if r.get("kind") == "Scheduled item run" and r.get("name") == name
-                 and r.get("item_id") in items]
+        mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=False))  # type: ignore[attr-defined]
+        if refresh:  # ask Fabric about this notebook's unfinished jobs only, never every open run
+            going = [r["job_id"] for r in mine if r.get("status") not in TERMINAL and r.get("job_id")]
+            if going:
+                mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=True, job_ids=going))  # type: ignore[attr-defined]
         from .cloud_service import FABRIC_APP
         for r in mine:
             seconds = None
@@ -139,6 +137,27 @@ class ScheduleMixin:
                          "url": url, "job_id": r.get("job_id")})
         rows.sort(key=lambda r: str(r["started"] or ""), reverse=True)
         return rows[:limit]
+
+    def _notebook_fabric_runs(self, name: str, fabric: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The Fabric runs that are this notebook's: by its Fabric item when the app knows it (the item it
+        was published to), so a renamed notebook or a same-named one in another workspace doesn't pick up
+        the wrong runs; else by name, in its publish workspace when it has one."""
+        kinds = ("Notebook run", "Scheduled item run")
+        link = self.workload_store.links().get(name)  # type: ignore[attr-defined]
+        if link:
+            return [r for r in fabric if r.get("kind") in kinds and r.get("item_id") == link["item_id"]]
+        try:
+            nb = self.notebooks.load(name)  # type: ignore[attr-defined]
+            ws = self._publish_workspace(name, nb.get("lakehouse"), nb.get("workspace"))["workspace_id"]  # type: ignore[attr-defined]
+        except (OSError, ValueError):  # not on this PC, or no workspace picked yet: by name alone
+            ws = None
+        mine = [r for r in fabric if r.get("name") == name and r.get("kind") == "Notebook run"
+                and (ws is None or r.get("workspace_id") == ws)]
+        items = {r.get("item_id") for r in mine}
+        # Run now on a Fabric schedule (Monitor > Schedules) logs no item type: count it when the item is
+        # one this notebook ran as, so a pipeline with the same name isn't listed.
+        return mine + [r for r in fabric if r.get("kind") == "Scheduled item run" and r.get("name") == name
+                       and r.get("item_id") in items]
 
     def sync_pc_schedules(self) -> dict[str, Any]:
         """Called when the app starts: point every task at this engine."""

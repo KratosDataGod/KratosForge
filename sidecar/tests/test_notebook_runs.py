@@ -82,3 +82,39 @@ def test_opening_the_list_asks_fabric_nothing_and_refresh_reads_job_status(svc, 
 
 def test_no_runs_is_an_empty_list(svc):
     assert svc.notebook_runs("Daily sales") == []
+
+
+def test_fabric_runs_follow_the_notebooks_item_when_it_is_known(svc):
+    svc.workload_store.record_link("Daily sales", "ws1", "it1", "Sales")
+    _fabric(svc, name="Sales v1", job_id="old", started_at="2026-10-19T07:00:00+00:00")  # before a rename
+    _fabric(svc, workspace_id="ws2", item_id="it9", job_id="other", started_at="2026-10-20T07:00:00+00:00")  # same name, elsewhere
+    svc._log_fabric_run({"kind": "Scheduled item run", "name": "Daily sales", "workspace_id": "ws1", "item_id": "it1",
+                         "job_id": "now", "started_at": "2026-10-20T08:00:00+00:00"})
+    assert [r["job_id"] for r in svc.notebook_runs("Daily sales")] == ["now", "old"]
+
+
+def test_without_a_known_item_runs_match_by_name_in_the_publish_workspace(svc):
+    svc.notebooks.save("Daily sales", [{"type": "code", "source": "x = 1"}], None,
+                       workspace={"workspace_id": "ws1", "workspace_name": "Sales"})
+    _fabric(svc, job_id="here", started_at="2026-10-20T07:00:00+00:00")
+    _fabric(svc, workspace_id="ws2", item_id="it9", job_id="there", started_at="2026-10-20T08:00:00+00:00")
+    assert [r["job_id"] for r in svc.notebook_runs("Daily sales")] == ["here"]
+
+
+def test_refresh_status_asks_only_about_this_notebooks_open_runs(svc, monkeypatch):
+    _fabric(svc, started_at="2026-10-20T07:00:00+00:00")
+    _fabric(svc, name="Other", item_id="it2", job_id="j2", started_at="2026-10-20T07:30:00+00:00")
+    _fabric(svc, job_id="j3", status="Completed", started_at="2026-10-20T06:00:00+00:00")
+    asked = []
+
+    class Fabric:
+        def job_instance(self, ws, item, job):
+            asked.append(job)
+            return {"status": "Completed"}
+
+    monkeypatch.setattr(Service, "_quiet_fabric", lambda self: Fabric())
+    svc.notebook_runs("Daily sales", refresh=True)
+    assert asked == ["j1"]
+    svc.notebook_runs("Daily sales", refresh=True)
+    assert asked == ["j1"], "nothing still going: Fabric isn't asked"
+    assert svc.fabric_runs(10, refresh=False)[1]["status"] == "NotStarted", "the other notebook's run is untouched"

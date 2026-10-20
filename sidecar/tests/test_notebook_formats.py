@@ -222,3 +222,15 @@ def test_export_writes_a_new_file_in_downloads_each_time(svc, tmp_path):
     assert Path(svc.notebook_export("../x", CELLS, "ipynb_outputs")["path"]).name == "x with outputs.ipynb"
     assert Path(svc.notebook_export("n", CELLS, "html")["path"]).suffix == ".html"
     assert not svc.notebooks.list()  # exporting doesn't save the notebook
+
+
+def test_a_damaged_dbc_entry_gives_a_plain_message():
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("proj/Load.python", _dbc_doc("Load", "python", ["x = 1"] * 200))
+    data = bytearray(buf.getvalue())
+    start = data.index(b"proj/Load.python") + len("proj/Load.python")  # just past the local header's name
+    for i in range(start + 4, start + 40):
+        data[i] ^= 0xFF  # corrupt the compressed bytes
+    with pytest.raises(ValueError, match="is damaged"):
+        nbf.parse_dbc(bytes(data))

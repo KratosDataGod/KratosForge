@@ -22,6 +22,7 @@ import io
 import json
 import re
 import zipfile
+import zlib
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -471,13 +472,18 @@ def parse_dbc(data: bytes) -> list[dict[str, Any]]:
                 continue
             if info.file_size > MAX_DBC_ENTRY:
                 raise ValueError(f"{info.filename[:120]} is larger than 16 MB unpacked, so the archive wasn't imported.")
-            total += info.file_size
-            if total > MAX_DBC_TOTAL:
+            if total + info.file_size > MAX_DBC_TOTAL:
                 raise ValueError("The archive unpacks to more than 128 MB, so it wasn't imported.")
-            with zf.open(info) as f:
-                raw = f.read(MAX_DBC_ENTRY + 1)  # the size in the header can lie
+            try:
+                with zf.open(info) as f:
+                    raw = f.read(MAX_DBC_ENTRY + 1)  # the size in the header can lie
+            except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError):
+                raise ValueError(f"{info.filename[:120]} in the archive is damaged, so the archive wasn't imported.") from None
             if len(raw) > MAX_DBC_ENTRY:
                 raise ValueError(f"{info.filename[:120]} is larger than 16 MB unpacked, so the archive wasn't imported.")
+            total += len(raw)  # what was really read, not what the header says
+            if total > MAX_DBC_TOTAL:
+                raise ValueError("The archive unpacks to more than 128 MB, so it wasn't imported.")
             try:
                 doc = json.loads(raw.decode("utf-8-sig"))
             except ValueError:

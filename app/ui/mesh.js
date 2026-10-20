@@ -438,8 +438,109 @@ async function platformSection() {
   };
   section.replaceChildren(h("h2", {}, "Platform ", previewTag()),
     h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), one key system for every team (SQL_Platform, which also holds the catalog), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
-    ...MESH_ENVS.map(row));
+    ...MESH_ENVS.map(row), keysRow(s, policy));
   return section;
+}
+
+// ---------- one keys database for Dev, Test and Prod (Preview) ----------
+
+function keysRow(s, policy) {
+  const k = s.keys || {};
+  const where = k.kind === "fabric" ? k.workspace_name || k.workspace_id : "on this PC";
+  const title = `Keys: ${k.workspace_id ? where : "one keys database for every environment"}`;
+  if (k.shared) {
+    return settingRow(h("span", {}, title, " ", h("span", { class: "pill-s pass" }, "Dev, Test and Prod use it")),
+      `One key per business key in every environment${k.kind === "fabric" ? ", in SQL_Keys and UDF_Keys" : ", in a file on this PC"}${k.moved_at ? `. Moved ${when(k.moved_at)}` : ""}.`,
+      null, policy ? "policy" : null);
+  }
+  const fabric = k.kind === "fabric";
+  return settingRow(h("span", {}, title, " ", previewTag()),
+    "A dedicated Keys workspace (SQL_Keys and UDF_Keys) so customer ABC has the same key in Dev, Test and Prod. Move keys in shows what would move first; Prod's keys keep their numbers.",
+    policy ? null : h("div", { class: "row" },
+      btn("Move keys in", "databaseArrowRight", moveKeysIn, "tool primary"),
+      btn(fabric ? "Finish or repair" : "Create", fabric ? "sync" : "add", () => keysSetupDialog(s), "tool outline"),
+      btn("Join existing", "workspace", keysJoin, "tool outline")),
+    policy ? "policy" : null);
+}
+
+async function keysJoin() {
+  if (!state.user && !(await signIn())) return;
+  const ws = await pickWorkspace(await loadWorkspaces(), { title: "Join the Keys workspace", okLabel: "Join",
+    note: "Pick the Keys workspace your central team made. SQL_Keys and UDF_Keys are found by name." });
+  if (!ws) return;
+  const res = await attempt(() => rpc("platform_keys_join", { workspace_id: ws.id }), "Could not join");
+  if (res) { toast(res.keys?.shared ? `Every environment now uses ${ws.displayName}` : `Joined ${ws.displayName}; keys haven't moved in yet`); render(); }
+}
+
+async function keysSetupDialog(s) {
+  if (!state.user && !(await signIn())) return;
+  const k = s.keys || {};
+  const name = h("input", { value: k.workspace_name || k.default_name, disabled: k.workspace_id ? true : null });
+  const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
+  const steps = h("div", {});
+  const run = async () => {
+    steps.replaceChildren(h("p", { class: "muted-text" }, "Creating the Keys workspace. This takes a minute..."));
+    const res = await attempt(() => rpc("platform_keys_setup", { name: name.value.trim(), capacity_id: capacity.value }), "Keys workspace not created");
+    if (!res) { steps.replaceChildren(); return; }
+    steps.replaceChildren(h("ul", { class: "steps-list" }, res.steps.map((st) => h("li", {},
+      icon(st.status === "done" ? "ok" : "error", 14), h("b", {}, ` ${st.step}: `), st.detail))),
+    h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready ? "The Keys workspace is ready. Nothing has moved yet: choose Move keys in." : "Some steps didn't finish. Fix what they say, then choose Finish or repair."));
+  };
+  showDialog(`${k.workspace_id ? "Finish" : "Create"} the Keys workspace`, h("div", {},
+    h("p", { class: "text" }, "Creates (or finishes) a workspace with SQL_Keys, a SQL database for every environment's keys, and UDF_Keys, the functions that issue them. Nothing moves until you choose Move keys in."),
+    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps), [
+    btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
+    btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary")]);
+  const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
+  capacity.replaceChildren(...caps.map((x) => h("option", { value: x.id }, `${x.displayName}${x.sku ? ` (${x.sku})` : ""}`)),
+    h("option", { value: "" }, "No capacity (SQL database and functions need one)"));
+}
+
+function keysMoveTable(tables) {
+  return tables.length ? h("table", { class: "list" },
+    h("thead", {}, h("tr", {}, ["From", "Key table", "Keys", "New numbers"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, tables.map((t) => h("tr", {}, h("td", {}, ENV_LABEL[t.env] || t.env), h("td", { class: "mono" }, `sk.${t.table}`),
+      h("td", { class: "n" }, (t.keys ?? t.copied ?? 0).toLocaleString()),
+      h("td", { class: "n" }, t.env === "prod" ? "0 (kept)" : (t.renumbered || 0).toLocaleString())))))
+    : h("p", { class: "muted-text" }, "No key tables yet, so nothing is copied.");
+}
+
+async function moveKeysIn() {
+  const plan = await attempt(() => rpc("platform_share_keys", {}), "Could not read the keys");
+  if (!plan) return;
+  if (plan.already) { toast("Every environment already uses the one keys database"); render(); return; }
+  showDialog("Move keys in", h("div", {},
+    h("p", { class: "text" }, plan.message.replace(/ Confirm to continue\.$/, "")),
+    keysMoveTable(plan.tables),
+    plan.renumbered ? h("p", { class: "warn-text small" }, `${plan.renumbered.toLocaleString()} Dev and Test keys change number. Re-run Dev and Test afterwards.`) : null), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Move keys in", "databaseArrowRight", async () => {
+      closeDialog();
+      const res = await attempt(() => rpc("platform_share_keys", { approve: true }), "Keys not moved");
+      if (!res) return;
+      if (res.ok) {
+        showDialog("Keys moved", h("div", {}, keysMoveTable(res.tables),
+          h("p", { class: "warn-text small" }, res.renumbered
+            ? "Every environment now uses the one keys database. Re-run Dev and Test: their tables still hold the old numbers for the keys that changed. Prod's tables don't change."
+            : "Every environment now uses the one keys database. No key changed number.")),
+        [btn("Close", null, () => { closeDialog(); render(); }, "tool primary")]);
+        toast("Every environment now uses the one keys database", false, { log: true });
+        return;
+      }
+      showDialog("Keys didn't switch", h("div", {}, h("p", { class: "text" }, res.message),
+        res.changed_during_move ? gateList(res.changed_during_move.map((x) => `${x} changed during the move`)) : null,
+        res.tables?.some((t) => !t.match) ? gateList(res.tables.filter((t) => !t.match).map((t) => `${ENV_LABEL[t.env] || t.env} ${t.table}: didn't check out`)) : null), [
+        btn("Cancel the move", null, () => { closeDialog(); cancelKeysMove(); }, "tool outline"),
+        btn("Move again", "sync", () => { closeDialog(); moveKeysIn(); }, "tool primary")]);
+    }, "tool primary")]);
+}
+
+async function cancelKeysMove() {
+  const plan = await attempt(() => rpc("platform_cancel_share_keys", {}), "Could not cancel");
+  if (!plan) return;
+  if (!(await confirmDialog("Cancel the move?", plan.message.replace(/ Confirm to continue\.$/, ""), "Cancel the move", { danger: true }))) return;
+  const res = await attempt(() => rpc("platform_cancel_share_keys", { approve: true }), "Not cancelled");
+  if (res) { toast("Move cancelled; every environment issues its own keys again", false, { log: true }); render(); }
 }
 
 async function platformJoin(env) {
@@ -482,7 +583,7 @@ function keysPlatformCard(k, rerender) {
   if (k.platform) {
     return h("div", { class: "card pad" }, h("div", { class: "row" }, icon("database", 18),
       h("span", { class: "grow" }, h("b", {}, "Keys are in the platform's SQL database"),
-        h("div", { class: "muted-text small" }, `Moved ${k.moved_at ? when(k.moved_at) : ""}. LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
+        h("div", { class: "muted-text small" }, `${k.moved_at ? `Moved ${when(k.moved_at)}. ` : ""}LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
       btn("Back to LH_Keys", null, async () => {
         if (!(await confirmDialog("Use LH_Keys again?", "Only allowed while the platform hasn't issued keys LH_Keys doesn't have.", "Use LH_Keys"))) return;
         if (await metaCall("meta_keys_to_lakehouse", { env: k.env }, "Not changed")) rerender();

@@ -1221,6 +1221,12 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .git-op { gap: 6px; }
 .callout.git-warn { background: #fff4e5; color: #6b3d00; margin-bottom: 0; }
 .callout.git-warn.small { padding: 8px 10px; font-size: 13px; }
+.git-platform { display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
+.git-platform h2 { margin: 0 0 4px; font-size: 15px; }
+.git-platform-item { padding: 6px 0; border-top: 1px solid var(--border, #f0f0f0); }
+.git-platform-changes { margin-top: 4px; padding: 6px 8px; border-radius: 4px; background: var(--surface-2, #fafafa); overflow-wrap: anywhere; }
+.git-deploy { max-width: 640px; max-height: 60vh; overflow: auto; }
+.git-deploy h3 { margin: 10px 0 4px; font-size: 14px; }
 .git-branches, .git-settings { display: flex; flex-direction: column; gap: 12px; max-width: 1000px; }
 .git-branches h2, .git-settings h2, .git-commit h2 { margin: 0; font-size: 15px; }
 .git-branches .row input, .git-settings .row input { flex: 1; min-height: 32px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; }

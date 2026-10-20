@@ -44,6 +44,7 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 | 4 | FINOPS-004 Predeployment capacity and CU risk analyzer, part 1: the risk service ([risk-check.md](risk-check.md)) | Open for review |
 | 4b | FINOPS-004 part 2: findings in the run dialogs, acknowledgement, settings ([risk-check.md](risk-check.md#where-you-see-it)) | Open for review |
 | 5 | FINOPS-005 Local vs Fabric execution advisor | Part 1: savings on this PC estimated from Fabric runs of the same table (`calibration.py`). Advisor not started |
+| 6 | Capacity settings history (testing feedback item 30, `fdcap_` in the central lakehouse; [Capacity settings history](../optimize/README.md#capacity-settings-history)) | Open for review |
 
 ## FINOPS-003 usage source decision
 

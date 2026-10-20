@@ -1554,3 +1554,9 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
+
+test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  assert.match(s, /look in Task Scheduler under /);
+});

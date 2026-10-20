@@ -78,8 +78,23 @@ def test_rename_and_delete_of_the_notebook_take_its_folder(tmp_path):
     store.rename("A", "B")
     assert (tmp_path / "B.resources" / "builtin" / "x.csv").read_bytes() == b"1"
     assert not (tmp_path / "A.resources").exists()
-    assert store.delete("B") == {"resources_deleted": 1}
-    assert not (tmp_path / "B.resources").exists() and not (tmp_path / "B.ipynb").exists()
+
+    # A delete never removes the files: the folder stays, and a new notebook of that name has them again.
+    assert store.delete("B") == {"resources_kept": str(tmp_path / "B.resources")}
+    assert not (tmp_path / "B.ipynb").exists()
+    assert (tmp_path / "B.resources" / "builtin" / "x.csv").read_bytes() == b"1"
+    store.save("B", [{"type": "code", "source": ""}])
+    assert [f["name"] for f in Resources(store.resources("B")).list()["files"]] == ["x.csv"]
+    store.save("C", [{"type": "code", "source": ""}])
+    assert store.delete("C") == {"resources_kept": None}
+
+
+def test_delete_notebook_keeps_the_resources(svc):
+    svc.notebook_resource_add("Sales", "a.csv", b64(b"a"))
+    out = svc.delete_notebook("Sales")
+    folder = svc.notebooks.folder / "Sales.resources"
+    assert out == {"deleted": "Sales", "resources_kept": str(folder)}
+    assert (folder / "builtin" / "a.csv").read_bytes() == b"a"
 
 
 def test_rename_stops_when_a_folder_of_the_new_name_is_there(tmp_path):

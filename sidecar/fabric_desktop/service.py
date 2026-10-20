@@ -715,7 +715,8 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
-        """Deletes the notebook and its resources folder; ``resources_deleted`` says how many files went."""
+        """Deletes the notebook's file. Its resources folder stays on this PC; ``resources_kept`` names it
+        (None when it has none), and a new notebook of the same name picks it up again."""
         return {"deleted": name} | self.notebooks.delete(name)
 
     def publish_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,

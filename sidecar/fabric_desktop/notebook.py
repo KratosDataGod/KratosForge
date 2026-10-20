@@ -981,11 +981,12 @@ class NotebookStore:
         return _rename_with_resources(self.path(name), target, new_name)
 
     def delete(self, name: str) -> dict[str, Any]:
-        """Deletes the notebook and its resources folder: the files were the notebook's own."""
+        """Deletes the notebook's file. Its resources folder is never deleted here: it stays where it
+        is (named in ``resources_kept``), and a new notebook of the same name picks it up again."""
         path = self.path(name)
-        removed = notebook_resources.remove_folder(notebook_resources.folder_for(path))
+        folder = notebook_resources.folder_for(path)
         path.unlink(missing_ok=True)
-        return {"resources_deleted": removed}
+        return {"resources_kept": str(folder) if folder.is_dir() else None}
 
 
 class NotebookShelf(NotebookStore):

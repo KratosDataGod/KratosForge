@@ -126,7 +126,7 @@ function nbResFill(nb, box) {
       reads: "The files in this notebook's resources folder on this PC.",
       changes: "Add files copies them into <notebook>.resources/builtin beside the notebook, never over a file of the same name. " +
         "Rename and Delete change one file there; Open folder makes the folder if it isn't there yet. " +
-        "Renaming, moving or deleting the notebook does the same to the folder. Cells that write to builtin/ write there too. Nothing in Fabric or OneLake changes.",
+        "Renaming or moving the notebook does the same to the folder; deleting the notebook leaves it on this PC. Cells that write to builtin/ write there too. Nothing in Fabric or OneLake changes.",
       results: "Cells read the files as builtin/<file>; notebookutils.nbResPath is the folder. They stay on this PC: publishing doesn't upload them.",
       anchor: "notebook-resources",
     }));

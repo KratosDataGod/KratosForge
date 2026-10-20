@@ -32,10 +32,22 @@ function commentRows(threads, cells, filter, cellId = null) {
     .sort((a, b) => (a.n ?? Infinity) - (b.n ?? Infinity) || String(a.thread.comments[0]?.at).localeCompare(String(b.thread.comments[0]?.at)));
 }
 
+// Who wrote something, as shown: "You" only when its author id is the current account's (or, signed
+// out, this PC's); otherwise the stored name, or "Someone on this PC" when none was stored.
+function commentAuthor(name, id, me) {
+  if (id && id === me?.id) return "You";
+  return name || "Someone on this PC";
+}
+
+// Your own comment: the one you can edit or delete.
+function ownComment(c, me) {
+  return !!c.author_id && c.author_id === me?.id;
+}
+
 // The notebook's comments, loaded from the engine the first time they're needed.
 function commentsOf(nb) {
   if (!nb.comments) {
-    nb.comments = { open: false, filter: "open", cellId: null, threads: null, me: "You" };
+    nb.comments = { open: false, filter: "open", cellId: null, threads: null, me: { name: "", id: "" } };
     rpc("notebook_comments_list", { name: nb.name })
       .then((out) => { nb.comments.threads = out.threads || []; nb.comments.me = out.me; drawComments(nb); })
       .catch(() => { nb.comments.threads = []; drawComments(nb); });  // a notebook not saved yet has none
@@ -196,6 +208,7 @@ function commentsContent(nb) {
   rows.forEach((r) => body.append(commentThread(nb, r)));
   return [head, tabs, body, h("div", { class: "validate-how" }, howItWorks("comments", {
     reads: "The comments saved in this notebook's file, and who is signed in (your comments are the ones you can edit or delete).",
+    more: [["Who wrote it", "Each comment keeps its author's account email (and account id) in the notebook file, so it goes into Git when the notebook is committed. Signed out, a comment has no name and shows as \"Someone on this PC\" to others."]],
     changes: "Adding, replying, editing, deleting, resolving and reopening write the comments into the notebook file on this PC (metadata.fabric_desktop.comments). Nothing else in the notebook changes.",
     results: "The notebook file, so comments go with it through Git. Publish to OneLake doesn't send them to Fabric. @name only highlights the name: nobody is notified.",
     anchor: "notebook-comments" }))];
@@ -210,12 +223,12 @@ function commentThread(nb, { thread: t, n }) {
       t.resolved ? h("span", { class: "pill-s pass" }, "Resolved") : null),
     t.quote ? h("pre", { class: "comment-quote" }, t.quote) : null,
     t.comments.map((c) => h("div", { class: "comment" },
-      h("div", { class: "comment-meta" }, h("b", {}, c.author), when(c.at), c.edited_at ? h("span", { class: "muted-text" }, "(edited)") : null),
+      h("div", { class: "comment-meta" }, h("b", {}, commentAuthor(c.author, c.author_id, me)), when(c.at), c.edited_at ? h("span", { class: "muted-text" }, "(edited)") : null),
       h("p", { class: "comment-text" }, commentParts(c.text).map((p) => (p.mention ? h("span", { class: "mention" }, p.text) : p.text))),
-      c.author === me ? h("div", { class: "row comment-actions" },
+      ownComment(c, me) ? h("div", { class: "row comment-actions" },
         h("button", { class: "link-btn", onclick: () => editComment(nb, t, c) }, "Edit"),
         h("button", { class: "link-btn", onclick: () => deleteComment(nb, t, c) }, "Delete")) : null)),
-    t.resolved && t.resolved_by ? h("p", { class: "muted-text" }, `Resolved by ${t.resolved_by}`) : null,
+    t.resolved ? h("p", { class: "muted-text" }, `Resolved by ${commentAuthor(t.resolved_by, t.resolved_by_id, me)}`) : null,
     h("div", { class: "row comment-actions" },
       t.resolved ? null : btn("Reply", null, () => replyComment(nb, t), "tool outline small"),
       btn(t.resolved ? "Reopen" : "Resolve", null, () => resolveComment(nb, t, !t.resolved), "tool outline small"), goTo));

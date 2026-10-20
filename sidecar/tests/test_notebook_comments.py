@@ -57,7 +57,7 @@ def test_methods_are_registered_and_only_list_is_read_only():
 
 def test_add_reply_resolve_reopen_are_kept_in_the_file(svc):
     out = call(svc, "notebook_comment_add", name="NB", cell_id="c1", text="Why 2? @bob", lines=[2, 3])
-    assert out["me"] == "ann@contoso.com"
+    assert out["me"] == {"name": "ann@contoso.com", "id": "user:ann@contoso.com"}
     t = out["threads"][0]
     assert t["cell_id"] == "c1" and t["lines"] == [2, 3] and t["quote"] == "b = 2\nc = 3" and not t["resolved"]
     assert t["comments"][0]["author"] == "ann@contoso.com" and t["comments"][0]["text"] == "Why 2? @bob"
@@ -72,11 +72,41 @@ def test_add_reply_resolve_reopen_are_kept_in_the_file(svc):
     assert call(svc, "notebook_comments_list", name="NB") == out
 
 
-def test_signed_out_author_is_you(svc):
+def test_signed_out_comments_have_no_name_and_belong_to_this_pc(svc):
     svc._auth = None
+    # A read doesn't make this PC's id; the first comment does, and keeps it.
+    assert call(svc, "notebook_comments_list", name="NB")["me"] == {"name": "", "id": ""}
+    assert not (svc.root / "comment-author-id").exists()
     out = call(svc, "notebook_comment_add", name="NB", cell_id="c2", text="hi")
-    assert out["me"] == "You" and out["threads"][0]["comments"][0]["author"] == "You"
+    c = out["threads"][0]["comments"][0]
+    assert c["author"] == "" and c["author_id"].startswith("pc:") and c["author_id"] == out["me"]["id"]
     assert out["threads"][0]["lines"] is None
+    assert call(svc, "notebook_comments_list", name="NB")["me"]["id"] == c["author_id"]
+    # Still yours while signed out; after signing in it isn't, and nor is another account's.
+    call(svc, "notebook_comment_edit", name="NB", thread_id=out["threads"][0]["id"], comment_id=c["id"], text="hi!")
+    svc._auth = Auth("ann@contoso.com")
+    assert "only edit your own" in error(svc, "notebook_comment_edit", name="NB", thread_id=out["threads"][0]["id"],
+                                         comment_id=c["id"], text="x")
+
+
+class OidAuth(Auth):
+    def __init__(self, user, oid):
+        super().__init__(user)
+        self.oid = oid
+
+    def signed_in_object_id(self):
+        return self.oid
+
+
+def test_ownership_follows_the_account_id_not_the_name(svc):
+    svc._auth = OidAuth("ann@contoso.com", "oid-1")
+    t = call(svc, "notebook_comment_add", name="NB", cell_id="c1", text="mine")["threads"][0]
+    assert t["comments"][0]["author_id"] == "aad:oid-1"
+    # Someone else whose account has the same name (a renamed or reused address) isn't the author.
+    svc._auth = OidAuth("ann@contoso.com", "oid-2")
+    assert "only delete your own" in error(svc, "notebook_comment_delete", name="NB", thread_id=t["id"], comment_id=t["comments"][0]["id"])
+    svc._auth = OidAuth("ann@contoso.com", "oid-1")
+    assert call(svc, "notebook_comment_delete", name="NB", thread_id=t["id"], comment_id=t["comments"][0]["id"])["threads"] == []
 
 
 def test_edit_and_delete_only_own(svc):

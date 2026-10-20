@@ -2016,7 +2016,7 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
   const ctx = {};
   vm.createContext(ctx);
-  for (const name of ["commentParts", "commentLines", "commentRows"]) {
+  for (const name of ["commentParts", "commentLines", "commentRows", "commentAuthor", "ownComment"]) {
     vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
   }
   const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -2037,6 +2037,15 @@ test("cell comments: mentions, selected lines and the panel's rows", () => {
   assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
   assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
   assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // "You" only for the current account's (or this PC's) id; others keep their stored name.
+  const me = { name: "ann@contoso.com", id: "aad:1" };
+  assert.strictEqual(ctx.commentAuthor("ann@contoso.com", "aad:1", me), "You");
+  assert.strictEqual(ctx.commentAuthor("bob@contoso.com", "aad:2", me), "bob@contoso.com");
+  assert.strictEqual(ctx.commentAuthor("", "pc:other", me), "Someone on this PC");
+  assert.strictEqual(ctx.commentAuthor("", "", { name: "", id: "" }), "Someone on this PC", "no id is never you");
+  assert.strictEqual(ctx.ownComment({ author: "ann@contoso.com", author_id: "aad:9" }, me), false, "the name alone isn't ownership");
+  assert.strictEqual(ctx.ownComment({ author_id: "aad:1" }, me), true);
+  assert.strictEqual(ctx.ownComment({}, { name: "", id: "" }), false);
   // Comment text only ever becomes text nodes, and deleting asks first, in red.
   assert.doesNotMatch(src, /innerHTML/);
   assert.match(src, /"Delete", \{ danger: true \}/);

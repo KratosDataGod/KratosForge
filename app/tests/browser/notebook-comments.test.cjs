@@ -102,5 +102,21 @@ test("a thread on a deleted cell stays in the panel, marked so", { skip }, async
   assert.strictEqual(await pane().getByText("Cell deleted").count(), 1);
   await pane().getByRole("button", { name: "Go to cell 1" }).click();
   assert.strictEqual(await page().evaluate(() => state.notebook.cells.indexOf(selectedCell())), 0);
+});
+
+test("others' comments show their stored name, or Someone on this PC, and can't be edited here", { skip }, async () => {
+  await page().evaluate(() => {
+    const nb = state.notebook;
+    nb.comments.threads.push({ id: "x1", cell_id: "c1", lines: null, quote: "", resolved: false, comments: [
+      { id: "k1", author: "bob@contoso.com", author_id: "aad:bob", at: "2026-10-20T09:00:00+00:00", text: "From Bob" },
+      { id: "k2", author: "", author_id: "pc:elsewhere", at: "2026-10-20T09:05:00+00:00", text: "From a signed-out PC" }] });
+    drawComments(nb);
+  });
+  const thread = pane().locator('[data-thread="x1"]');
+  await thread.waitFor();
+  assert.deepStrictEqual(await thread.locator(".comment-meta b").allInnerTexts(), ["bob@contoso.com", "Someone on this PC"]);
+  assert.strictEqual(await thread.getByRole("button", { name: "Edit" }).count(), 0);
+  assert.strictEqual(await pane().locator(".comment-thread", { hasText: "Prints the sum" }).locator(".comment-meta b").innerText(), "You",
+    "this PC's own comment is still You");
   assert.deepStrictEqual(app.errors, []);
 });

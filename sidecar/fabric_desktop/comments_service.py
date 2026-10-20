@@ -11,10 +11,15 @@ comments stay on this PC and in Git; Fabric's own comments are a separate servic
 A thread on a cell that has since been deleted is kept and shown as "on a deleted cell" until it is
 resolved or its comments are deleted. ``@name`` in a comment is only highlighted: nobody is notified.
 
+Each comment keeps who wrote it: ``author`` is the signed-in account's name (its email), which goes
+into Git with the notebook, or "" when no one was signed in; ``author_id`` is that account's Entra
+object id ("aad:<id>"), or a random id kept on this PC (``comment-author-id``) when signed out. Edit
+and delete of your own, and "You" on screen, go by ``author_id``.
+
 Stored shape, a list of threads:
     {"id", "cell_id", "lines": [first, last] | None, "quote": the lines' code when commented,
-     "resolved": bool, "resolved_by", "resolved_at",
-     "comments": [{"id", "author", "at", "text", "edited_at"?}]}
+     "resolved": bool, "resolved_by", "resolved_by_id", "resolved_at",
+     "comments": [{"id", "author", "author_id", "at", "text", "edited_at"?}]}
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ MAX_TEXT = 4000        # characters in one comment
 MAX_THREADS = 500      # in one notebook
 MAX_REPLIES = 200      # in one thread
 QUOTE_CHARS = 500      # of the commented lines kept with the thread
-SIGNED_OUT = "You"
+PC_ID_FILE = "comment-author-id"  # under the data folder: who "you" are when signed out
 _CELL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 
@@ -97,14 +102,28 @@ def _lines(lines: Any, source: str) -> tuple[list[int] | None, str]:
 
 
 class CommentsMixin:
-    def _comment_author(self) -> str:
-        """Who is writing: the signed-in account, else "You". Only an account already signed in;
-        a comment never opens a sign-in window."""
+    def _comment_author(self, create: bool = True) -> dict[str, str]:
+        """Who is writing: {"name", "id"}. The signed-in account (only one already signed in; a
+        comment never opens a sign-in window), else no name and this PC's own id, made the first
+        time it's needed (``create``; a read doesn't make one, and its id is then "")."""
         auth = getattr(self, "_auth", None)
-        return (auth.signed_in_user() if auth is not None else None) or SIGNED_OUT
+        name = (auth.signed_in_user() if auth is not None else None) or ""
+        if name:
+            oid = auth.signed_in_object_id() if hasattr(auth, "signed_in_object_id") else None
+            return {"name": name, "id": f"aad:{oid}" if oid else f"user:{name.lower()}"}
+        path = self.root / PC_ID_FILE  # type: ignore[attr-defined]
+        try:
+            pc = path.read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            pc = ""
+        if not pc and create:
+            pc = uuid.uuid4().hex
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(pc, encoding="utf-8")
+        return {"name": "", "id": f"pc:{pc}" if pc else ""}
 
-    def _comments_out(self, threads: list[dict[str, Any]]) -> dict[str, Any]:
-        return {"threads": threads, "me": self._comment_author()}
+    def _comments_out(self, threads: list[dict[str, Any]], me: dict[str, str] | None = None) -> dict[str, Any]:
+        return {"threads": threads, "me": me or self._comment_author(create=False)}
 
     def _comments_change(self, name: str, change: Any) -> dict[str, Any]:
         """Apply ``change(threads, nb)`` to the threads as they are in the file now and save them."""
@@ -112,10 +131,11 @@ class CommentsMixin:
             threads = _threads(saved)
             change(threads, nb)
             return threads or None
-        return self._comments_out(_threads(self.notebooks.update_extra(name, KEY, apply)))  # type: ignore[attr-defined]
+        return self._comments_out(_threads(self.notebooks.update_extra(name, KEY, apply)), self._comment_author())  # type: ignore[attr-defined]
 
     def notebook_comments_list(self, name: str) -> dict[str, Any]:
-        """Every comment thread in the notebook, and who "me" is (whose comments can be edited here)."""
+        """Every comment thread in the notebook, and who "me" is ({"name", "id"}: comments whose
+        ``author_id`` is ``me.id`` are yours to edit or delete)."""
         return self._comments_out(_threads(self.notebooks.extra(name, KEY)))  # type: ignore[attr-defined]
 
     def notebook_comment_add(self, name: str, cell_id: str, text: str, lines: list[int] | None = None) -> dict[str, Any]:
@@ -134,7 +154,7 @@ class CommentsMixin:
                 raise ValueError(f"A notebook can have up to {MAX_THREADS} comment threads. Delete resolved ones first.")
             span, quote = _lines(lines, source)
             threads.append({"id": _new_id(), "cell_id": cell_id, "lines": span, "quote": quote, "resolved": False,
-                            "comments": [{"id": _new_id(), "author": me, "at": _now(), "text": text}]})
+                            "comments": [{"id": _new_id(), "author": me["name"], "author_id": me["id"], "at": _now(), "text": text}]})
         return self._comments_change(name, add)
 
     def notebook_comment_reply(self, name: str, thread_id: str, text: str) -> dict[str, Any]:
@@ -146,7 +166,7 @@ class CommentsMixin:
             t = _find(threads, thread_id)
             if len(t["comments"]) >= MAX_REPLIES:
                 raise ValueError(f"A thread can have up to {MAX_REPLIES} comments. Start a new thread.")
-            t["comments"].append({"id": _new_id(), "author": me, "at": _now(), "text": text})
+            t["comments"].append({"id": _new_id(), "author": me["name"], "author_id": me["id"], "at": _now(), "text": text})
         return self._comments_change(name, reply)
 
     def notebook_comment_edit(self, name: str, thread_id: str, comment_id: str, text: str) -> dict[str, Any]:
@@ -156,7 +176,7 @@ class CommentsMixin:
 
         def edit(threads: list[dict[str, Any]], _nb: dict[str, Any]) -> None:
             c = _comment(_find(threads, thread_id), comment_id)
-            if c.get("author") != me:
+            if not me["id"] or c.get("author_id") != me["id"]:
                 raise ValueError("You can only edit your own comments.")
             c.update(text=text, edited_at=_now())
         return self._comments_change(name, edit)
@@ -169,10 +189,10 @@ class CommentsMixin:
         def delete(threads: list[dict[str, Any]], _nb: dict[str, Any]) -> None:
             t = _find(threads, thread_id)
             c = _comment(t, comment_id)
-            if c.get("author") != me:
+            if not me["id"] or c.get("author_id") != me["id"]:
                 raise ValueError("You can only delete your own comments.")
             if c is t["comments"][0]:
-                if any(isinstance(r, dict) and r.get("author") != me for r in t["comments"]):
+                if any(isinstance(r, dict) and r.get("author_id") != me["id"] for r in t["comments"]):
                     raise ValueError("Others have replied to this thread, so it can't be deleted. Resolve it instead.")
                 threads.remove(t)
             else:
@@ -187,8 +207,9 @@ class CommentsMixin:
             t = _find(threads, thread_id)
             t["resolved"] = bool(resolved)
             if resolved:
-                t.update(resolved_by=me, resolved_at=_now())
+                t.update(resolved_by=me["name"], resolved_by_id=me["id"], resolved_at=_now())
             else:
                 t.pop("resolved_by", None)
+                t.pop("resolved_by_id", None)
                 t.pop("resolved_at", None)
         return self._comments_change(name, resolve)

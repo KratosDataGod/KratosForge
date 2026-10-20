@@ -10,7 +10,7 @@ Comments let you discuss a notebook's code where it is, as cell comments do in F
 
 If the notebook has unsaved changes, it is saved first, so the comment is attached to the cell as it is now. A comment on lines keeps a copy of those lines (up to 500 characters), so a reader sees what was commented on even after the code changes.
 
-The comment's author is the account you're signed in with, or **You** when you're signed out. A comment can be up to 4,000 characters. It is shown exactly as typed: nothing in it is run or formatted.
+Each comment keeps its author: the email of the account you're signed in with, and that account's id. **They are saved in the notebook file, so they go into Git when the notebook is committed**, and anyone who can read the repository sees who wrote each comment. When you're signed out, a comment has no name, only an id kept on this PC: you see it as **You**, and others see **Someone on this PC**. The panel shows **You** for comments whose author id is the account you're signed in with now, and the stored email for everyone else's. A comment can be up to 4,000 characters. It is shown exactly as typed: nothing in it is run or formatted.
 
 **@name** highlights a name in the comment, so the person can find it. There is no notification service: nobody is emailed or told. Let them know another way.
 
@@ -35,7 +35,8 @@ When a cell with comments is deleted, its threads are kept. The panel lists them
 
 | Action | What it writes |
 | --- | --- |
-| Add, Reply, Edit, Delete, Resolve, Reopen | The notebook file on this PC (`<name>.ipynb`), under `metadata.fabric_desktop.comments`. Nothing else in the file changes. |
+| Add, Reply, Edit, Delete, Resolve, Reopen | The notebook file on this PC (`<name>.ipynb`), under `metadata.fabric_desktop.comments`, including each author's email and account id. Nothing else in the file changes. |
+| A comment while signed out | Also, the first time: `comment-author-id` in the app's data folder, a random id that marks this PC's signed-out comments as yours. |
 | Save (the notebook's own) | Never sends or overwrites comments: it keeps them as they are in the file. |
 | Publish to OneLake | Comments are not sent to Fabric. The Fabric notebook item gets the cells only. Fabric's own comments are separate and aren't brought here. |
 | Git | Comments are part of the notebook file, so a commit includes them. The notebook comparison in Source control shows cell code only, so a comment doesn't show as a cell change. |
@@ -45,5 +46,5 @@ Every comment change is its own call to the engine, which reads the notebook fil
 ## Limits
 
 - Up to 500 threads in a notebook and 200 comments in a thread.
-- Comments made while signed out have the author **You**. After you sign in, they're no longer yours to edit or delete; resolve them instead.
+- Comments made while signed out belong to this PC, not to an account. After you sign in, they're no longer yours to edit or delete (and on another PC they never are); resolve them instead.
 - Line ranges are kept as the line numbers they had. When code is added above them, the panel still shows the original lines' code, but the numbers can point at different lines.

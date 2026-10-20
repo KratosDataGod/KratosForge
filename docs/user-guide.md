@@ -143,7 +143,7 @@ In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Pro
 
 ## Notebook comments
 
-In a notebook, select lines of a cell's code (or none, for the whole cell) and choose **Add comment** in the cell's **...** menu. **Comments** on the View tab opens a panel with every thread, filtered by **Open** or **Resolved**, with **Go to cell**, **Reply**, **Resolve** and **Reopen**, and **Edit** and **Delete** on your own comments. A badge on a cell counts its open threads. Comments are written into the notebook file on this PC, so they go through Git with it; they aren't published to Fabric, and **@name** only highlights a name (nobody is notified). See [Notebook comments](notebook-comments.md).
+In a notebook, select lines of a cell's code (or none, for the whole cell) and choose **Add comment** in the cell's **...** menu. **Comments** on the View tab opens a panel with every thread, filtered by **Open** or **Resolved**, with **Go to cell**, **Reply**, **Resolve** and **Reopen**, and **Edit** and **Delete** on your own comments. A badge on a cell counts its open threads. Comments are written into the notebook file on this PC, so they go through Git with it; they aren't published to Fabric, and **@name** only highlights a name (nobody is notified). Each comment keeps its author's account email in the notebook file, so it goes into Git when the notebook is committed. See [Notebook comments](notebook-comments.md).
 
 ## Workspaces
 

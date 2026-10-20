@@ -140,7 +140,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
 | HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
-| HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
+| HD-044 | UI-6: `aria-current`, modal palette (done: the rail sets `aria-current="page"`; the command bar is a modal dialog that keeps and returns focus and doesn't open over another dialog) | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
 | HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |
 | HD-053 | TS-1: contract tests for OneLake writes and deletes and the Fabric client's 429/5xx/LRO paths; refuse `..` and empty OneLake file paths | Hardening | M |

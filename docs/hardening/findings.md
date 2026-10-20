@@ -67,7 +67,7 @@ No Critical issue was confirmed. Twelve are High.
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
 | UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise | HD-042 |
 | UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
-| UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal | HD-044 |
+| UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal. Done in HD-044: the rail already marked the page you're on with `aria-current="page"` (now tested); the command bar is a modal dialog (`aria-modal`), focus moves into it, Tab stays inside, Escape closes it without also closing the activity tray, focus goes back to where it was, and Ctrl+K does nothing while another dialog is open | HD-044 |
 | AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 (first slice: METHODS guard test with listed exceptions, no behaviour change) |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |
 | UI-8 | Medium | Maintainability | `app.js` is 2,521 lines; UI tests check 13 of 27 scripts; browser tests aren't in CI | HD-052 |
@@ -239,7 +239,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
 | UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |
-| UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open |
+| UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open. Done in HD-044: `openPalette` in `features.js` |
 
 ### Maintainability and testing
 

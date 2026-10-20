@@ -126,9 +126,16 @@ class ProveMixin:
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
-        path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
-        path.write_text(out["text"], encoding="utf-8")
-        return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
+        for n in range(1, 1000):  # never replaces a file: a name that is taken gets a number (HD-038)
+            path = folder / (f"{base}.{ext}" if n == 1 else f"{base} ({n}).{ext}")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(out["text"])
+            except FileExistsError:
+                continue
+            return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        raise ValueError("Couldn't find a free file name in Downloads for the receipt.")
 
     # ---- failure replay bundles (replay.py): what someone needs to run a failed notebook again
 
@@ -168,8 +175,10 @@ class ProveMixin:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(1, 100):
             path = folder / f"replay-{stem}-{stamp}{'' if n == 1 else f'-{n}'}.zip"
-            if not path.exists():
-                return replay.write(path, bundle, samples) | {"ids_included": include_ids}
+            try:  # created exclusively, so a file already there is never replaced
+                return replay.write(path, bundle, samples, mode="x") | {"ids_included": include_ids}
+            except FileExistsError:
+                continue
         raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
 
     def _replay_sample(self, row: dict[str, Any]) -> Any:

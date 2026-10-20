@@ -398,7 +398,7 @@ class Kernel:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
                 tree = ast.parse(code, _CELL_FILE)
-                if self.resources_dir:
+                if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
                 exec(compile(tree, _CELL_FILE, "exec"), namespace)
@@ -631,7 +631,9 @@ class _BuiltinPaths(ast.NodeTransformer):
     folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
     changing the working folder, keeps the engine's own folder (and other notebooks, when cells run
     inside the engine) as they were, and works the same for open(), pandas, polars and DuckDB.
-    Only text that starts with ``builtin/`` (or ``./builtin/``) changes."""
+    Only a string that starts with ``builtin/`` (or ``./builtin/``) changes. In an f-string only
+    its leading text can (``f"builtin/{name}"``), never text after a value (``f"{base}builtin/x"``
+    may be a OneLake path); the expressions inside its braces are code and are visited as such."""
 
     def __init__(self, folder: str):
         self.folder = folder
@@ -641,6 +643,14 @@ class _BuiltinPaths(ast.NodeTransformer):
             path = notebook_resources.resolve(node.value, self.folder)
             if path is not None:
                 return ast.copy_location(ast.Constant(path), node)
+        return node
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:  # noqa: N802 - ast's name
+        for i, part in enumerate(node.values):
+            if isinstance(part, ast.FormattedValue):
+                part.value = self.visit(part.value)  # the code in the braces; not its format spec
+            elif i == 0:
+                node.values[0] = self.visit_Constant(part)
         return node
 
 

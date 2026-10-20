@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import pytest
 
@@ -93,8 +94,11 @@ def test_delete_notebook_keeps_the_resources(svc):
     svc.notebook_resource_add("Sales", "a.csv", b64(b"a"))
     out = svc.delete_notebook("Sales")
     folder = svc.notebooks.folder / "Sales.resources"
-    assert out == {"deleted": "Sales", "resources_kept": str(folder)}
+    assert out["deleted"] == "Sales" and out["resources_kept"] == str(folder)  # to Recently deleted
     assert (folder / "builtin" / "a.csv").read_bytes() == b"a"
+    assert not (svc.notebooks.folder / "Sales.ipynb").exists()
+    svc.notebook_restore(out["id"])  # restored under its name: the files are its own again
+    assert [f["name"] for f in svc.notebook_resources("Sales")["files"]] == ["a.csv"]
 
 
 def test_rename_stops_when_a_folder_of_the_new_name_is_there(tmp_path):
@@ -123,8 +127,8 @@ def test_builtin_paths_in_a_cell_read_the_resources_folder(tmp_path):
     Resources(folder).add("data.csv", b"a,b\n1,2\n")
     k = Kernel()
     k.resources_dir = str(folder)
-    out = k.run('import pandas as pd\nname = "data.csv"\n'
-                'print(open("builtin/data.csv").read().splitlines()[0], len(pd.read_csv(f"builtin/{name}")), '
+    out = k.run('import polars as pl\nname = "data.csv"\n'
+                'print(open("builtin/data.csv").read().splitlines()[0], pl.read_csv(f"builtin/{name}").height, '
                 'notebookutils.nbResPath == r"' + str(folder) + '", [f.name for f in notebookutils.fs.ls("builtin/")])')
     assert out["status"] == "ok", out
     assert out["outputs"][0]["text"].strip() == "a,b 1 True ['data.csv']"
@@ -137,6 +141,7 @@ def test_resolve_only_changes_builtin_paths(tmp_path):
     assert notebook_resources.resolve("builtin/x.csv", tmp_path) == f"{(tmp_path / 'builtin').as_posix()}/x.csv"
     assert notebook_resources.resolve("./builtin/x.csv", tmp_path).endswith("/builtin/x.csv")
     assert notebook_resources.resolve("builtins are fun", tmp_path) is None
+    assert notebook_resources.resolve("builtin", tmp_path) is None
     assert notebook_resources.resolve("Files/builtin/x.csv", tmp_path) is None
 
 
@@ -147,3 +152,49 @@ def test_start_cell_points_the_kernel_at_the_notebooks_folder(svc):
     while snap["status"] == "running":
         snap = svc.poll_cell(snap["version"], 2.0)
     assert snap["status"] == "ok" and snap["outputs"][0]["text"].strip() == "hello"
+
+
+def cell_text(k, code):
+    out = k.run(code)
+    assert out["status"] == "ok", out
+    return "".join(o.get("text", "") for o in out["outputs"]).strip()
+
+
+@pytest.fixture
+def kernel(tmp_path):
+    k = Kernel()
+    k.resources_dir = str(tmp_path / "N.resources")
+    Resources(Path(k.resources_dir)).add("a.csv", b"x")
+    return k
+
+
+def test_the_bare_word_builtin_is_data_not_a_path(kernel):
+    assert cell_text(kernel, 'kind = "builtin"\nprint(kind, kind == "builtin", "builtins/x")') == "builtin True builtins/x"
+
+
+def test_only_an_fstrings_leading_text_is_rewritten(kernel, tmp_path):
+    base = "abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Files/"
+    assert cell_text(kernel, f'base = "{base}"\nprint(f"{{base}}builtin/x.csv")') == f"{base}builtin/x.csv"
+    folder = (tmp_path / "N.resources" / "builtin").as_posix()
+    assert cell_text(kernel, 'n = "a.csv"\nprint(f"builtin/{n}")') == f"{folder}/a.csv"
+    assert cell_text(kernel, 'print(f"{open(\'builtin/a.csv\').read()}!")') == "x!"  # code in the braces is code
+
+
+def test_nothing_is_rewritten_when_the_notebook_has_no_resources_folder(tmp_path):
+    k = Kernel()
+    k.resources_dir = str(tmp_path / "Empty.resources")  # a saved notebook with no files
+    assert cell_text(k, 'print("builtin/a.csv")') == "builtin/a.csv"
+    assert cell_text(k, 'print(notebookutils.nbResPath.endswith("Empty.resources"))') == "True"
+
+
+def test_dotdot_stays_inside_the_folder(tmp_path):
+    folder = (tmp_path / "builtin").as_posix()
+    assert notebook_resources.resolve("builtin/../../outside.txt", tmp_path) == f"{folder}/outside.txt"
+    assert notebook_resources.resolve("builtin/sub/../a.csv", tmp_path) == f"{folder}/a.csv"
+    assert notebook_resources.resolve("builtin/..", tmp_path) == f"{folder}/"
+
+
+def test_a_pc_schedule_run_reads_builtin_paths(svc):
+    svc.notebook_resource_add("Sales", "t.txt", b64(b"hi"))
+    svc.notebooks.save("Sales", [{"type": "code", "source": 'assert open("builtin/t.txt").read() == "hi"'}])
+    assert svc._run_notebook_here("Sales")["status"] == "ok"

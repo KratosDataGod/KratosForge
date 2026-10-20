@@ -69,6 +69,7 @@ platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs
 notebook_validate_check notebook_validate_list notebook_validate_status notebook_cleanup_plan notebook_cleanup_apply
 notebook_resources
+notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_publish_check
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

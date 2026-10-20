@@ -17,6 +17,7 @@ The resources stay on this PC: publishing the notebook to Fabric doesn't upload 
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 import shutil
 from pathlib import Path
@@ -30,7 +31,7 @@ BUILTIN = "builtin"
 
 _BAD = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
-_PREFIX = re.compile(r"^(?:\./)?builtin(?:[/\\]|$)")
+_PREFIX = re.compile(r"^(?:\./)?builtin[/\\]")
 
 
 def check_name(name: str) -> str:
@@ -56,11 +57,19 @@ def folder_for(notebook_file: Path) -> Path:
 
 def resolve(text: str, folder: str | Path) -> str | None:
     """``builtin/x.csv`` (or ``./builtin/x.csv``) as a path in ``folder``'s builtin folder; None
-    for any other text. Forward slashes, which open(), pandas, polars and DuckDB all take."""
+    for any other text, including the bare word ``builtin``. Forward slashes, which open(), pandas,
+    polars and DuckDB all take. A ``..`` that would climb out of builtin is dropped, so the path
+    always stays inside the notebook's folder."""
     m = _PREFIX.match(text)
     if not m:
         return None
-    return f"{(Path(folder) / BUILTIN).as_posix()}/{text[m.end():]}"
+    rest = text[m.end():]
+    if ".." in re.split(r"[/\\]", rest):
+        norm = posixpath.normpath(rest.replace("\\", "/"))
+        while norm == ".." or norm.startswith("../"):
+            norm = norm[3:]
+        rest = "" if norm in ("", ".") else norm
+    return f"{(Path(folder) / BUILTIN).as_posix()}/{rest}"
 
 
 def _free(base: Path, name: str) -> str:

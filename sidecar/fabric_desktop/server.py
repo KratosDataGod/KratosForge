@@ -124,6 +124,12 @@ from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
 
+# Notebook files (notebook_files_service.py): search, open a file, save a copy, delete and restore,
+# and copy a Fabric notebook to this PC.
+from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FILES_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

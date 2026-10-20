@@ -45,7 +45,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
-| [docs/notebook-editor/load-data-items.md](docs/notebook-editor/load-data-items.md) | Drag lakehouse tables and files into notebook cells, or right-click them to load with Polars, Spark, pandas or SQL |
+| [docs/notebook-editor/load-data-items.md](docs/notebook-editor/load-data-items.md) | Drag lakehouse tables and files into notebook cells, or right-click them to load with Polars, Spark or SQL |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |

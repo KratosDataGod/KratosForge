@@ -1946,7 +1946,7 @@ test("dropping a table or file inserts its load code on an empty line, else its 
   assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
   assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
   assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
-  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Load with pandas", "Query with SQL"]);
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL"]);
   const odd = { kind: "file", path: "Files/notes/readme.txt" };
   assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
   assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');

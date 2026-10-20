@@ -33,8 +33,9 @@ Right-click a table or file for the ways to load it. Each adds a new cell:
 | --- | --- |
 | Load with Polars (`lakehouse.read_table`) | Load with Polars (`lakehouse.read_csv` / `read_parquet` / `read_json`) |
 | Load with Spark (`spark.read.table`) | Load with Spark (`spark.read.csv` with a header / `parquet` / `json`) |
-| Load with pandas (`.to_pandas()`) | Load with pandas |
 | Query with SQL (`%%sql SELECT * ... LIMIT 1000`) | Read the file's text (not Parquet) |
 | Copy name | Copy path |
 
 Spark here is the notebook's local `spark` (see [Fabric notebook code on this PC](../notebooks.md#fabric-notebook-code-on-this-pc)).
+
+pandas isn't part of the app's Python engine yet, so there's no pandas option here; a Polars data frame's `.to_pandas()` needs pandas installed.

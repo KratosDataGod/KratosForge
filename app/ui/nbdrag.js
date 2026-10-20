@@ -1,6 +1,6 @@
 // Tables and files from the notebook's Explorer, as in Fabric: drag one into a cell to put its
 // name or the code that loads it where you drop it, or right-click it for the ways to load it
-// (Spark, Polars, pandas, SQL) and to copy its name. Clicking still adds a cell that loads it.
+// (Polars, Spark, SQL) and to copy its name. Clicking still adds a cell that loads it.
 // Only code is written into the notebook; nothing is read until you run the cell.
 
 const DATA_ITEM_MIME = "application/x-kratosforge-data-item";
@@ -18,7 +18,6 @@ function dataItemLoads(item) {
     return [
       ["Load with Polars", `df = lakehouse.read_table(${dataItemQuote(name)})\ndf`],
       ["Load with Spark", `df = spark.read.table(${dataItemQuote(name)})\ndisplay(df)`],
-      ["Load with pandas", `df = lakehouse.read_table(${dataItemQuote(name)}).to_pandas()\ndf`],
       ["Query with SQL", `%%sql\nSELECT * FROM ${name} LIMIT 1000`],
     ];
   }
@@ -28,7 +27,6 @@ function dataItemLoads(item) {
     json: `spark.read.json(${dataItemQuote(name)})` }[ext];
   const loads = [["Load with Polars", readSnippet(name)]];
   if (spark) loads.push(["Load with Spark", `df = ${spark}\ndisplay(df)`]);
-  if (polars) loads.push(["Load with pandas", `df = lakehouse.${polars}(${dataItemQuote(name)}).to_pandas()\ndf`]);
   if (ext !== "parquet") loads.push(["Read the file's text", `with open(lakehouse.local_path(${dataItemQuote(name)}), encoding="utf-8") as f:\n    text = f.read()\nprint(text[:2000])`]);
   return loads;
 }

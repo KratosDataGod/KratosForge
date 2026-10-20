@@ -50,7 +50,7 @@ How KratosForge protects your sign-in, your data and your PC, what it trusts, an
 
 ## Data copied to this PC
 
-Running on this PC means reading OneLake data into the PC: previews, notebook DataFrames, SQL results, proof sandboxes, local tables and exports. Fabric's own protections are checked when the data is read, and stop applying once it is here.
+Running on this PC means reading OneLake data into the PC: previews, notebook DataFrames, SQL results, local tables and exports. Fabric's own protections are checked when the data is read, and stop applying once it is here.
 
 | In Fabric | On this PC |
 | --- | --- |

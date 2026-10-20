@@ -85,6 +85,15 @@ Every installation adds what its analysis finds to the shared lakehouse, and eve
 - **Allowed changes.** Open can become accepted, applied, dismissed or superseded. Accepted can become applied, dismissed or open again. Applied can become verified or open again. Dismissed and verified can only be reopened. Superseded is final.
 - **Only items you can open.** Findings and recommendations about items in workspaces you can't open in Fabric aren't shown to you. This is a courtesy, not security: anyone who can read the lakehouse can read every row ([Who can see what](#who-can-see-what)).
 
+## Runs on this PC
+
+Optimize can count the notebook work that ran on a PC instead of in Fabric. Sharing it adds one row per run to `fdopt_local_execution`:
+
+- **Notebook writes to OneLake tables**, from this PC's write history. Each row names the lakehouse (by workspace and item id) and the table, and records when the write finished, how long it took and how many rows it wrote.
+- **Scheduled notebook runs on this PC**, from **Schedules**. Each row names the notebook and records when the run started and ended, how long it took and whether it succeeded. Metadata schedules aren't included.
+
+Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
+
 ## The tables
 
 All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.

@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import app_settings, redact
-from .optimize import schema, setup
+from .optimize import local_runs, schema, setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
@@ -19,7 +19,8 @@ from .optimize.shared import Shared
 DEFAULT_NAME = "FabricDesktop_Central"
 METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
            "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
-           "optimize_findings", "optimize_recommendations", "optimize_set_recommendation"}
+           "optimize_findings", "optimize_recommendations", "optimize_set_recommendation",
+           "optimize_share_local_runs"}
 
 
 class OptimizeMixin:
@@ -188,6 +189,34 @@ class OptimizeMixin:
     def optimize_recommendations(self, include_closed: bool = False) -> list[dict[str, Any]]:
         """Recommendations at their latest state, for items the person can open."""
         return self._optimize_shared().recommendations(self._optimize_workspaces(), include_closed=include_closed)
+
+    def optimize_share_local_runs(self, approve: bool = False) -> dict[str, Any]:
+        """Add this PC's notebook work (writes to OneLake tables, scheduled notebook runs) to the central
+        lakehouse's fdopt_local_execution, so Optimize counts what ran here. Without ``approve`` it
+        writes nothing and raises with what it would add; runs already added aren't added again."""
+        shared = self._optimize_shared()
+        me = self.optimize_installation.id
+        notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
+        rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
+                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
+        done = shared.local_execution_ids()
+        new = [r for r in rows if r["execution_id"] not in done]
+        writes = sum(r["workload_type"] == "notebook_write" for r in new)
+        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
+               "already": len(rows) - len(new), "shared": 0}
+        if not new:
+            return out
+        if not approve:
+            name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
+            ask = PermissionError(
+                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({writes} notebook "
+                f"write{'s' if writes != 1 else ''} to tables, {len(new) - writes} scheduled notebook "
+                f"run{'s' if len(new) - writes != 1 else ''}): when each ran, how long it took, rows written, and "
+                "the table or notebook name. No code or data, and everyone who can read the lakehouse sees them. "
+                "Confirm to continue.")
+            ask.would = out  # type: ignore[attr-defined]
+            raise ask
+        return out | {"shared": shared.record_local_executions(new)}
 
     def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
         """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""

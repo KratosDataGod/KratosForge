@@ -58,7 +58,7 @@ No Critical issue was confirmed. Twelve are High.
 | EP-8 | Low | Environments | Nothing stops Dev and Prod naming the same workspace | HD-036 |
 | EP-9 | Low | Publishing | `run_job` bypasses the write guard and overwrites with `schema_mode="overwrite"` | HD-036 |
 | EN-8 | Low | Notebooks | Stopping a kernel leaves the processes its cells started | HD-037 |
-| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites | HD-038 |
+| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites. Done in HD-038: the CSV name goes through `service.file_stem`, the cleaning `sql_compat_export` already used (letters, digits, spaces, `-` and `_`), so a lakehouse name with separators or `..` stays in Downloads; the CSV and receipt files are opened with mode `"x"` and a name that is taken gets a number, so an existing file is never replaced | HD-038 |
 | DI-7 | Low | Fabric API | `Retry-After` in HTTP-date form crashes the client; 5xx and connection errors aren't retried on reads | HD-039 |
 | DI-8 | Low | Notebooks | Local `saveAsTable` overwrite silently replaces the schema where Fabric would refuse | HD-040 |
 | SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | HD-026 |
@@ -66,9 +66,9 @@ No Critical issue was confirmed. Twelve are High.
 | SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | HD-027 |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
 | UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise | HD-042 |
-| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated | HD-043 |
+| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
 | UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal. Done in HD-044: the rail already marked the page you're on with `aria-current="page"` (now tested); the command bar is a modal dialog (`aria-modal`), focus moves into it, Tab stays inside, Escape closes it without also closing the activity tray, focus goes back to where it was, and Ctrl+K does nothing while another dialog is open | HD-044 |
-| AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 |
+| AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 (first slice: METHODS guard test with listed exceptions, no behaviour change) |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |
 | UI-8 | Medium | Maintainability | `app.js` is 2,521 lines; UI tests check 13 of 27 scripts; browser tests aren't in CI | HD-052 |
 | TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%. Done in HD-053: contract tests for OneLake files and the Fabric client. They found that a OneLake file path with a `..` segment (plain, URL-encoded or with backslashes) reached outside the lakehouse folder it named, and that an empty path named the whole lakehouse (so `delete("")` would delete its root); `onelake.item_path` now refuses both. The workspace and lakehouse ids and lease keys aren't checked the same way; they come from Fabric or the app, not from notebook code | HD-053 |
@@ -231,7 +231,7 @@ No Critical issue was confirmed. Twelve are High.
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
 | EP-9 | `publish.py:44-81` | Apply `write_guard` and an environment check to `run_job` |
 | EN-8 | `kernel_proc.py:152`, `:305` | New process group (POSIX) or Job Object (Windows) so Stop ends the whole tree (reproduced: an orphaned `sleep` survived) |
-| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"` |
+| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"`. Done in HD-038: `service.file_stem` cleans the name; CSV exports and receipts are created with mode `"x"`, a taken name gets " (2)", " (3)" and so on |
 | DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only |
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
@@ -245,7 +245,7 @@ No Critical issue was confirmed. Twelve are High.
 
 | Id | Evidence | Direction |
 | --- | --- | --- |
-| AR-2 | `service.py:55`: 18 mixins, 335 public methods, 332 callable over RPC, 348 `type: ignore[attr-defined]` | Small injected services (auth, Fabric client, store) with Protocols; narrow `server.METHODS` to what the UI calls |
+| AR-2 | `service.py:55`: 18 mixins, 335 public methods, 332 callable over RPC, 348 `type: ignore[attr-defined]` | Small injected services (auth, Fabric client, store) with Protocols; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). |
 | AR-3 | `fabric_api.FabricClient` retries only 429; `onelake`, `central/client`, `leases` don't retry; `requests` called directly in `estate_service.py:355`, `:389`, `telemetry.py:212`, `dataops_service.py:345`, `notebookutils_local.py:226`; 8 hand-written retry loops | One session factory with a retry policy that never blindly retries non-idempotent writes. Done in HD-051: `http_session.session()` is one pooled `requests.Session` (16 connections per host, a 60-second default timeout, no cookies, no urllib3 retries). `FabricClient`, `TableCatalog`, `FileStore`, the lease and control files, `FabricPlatform`, the Power BI and Graph calls in `estate_service.py` and Key Vault `getSecret` use it unless given their own session. Reads go through `retrying.send_with_retry`; OneLake writes and platform function calls are sent once, and Fabric writes are repeated only on 429 as before. Left out: telemetry and the Teams webhook (not Fabric; sent once to another host), the managed identity token client (auth), the agent and the integrations server. Tested with a fake transport, not against Fabric |
 | AR-4 | 218 `except Exception`, about 53 that swallow (`leases.py:264`, `xray_service.py:149-236`) | Log or re-raise; ban new silent ones with a lint rule |
 | UI-8 | `app.js` 2,521 lines, one shared `state`; tests cover 13 of 27 scripts; no tests for `meta.js`, which starts writes; 24 Playwright tests in `app/tests/browser` not run by CI | Run the browser suite in CI; a test that bans new raw HTML sinks; split `app.js` along `registerFeature` boundaries |

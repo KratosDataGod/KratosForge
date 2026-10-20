@@ -126,9 +126,16 @@ class ProveMixin:
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
-        path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
-        path.write_text(out["text"], encoding="utf-8")
-        return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
+        for n in range(1, 1000):  # never replaces a file: a name that is taken gets a number (HD-038)
+            path = folder / (f"{base}.{ext}" if n == 1 else f"{base} ({n}).{ext}")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(out["text"])
+            except FileExistsError:
+                continue
+            return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        raise ValueError("Couldn't find a free file name in Downloads for the receipt.")
 
     # ---- failure replay bundles (replay.py): what someone needs to run a failed notebook again
 

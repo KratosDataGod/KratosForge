@@ -45,7 +45,8 @@ def test_measured_runs_count_as_measured_and_the_rest_by_their_estimate(svc, mon
 
 
 def test_runs_older_than_the_period_and_runs_on_this_pc_add_nothing(svc, monkeypatch):  # noqa: F811
-    out, seen = use(svc, monkeypatch, [fabric_run("old", 45), {"where": "this_pc", "started_at": ago(2)}])
+    out, seen = use(svc, monkeypatch, [fabric_run("old", 45), {"job_id": "x", "where": "fabric", "started_at": "not a time"},
+                                       {"where": "this_pc", "started_at": ago(2)}])
     assert seen == [[]] and out["fabric_runs"] == 0 and out["pc_runs"] == 1
     assert out["total"] is None and out["measured"] is None
 

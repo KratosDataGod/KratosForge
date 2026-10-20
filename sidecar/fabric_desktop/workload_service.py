@@ -300,7 +300,8 @@ class WorkloadMixin:
         Reads only what this PC holds: the workload's runs, usage imports and the run history."""
         w = self._wl_record(id)
         since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=int(days))
-        recent = [r for r in w.get("runs") or [] if (model.parse_time(r.get("started_at")) or since) >= since]
+        # A run whose start time can't be read isn't known to be in the period, so it isn't counted.
+        recent = [r for r in w.get("runs") or [] if (model.parse_time(r.get("started_at")) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)) >= since]
         fabric = [r for r in recent if r.get("where") == "fabric"]
         with_id = [r for r in fabric if r.get("job_id")]
         measured, est, problem = self._risk_cu(with_id)  # type: ignore[attr-defined]

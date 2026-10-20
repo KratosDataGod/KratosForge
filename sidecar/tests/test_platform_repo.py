@@ -171,6 +171,22 @@ def test_key_tables_that_differ_between_environments_are_listed(tmp_path):
                                  "changes": [{"field": "business_key", "git": "cust_no", "deployed": "customer_code"}]}]
 
 
+def test_before_keys_move_export_takes_key_tables_from_every_environment(svc, repo, tmp_path):
+    svc._platform("dev").call("ensure_key_table", name="devonly", business_key="x")
+    svc.git_platform_export(repo)
+    assert read(tmp_path, "key_tables/devonly.toml")["business_key"] == "x"
+
+
+def test_key_tables_export_from_the_shared_keys_database(svc, repo, tmp_path):
+    assert svc.platform_share_keys(approve=True)["ok"]
+    svc.platform_create_key_table("product", business_key="sku")  # only in the shared database
+    out = svc.git_platform_export(repo)
+    assert out["disagree"] == []
+    assert read(tmp_path, "key_tables/product.toml")["business_key"] == "sku"
+    for env in ("dev", "test", "prod"):
+        assert svc.git_platform_diff(repo, env)["counts"]["changed"] == 0
+
+
 def test_files_round_trip_and_odd_text_is_quoted():
     rec = {"id": "x", "text": 'quote " back \\ tab\t del\x7f é', "n": 3, "f": 0.5, "ok": False, "list": ["a", "b"],
            "table": {"inner key": {"deep": [1, 2]}, "empty": {}}, "rows": [{"a": 1}, {"a": 2, "sub": {"b": "c"}}]}
@@ -232,6 +248,19 @@ def test_deploy_shows_the_plan_and_runs_only_that_plan(other, exported):
     assert pol["current_version"] == 1 and pol["history"][-1]["by_user"] == ""
     assert "Deployed from the platform repository at commit" in pol["current"]["note"]
     # A second deploy has nothing to do.
+    assert other.git_platform_deploy(exported)["steps"] == []
+
+
+def test_deploy_makes_key_tables_once_in_the_shared_keys_database(other, exported):
+    assert other.platform_share_keys(approve=True)["ok"]
+    preview, done = deploy(other, exported)
+    keys = [s for s in preview["steps"] if s["op"] == "ensure_key_table"]
+    assert [(s["env"], s["id"], s["what"]) for s in keys] == [("keys", "customer", "create in the shared keys database")]
+    assert any(s["op"] == "add_admin" and s["env"] == "keys" for s in preview["steps"])
+    assert done["deployed"] and not done.get("failed")
+    assert [t["name"] for t in other._shared_keys().call("list_key_tables")] == ["customer"]
+    assert other._platform("dev").call("list_key_tables") == []  # not in each environment's own
+    assert "ana@contoso.com" in {a["user_name"] for a in other._shared_keys().call("list_admins")}
     assert other.git_platform_deploy(exported)["steps"] == []
 
 

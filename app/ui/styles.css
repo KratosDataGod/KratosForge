@@ -1410,7 +1410,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .git-locations th:first-child { width: 48px; }
 .git-locations select { width: 100%; min-width: 0; }
 
-/* The new name: full-window announcement shown once after the update to KratosForge */
+/* The forge: full-window splash for the new name and after each update */
 .overlay.splash {
   z-index: 50; padding: 24px; overflow: hidden; color: #f3f5fa;
   background: radial-gradient(ellipse 70% 55% at 50% 100%, rgba(248,153,28,0.35), transparent 70%),
@@ -1441,6 +1441,15 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .splash-go:hover { background: linear-gradient(180deg, #ffc266, #ffa632); }
 .splash-go:focus-visible, .splash-link:focus-visible { outline: 3px solid #ffffff; outline-offset: 3px; }
 .splash-link { color: #ffd9a3; font-size: 13px; }
+.splash-news ul { display: inline-flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; text-align: left; }
+.splash-news li { position: relative; padding-left: 18px; }
+.splash-news li::before { content: ""; position: absolute; left: 2px; top: .55em; width: 7px; height: 7px; border-radius: 50%;
+  background: #f8991c; box-shadow: 0 0 6px 1px rgba(248,153,28,0.7); }
+.splash-news p { margin: 0; }
+.splash-more { margin-top: 6px !important; color: #9fadc8; }
+.splash-optout { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: #9fadc8; animation: splash-up .5s ease-out 2.1s both; }
+.splash-optout input { accent-color: #f8991c; }
+.splash-optout:focus-within { outline: 2px solid #ffffff; outline-offset: 3px; border-radius: 4px; }
 .splash-embers { position: absolute; inset: 0; pointer-events: none; }
 .splash-ember { position: absolute; bottom: -10px; left: var(--x); width: var(--s); height: var(--s); border-radius: 50%;
   background: #ffb347; box-shadow: 0 0 6px 1px #f8991c; opacity: 0;
@@ -1455,7 +1464,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 @keyframes splash-up { from { opacity: 0; transform: translateY(10px); } }
 @keyframes splash-rise { 0% { opacity: 0; transform: translate(0, 0); } 10% { opacity: .9; } 100% { opacity: 0; transform: translate(var(--drift), -105vh); } }
 @media (prefers-reduced-motion: reduce) {
-  .overlay.splash, .splash-emblem, .splash-old, .splash-letters, .splash-tag, .splash-text, .splash-actions { animation: none; }
+  .overlay.splash, .splash-emblem, .splash-old, .splash-letters, .splash-tag, .splash-text, .splash-actions, .splash-optout { animation: none; }
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }

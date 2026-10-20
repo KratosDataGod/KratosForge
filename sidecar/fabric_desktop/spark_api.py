@@ -1,15 +1,19 @@
 """PySpark API that DuckDB's ``spark`` lacks, added so common Fabric and Databricks code runs on
 this PC (spark_local). Every addition works on DuckDB relations; nothing here starts Spark.
 
+spark_compat.py (Notebook magics) adds the DataFrame transformations and functions: Window, agg,
+selectExpr, fillna/na, pivot, describe, sample and the no-op partitioning calls. This module adds
+the session side:
+
 - ``spark.conf``: get, set, unset, getAll and isModifiable over Spark's keys. Keys this PC can honor
   (the session time zone) take effect; the rest are kept and reported by ``spark.conf.explain()``
   as Fabric-only, so a notebook that sets V-Order or shuffle partitions still runs here.
 - ``spark.sparkContext``: version, applicationId, defaultParallelism, getConf, setLogLevel...
+- ``spark.version``, ``spark.range``, ``SparkSession.builder.config(...)`` into ``spark.conf``.
 - ``spark.catalog.tableExists`` against the attached lakehouse (and temp views).
-- DataFrame: agg, selectExpr, fillna / dropna / na, describe / summary, isEmpty, sample, tail,
-  explain, unpivot / melt, createTempView, and the partitioning calls (repartition, coalesce,
-  persist...) that only change how Spark spreads work, which are kept as no-ops.
-- RDDs, foreach and UDF-style row processing raise with a pointer to Fabric.
+- DataFrame: isEmpty, tail, explain, createTempView, toLocalIterator, offset, corr / cov /
+  approxQuantile / stat, randomSplit, sortWithinPartitions, rdd / isLocal / sparkSession.
+- RDDs, foreach and row-by-row Python raise with a pointer to Fabric.
 
 COVERAGE lists PySpark 3.5's DataFrame and SparkSession methods and whether each works here;
 docs/notebook-spark-on-this-pc.md is generated from it (tests keep the two in step).
@@ -58,10 +62,10 @@ class LocalRuntimeConfig:
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
         self._set[key] = text
 
-    def get(self, key: str, default: Any = None) -> str | None:
+    def get(self, key: str, default: Any = ...) -> str | None:
         if key in self._set:
             return self._set[key]
-        if default is not None:
+        if default is not ...:  # an explicit default, None included, as in Spark
             return default
         if key in KNOWN_CONF:
             return KNOWN_CONF[key][0]
@@ -98,10 +102,7 @@ class LocalSparkConf:
         self._conf = conf
 
     def get(self, key: str, defaultValue: Any = None) -> str | None:  # noqa: N803
-        try:
-            return self._conf.get(key, defaultValue)
-        except KeyError:
-            return None
+        return self._conf.getAll.get(key, defaultValue)
 
     def getAll(self) -> list[tuple[str, str]]:  # noqa: N802
         return sorted(self._conf.getAll.items())
@@ -186,119 +187,8 @@ def _new(df: DataFrame, rel: Any) -> DataFrame:
     return DataFrame(rel, df.session)
 
 
-def _agg_exprs(df: DataFrame, exprs: tuple[Any, ...]) -> list[Any]:
-    if len(exprs) == 1 and isinstance(exprs[0], dict):
-        return [f"{fn}({_q(col) if col != '*' else '*'}) AS {_q(f'{fn}({col})')}" for col, fn in exprs[0].items()]
-    return [e.expr if hasattr(e, "expr") else _duckdb_expr(str(e)) for e in exprs]
-
-
-def agg(self: DataFrame, *exprs: Any) -> DataFrame:
-    parts = _agg_exprs(self, exprs)
-    if all(isinstance(p, str) for p in parts):
-        return _new(self, self.relation.aggregate(", ".join(parts), ""))
-    return _new(self, self.relation.aggregate([p if not isinstance(p, str) else p for p in parts], ""))
-
-
-def selectExpr(self: DataFrame, *expr: Any) -> DataFrame:  # noqa: N802
-    exprs = list(expr[0]) if len(expr) == 1 and isinstance(expr[0], (list, tuple)) else list(expr)
-    return _new(self, self.relation.project(", ".join(_duckdb_expr(e) for e in exprs)))
-
-
-def _numeric(t: str) -> bool:
-    return t.upper().split("(")[0] in ("TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "FLOAT", "DOUBLE",
-                                       "DECIMAL", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT")
-
-
-def fillna(self: DataFrame, value: Any, subset: Any = None) -> DataFrame:
-    """As in Spark: a number fills numeric columns, text fills text columns, a bool fills booleans;
-    a dict gives a value per column."""
-    cols, types = self.relation.columns, [str(t) for t in self.relation.types]
-    if isinstance(subset, str):
-        subset = [subset]
-    if isinstance(value, dict):
-        wanted = {c: v for c, v in value.items()}
-    else:
-        def fits(t: str) -> bool:
-            if isinstance(value, bool):
-                return t.upper() == "BOOLEAN"
-            if isinstance(value, (int, float)):
-                return _numeric(t)
-            return t.upper() == "VARCHAR"
-        wanted = {c: value for c, t in zip(cols, types) if fits(t) and (subset is None or c in subset)}
-    parts = []
-    for c in cols:
-        if c in wanted:
-            v = wanted[c]
-            lit = "TRUE" if v is True else "FALSE" if v is False else repr(v) if isinstance(v, (int, float)) \
-                else "'" + str(v).replace("'", "''") + "'"
-            parts.append(f"COALESCE({_q(c)}, {lit}) AS {_q(c)}")
-        else:
-            parts.append(_q(c))
-    return _new(self, self.relation.project(", ".join(parts)))
-
-
-def dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
-    cols = [subset] if isinstance(subset, str) else list(subset or self.relation.columns)
-    present = " + ".join(f"CASE WHEN {_q(c)} IS NULL THEN 0 ELSE 1 END" for c in cols)
-    if thresh is not None:
-        cond = f"({present}) >= {int(thresh)}"
-    elif how == "all":
-        cond = f"({present}) > 0"
-    else:
-        cond = f"({present}) = {len(cols)}"
-    return _new(self, self.relation.filter(cond))
-
-
-class _NA:
-    def __init__(self, df: DataFrame):
-        self._df = df
-
-    def fill(self, value: Any, subset: Any = None) -> DataFrame:
-        return fillna(self._df, value, subset)
-
-    def drop(self, how: str = "any", thresh: int | None = None, subset: Any = None) -> DataFrame:
-        return dropna(self._df, how, thresh, subset)
-
-
-def describe(self: DataFrame, *cols: Any) -> DataFrame:
-    """count, mean, stddev, min and max per column, as text, like Spark's describe()."""
-    names = [c for c in (list(cols[0]) if len(cols) == 1 and isinstance(cols[0], list) else cols)] or list(self.relation.columns)
-    types = dict(zip(self.relation.columns, [str(t) for t in self.relation.types]))
-    stats = [("count", "count({c})"), ("mean", "avg({c})"), ("stddev", "stddev_samp({c})"),
-             ("min", "min({c})"), ("max", "max({c})")]
-    selects = []
-    for label, f in stats:
-        vals = []
-        for c in names:
-            numeric = _numeric(types.get(c, ""))
-            if label in ("mean", "stddev") and not numeric:
-                vals.append(f"NULL::VARCHAR AS {_q(c)}")
-            else:
-                vals.append(f"CAST({f.format(c=_q(c))} AS VARCHAR) AS {_q(c)}")
-        selects.append(f"SELECT '{label}' AS summary, {', '.join(vals)} FROM __describe_src")
-    rel = self.relation.query("__describe_src", " UNION ALL ".join(selects))
-    return _new(self, rel)
-
-
-def summary(self: DataFrame, *statistics: str) -> DataFrame:
-    if statistics and set(statistics) - {"count", "mean", "stddev", "min", "max"}:
-        raise NotImplementedError("On this PC, summary() gives count, mean, stddev, min and max. Percentiles: "
-                                  "use percentile_approx in agg() or SQL.")
-    return describe(self)
-
-
 def isEmpty(self: DataFrame) -> bool:  # noqa: N802
     return self.relation.limit(1).fetchone() is None
-
-
-def sample(self: DataFrame, withReplacement: Any = None, fraction: Any = None, seed: int | None = None) -> DataFrame:  # noqa: N803
-    if isinstance(withReplacement, float) and fraction is None:  # sample(0.1) and sample(0.1, 42)
-        withReplacement, fraction, seed = None, withReplacement, fraction if seed is None else seed
-    if withReplacement:
-        raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC.")
-    pct = float(fraction) * 100
-    method = f"bernoulli, {int(seed)}" if seed is not None else "bernoulli"
-    return _new(self, self.relation.query("__sample_src", f"SELECT * FROM __sample_src USING SAMPLE {pct}% ({method})"))
 
 
 def tail(self: DataFrame, num: int) -> list[Any]:
@@ -308,16 +198,6 @@ def tail(self: DataFrame, num: int) -> list[Any]:
 
 def explain(self: DataFrame, extended: Any = None, mode: str | None = None) -> None:  # noqa: ARG001
     print(self.relation.explain())
-
-
-def unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> DataFrame:  # noqa: N803
-    ids = [ids] if isinstance(ids, str) else list(ids or [])
-    values = [values] if isinstance(values, str) else list(values or [c for c in self.relation.columns if c not in ids])
-    sql = (f"UNPIVOT __unpivot_src ON {', '.join(_q(v) for v in values)} "
-           f"INTO NAME {_q(variableColumnName)} VALUE {_q(valueColumnName)}")
-    rel = self.relation.query("__unpivot_src", sql)
-    keep = [_q(c) for c in ids] + [_q(variableColumnName), _q(valueColumnName)]
-    return _new(self, rel.project(", ".join(keep)))
 
 
 def createTempView(self: DataFrame, name: str) -> None:  # noqa: N802
@@ -332,33 +212,6 @@ def toLocalIterator(self: DataFrame, prefetchPartitions: bool = False) -> Any:  
 
 def offset(self: DataFrame, num: int) -> DataFrame:
     return _new(self, self.relation.query("__offset_src", f"SELECT * FROM __offset_src OFFSET {int(num)}"))
-
-
-def subtract(self: DataFrame, other: DataFrame) -> DataFrame:
-    """Rows in this data frame and not in ``other``, without duplicates (SQL EXCEPT)."""
-    return _new(self, self.relation.except_(other.relation).distinct())
-
-
-def replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
-    """Replace values: ``replace(1, 2)``, ``replace([1, 2], [3, 4])`` or ``replace({1: 3})``."""
-    pairs = dict(to_replace) if isinstance(to_replace, dict) else dict(zip(
-        to_replace if isinstance(to_replace, (list, tuple)) else [to_replace],
-        value if isinstance(value, (list, tuple)) else [value] * (len(to_replace) if isinstance(to_replace, (list, tuple)) else 1)))
-    subset = [subset] if isinstance(subset, str) else subset
-
-    def lit(v: Any) -> str:
-        return "NULL" if v is None else repr(v) if isinstance(v, (int, float)) and not isinstance(v, bool) \
-            else str(v).upper() if isinstance(v, bool) else "'" + str(v).replace("'", "''") + "'"
-    parts = []
-    for c, t in zip(self.relation.columns, [str(t) for t in self.relation.types]):
-        same_kind = [(k, v) for k, v in pairs.items() if (isinstance(k, str) == (t.upper() == "VARCHAR"))
-                     and (not isinstance(k, (int, float)) or isinstance(k, bool) or _numeric(t))]
-        if (subset is not None and c not in subset) or not same_kind:
-            parts.append(_q(c))
-            continue
-        cases = " ".join(f"WHEN {_q(c)} = {lit(k)} THEN {lit(v)}" for k, v in same_kind)
-        parts.append(f"CASE {cases} ELSE {_q(c)} END AS {_q(c)}")
-    return _new(self, self.relation.project(", ".join(parts)))
 
 
 def corr(self: DataFrame, col1: str, col2: str, method: str | None = None) -> float:
@@ -407,37 +260,25 @@ class _Stat:
         return approxQuantile(self._df, col, probabilities, relativeError)
 
 
-def _same(self: DataFrame, *_a: Any, **_kw: Any) -> DataFrame:
-    """Calls that only change how Spark spreads or keeps the work (partitions, caching, hints):
-    on this PC the data frame is the same."""
-    return self
-
-
 def _rdd(self: DataFrame, *_a: Any, **_kw: Any) -> Any:
     raise NotImplementedError("RDDs and row-by-row Python (rdd, foreach, foreachPartition, mapInPandas) run in "
                               "Fabric. On this PC, use DataFrame methods, SQL or toPandas().")
 
 
 ADDED: dict[str, Any] = {
-    "agg": agg, "selectExpr": selectExpr, "fillna": fillna, "dropna": dropna, "describe": describe,
-    "summary": summary, "isEmpty": isEmpty, "sample": sample, "tail": tail, "explain": explain,
-    "unpivot": unpivot, "melt": unpivot, "createTempView": createTempView, "registerTempTable": DataFrame.createOrReplaceTempView,
-    "toLocalIterator": toLocalIterator, "offset": offset, "subtract": subtract, "replace": replace, "corr": corr,
-    "cov": cov, "approxQuantile": approxQuantile, "randomSplit": randomSplit,
-    "createOrReplaceGlobalTempView": DataFrame.createOrReplaceTempView,
-    "repartition": _same, "repartitionByRange": _same, "coalesce": _same, "persist": _same, "unpersist": _same,
-    "checkpoint": _same, "localCheckpoint": _same, "hint": _same, "sortWithinPartitions": DataFrame.orderBy,
+    "isEmpty": isEmpty, "tail": tail, "explain": explain, "createTempView": createTempView,
+    "registerTempTable": DataFrame.createOrReplaceTempView, "toLocalIterator": toLocalIterator, "offset": offset,
+    "corr": corr, "cov": cov, "approxQuantile": approxQuantile, "randomSplit": randomSplit,
+    "createOrReplaceGlobalTempView": DataFrame.createOrReplaceTempView, "sortWithinPartitions": DataFrame.orderBy,
     "foreach": _rdd, "foreachPartition": _rdd, "mapInPandas": _rdd, "mapInArrow": _rdd,
 }
 
 
 def install() -> None:
-    """Add the methods to DuckDB's DataFrame (once; spark_local calls it)."""
+    """Add the methods to DuckDB's DataFrame (once; spark_local calls it), after spark_compat's."""
     for name, fn in ADDED.items():
         if name not in DataFrame.__dict__:
             setattr(DataFrame, name, fn)
-    if "na" not in DataFrame.__dict__:
-        DataFrame.na = property(lambda self: _NA(self))  # type: ignore[attr-defined]
     if "stat" not in DataFrame.__dict__:
         DataFrame.stat = property(lambda self: _Stat(self))  # type: ignore[attr-defined]
         DataFrame.sparkSession = property(lambda self: self.session)  # type: ignore[attr-defined]

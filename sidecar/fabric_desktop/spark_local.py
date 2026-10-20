@@ -25,7 +25,7 @@ from duckdb.experimental.spark.sql import dataframe as _dataframe
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, spark_api, sql as _sql
+from . import lakehouse, spark_api, spark_compat, sql as _sql
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
 
@@ -346,7 +346,7 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         self._views: dict[str, str] = {}
         self._snapshot = None
-        self._conf = spark_api.LocalRuntimeConfig(self)
+        self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
         self._local_context = spark_api.LocalSparkContext(self)
         catalog = self.catalog
         catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
@@ -466,6 +466,9 @@ class LocalSparkSession(SparkSession):
         return super().createDataFrame(data, schema, **kw)
 
 
+# What DuckDB's API leaves out (Window, agg, fillna, pivot, row_number...), on DuckDB SQL.
+spark_compat.install()
+
 # ``df.write`` goes to the lakehouse instead of a DuckDB table in memory.
 _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # type: ignore[assignment]
 
@@ -479,7 +482,9 @@ def _alias_pyspark() -> None:
     import duckdb.experimental.spark.sql.functions as functions
     import duckdb.experimental.spark.sql.types as types
     sys.modules.update({"pyspark": spark_pkg, "pyspark.sql": spark_sql,
-                        "pyspark.sql.functions": functions, "pyspark.sql.types": types})
+                        "pyspark.sql.functions": functions, "pyspark.sql.types": types,
+                        "pyspark.sql.window": spark_compat.window_module})
+    spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
     spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
     LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]

@@ -131,3 +131,32 @@ def test_a_metadata_run_and_a_notebook_write_wait_for_each_other(tmp_path, monke
         with lock(entity):
             pytest.fail("ran while a notebook held the table")
     assert not (tmp_path / "onelake" / "ws1" / "meta1" / "LH_Silver__dbo.customers.json").exists()  # let go
+
+
+def test_a_hung_renewal_times_out_well_inside_the_lease_and_is_reported_lost(monkeypatch):
+    import requests
+
+    from fabric_desktop.leases import LeaseLost
+    from tests.fake_http import FakeTransport
+
+    timeouts, created = [], []
+
+    class Hangs(FakeTransport):
+        def send(self, request, stream=False, timeout=None, **kw):
+            timeouts.append(timeout)
+            if request.method == "PUT" and "If-Match" in request.headers:  # a renewal: OneLake doesn't answer
+                raise requests.Timeout("read timed out")
+            if request.method == "PUT":
+                created.append(request.url)
+            return super().send(request, stream=stream, timeout=timeout, **kw)
+
+    transport = Hangs(lambda sent: Reply(201, None, {"ETag": '"e1"'}))
+    fake = requests.Session()
+    fake.mount("https://", transport)
+    monkeypatch.setattr(http_session, "session", lambda: fake)
+    ttl = 0.9
+    with pytest.raises(LeaseLost):
+        with leases.onelake_table_lease("ws", "lh", "dbo", "sales", lambda: "token", owner="KratosForge", ttl=ttl):
+            time.sleep(ttl * 1.6)  # a long write while every renewal hangs
+    assert created and all(t is not None and t <= ttl / 9 for t in timeouts)
+    assert leases.lease_timeout(leases.TABLE_LEASE_TTL) * 3 <= leases.TABLE_LEASE_TTL / 3

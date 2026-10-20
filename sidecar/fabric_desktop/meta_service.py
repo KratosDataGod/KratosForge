@@ -18,7 +18,7 @@ from .meta import lineage, release
 from .meta import mesh
 from .meta import Engine, GateError, Layer, LocalStore, OneLakeStore, Project, impact, promote
 from .meta.engine import RunResult
-from .leases import Backend, Leases, LocalBackend, OneLakeBackend, onelake_table_lease, table_key
+from .leases import Backend, Leases, LocalBackend, OneLakeBackend, lease_timeout, onelake_table_lease, table_key
 from .onelake import storage_options
 from .publish import WRITER
 from .meta.project import DEFAULT_RETENTION_DAYS, ENVIRONMENTS, validate
@@ -450,13 +450,14 @@ class MetaMixin:
         except LookupError:
             return project  # Engine.check_deployed says the folder isn't on the release
 
-    def lease_backend(self, project: Project, env: str, store: Store) -> Backend:
+    def lease_backend(self, project: Project, env: str, store: Store, ttl: float = 120) -> Backend:
         """Where an environment's per-table leases live: its LH_Meta, or a local folder (leases.py)."""
         if isinstance(store, OneLakeStore):
             meta_id = store.lakehouse_ids.get(META_LAKEHOUSE)
             if not meta_id:
                 raise LookupError(f"{META_LAKEHOUSE} doesn't exist in the {env} workspace yet; promote to {env} first")
-            return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token)  # type: ignore[attr-defined]
+            return OneLakeBackend(store.workspace_id, meta_id, self.auth.storage_token,  # type: ignore[attr-defined]
+                                  timeout=lease_timeout(ttl))
         if isinstance(store, LocalStore):
             return LocalBackend(store.root / "_leases")
         raise TypeError(f"no lease backend for {type(store).__name__}")
@@ -466,7 +467,7 @@ class MetaMixin:
         """The Engine's ``table_lock``: each table is written under the environment's lease on it and,
         in OneLake, the lease in the table's own lakehouse that notebooks and jobs hold too.
         ``guard`` runs once both are held, before anything is written."""
-        leases = Leases(self.lease_backend(project, env, store), owner=owner, ttl=seconds, wait=seconds)
+        leases = Leases(self.lease_backend(project, env, store, ttl=seconds), owner=owner, ttl=seconds, wait=seconds)
 
         @contextmanager
         def table_lock(e: Any) -> Iterator[None]:

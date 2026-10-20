@@ -367,6 +367,6 @@ Nothing here has run against a live Fabric tenant yet. Before Prod, check these 
 - An agent older than the desktop app's table leases takes only its `LH_Meta` lease, so it doesn't wait for a notebook writing the same table. Update agents with the app.
 - Notebooks and job files don't run in the agent yet; it runs metadata environments.
 - Agent environments run on the machine, whatever their **Runs on** setting in the app.
-- Lease expiry uses the holder's clock. Keep agent clocks in sync (NTP).
+- Lease expiry uses the holder's clock. Keep agent and PC clocks in sync (NTP; Windows does it by default). A notebook's or job's table lease lasts 60 seconds and is renewed every 20, so two machines whose clocks differ by more than about 40 seconds can take over each other's live lease. Each lease request gives up after a ninth of the lease's length, so a hung renewal is retried, or reported lost, before the lease runs out.
 - Incidents (Preview) cover metadata tables and agents only. The app shows them in Monitor > Operations > Incidents ([user guide](user-guide.md#incidents-preview)). The app leaves an environment to the agent while a running agent checks its incidents; when no agent does, the app checks it while open and posts to its own webhook. Quiet hours use the agent machine's clock, and routes are set per agent: two agents with different routes post the same incident to different channels.
 - The agent doesn't update itself. Install a new version with `pip install` and restart the service.

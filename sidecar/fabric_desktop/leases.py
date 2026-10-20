@@ -178,8 +178,12 @@ class OneLakeBackend:
     """Lease files in a lakehouse's Files area, changed only with ADLS Gen2 conditional requests."""
 
     def __init__(self, workspace_id: str, lakehouse_id: str, token: Callable[[], str],
-                 session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep):
+                 session: requests.Session | None = None, sleep: Callable[[float], None] = time.sleep,
+                 timeout: float = 60):
         self.workspace_id, self.lakehouse_id = workspace_id, lakehouse_id
+        # Per request. A renewal is up to three requests, so keep this at a ninth of the lease's length
+        # or less (lease_timeout): one hung renewal then can't outlast the lease unnoticed.
+        self.timeout = timeout
         self._token = token
         self._http = session or http_session.session()
         self._sleep = sleep
@@ -192,16 +196,16 @@ class OneLakeBackend:
 
     def _write(self, key: str, data: bytes, condition: dict[str, str]) -> str | None:
         url = self._url(key)
-        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=60)
+        resp = self._http.put(url, params={"resource": "file"}, headers=self._headers(**condition), timeout=self.timeout)
         if resp.status_code in (409, 412):
             return None  # it exists already (create), or changed since we read it (replace)
         resp.raise_for_status()
         etag = resp.headers.get("ETag", "")
         resp = self._http.patch(url, params={"action": "append", "position": "0"}, data=data,
-                                headers=self._headers(), timeout=60)
+                                headers=self._headers(), timeout=self.timeout)
         resp.raise_for_status()
         resp = self._http.patch(url, params={"action": "flush", "position": str(len(data))},
-                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=60)
+                                headers=self._headers(**({"If-Match": etag} if etag else {})), timeout=self.timeout)
         if resp.status_code == 412:
             return None  # someone replaced it between our create and flush
         resp.raise_for_status()
@@ -212,7 +216,7 @@ class OneLakeBackend:
 
     def read(self, key: str) -> Stored | None:
         # Only the read is retried on 429/5xx: the conditional writes report a lost race as None.
-        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=60),
+        resp = send_with_retry(lambda: self._http.get(self._url(key), headers=self._headers(), timeout=self.timeout),
                                "GET", sleep=self._sleep)
         if resp.status_code == 404:
             return None
@@ -227,7 +231,7 @@ class OneLakeBackend:
         return self._write(key, data, {"If-Match": etag})
 
     def delete(self, key: str, etag: str) -> bool:
-        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=60)
+        resp = self._http.delete(self._url(key), headers=self._headers(**{"If-Match": etag}), timeout=self.timeout)
         if resp.status_code in (404, 409, 412):
             return False
         resp.raise_for_status()
@@ -363,6 +367,14 @@ def table_lease(backend: Backend, schema: str, table: str, owner: str, wait: flo
                   wait=TABLE_LEASE_WAIT if wait is None else wait).hold(f"{schema}.{table}")
 
 
+def lease_timeout(ttl: float) -> float:
+    """The per-request timeout for a lease ``ttl`` seconds long (see OneLakeBackend)."""
+    return min(60.0, ttl / 9)
+
+
 def onelake_table_lease(workspace_id: str, lakehouse_id: str, schema: str, table: str,
-                        token: Callable[[], str], owner: str, **kw: Any) -> AbstractContextManager["Held"]:
-    return table_lease(OneLakeBackend(workspace_id, lakehouse_id, token), schema, table, owner, **kw)
+                        token: Callable[[], str], owner: str, ttl: float | None = None,
+                        **kw: Any) -> AbstractContextManager["Held"]:
+    ttl = TABLE_LEASE_TTL if ttl is None else ttl
+    backend = OneLakeBackend(workspace_id, lakehouse_id, token, timeout=lease_timeout(ttl))
+    return table_lease(backend, schema, table, owner, ttl=ttl, **kw)

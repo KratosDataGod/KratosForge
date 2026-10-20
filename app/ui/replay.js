@@ -240,6 +240,11 @@ async function replayRun(nb) {
 
 async function replayEnd(nb, keep) {
   const v = replayView(nb);
+  const boxes = v.check?.sandboxes || [];
+  // The banner (and its Delete replay outputs) goes away with Keep, so say what stays behind.
+  if (keep && boxes.length && !(await confirmDialog("Keep the replay outputs?",
+    `${boxes.length === 1 ? "The replay's output folder stays" : `${boxes.length} replay output folders stay`} in the lakehouse's Files. ` +
+    "To delete them, cancel and use Delete replay outputs first.", "Keep as a normal notebook"))) return;
   const done = await attempt(() => rpc("replay_end", { name: nb.name, keep }), keep ? "Could not keep the notebook" : "Could not end the replay");
   if (!done) return;
   if (v.check?.live) {

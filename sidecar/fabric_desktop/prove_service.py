@@ -35,6 +35,7 @@ from .redact import describe
 from .side_by_side import machine
 
 NOTEBOOK_JOB = "RunNotebook"
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 RUNNING = ("preparing", "pc", "fabric", "verifying")
@@ -382,8 +383,12 @@ class ProveMixin:
             raise RuntimeError("End the replay first.")
         deleted, left, problems = [], [], []
         for box in self.notebooks.extra(name, "replay_sandboxes") or []:  # type: ignore[attr-defined]
-            if not re.fullmatch(r"replay-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", str(box.get("id"))):
-                continue  # never build a path from anything else
+            # Never build a path or URL from anything else; an entry that isn't one stays listed.
+            if not (re.fullmatch(r"replay-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", str(box.get("id")))
+                    and all(_GUID.fullmatch(str(box.get(k))) for k in ("workspace_id", "lakehouse_id"))):
+                left.append(box)
+                problems.append("A remembered replay sandbox isn't a replay folder in a lakehouse, so it was left alone.")
+                continue
             folder = f"{PROOF_ROOT}/{box['id']}"
             try:
                 self._proof_delete_folder({"workspace_id": box["workspace_id"], "lakehouse_id": box["lakehouse_id"]}, folder)

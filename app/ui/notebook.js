@@ -92,7 +92,7 @@ function renderNotebook() {
       h("div", { class: "sep" }),
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
-      btn("Find and replace", "search", () => findInCell(sel)),
+      btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
@@ -117,7 +117,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  nbFindBar(), h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -392,7 +392,7 @@ function cellMenu(cell) {
   items.push({ label: "Merge with cell below", icon: "down", action: () => mergeBelow(cell) });
   items.push({ label: "Copy cell", icon: "copyArrowRight", action: () => copyCell(cell) });
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
-  items.push({ label: "Find and replace", icon: "search", action: () => findInCell(cell) });
+  items.push({ label: "Find in this cell", icon: "search", action: () => findInCell(cell) });
   return items;
 }
 
@@ -769,6 +769,7 @@ function editorFor(cell) {
         CM.syntaxHighlighting(editorHighlight),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
+        findHighlighter(cell),  // nbfind.js
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
@@ -784,6 +785,7 @@ function editorFor(cell) {
               if (select) select.value = cellLang(cell);
             }
             markDirty();
+            findCellChanged();  // nbfind.js
             if (cell.type === "markdown") refreshOutline();
             else depsChanged();
           }

@@ -146,9 +146,11 @@ def test_replace_waits_out_a_reader_holding_the_file(tmp_path, monkeypatch):
             raise PermissionError(13, "The process cannot access the file")
         real_replace(src, dst)
 
+    waits = []
     monkeypatch.setattr(jsonfile.os, "replace", busy_twice)
-    monkeypatch.setattr(jsonfile, "_REPLACE_WAIT", 0)
+    monkeypatch.setattr(jsonfile.time, "sleep", waits.append)
     jsonfile.write_json(tmp_path / "s.json", {"a": 1})
+    assert waits == [0.05, 0.1]
     assert len(calls) == 3 and json.loads((tmp_path / "s.json").read_text(encoding="utf-8")) == {"a": 1}
     assert [p.name for p in tmp_path.iterdir()] == ["s.json"]
 
@@ -157,8 +159,10 @@ def test_replace_gives_up_after_bounded_retries(tmp_path, monkeypatch):
     def always_busy(src, dst):
         raise PermissionError(13, "The process cannot access the file")
 
+    waits = []
     monkeypatch.setattr(jsonfile.os, "replace", always_busy)
-    monkeypatch.setattr(jsonfile, "_REPLACE_WAIT", 0)
+    monkeypatch.setattr(jsonfile.time, "sleep", waits.append)
     with pytest.raises(PermissionError):
         jsonfile.write_json(tmp_path / "s.json", {"a": 1})
+    assert waits == [0.05, 0.1, 0.2, 0.4, 0.8]  # about 1.5 s, as retrying.local_retry
     assert list(tmp_path.iterdir()) == []

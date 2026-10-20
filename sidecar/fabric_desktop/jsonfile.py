@@ -19,8 +19,10 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-_REPLACE_ATTEMPTS = 10
-_REPLACE_WAIT = 0.02
+# As retrying.local_retry waits out the Windows Delta-log race: 0.05 s doubling, about 1.5 s in all,
+# long enough for a virus scanner or indexer that has the file open.
+_REPLACE_ATTEMPTS = 6
+_REPLACE_BACKOFF = 0.05
 
 
 def write_json(path: Path, data: Any, indent: int = 2) -> None:
@@ -38,7 +40,7 @@ def write_json(path: Path, data: Any, indent: int = 2) -> None:
             except PermissionError:  # Windows: a reader has the file open right now
                 if attempt == _REPLACE_ATTEMPTS - 1:
                     raise
-                time.sleep(_REPLACE_WAIT)
+                time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise

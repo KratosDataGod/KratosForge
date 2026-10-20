@@ -74,7 +74,7 @@ profile_get profile_report
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
                       "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
-                      "report_summary"})
+                      "report_summary", "identity"})
 _MAX = 200
 
 

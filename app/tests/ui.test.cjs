@@ -1886,5 +1886,8 @@ test("the profile report preview renders headings, bullets and source tags witho
   const out = ctx.markdownBlocks("# Title\n\n## Key contributions\n\n- Validated <b>x</b> *(Verified, E1)*\n- Two\n\nText");
   assert.strictEqual(out.map((b) => b.tag).join(","), "h2,h3,ul,p");
   assert.strictEqual(out[2].kids.length, 2);
-  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em", ""]));
+  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em"]));
+  const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
+  assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
+  assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });

@@ -238,3 +238,28 @@ def test_a_profile_that_cannot_be_written_never_changes_the_validation(svc, monk
     monkeypatch.setattr(svc, "_progress_observe", broken)
     st = done(svc, call(svc, "notebook_validate_start", name="Orders", cells=WRITES, lakehouse_ref=LH, runs_on="pc")["id"])
     assert st["state"] == "done" and st["verdict"] == "ready" and "earned" not in st
+
+
+def test_a_torn_profile_is_set_aside_and_the_person_is_told(plain):
+    call(plain, "profile_save", settings={"record": True})
+    plain._progress_observe(validation())
+    path = next((plain.root / "profile").rglob("profile.json"))
+    path.write_text('{"schema": "kratosforge/profile@1", "settings": {"rec')
+    got = call(plain, "profile_get")
+    assert got["evidence"] == [] and not got["settings"]["record"]
+    assert "couldn't be read" in got["notice"] and "profile.json.corrupt-" in got["notice"]
+    assert list(path.parent.glob("profile.json.corrupt-*"))
+    assert call(plain, "profile_get")["notice"] == got["notice"]  # kept until seen
+    assert call(plain, "profile_save", settings={"record": True})["notice"] == ""
+
+
+def test_names_in_the_markdown_report_are_escaped_and_the_copy_text_is_not():
+    out = progress.report(profile_with(validation(name="*x* [a](b) <img>")), 90,
+                          now=dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc))
+    assert r"Validated notebook \*x\* \[a\]\(b\) \<img\>: clean run" in out["markdown"]
+    assert "<img>" not in out["markdown"] and "Validated notebook *x* [a](b) <img>: clean run" in out["summary"]
+
+
+def test_profile_details_and_the_summary_are_not_written_to_the_audit_log():
+    for key in ("identity", "report_summary"):
+        assert key in audit._CONTENT

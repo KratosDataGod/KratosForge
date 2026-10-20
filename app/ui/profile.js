@@ -40,7 +40,9 @@ async function renderProfile() {
           .filter(Boolean).join(" · ")))),
     btn("Edit profile", "person", editProfileIdentity, "tool outline"));
   const body = { overview: profileOverview, report: profileReport, settings: profileSettings }[profilePage.tab](p);
-  setView(h("div", { class: "page profile" }, head, profileTabs(), body));
+  const notice = p.notice ? h("div", { class: "callout git-warn", role: "alert" }, h("span", { class: "grow" }, p.notice),
+    btn("Turn recording on", null, () => saveProfile({ settings: { record: true } }, "Recording is on"), "tool outline small")) : null;
+  setView(h("div", { class: "page profile" }, head, notice, profileTabs(), body));
 }
 
 function editProfileIdentity() {
@@ -178,9 +180,21 @@ function profileReport(p) {
   return h("div", { class: "profile-report-layout" }, controls, preview);
 }
 
-// Just enough Markdown for the report: headings, bullets, paragraphs and *emphasis*.
+// Just enough Markdown for the report: headings, bullets, paragraphs, *emphasis* and \-escapes
+// (the engine escapes notebook names, so a name like *x* stays text).
 function markdownBlocks(md) {
-  const inline = (text) => text.split(/(\*[^*]+\*)/).map((part) => (/^\*[^*]+\*$/.test(part) ? h("em", {}, part.slice(1, -1)) : part));
+  const inline = (text) => {
+    const out = [];
+    const re = /\\(.)|\*([^*\\]+)\*/g;
+    let last = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      if (m.index > last) out.push(text.slice(last, m.index));
+      out.push(m[1] !== undefined ? m[1] : h("em", {}, m[2]));
+      last = re.lastIndex;
+    }
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  };
   const out = [];
   let list = null;
   for (const line of md.split("\n")) {

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import re
 from pathlib import Path
 from typing import Any
 
@@ -81,14 +82,24 @@ def path_for(root: Path, username: str | None) -> Path:
 
 def empty() -> dict[str, Any]:
     return {"schema": SCHEMA, "settings": dict(DEFAULT_SETTINGS), "identity": {k: "" for k in IDENTITY_KEYS},
-            "evidence": [], "excluded": [], "report": {"summary": ""}}
+            "evidence": [], "excluded": [], "report": {"summary": ""}, "notice": ""}
 
 
 def load(path: Path) -> dict[str, Any]:
+    """The profile; a fresh one when there is none. A file that can't be read is set aside (jsonfile)
+    and the fresh profile carries a notice saying so, kept until recording is turned on again."""
+    aside = set(path.parent.glob(f"{path.name}.corrupt-*")) if path.parent.exists() else set()
     data = jsonfile.read_json(path, None)
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
-        return empty()
+        out = empty()
+        new = sorted(set(path.parent.glob(f"{path.name}.corrupt-*")) - aside) if path.parent.exists() else []
+        if new:
+            out["notice"] = (f"Your profile file couldn't be read, so it was set aside as {new[-1].name} in the same folder "
+                             "and a new one started. Recording is off until you turn it on again.")
+            save(path, out)  # the notice stays until it has been seen and recording is back on
+        return out
     out = empty()
+    out["notice"] = str(data.get("notice") or "")[:MAX_TEXT]
     out["settings"].update({k: bool(v) for k, v in (data.get("settings") or {}).items() if k in DEFAULT_SETTINGS})
     out["identity"].update({k: str(v)[:MAX_TEXT] for k, v in (data.get("identity") or {}).items() if k in IDENTITY_KEYS})
     out["evidence"] = [r for r in data.get("evidence") or [] if isinstance(r, dict) and r.get("id")]
@@ -243,6 +254,14 @@ def _parse(stamp: str | None) -> dt.datetime | None:
 # ---- the professional report
 
 
+_MD_SPECIAL = re.compile(r"([\\`*_{}\[\]<>()#+|!~-])")
+
+
+def md(text: str) -> str:
+    """``text`` as literal Markdown: a notebook called ``*x*`` or ``[a](b)`` stays text."""
+    return _MD_SPECIAL.sub(r"\\\1", " ".join(str(text).split()))
+
+
 def report(profile: dict[str, Any], days: int = 90, include_achievements: bool = False,
            now: dt.datetime | None = None) -> dict[str, Any]:
     """A review-ready summary of the included rows in the last ``days`` days, as Markdown and plain
@@ -264,53 +283,53 @@ def report(profile: dict[str, Any], days: int = 90, include_achievements: bool =
                  "process on a workstation." if n > 1 else
                  "Validated 1 notebook that reads or writes lakehouse tables; it finished a clean run in a separate "
                  "process on a workstation." if n else "")
-    md = [f"# Engineering accomplishments", "", f"{name}{' · ' + who['role'] if who.get('role') else ''} · {period}", "",
+    lines = [f"# Engineering accomplishments", "", f"{md(name)}{' · ' + md(who['role']) if who.get('role') else ''} · {period}", "",
           "Each statement is marked Verified (with its evidence reference), Entered by you, Generated summary "
           "(worded from verified evidence) or Not measured.", "", "## Executive summary", ""]
     if entered:
-        md.append(f"{entered} *(Entered by you)*")
+        lines.append(f"{entered} *(Entered by you)*")
     elif generated:
-        md.append(f"{generated} *(Generated summary)*")
+        lines.append(f"{generated} *(Generated summary)*")
     else:
-        md.append("No verified accomplishments in this period. *(Not measured)*")
-    md += ["", "## Key contributions", ""]
+        lines.append("No verified accomplishments in this period. *(Not measured)*")
+    lines += ["", "## Key contributions", ""]
     contributions = []
     for nb, r in latest.items():
         ids = ", ".join(refs[x["id"]] for x in rows if x["artifact"]["name"] == nb)
         verdict = "Ready" if r["verdict"] == "ready" else "Ready with warnings"
         d = r.get("detail") or {}
-        line = (f"Validated notebook {nb}: clean run finished {verdict} (reads {d.get('reads', 0)} lakehouse "
+        rest = (f": clean run finished {verdict} (reads {d.get('reads', 0)} lakehouse "
                 f"table{'s' if d.get('reads', 0) != 1 else ''}, writes {d.get('writes', 0)}).")
-        contributions.append(line)
-        md.append(f"- {line} *(Verified, {ids})*")
+        contributions.append(f"Validated notebook {nb}{rest}")
+        lines.append(f"- Validated notebook {md(nb)}{rest} *(Verified, {ids})*")
     if not latest:
-        md.append("- None recorded in this period. *(Not measured)*")
+        lines.append("- None recorded in this period. *(Not measured)*")
     revisions = len(rows)
-    md += ["", "## Engineering quality", ""]
-    md.append(f"{revisions} validated revision{'s' if revisions != 1 else ''} of {n} notebook{'s' if n != 1 else ''}, "
+    lines += ["", "## Engineering quality", ""]
+    lines.append(f"{revisions} validated revision{'s' if revisions != 1 else ''} of {n} notebook{'s' if n != 1 else ''}, "
               "each run from the top in a fresh process with table writes kept in a sandbox. *(Verified)*" if rows
               else "No validations in this period. *(Not measured)*")
-    md += ["", "## Performance and efficiency", "", "No before and after measurements in this period. *(Not measured)*",
+    lines += ["", "## Performance and efficiency", "", "No before and after measurements in this period. *(Not measured)*",
            "", "## Technical competencies", ""]
     shown = [c for c in coverage(profile) if c["state"] in ("Emerging", "Demonstrated", "Established")]
-    md.append("; ".join(f"{c['name']}: {c['state'].lower()} ({c['rows']} verified items across {c['artifacts']} "
+    lines.append("; ".join(f"{c['name']}: {c['state'].lower()} ({c['rows']} verified items across {c['artifacts']} "
                         f"artifacts)" for c in shown) + ". *(Generated summary)*" if shown
               else "Not enough evidence yet to name a competency. *(Not measured)*")
     if include_achievements:
         p = progression(profile)
-        md += ["", "## KratosForge achievements", "",
+        lines += ["", "## KratosForge achievements", "",
                f"Level {p['level']} ({p['title']}), {p['xp']} XP. Levels and achievements are motivational and are "
                "not a skill rating."]
-        md += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
-    md += ["", "## Evidence appendix", ""]
+        lines += [f"- {a['name']}: {a['description']}" for a in p["achievements"]]
+    lines += ["", "## Evidence appendix", ""]
     for r in rows:
         ref = r.get("ref") or {}
-        md.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Validate {ref.get('id')} · code revision "
+        lines.append(f"- {refs[r['id']]} · {r.get('at', '')[:10]} · Validate {ref.get('id')} · code revision "
                   f"{(ref.get('revision') or '')[:12]} · {r['verdict']}")
     if not rows:
-        md.append("- None.")
-    md.append("")
+        lines.append("- None.")
+    lines.append("")
     summary = "\n".join([entered or generated or "No verified accomplishments in this period.", "",
                          *[f"- {c}" for c in contributions]]).strip()
-    return {"markdown": "\n".join(md), "summary": summary, "period": {"from": start.isoformat(timespec="seconds"),
+    return {"markdown": "\n".join(lines), "summary": summary, "period": {"from": start.isoformat(timespec="seconds"),
             "to": now.isoformat(timespec="seconds"), "days": days}, "rows": len(rows)}

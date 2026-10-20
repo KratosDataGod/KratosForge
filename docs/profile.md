@@ -21,7 +21,8 @@ is recorded as a line that says what passed, when, and the id of the Validate re
   on (once), dated when they ran.
 
 The file is `%LOCALAPPDATA%\FabricDesktop\profile\<id>\profile.json`, where `<id>` is a hash of
-your sign-in name. Backups include it; support bundles don't.
+your sign-in name. Backups include it; support bundles don't. If the file is ever damaged, it is set
+aside beside the new one and the Profile page says so; recording stays off until you turn it on again.
 
 ## Levels and achievements
 

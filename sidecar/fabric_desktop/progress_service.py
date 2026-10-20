@@ -43,7 +43,7 @@ class ProgressMixin:
         rows = [{**r, "excluded": r["id"] in excluded, "xp": p["xp_by_row"].get(r["id"], 0)}
                 for r in sorted(profile["evidence"], key=lambda r: r.get("at") or "", reverse=True)]
         progression = {k: v for k, v in p.items() if k != "xp_by_row"}
-        return {"settings": profile["settings"], "identity": profile["identity"], "evidence": rows,
+        return {"settings": profile["settings"], "identity": profile["identity"], "notice": profile["notice"], "evidence": rows,
                 "progression": progression, "skills": progress.coverage(profile), "report": profile["report"],
                 "catalog": [{"id": k, **v} for k, v in progress.ACHIEVEMENTS.items()],
                 "signed_in": self._profile_user() is not None}
@@ -83,6 +83,8 @@ class ProgressMixin:
                 if k not in progress.DEFAULT_SETTINGS or k == "backfilled":
                     raise ValueError(f"{k} isn't a profile setting")
                 profile["settings"][k] = bool(v)
+            if (settings or {}).get("record"):
+                profile["notice"] = ""  # seen: they turned recording back on
             for k, v in (identity or {}).items():
                 if k not in progress.IDENTITY_KEYS:
                     raise ValueError(f"{k} isn't part of the profile")

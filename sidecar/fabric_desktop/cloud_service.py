@@ -545,8 +545,12 @@ class CloudMixin:
         names = {t.name for t in tables}
         columns_left_out = [c for t in tables for c in semantic.left_out(t)]
         usable = {t.name: {c for c, typ in t.columns if semantic.tmdl_type(typ)} for t in tables}
-        rels = [r for r in rels if r.from_table in names and r.to_table in names
+        kept = [r for r in rels if r.from_table in names and r.to_table in names
                 and r.from_column in usable[r.from_table] and r.to_column in usable[r.to_table]]
+        # Only those whose tables are both in the model but whose columns aren't: a missing table is already reported.
+        relationships_left_out = [f"{r.from_table}.{r.from_column} to {r.to_table}.{r.to_column}" for r in rels
+                                  if r not in kept and r.from_table in names and r.to_table in names]
+        rels = kept
         fabric: FabricClient = self.fabric  # type: ignore[attr-defined]
         props = (fabric.get_lakehouse(store.workspace_of(lakehouse), store.lakehouse_ids[lakehouse]).get("properties") or {})
         endpoint = props.get("sqlEndpointProperties") or {}
@@ -571,7 +575,7 @@ class CloudMixin:
         return {"name": name, "id": model_id, "created": model.get("created", False), "workspace_id": store.workspace_id,
                 "url": self._model_url(store.workspace_id, model_id) if model_id else "",
                 "tables": [t.name for t in tables], "relationships": len(rels), "skipped": skipped,
-                "columns_left_out": columns_left_out,
+                "columns_left_out": columns_left_out, "relationships_left_out": relationships_left_out,
                 "endpoint_refreshed": refreshed}
 
     # ---- profiling

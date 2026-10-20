@@ -1248,6 +1248,7 @@ async function renderModelTab(body) {
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
       res.skipped.length ? ` Not written yet, so left out: ${res.skipped.join(", ")}.` : "",
       res.columns_left_out?.length ? ` Direct Lake can't read these column types, so they were left out: ${res.columns_left_out.map((c) => `${c.table}.${c.column} (${c.type})`).join(", ")}.` : "",
+      res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
   };

@@ -337,6 +337,7 @@ def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them
     assert {"table": "fact_sales", "column": "tags", "type": "struct<a:string>"} in built["columns_left_out"]
     assert {"table": "fact_sales", "column": "customer_sk", "type": "array<long>"} in built["columns_left_out"]
     assert built["relationships"] == 0  # the relationship's column isn't in the model, so neither is it
+    assert built["relationships_left_out"] == ["fact_sales.customer_sk to dim_customer.customer_sk"]
     fact = next(c for c in svc.fake.calls if c[0] == "model")[2]["definition/tables/fact_sales.tmdl"]
     assert "column tags" not in fact and "column customer_sk" not in fact
     assert semantic.left_out(semantic.ModelTable("t", "e", "dbo", "t", columns=[("a", "long"), ("b", "map<string,int>")])) \

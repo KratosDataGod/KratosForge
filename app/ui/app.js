@@ -2306,7 +2306,7 @@ checkComponents().finally(() => {
     state.user = env.user;
     state.tenant = env.tenant;
     await loadSettings();
-    showRenameSplash(() => showWhatsNew());
+    showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
     // The environment pill needs the metadata project; there may not be one yet.
     state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
     render();

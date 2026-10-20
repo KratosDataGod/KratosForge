@@ -12,6 +12,7 @@ import datetime as dt
 import json
 import logging
 import os
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -51,12 +52,17 @@ def write_text(path: Path, text: str) -> None:
         raise
 
 
-def set_aside(path: Path, then: str = "it is being started again empty") -> Path:
-    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next)."""
+def set_aside(path: Path, then: str = "it is being started again empty", keep: bool = False) -> Path:
+    """Move an unreadable file to ``<name>.corrupt-<timestamp>`` and say so (``then``: what happens next).
+
+    ``keep`` copies it there instead, leaving the original in place until the caller replaces it."""
     stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     dest = path.with_name(f"{path.name}.corrupt-{stamp}")
-    os.replace(path, dest)
-    _log.warning("%s could not be read and was moved to %s; %s.", path, dest.name, then)
+    if keep:
+        shutil.copy2(path, dest)
+    else:
+        os.replace(path, dest)
+    _log.warning("%s could not be read and was %s to %s; %s.", path, "copied" if keep else "moved", dest.name, then)
     return dest
 
 

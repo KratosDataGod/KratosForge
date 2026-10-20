@@ -1555,6 +1555,12 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
 
+test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  assert.match(s, /look in Task Scheduler under /);
+});
+
 test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
   const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(a, /if \(meta\.project_error\) unread\.unshift\("the metadata project"\);/);

@@ -394,6 +394,54 @@ def test_a_replay_reads_the_bundle_versions_and_writes_to_a_sandbox(tmp_path, mo
         s.kernel.close()
 
 
+def test_replay_sandboxes_are_remembered_and_deleted_only_after_the_replay_ends(tmp_path, monkeypatch):
+    import shutil
+    s, lh = replay_service(tmp_path, monkeypatch)
+    deleted = []
+
+    def delete(ref, rel):
+        deleted.append((ref["lakehouse_id"], rel))
+        shutil.rmtree(lh / rel, ignore_errors=True)
+    monkeypatch.setattr(s, "_proof_delete_folder", delete)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        first = call(s, "replay_start", name=name, lakehouse_ref=LH)
+        run_cells(s, name, 3)
+        assert (lh / first["sandbox"] / "tables" / "dbo" / "out").exists()
+        out = handle(s, json.dumps({"id": 1, "method": "replay_delete_outputs", "params": {"name": name}}))
+        assert "End the replay first" in json.dumps(out["error"])
+        call(s, "replay_end", name=name)
+        second = call(s, "replay_start", name=name, lakehouse_ref=LH)
+        call(s, "replay_end", name=name, keep=True)  # a kept notebook still knows its replays' sandboxes
+        boxes = call(s, "replay_sandboxes", name=name)
+        assert [b["id"] for b in boxes] == [first["id"], second["id"]]
+        assert boxes[0]["folder"] == first["sandbox"].rsplit("/", 1)[0] and boxes[0]["lakehouse_id"] == "lh1"
+        out = call(s, "replay_delete_outputs", name=name)
+        assert out == {"deleted": [b["folder"] for b in boxes], "problems": []}
+        assert deleted == [("lh1", b["folder"]) for b in boxes]
+        assert not (lh / first["sandbox"]).exists() and (lh / "Tables" / "dbo" / "sales").exists()
+        assert call(s, "replay_sandboxes", name=name) == []
+    finally:
+        s.kernel.close()
+
+
+def test_a_sandbox_that_cant_be_deleted_stays_listed_and_an_odd_id_is_never_a_path(tmp_path, monkeypatch):
+    s, _ = replay_service(tmp_path, monkeypatch)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        good = {"id": "replay-20261020-120000-abcdef", "workspace_id": "ws1", "lakehouse_id": "lh1", "lakehouse": "LH"}
+        s.notebooks.set_extra(name, "replay_sandboxes", [good, dict(good, id="../../Tables")])
+
+        def refuse(ref, rel):
+            raise PermissionError("403 Forbidden token=abc.def.ghi")
+        monkeypatch.setattr(s, "_proof_delete_folder", refuse)
+        out = call(s, "replay_delete_outputs", name=name)
+        assert out["deleted"] == [] and len(out["problems"]) == 1 and "abc.def.ghi" not in out["problems"][0]
+        assert [b["id"] for b in call(s, "replay_sandboxes", name=name)] == [good["id"]]
+    finally:
+        s.kernel.close()
+
+
 def test_a_restart_ends_the_replay(tmp_path, monkeypatch):
     s, _ = replay_service(tmp_path, monkeypatch)
     try:

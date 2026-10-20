@@ -1932,3 +1932,11 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+test("a replay notebook offers to delete what its replays wrote, with a danger confirm", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const fn = src.match(/function replayDeleteOutputs\([\s\S]*?\n}\n/)[0];
+  assert.match(fn, /confirmDialog\([\s\S]*\{ danger: true \}/);
+  assert.match(fn, /rpc\("replay_delete_outputs"/);
+  assert.match(src, /disabled: busy \|\| c\.live, title: c\.live \? "End the replay first\."/);
+});

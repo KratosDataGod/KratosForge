@@ -17,6 +17,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import re
 import threading
 import time
 import uuid
@@ -30,6 +31,7 @@ from .kernel_proc import ProcessKernel
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
 from .proof_runtime import PROOF_ROOT
+from .redact import describe
 from .side_by_side import machine
 
 NOTEBOOK_JOB = "RunNotebook"
@@ -308,7 +310,8 @@ class ProveMixin:
         diffs = envprofile.differences(bundle.get("environment") or {}, envprofile.runtime(modules), ("Bundle", "This PC"))
         return {"bundle": {k: bundle.get(k) for k in ("notebook", "saved_at", "failed_cell", "error", "limitations")},
                 "tables": tables, "environment": diffs, "blockers": blockers, "notes": notes,
-                "live": bool((live := self._replay_live()) and live["name"] == name)}
+                "live": bool((live := self._replay_live()) and live["name"] == name),
+                "sandboxes": self.replay_sandboxes(name)}
 
     def _replay_table(self, t: dict[str, Any], root: str, options: Callable[[], dict[str, str]], flat: bool) -> dict[str, Any]:
         """A pinned table: whether its version can still be read, and its latest version."""
@@ -361,7 +364,35 @@ class ProveMixin:
         kernel.notebook_name = name
         kernel.bind_proof(config, "pc", root, options)
         self._replay_session = {"name": name, "id": rid, "pid": kernel.pid, "marked": marked}
+        # Remembered in the notebook (kept when it becomes a normal notebook), so its writes can be deleted later.
+        store = self.notebooks  # type: ignore[attr-defined]
+        store.set_extra(name, "replay_sandboxes", (store.extra(name, "replay_sandboxes") or []) + [
+            {"id": rid, "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+             "lakehouse": lakehouse_ref.get("name") or "", "started_at": _now()}])
         return {"id": rid, "pins": pins, "marked": marked, "sandbox": f"{PROOF_ROOT}/{rid}/pc"}
+
+    def replay_sandboxes(self, name: str) -> list[dict[str, Any]]:
+        """The sandboxes this notebook's replays wrote to (Files/_fabric_desktop/proofs/replay-...)."""
+        return [dict(x, folder=f"{PROOF_ROOT}/{x['id']}") for x in self.notebooks.extra(name, "replay_sandboxes") or []]  # type: ignore[attr-defined]
+
+    def replay_delete_outputs(self, name: str) -> dict[str, Any]:
+        """Delete what this notebook's replays wrote: each replay's folder under Files/. The
+        lakehouse's tables aren't touched. A sandbox that can't be deleted stays listed."""
+        if (live := self._replay_live()) and live["name"] == name:
+            raise RuntimeError("End the replay first.")
+        deleted, left, problems = [], [], []
+        for box in self.notebooks.extra(name, "replay_sandboxes") or []:  # type: ignore[attr-defined]
+            if not re.fullmatch(r"replay-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", str(box.get("id"))):
+                continue  # never build a path from anything else
+            folder = f"{PROOF_ROOT}/{box['id']}"
+            try:
+                self._proof_delete_folder({"workspace_id": box["workspace_id"], "lakehouse_id": box["lakehouse_id"]}, folder)
+                deleted.append(folder)
+            except Exception as exc:  # noqa: BLE001 - reported, and the sandbox stays listed
+                left.append(box)
+                problems.append(f"{folder} in {box.get('lakehouse') or 'its lakehouse'}: {describe(exc)}")
+        self.notebooks.set_extra(name, "replay_sandboxes", left or None)  # type: ignore[attr-defined]
+        return {"deleted": deleted, "problems": problems}
 
     def _replay_seed(self, info: dict[str, Any], rid: str, root: str, options: Callable[[], dict[str, str]],
                      tables: list[str]) -> None:

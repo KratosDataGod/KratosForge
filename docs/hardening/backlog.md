@@ -134,7 +134,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | --- | --- | --- | --- |
 | HD-036 | EP-8, EP-9: refuse one workspace in two environments; guard `run_job` | Staged roadmap | S |
 | HD-037 | EN-8: Stop ends the kernel's whole process tree | Prove | M |
-| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite | Hardening | S |
+| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite (done: `service.file_stem` cleans the name; CSV exports and receipts open with mode `"x"`) | Hardening | S |
 | HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |

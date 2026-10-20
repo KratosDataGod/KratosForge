@@ -152,8 +152,12 @@ def _make_fs() -> types.SimpleNamespace:
         parent, _, name = p.rstrip("/").rpartition("/")
         try:
             listed = _store().list(lh.workspace_id, lh.lakehouse_id, parent or "Files")
-        except requests.HTTPError:
-            return None
+        except requests.HTTPError as exc:
+            # Only a missing folder means it isn't there. A refusal (401, 403) or a server error
+            # raises, as in Fabric: read as "not there", put() without overwrite would replace it.
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
         return next((e for e in listed if e["name"] == name), None)
 
     def _tree(path: str) -> dict[str, int]:

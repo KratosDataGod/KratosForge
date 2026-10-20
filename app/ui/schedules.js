@@ -150,7 +150,7 @@ function setAsideNotice(files) {
       "The schedules file couldn't be read ", when(latest.at), " and was moved aside to ",
       h("span", { class: "mono" }, latest.file), ". Schedules saved before then aren't listed here."),
     h("div", { class: "small" }, "Windows may still run tasks made for them: look in Task Scheduler under ",
-      h("span", { class: "mono" }, "FabricDesktop"), ". Their runs fail and don't show here. The file has the old schedules if you need to add them again."),
+      h("span", { class: "mono" }, "FabricDesktop"), ". Their runs fail and don't show here. The file has the old schedules if you need to add them again. This warning goes away once that file is moved out of the folder or deleted."),
     h("div", { class: "muted-text small mono" }, latest.path),
     files.length > 1 ? h("div", { class: "muted-text small" }, `${files.length - 1} older ${files.length === 2 ? "copy is" : "copies are"} kept next to it.`) : null);
 }

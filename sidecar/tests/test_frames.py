@@ -186,3 +186,90 @@ def test_service_profile_after_restart_asks_to_run_again():
     assert svc.notebook_frame_profile(out["frame"])["columns"][0]["max"] == 2
     svc.kernel.restart()
     assert svc.notebook_frame_profile(out["frame"])["gone"]
+
+
+# ---- the chart builder (aggregates over every row)
+
+def _sales(n=3000):
+    return pl.DataFrame({"region": [["East", "West", "North"][i % 3] for i in range(n)],
+                         "product": [f"p{i % 9}" for i in range(n)], "amount": [float(i % 10) for i in range(n)],
+                         "day": [i % 30 for i in range(n)]})
+
+
+def test_bar_chart_aggregates_every_row_with_series_and_other():
+    store = Frames()
+    fid = store.keep(_sales())
+    c = store.chart(fid, "bar", x=0, y=2, agg="sum")
+    assert sorted(c["categories"]) == ["East", "North", "West"] and sum(c["series"][0]["values"]) == sum(float(i % 10) for i in range(3000))
+    c = store.chart(fid, "stacked", x=0, y=2, agg="count", series=1)
+    names = [s["name"] for s in c["series"]]
+    assert len(names) == frames.CHART_SERIES + 1 and names[-1] == frames.OTHER
+    total = sum(v or 0 for s in c["series"] for v in s["values"])
+    assert total == 3000  # nothing lost when series fold into Other
+
+
+def test_line_keeps_x_order_and_caps_categories(monkeypatch):
+    monkeypatch.setattr(frames, "CHART_CATEGORIES", 10)
+    store = Frames()
+    c = store.chart(store.keep(_sales()), "line", x=3, y=2, agg="avg")
+    assert c["categories"] == list(range(10)) and c["truncated"]
+
+
+def test_null_x_and_nan_values():
+    store = Frames()
+    t = pa.table({"k": ["a", None, "a", None], "v": [1.0, 2.0, float("nan"), 4.0]})
+    c = store.chart(store.keep(t), "bar", x=0, y=1, agg="sum")
+    got = dict(zip(c["categories"], c["series"][0]["values"]))
+    assert got == {"a": 1.0, None: 6.0}
+
+
+def test_histogram_scatter_and_box():
+    store = Frames()
+    fid = store.keep(_sales())
+    h = store.chart(fid, "histogram", y=2, bins=10)
+    assert sum(h["counts"]) == 3000 and (h["min"], h["max"]) == (0.0, 9.0)
+    s = store.chart(fid, "scatter", x=3, y=2, series=0)
+    assert len(s["points"]) == 3000 and not s["sampled"] and s["points"][0][2] == "East"
+    b = store.chart(fid, "box", x=0, y=2)
+    assert {x["x"] for x in b["boxes"]} == {"East", "West", "North"} and b["boxes"][0]["max"] == 9.0
+
+
+def test_scatter_samples_large_results(monkeypatch):
+    monkeypatch.setattr(frames, "CHART_POINTS", 100)
+    store = Frames()
+    s = store.chart(store.keep(_sales()), "scatter", x=3, y=2)
+    assert len(s["points"]) == 100 and s["sampled"] and s["total"] == 3000
+
+
+def test_chart_refuses_unknown_kinds_and_columns():
+    store = Frames()
+    fid = store.keep(_sales(10))
+    with pytest.raises(ValueError, match="Chart kinds"):
+        store.chart(fid, "radar", x=0)
+    with pytest.raises(ValueError, match="isn't in this result"):
+        store.chart(fid, "bar", x=9)
+    with pytest.raises(ValueError, match="Aggregates"):
+        store.chart(fid, "bar", x=0, y=2, agg="drop table")
+
+
+def test_a_cells_chart_is_saved_by_column_name_and_read_back():
+    from fabric_desktop.notebook import from_ipynb, merge_saved, to_ipynb
+    cells = [{"type": "code", "source": "df", "cell_id": "c1",
+              "meta": {"chart": {"kind": "stacked", "x": "region", "y": "amount", "agg": "sum", "series": "product",
+                                 "title": "Sales", "evil": {"x": 1}}}}]
+    nb = to_ipynb(cells, None)
+    assert nb["cells"][0]["metadata"]["fabric_desktop"]["chart"] == {
+        "kind": "stacked", "x": "region", "y": "amount", "agg": "sum", "series": "product", "title": "Sales"}
+    back = from_ipynb(nb)["cells"][0]["meta"]["chart"]
+    assert back["series"] == "product" and "evil" not in back
+    # Back to Table: the saved chart goes, other tools' cell metadata stays.
+    before = json_roundtrip(nb)
+    before["cells"][0]["metadata"]["fabric_desktop"]["other"] = 1
+    cells[0]["meta"] = {}
+    merged = merge_saved(to_ipynb(cells, None), before)
+    assert merged["cells"][0]["metadata"]["fabric_desktop"] == {"other": 1}
+
+
+def json_roundtrip(v):
+    import json
+    return json.loads(json.dumps(v))

@@ -24,6 +24,7 @@ external AI tools start get no notebook runner, so their Notebook activities sti
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from typing import Any, Callable
@@ -50,8 +51,15 @@ def _problem(code: str, message: str, a: Activity) -> dict[str, Any]:
     return {"code": code, "message": message, "activity": a.name, "path": a.path}
 
 
+def _literal(value: Any) -> str:
+    """Python source for a parameter value; repr of NaN or infinity isn't valid Python."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return f"float({str(value)!r})"
+    return repr(value)
+
+
 def parameters_cell(parameters: dict[str, Any]) -> str:
-    return "# Parameters from the pipeline\n" + "\n".join(f"{k} = {v!r}" for k, v in parameters.items())
+    return "# Parameters from the pipeline\n" + "\n".join(f"{k} = {_literal(v)}" for k, v in parameters.items())
 
 
 def with_parameters(code: list[dict[str, Any]], parameters: dict[str, Any]) -> list[dict[str, Any]]:
@@ -249,10 +257,12 @@ class LocalNotebooks:
                 kernel.stop()
 
     def finish(self) -> None:
-        """Delete the run's folder in each lakehouse it wrote to, unless it is kept. What couldn't be
-        deleted goes in the run's notes."""
+        """Delete the run's folder in each lakehouse a step used, unless it is kept. Every one, not
+        only those with writes on record: a step that was cancelled or timed out had its kernel
+        stopped before it could say what it wrote. A folder that isn't there is fine. What couldn't
+        be deleted goes in the run's notes."""
         for lake in list(self._lakes.values()):
-            if self.keep_outputs or not lake["written"]:
+            if self.keep_outputs:
                 continue
             try:
                 self.svc._proof_delete_folder(lake["ref"], self.folder)

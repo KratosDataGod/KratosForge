@@ -237,3 +237,38 @@ def test_cli_runs_notebook_steps(svc, monkeypatch, tmp_path, capsys):
     with pytest.raises(SystemExit) as done:
         cli.main(["pipeline", "run", str(path)])
     assert done.value.code == 2 and "refused: notebook_needs_engine" in capsys.readouterr().out
+
+
+WRITE_THEN_WAIT = [code("from fabric_desktop import lakehouse\nlakehouse.write_table(lakehouse.read_table('dbo.orders'), "
+                        "'dbo.copy')"),
+                   code("import time\ntime.sleep(60)")]
+
+
+def run_folders(svc):
+    return sorted(p.name for p in (svc.lh / "Files" / "_fabric_desktop" / "proofs").glob("pipeline-*"))
+
+
+def test_a_step_stopped_after_writing_leaves_no_folder(svc):
+    # Quality review of #319: Cancel and the policy timeout stop the kernel before it can say what it wrote,
+    # so the folder is deleted for every lakehouse a step used, whatever was recorded.
+    svc.notebooks.save("Slow writer", WRITE_THEN_WAIT, LH)
+    rid = svc.pipeline_run_start(text=pipeline(notebook("W", "nb")), notebooks={"nb": "Slow writer"})["run_id"]
+    end = time.monotonic() + 60
+    while not run_folders(svc) and time.monotonic() < end:
+        time.sleep(0.1)
+    assert run_folders(svc), "the step never wrote"
+    svc.pipeline_run_cancel(rid)
+    assert finish(svc, rid)["state"] == "cancelled" and run_folders(svc) == []
+    timed = pipeline(notebook("W", "nb") | {"policy": {"timeout": "0.00:00:05"}})
+    r = finish(svc, svc.pipeline_run_start(text=timed, notebooks={"nb": "Slow writer"})["run_id"])
+    assert by_name(r)["W"]["error"]["errorCode"] == "LocalActivityTimeout" and run_folders(svc) == []
+
+
+def test_nan_and_infinite_float_parameters_reach_the_notebook(svc):
+    svc.notebooks.save("Floats", [code("notebookutils.notebook.exit(f'{a} {b} {c}')")], None)
+    text = pipeline(notebook("F", "nb", parameters={"a": {"value": "NaN", "type": "float"},
+                                                    "b": {"value": "inf", "type": "float"},
+                                                    "c": {"value": "-inf", "type": "float"}}))
+    r = finish(svc, svc.pipeline_run_start(text=text, notebooks={"nb": "Floats"})["run_id"])
+    assert r["state"] == "succeeded", r
+    assert by_name(r)["F"]["output"]["result"]["exitValue"] == "nan inf -inf"

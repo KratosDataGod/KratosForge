@@ -94,7 +94,7 @@ Chris picked this stage on 2026-10-20 ("Notebook steps").
 
 **What was reused, and what wasn't.** Validate notebook's clean kernel, run plan and secret removal; Prove's proof runtime (pins, sandbox, seeded tables) and folder deletion; the saved notebooks. Prove's own proof path isn't used: it also runs the notebook in Fabric, which uses capacity, and it uses the person's kernel.
 
-**Test evidence.** `sidecar/tests/test_pipeline_notebooks.py` (23 tests, a local folder as the lakehouse, no network): two notebook steps passing a table and exit values to a Set Variable, parameters from pipeline expressions, the lakehouse's tables untouched and the folder deleted, keep_outputs, every refusal, a failing cell with secrets removed, cancel and policy timeout stopping the kernel, parameter placement and types, the CLI, and external tools' runs still needing mocks. The ORCH-002 and ORCH-003 tests cover the registry change (version 4).
+**Test evidence.** `sidecar/tests/test_pipeline_notebooks.py` (25 tests, a local folder as the lakehouse, no network): two notebook steps passing a table and exit values to a Set Variable, parameters from pipeline expressions, the lakehouse's tables untouched and the folder deleted, keep_outputs, every refusal, a failing cell with secrets removed, cancel and policy timeout stopping the kernel (and the folder deleted after a step stopped mid-write), parameter placement and types (NaN and infinity included), the CLI, and external tools' runs still needing mocks. The ORCH-002 and ORCH-003 tests cover the registry change (version 4).
 
 **Compatibility claims.** None against Fabric. The output shape (`result.exitValue`) and parameter placement follow Microsoft's documentation and haven't been compared with a Fabric run.
 

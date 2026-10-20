@@ -116,6 +116,7 @@ A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenant
 - **What counts as a value.** A setting's value is everything Fabric returns for it except its name, title and group, with security groups and properties in a fixed order. Microsoft renaming a setting isn't a change.
 - **When and by whom.** A change is only ever "between these two reads". Fabric's tenant settings API says neither when a setting changed nor who changed it, so the history doesn't claim either.
 - **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
+- **Who sees it.** Anyone who can read the central lakehouse can see the tenant settings an administrator read, and their history.
 - **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
 - **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant, and the **Settings history** tab (Preview) below.
 
@@ -140,7 +141,8 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 
 - **Capacities last read** and **Tenant settings last read**: the newest successful read of each.
 - **Read capacities now** calls `capacity_settings_read`; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
-- A warning lists reads that failed since the last good one, with the reason: changes made then weren't seen.
+- A warning lists reads that failed since the last good one, one line per kind with how many and the latest reason: changes made then weren't seen.
+- Anyone who can read the central lakehouse sees the tab's history, including tenant settings an administrator read; the tab says so.
 - **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.
 - Nothing reads on a schedule.
 

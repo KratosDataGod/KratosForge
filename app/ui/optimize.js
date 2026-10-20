@@ -293,6 +293,17 @@ function settingsHistoryNames(changes) {
   return names;
 }
 
+// Failed reads since the last good one, newest first, one line per kind of scope: pressing a read
+// button again without access adds a row each time, and the warning shouldn't grow with it.
+function settingsHistoryGaps(gaps) {
+  const out = {};
+  for (const g of gaps || []) {  // newest first, as tenant_settings_history returns them
+    if (out[g.scope_type]) out[g.scope_type].count += 1;
+    else out[g.scope_type] = { ...g, count: 1 };
+  }
+  return Object.values(out);
+}
+
 // The table's rows, filtered: "all", "tenant", "capacity" or one capacity's id.
 function settingsHistoryRows(changes, names, scope) {
   return (changes || []).filter((c) => scope === "all" || c.scope_type === scope || c.scope_id === scope).map((c) => ({
@@ -319,11 +330,14 @@ function settingsHistoryBody(hist) {
       lastRead("Tenant settings last read", last.tenant, "Fabric administrators only")),
     h("div", { class: "row wrap" },
       btn("Read capacities now", "sync", () => settingsHistoryRead("capacity_settings_read", "Capacities"), "tool primary"),
-      btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline")));
-  const gaps = (hist.gaps || []).length ? h("div", { class: "card pad sh-gap", role: "status" },
-    h("b", {}, hist.gaps.length === 1 ? "One read couldn't be completed" : `${hist.gaps.length} reads couldn't be completed`),
-    ...hist.gaps.map((g) => h("p", { class: "small" }, `${g.scope_type === "tenant" ? "Tenant settings" : "Capacities"}, `,
-      when(g.read_at), `: ${g.outcome}. ${g.reason || ""}`)),
+      btn("Read tenant settings (administrators)", null, () => settingsHistoryRead("tenant_settings_read", "Tenant settings"), "tool outline")),
+    h("p", { class: "muted-text small" }, "Anyone who can read the central lakehouse sees this history, including the tenant settings an administrator read."));
+  const failed = settingsHistoryGaps(hist.gaps);
+  const gaps = failed.length ? h("div", { class: "card pad sh-gap", role: "status" },
+    h("b", {}, (hist.gaps || []).length === 1 ? "One read couldn't be completed" : `${hist.gaps.length} reads couldn't be completed`),
+    ...failed.map((g) => h("p", { class: "small" }, `${g.scope_type === "tenant" ? "Tenant settings" : "Capacities"}, `,
+      g.count > 1 ? [`${g.count} reads since the last good one, the latest `, when(g.read_at)] : when(g.read_at),
+      `: ${g.outcome}. ${g.reason || ""}`)),
     h("p", { class: "small" }, "Changes made while reads fail aren't seen, so this period is a gap, not a quiet one.")) : null;
   const ids = [...new Set((hist.changes || []).filter((c) => c.scope_type === "capacity").map((c) => c.scope_id))];
   const choices = [["all", "Everything"], ["tenant", "Tenant"], ["capacity", "All capacities"], ...ids.map((id) => [id, names[id] || id])];
@@ -346,7 +360,7 @@ function settingsHistoryBody(hist) {
   return [withHowItWorks(h("div", { class: "sh-stack" }, reads, gaps, changes), howItWorks("optimize.settings", {
     reads: "The settings history tables in your central lakehouse. Read capacities calls Fabric's GET /v1/capacities (Capacity.Read.All); Read tenant settings calls GET /v1/admin/tenantsettings, which only a Fabric administrator can.",
     changes: "Nothing in Fabric: no tenant or capacity setting is ever changed. Each read adds rows to FabricDesktop_Central: fdcap_snapshot, fdcap_change and fdcap_read for capacities, fdten_snapshot, fdten_change and fdten_read for the tenant. A snapshot row is added only when a value differs from the last one; a read row is added every time, failed reads included. The first read asks before it creates the tables. Writing to OneLake uses capacity; no Fabric job is started.",
-    results: "This tab, for everyone connected to the same central lakehouse. Nothing reads on a schedule.",
+    results: "This tab, for everyone who can read the central lakehouse: once an administrator reads the tenant settings, everyone with read access to it sees them. Nothing reads on a schedule.",
     anchor: "optimize-preview",
   }))];
 }

@@ -472,3 +472,28 @@ def test_delete_item_calls_the_documented_endpoint():
     session = Session()
     FabricClient(lambda: "t", session=session).delete_item("ws1", "nb1")
     assert session.call == ("DELETE", "https://api.fabric.microsoft.com/v1/workspaces/ws1/items/nb1")
+
+
+def test_cleanup_checks_the_live_item_before_deleting_it(tmp_path):
+    # A hand-edited or stale ledger can't make cleanup delete something this run didn't make.
+    fabric = ItemFabric(existing_items=[
+        {"id": "nb1", "type": "Notebook", "displayName": "Customer churn", "parts": {}},
+        {"id": "pl1", "type": "Notebook", "displayName": "fdlt_run1_pl", "parts": {}},
+        {"id": "nb2", "type": "Notebook", "displayName": "fdlt_other_nb", "parts": {}},
+        {"id": "nb3", "type": "Notebook", "displayName": "fdlt_run1_nb", "parts": {}},
+    ])
+    fabric.lakehouses["lh-x"] = {"id": "lh-x", "displayName": "Sales"}
+    ledger = livetest.Ledger(tmp_path / "out" / "run1" / "ledger.json", "run1", WS, [
+        {"kind": "notebook", "workspace_id": WS, "id": "nb1", "name": "fdlt_run1_nb"},  # the id is someone else's
+        {"kind": "pipeline", "workspace_id": WS, "id": "pl1", "name": "fdlt_run1_pl"},  # wrong type
+        {"kind": "notebook", "workspace_id": WS, "id": "nb2", "name": "fdlt_other_nb"},  # another run's name
+        {"kind": "lakehouse", "workspace_id": WS, "id": "lh-x", "name": "fdlt_run1"},  # renamed since
+        {"kind": "notebook", "workspace_id": WS, "id": "nb3", "name": "fdlt_run1_nb"},  # ours
+        {"kind": "notebook", "workspace_id": WS, "id": "gone", "name": "fdlt_run1_nb"},  # already deleted
+    ])
+    ledger.save()
+    done = livetest.cleanup_from_ledger(tmp_path / "out" / "run1" / "ledger.json", fabric, Credential())
+    assert [c for c in fabric.calls if c[0] in ("delete_item", "delete_lakehouse")] == [("delete_item", "nb3")]
+    assert {"nb1", "pl1", "nb2"} <= set(fabric.items) and "lh-x" in fabric.lakehouses
+    left = {r["id"] for r in done["left_behind"]}
+    assert left == {"nb1", "pl1", "nb2", "lh-x"}  # refused ones stay listed for a person to look at

@@ -86,7 +86,7 @@ If the run was stopped, or deleting failed, the summary lists what was **left be
 fabric-desktop live-test --cleanup live-test-results\<run id>\ledger.json
 ```
 
-It deletes only what that ledger lists, only in that workspace, and only things named `fdlt_<run id>`. You can also delete a `fdlt_...` lakehouse, notebook or pipeline in Fabric by hand.
+It deletes only what that ledger lists, only in that workspace, and only things named `fdlt_<run id>` or `fdlt_<run id>_...`. Before each delete it reads the item from Fabric and skips it, leaving it in the ledger, unless its type and name still match. You can also delete a `fdlt_...` lakehouse, notebook or pipeline in Fabric by hand.
 
 If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse recoverable for a while; it still counts toward the workspace's item limit until it is purged.
 

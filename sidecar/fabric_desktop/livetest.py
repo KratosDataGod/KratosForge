@@ -60,7 +60,7 @@ EXTRA_CHECKS = {
                     "Spends Spark capacity, so it only runs with --run-in-fabric.",
 }
 ALL_CHECKS = ("delta.concurrent", "notebook.publish", "pipeline.definition")  # what --all selects
-ITEM_KINDS = ("notebook", "pipeline")  # deleted with delete_item, before the lakehouse
+ITEM_KINDS = {"notebook": "Notebook", "pipeline": "DataPipeline"}  # Fabric type; deleted before the lakehouse
 _RUN_TIMEOUT = 30 * 60
 _PROD_WORD = re.compile(r"(?<![a-z0-9])(prod|prd|production)(?![a-z0-9])", re.IGNORECASE)
 
@@ -518,9 +518,10 @@ class LiveTest:
         ordered = sorted(self.ledger.created, key=lambda r: r.get("kind") == "lakehouse")
         for resource in ordered:
             kind = resource.get("kind")
-            if kind not in ("lakehouse", *ITEM_KINDS) or resource.get("workspace_id") != self.workspace_id \
-                    or not resource.get("name", "").startswith(PREFIX):
-                continue  # never delete what this harness didn't name
+            name = resource.get("name", "")
+            ours = name == self.name if kind == "lakehouse" else name.startswith(f"{self.name}_")
+            if kind not in ("lakehouse", *ITEM_KINDS) or resource.get("workspace_id") != self.workspace_id or not ours:
+                continue  # never delete what this run didn't name (fdlt_<run id>, fdlt_<run id>_*)
             check = self._check(f"cleanup.{kind}", f"Delete {kind} {resource['name']}",
                                 lambda r=resource: self._delete(r))
             if check.status == "passed":
@@ -529,11 +530,27 @@ class LiveTest:
         return done
 
     def _delete(self, resource: dict[str, str]) -> str:
+        # The ledger is a file on disk: check the live item is still the one this run made before deleting it.
         if resource["kind"] in ITEM_KINDS:
+            live = next((i for i in self.fabric.list_items(self.workspace_id) if i.get("id") == resource["id"]), None)
+            if live is None:
+                return "Already gone."
+            if live.get("type") != ITEM_KINDS[resource["kind"]] or live.get("displayName") != resource["name"]:
+                raise RuntimeError(f"Item {resource['id']} is now {live.get('type')} {live.get('displayName')!r}, "
+                                   f"not the {resource['kind']} {resource['name']} this run made; not deleted")
             self.fabric.delete_item(self.workspace_id, resource["id"])
             if any(i.get("id") == resource["id"] for i in self.fabric.list_items(self.workspace_id)):
                 raise RuntimeError(f"The {resource['kind']} is still listed after deleting it")
             return "Deleted, and no longer listed."
+        try:
+            live = self.fabric.get_lakehouse(self.workspace_id, resource["id"])
+        except FabricError as exc:
+            if exc.status == 404 or exc.code in ("ItemNotFound", "EntityNotFound"):
+                return "Already gone."
+            raise
+        if live.get("displayName") != resource["name"]:
+            raise RuntimeError(f"Lakehouse {resource['id']} is now {live.get('displayName')!r}, "
+                               f"not {resource['name']}; not deleted")
         self.fabric.delete_lakehouse(self.workspace_id, resource["id"])
         try:
             self.fabric.get_lakehouse(self.workspace_id, resource["id"])

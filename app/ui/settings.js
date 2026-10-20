@@ -258,9 +258,9 @@ function showRenameSplash(then = () => {}, asked = false) {
 // ---------- After an update ----------
 
 // The first start on a new build shows the forge with what's new since the build this PC ran
-// before, once. Turned off in Settings > Updates, the plain What's new dialog shows instead.
-// Shares What's new's "seen" mark, so only one of them shows. From the command palette, whenever
-// asked.
+// before, once; a new install shows nothing. Turned off in Settings > Updates, the plain What's
+// new dialog shows instead. Shares What's new's "seen" mark, so only one of them shows. From the
+// command palette, whenever asked.
 const UPDATE_SPLASH_OFF = "fd.updatesplash.off";
 
 function updateSplashOn() {
@@ -274,6 +274,11 @@ function showUpdateSplash(asked = false) {
   try { seen = localStorage.getItem("fd.whatsnew.seen") || ""; } catch { /* show it */ }
   const { lines, items } = whatsNewItems(release?.notes, release?.history);
   if (!asked && (!state.commit || seen === state.commit || (!lines.length && !items.length))) return false;
+  // A first start on this PC is an install, not an update: nothing to announce.
+  if (!asked && !seen) {
+    try { localStorage.setItem("fd.whatsnew.seen", state.commit); } catch { /* checked again next start */ }
+    return false;
+  }
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
   const news = updateHighlights(lines, items, seen === state.commit ? "" : seen);
   const shown = news.slice(0, 5);

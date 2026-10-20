@@ -76,3 +76,19 @@ test("turned off on the splash, the next update shows the small What's new windo
   } finally { await app.close(); }
 });
 
+
+test("a first start on a new install shows no update splash, and the next build does", { skip }, async () => {
+  const app = await openApp();
+  try {
+    const { page } = app;
+    await updated(app, "");
+    assert.strictEqual(await page.$(".overlay"), null);
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem("fd.whatsnew.seen")), "c4");
+    await page.evaluate(({ history }) => {
+      Object.assign(state, { commit: "c5", release: { commit: "c5", notes: "", history: [{ title: "Next", commit: "c5" }, ...history] } });
+      return showUpdateSplash();
+    }, { history });
+    await page.waitForSelector(".overlay.splash");
+    assert.deepStrictEqual(await page.$$eval(".splash-news li", (l) => l.map((e) => e.textContent)), ["Next"]);
+  } finally { await app.close(); }
+});

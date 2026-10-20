@@ -386,9 +386,10 @@ function setView(...children) {
 }
 
 // The shared look for a part of a page that is still being read (UX-020): a small spinner and the
-// label, announced once to screen readers. cls adds classes a page already lays out with.
-function loading(label = "Loading...", cls = "") {
-  return h("div", { class: `loading muted-text${cls ? ` ${cls}` : ""}`, role: "status" },
+// label, announced once to screen readers. cls adds classes a page already lays out with; live: false
+// leaves out role="status" where one line elsewhere already speaks for the whole page.
+function loading(label = "Loading...", cls = "", { live = true } = {}) {
+  return h("div", { class: `loading muted-text${cls ? ` ${cls}` : ""}`, role: live ? "status" : null },
     h("span", { class: "spinner", "aria-hidden": "true" }), label);
 }
 
@@ -442,17 +443,19 @@ function homeUpdatedText() {
 // the engine's answers go. It calls nothing, since nothing may start the sidecar until the check is
 // done; the real Home replaces it when the check returns. Nothing here is kept in homeCache.
 function startingHome() {
+  // One line speaks for the page; the other placeholders only show, so a screen reader says it once.
+  const quiet = (label) => loading(label, "", { live: false });
   const later = (label, iconName) => btn(label, iconName, null, "tool outline",
     { disabled: true, title: "Ready once the local engine has started" });
   return h("div", { class: "page home", "data-starting": "" },
     h("div", { class: "row home-head" }, h("h1", { class: "grow" }, "Welcome to KratosForge")),
     loading("Starting the local engine...", "sub"),
     h("div", { class: "home-two" },
-      h("section", { class: "card pad" }, h("h2", {}, "Running now"), loading()),
-      h("section", { class: "card pad" }, h("h2", {}, "Coming up"), loading())),
+      h("section", { class: "card pad" }, h("h2", {}, "Running now"), quiet()),
+      h("section", { class: "card pad" }, h("h2", {}, "Coming up"), quiet())),
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       later("New notebook", "notebook"), later("New lakehouse", "lakehouse"), later("OneLake catalog", "onelake")),
-    h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), loading("Loading notebooks...")));
+    h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), quiet("Loading notebooks...")));
 }
 
 // Home answers "what happened since I was last here": problems first, then what is running, what

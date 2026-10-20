@@ -15,7 +15,10 @@ test("Home draws before a slow release check returns, then fills in", { skip }, 
   await page.waitForSelector(".page.home[data-starting]");
   assert.match(await page.textContent(".home-head"), /Welcome to KratosForge/);
   assert.match(await page.textContent(".page.home"), /Starting the local engine\.\.\./);
-  assert.ok(await page.locator('.page.home [role="status"] .spinner').count() >= 4);
+  // One live region speaks for the page, so a screen reader says it once; every placeholder spins.
+  assert.strictEqual(await page.locator('.page.home [role="status"]').count(), 1);
+  assert.match(await page.textContent('.page.home [role="status"]'), /Starting the local engine/);
+  assert.ok(await page.locator('.page.home .loading .spinner[aria-hidden="true"]').count() >= 4);
   assert.ok(await page.locator('.home-start button:has-text("New notebook")').isDisabled());
   // Nothing may start the sidecar while the check runs.
   assert.deepStrictEqual(app.calls.map((c) => c.method), []);

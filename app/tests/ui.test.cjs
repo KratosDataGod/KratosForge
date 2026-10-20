@@ -1972,6 +1972,9 @@ test("loading() is a status line with a spinner and the label, plus any classes 
   const runs = loading("Loading runs...", "monitor-empty");
   assert.deepStrictEqual(runs.attrs.class.split(" "), ["loading", "muted-text", "monitor-empty"]);
   assert.strictEqual(text(runs), "Loading runs...");
+  const quiet = loading("Loading notebooks...", "", { live: false });
+  assert.strictEqual(quiet.attrs.role, null);
+  assert.strictEqual(quiet.kids[0].attrs["aria-hidden"], "true");
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /\.loading > \.spinner \{[^}]*animation: spin/);
   assert.match(css, /prefers-reduced-motion: reduce\) \{ \.loading > \.spinner/);
@@ -2007,6 +2010,9 @@ test("Home draws at once while the component check runs, and calls nothing until
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const starting = app.match(/function startingHome\([\s\S]*?\n}\n/)[0];
   assert.doesNotMatch(starting, /rpc\(|invoke\(|homeCache/);
+  // Exactly one live region on the starting Home: one loading() call left live, the rest quiet.
+  assert.strictEqual((starting.match(/\bloading\(/g) || []).length, 2);
+  assert.strictEqual((starting.match(/\{ live: false \}/g) || []).length, 1);
   assert.match(app, /async function renderHome\(\) \{\n  if \(state\.starting\) \{ setView\(startingHome\(\)\); return; \}/);
   const boot = app.slice(app.lastIndexOf("hydrateIcons();"));
   assert.ok(boot.indexOf("renderHome()") < boot.indexOf("checkComponents()"), "Home must draw before the check starts");

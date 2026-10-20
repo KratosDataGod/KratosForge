@@ -85,7 +85,7 @@ async function dbgWatches(nb) {
   const d = dbgState(nb);
   await d.loaded;
   if (d.vars === null) {  // what the kernel had before this notebook's first run, so History can say what changed
-    try { d.vars = await rpc("kernel_variables"); } catch { /* History starts at the next run */ }
+    try { d.vars = await rpc("kernel_variables", { notebook: nb.name }); } catch { /* History starts at the next run */ }
   }
   return d.watches.filter((w) => !d.paused.has(w));
 }
@@ -110,7 +110,7 @@ async function dbgAfterRun(cell, snap) {
   const n = nb.cells.indexOf(cell) + 1;
   let vars;
   try {
-    vars = await rpc("kernel_variables");
+    vars = await rpc("kernel_variables", { notebook: nb.name });
   } catch {
     return false;
   }

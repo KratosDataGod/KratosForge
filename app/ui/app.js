@@ -13,16 +13,28 @@ const state = {
   lakehouseView: null,       // {workspace_id, workspace_name, lakehouse_id, name}
   notebook: null,            // {name, cells, lakehouse, dirty}
   selected: null,            // selected cell id
-  kernel: "idle",            // idle | busy | stopped
   ribbonTab: "home",
   explorerTab: "data",
   showExplorer: true,
   tree: {},                  // explorer cache: key -> {open, items, loading}
 };
 
+// Each notebook has a session of its own (kernel_sessions.py), so the kernel's state is the open
+// notebook's: idle | busy | stopped. Inside the engine every notebook shares one kernel, so a
+// cell running in any notebook makes them all busy.
+Object.defineProperty(state, "kernel", {
+  get() { return kernelBusy(state.notebook) ? "busy" : state.notebook?.kernelStatus || "idle"; },
+  set(status) { if (state.notebook) state.notebook.kernelStatus = status; },
+});
+
+// Notebooks opened since the app started, by name: a notebook still running in its session keeps
+// running when another is opened, and opening it again shows its live output. Others reopen
+// from disk with their last outputs.
+const openNotebooks = new Map();
+const KEPT_NOTEBOOKS = 10;
+
 let nextCellId = 1;
 let saveTimer = null;
-let stopRequested = false;
 
 // ---------- small DOM helpers ----------
 
@@ -1535,12 +1547,45 @@ function cellFrom(c) {
 function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
-  state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
-  if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
-  state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+  const kept = openNotebooks.get(nb.name);
+  if (kept && nbRunning(kept)) {  // still running in its session: show it as it is
+    state.notebook = kept;
+  } else {
+    state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
+      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
+    if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
+    state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+    if (kept) keepOutputs(kept, state.notebook);
+  }
+  rememberNotebook(state.notebook);
   state.selected = state.notebook.cells[0].id;
   state.ribbonTab = "home";
+}
+
+function nbRunning(nb) {
+  return nb.kernelStatus === "busy" || nb.cells.some((c) => c.status === "running" || c.status === "queued");
+}
+
+// Reopened from disk: cells whose source is unchanged keep the outputs they had, as the session
+// that made them (and its variables) is still there.
+function keepOutputs(from, to) {
+  const before = new Map(from.cells.filter((c) => c.cell_id).map((c) => [c.cell_id, c]));
+  for (const c of to.cells) {
+    const old = before.get(c.cell_id);
+    if (!old || old.source !== c.source) continue;
+    Object.assign(c, { outputs: old.outputs, count: old.count, status: old.status, seconds: old.seconds, finishedAt: old.finishedAt });
+  }
+  to.kernelStatus = from.kernelStatus;
+  if (from.debug) to.debug = from.debug;
+}
+
+function rememberNotebook(nb) {
+  openNotebooks.delete(nb.name);
+  openNotebooks.set(nb.name, nb);
+  for (const [name, other] of openNotebooks) {
+    if (openNotebooks.size <= KEPT_NOTEBOOKS) break;
+    if (other !== state.notebook && !nbRunning(other)) openNotebooks.delete(name);
+  }
 }
 
 async function openNotebook(name) {
@@ -1612,7 +1657,12 @@ async function renameNotebook() {
   if (!name || name === nb.name) return;
   if (!(await saveNotebook())) return;
   const ok = await attempt(() => rpc("rename_notebook", { name: nb.name, new_name: name }), "Could not rename");
-  if (ok) { nb.name = name; renderChrome(); }
+  if (ok) {
+    openNotebooks.delete(nb.name);
+    nb.name = name;
+    openNotebooks.set(name, nb);
+    renderChrome();
+  }
 }
 
 // ---------- Publish to OneLake ----------

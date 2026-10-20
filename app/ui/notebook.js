@@ -13,7 +13,6 @@ const editors = new Map();     // cell id -> CodeMirror view
 const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
 let lastDKey = 0;
-let cancelRequested = false;
 
 const langComp = new CM.Compartment();
 const gutterComp = new CM.Compartment();
@@ -129,6 +128,7 @@ function renderNotebook() {
       state.showVariables ? renderVariables() : null, provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
+      sessionsButton(),
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
@@ -280,7 +280,7 @@ function variableTable(rows) {
 async function refreshVariables() {
   if (!state.showVariables || nbWhere(state.notebook).fabric) return;
   try {
-    state.variables = await rpc("kernel_variables");
+    state.variables = await rpc("kernel_variables", { notebook: state.notebook.name });
   } catch {
     state.variables = [];
   }
@@ -738,7 +738,7 @@ async function pythonCompletions(ctx) {
   let result = { from: ctx.pos, items: [] };
   if (!nbWhere(state.notebook).fabric) {
     try {
-      result = await rpc("kernel_complete", { code: before, cursor: before.length });
+      result = await rpc("kernel_complete", { code: before, cursor: before.length, notebook: state.notebook.name });
     } catch {
       // The engine isn't running: fall back to names in this cell.
     }
@@ -1091,9 +1091,10 @@ function renderInspect(o, numeric) {
 
 // ---------- running cells ----------
 
-async function runCell(cell, { timeLimit = true } = {}) {
+async function runCell(cell, { timeLimit = true, nb = state.notebook } = {}) {
   if (cell.type !== "code") return true;
-  if (nbWhere(state.notebook).fabric) {
+  // ``nb`` keeps running in its own session if another notebook is opened meanwhile.
+  if (nbWhere(nb).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
     return false;
   }
@@ -1101,9 +1102,13 @@ async function runCell(cell, { timeLimit = true } = {}) {
     toast("This cell is frozen, so it doesn't run. Unfreeze it on the Edit tab.");
     return true;
   }
-  if (state.kernel === "busy" && cell.status !== "queued") return false;
-  stopRequested = false;
-  setKernel("busy");
+  if (kernelBusy(nb) && cell.status !== "queued") {
+    const other = nb.kernelStatus !== "busy" && [...openNotebooks.values()].find((o) => o.kernelStatus === "busy");
+    if (other) toast(`A cell is running in ${other.name}. Notebooks share one kernel unless Run notebooks in their own process is on in Settings.`);
+    return false;
+  }
+  nb.stopRequested = false;
+  setKernel("busy", nb);
   cell.status = "running";
   cell.outputs = [];
   cell.seconds = 0;
@@ -1113,8 +1118,8 @@ async function runCell(cell, { timeLimit = true } = {}) {
   let ok = false;
   let last = null;
   try {
-    const watches = await dbgWatches(state.notebook);  // debugging.js
-    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
+    const watches = await dbgWatches(nb);  // debugging.js
+    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(nb), notebook: nb.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
@@ -1122,27 +1127,28 @@ async function runCell(cell, { timeLimit = true } = {}) {
       cell.seconds = snap.seconds;
       if (snap.status !== "running") break;
       if (state.notebook?.cells.includes(cell)) updateResults(cell);
-      snap = await rpc("poll_cell", { version: snap.version, wait: 0.4 });
+      snap = await rpc("poll_cell", { version: snap.version, wait: 0.4, notebook: nb.name });
     }
     cell.status = snap.status;
     last = snap;
     ok = snap.status === "ok";
     // Its process ended (a crash, Stop, the memory limit): variables are gone.
-    if ((snap.outputs || cell.outputs).some((o) => o.ename === "KernelStopped")) depsRestarted();
+    if ((snap.outputs || cell.outputs).some((o) => o.ename === "KernelStopped") && state.notebook === nb) depsRestarted();
   } catch (err) {
-    if (stopRequested) {
+    if (nb.stopRequested) {
       cell.status = "stopped";
       cell.outputs = [{ type: "text", text: "Stopped. The kernel restarted, so variables from earlier cells are gone." }];
     } else {
       cell.status = "error";
       cell.outputs = [{ type: "error", ename: "Kernel error", evalue: String(err) }];
       // The engine was ended (stuck or crashed), and the kernel with it.
-      if (/^(The engine stopped answering|The Python sidecar stopped)/.test(String(err))) depsRestarted();
+      if (/^(The engine stopped answering|The Python sidecar stopped)/.test(String(err)) && state.notebook === nb) depsRestarted();
     }
     cell.seconds = (performance.now() - started) / 1000;
   }
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  setKernel(stopRequested ? "stopped" : "idle");
+  setKernel(nb.stopRequested ? "stopped" : "idle", nb);
+  if (state.notebook !== nb) return ok;  // finished in the background; reopening shows it
   depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
@@ -1151,21 +1157,22 @@ async function runCell(cell, { timeLimit = true } = {}) {
 }
 
 async function runCells(cells) {
+  const nb = state.notebook;
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
-  cancelRequested = false;
+  nb.cancelRequested = false;
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
-  setKernel("busy");
+  setKernel("busy", nb);
   renderNotebook();
   for (const [i, cell] of code.entries()) {
-    const ok = await runCell(cell);
-    if (!ok || cancelRequested) {
-      code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
-      setKernel(stopRequested ? "stopped" : "idle");
+    const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
+    if (!ok || nb.cancelRequested) {
+      code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
+      setKernel(nb.stopRequested ? "stopped" : "idle", nb);
       return;
     }
-    setKernel("busy");
+    setKernel("busy", nb);
   }
-  setKernel(stopRequested ? "stopped" : "idle");
+  setKernel(nb.stopRequested ? "stopped" : "idle", nb);
 }
 
 function runAll() {
@@ -1183,10 +1190,16 @@ function runBelow() {
   return runCells(cells.slice(cells.indexOf(selectedCell())));
 }
 
-function setKernel(status) {
-  if (state.kernel === status) return;
-  state.kernel = status;
-  if (state.view !== "notebook") return;
+// Inside the engine every notebook shares one kernel, so a cell running anywhere makes it busy.
+function kernelBusy(nb) {
+  if (nb?.kernelStatus === "busy") return true;
+  return !kernelInOwnProcess() && [...openNotebooks.values()].some((o) => o.kernelStatus === "busy");
+}
+
+function setKernel(status, nb = state.notebook) {
+  if (!nb || nb.kernelStatus === status) return;
+  nb.kernelStatus = status;
+  if (state.view !== "notebook" || nb !== state.notebook) return;
   const bar = document.querySelector(".statusbar span");
   if (bar) bar.replaceChildren(h("span", { class: `dot ${status}` }), kernelLabel());
   document.querySelectorAll("[data-run]").forEach((b) => { b.disabled = status === "busy" || b.hasAttribute("data-local-only"); });
@@ -1198,9 +1211,10 @@ function setKernel(status) {
 async function cancelRun() {
   if (sbsRunning(state.notebook)) return cancelSideBySide(state.notebook);
   if (proveRunning(state.notebook)) return cancelProof(state.notebook);
-  cancelRequested = true;
-  state.notebook?.cells.forEach((c) => { if (c.status === "queued") { c.status = null; updateResults(c); } });
-  const res = await attempt(() => rpc("interrupt_cell"), "Could not cancel");
+  const nb = state.notebook;
+  if (nb) nb.cancelRequested = true;
+  nb?.cells.forEach((c) => { if (c.status === "queued") { c.status = null; updateResults(c); } });
+  const res = await attempt(() => rpc("interrupt_cell", { notebook: nb?.name }), "Could not cancel");
   if (res?.interrupted && !res.stopped) {
     const overlay = showDialog("The cell is still running", h("p", { class: "dialog-text" },
       "It is inside a library call that can't be interrupted. Restarting the kernel stops it, but clears your variables."), [
@@ -1218,11 +1232,11 @@ function kernelInOwnProcess() {
 }
 
 async function stopKernel() {
-  stopRequested = true;
+  const nb = state.notebook;
+  if (nb) Object.assign(nb, { stopRequested: true, cancelRequested: true });
   depsRestarted();
-  cancelRequested = true;
   if (kernelInOwnProcess()) {
-    const out = await attempt(() => rpc("stop_kernel_process"), "Could not stop the kernel");
+    const out = await attempt(() => rpc("stop_kernel_process", { notebook: nb?.name }), "Could not stop the kernel");
     if (out && !out.in_engine) {  // stopped, or nothing was running
       state.notebook?.cells.forEach((c) => { if (c.status === "queued") c.status = null; });
       return;
@@ -1239,7 +1253,7 @@ async function restartKernel() {
   }
   if (state.kernel === "busy") {
     await stopKernel();
-  } else if (await attempt(() => rpc("restart_kernel"), "Could not restart")) {
+  } else if (await attempt(() => rpc("restart_kernel", { notebook: state.notebook?.name }), "Could not restart")) {
     state.notebook?.cells.forEach((c) => { c.count = null; });
     depsRestarted();
     state.kernel = "idle";

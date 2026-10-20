@@ -74,6 +74,7 @@ const PREVIEW_FEATURES = {
   varlib: "Variable library",
   replay: "Quarantine replay",
   risk: "Risk check before a run",
+  sessions: "Notebook sessions",
 };
 
 function previewShown() {

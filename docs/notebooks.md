@@ -125,6 +125,19 @@ With that setting on, two more Preview settings appear under it.
 
 Your organization can set either limit in the policy file ([azure-setup.md](azure-setup.md)); Settings then shows it as set by your organization.
 
+### Notebook sessions (Preview)
+
+Each notebook has a session of its own, like a Fabric or Databricks session. With **Run notebooks in their own process** on, every notebook you run gets its own Python process: its own variables and its own `spark`, so cells in several notebooks run at the same time. Opening another notebook while a cell runs leaves it running; open the notebook again to see its live output. Cells you haven't changed keep their last output when you come back, since their session still has the variables they made. **Cancel**, **Restart kernel** and **Stop** act on the open notebook's session only.
+
+With the setting off, cells run inside the app's engine, which has one attached lakehouse and one `spark` session, so every notebook shares one kernel and one cell runs at a time. Running a cell while another notebook's cell runs says which notebook is busy.
+
+**Sessions** in the notebook's status bar lists each session: its state, its process and memory, how many cells it has run and when it was last used, with **Open** and **Stop**. Stop ends that notebook's process and clears its variables. Two more settings appear with the setting on:
+
+- **Notebooks with a session** (default 5). Running one more notebook stops the least recently used idle session and says so. A running session is never stopped to make room.
+- **Stop idle sessions after** (default never). A session you haven't used for this long, in a notebook you don't have open, is stopped to give back memory, like Fabric's session timeout.
+
+Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
+
 ### Cell dependencies and stale outputs (Preview)
 
 **View > Dependencies** shows under each code cell what it depends on, read from its code: the variables it uses and which cell defined them, the tables and `Files/` paths it reads and which cell wrote them, what it writes, and which later cells use it. Names no cell defines are listed, so a typo or a missing import shows before you run. A dependency you know about but the code doesn't show can be declared in the cell's metadata as `depends_on` (a list of cell ids).

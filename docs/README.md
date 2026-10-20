@@ -123,6 +123,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Variable history, watches and hidden-state warnings | Notebook Variables pane (View tab) |
 | Failure replay bundles (save, open and replay) | Under a cell that failed on this PC; Create > Open replay bundle |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
+| Notebook sessions (a session per notebook, several running at once) | Notebook status bar > Sessions; limits in Settings > Preview features |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |

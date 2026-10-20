@@ -242,6 +242,7 @@ const SNIPPETS = [
   ["Import the lakehouse", "import polars as pl\nfrom fabric_desktop import lakehouse"],
   ["Read a table with Spark", 'df = spark.read.table("dbo.my_table")\ndisplay(df)'],
   ["Spark SQL cell", "%%sql\nSELECT * FROM dbo.my_table LIMIT 100"],
+  ["Query into a DataFrame", "df = %sql SELECT * FROM dbo.my_table LIMIT 100\ndisplay(df)"],
   ["Write a table with Spark", 'df.write.mode("overwrite").saveAsTable("dbo.my_table")'],
   ["Read a CSV from Files", 'df = lakehouse.read_csv("Files/raw/data.csv")\ndf'],
   ["Read a table", 'df = lakehouse.read_table("dbo.my_table")\ndf'],

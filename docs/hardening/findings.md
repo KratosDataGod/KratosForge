@@ -58,7 +58,7 @@ No Critical issue was confirmed. Twelve are High.
 | EP-8 | Low | Environments | Nothing stops Dev and Prod naming the same workspace | HD-036 |
 | EP-9 | Low | Publishing | `run_job` bypasses the write guard and overwrites with `schema_mode="overwrite"` | HD-036 |
 | EN-8 | Low | Notebooks | Stopping a kernel leaves the processes its cells started | HD-037 |
-| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites | HD-038 |
+| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites. Done in HD-038: the CSV name goes through `service.file_stem`, the cleaning `sql_compat_export` already used (letters, digits, spaces, `-` and `_`), so a lakehouse name with separators or `..` stays in Downloads; the CSV and receipt files are opened with mode `"x"` and a name that is taken gets a number, so an existing file is never replaced | HD-038 |
 | DI-7 | Low | Fabric API | `Retry-After` in HTTP-date form crashes the client; 5xx and connection errors aren't retried on reads | HD-039 |
 | DI-8 | Low | Notebooks | Local `saveAsTable` overwrite silently replaces the schema where Fabric would refuse | HD-040 |
 | SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | HD-026 |
@@ -231,7 +231,7 @@ No Critical issue was confirmed. Twelve are High.
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
 | EP-9 | `publish.py:44-81` | Apply `write_guard` and an environment check to `run_job` |
 | EN-8 | `kernel_proc.py:152`, `:305` | New process group (POSIX) or Job Object (Windows) so Stop ends the whole tree (reproduced: an orphaned `sleep` survived) |
-| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"` |
+| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"`. Done in HD-038: `service.file_stem` cleans the name; CSV exports and receipts are created with mode `"x"`, a taken name gets " (2)", " (3)" and so on |
 | DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only |
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |

@@ -26,7 +26,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 
 ## Documentation
 
-**Read the docs at [kratosdatagod.github.io/fabric-desktop](https://kratosdatagod.github.io/fabric-desktop/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
+**Read the docs at [kratosdatagod.github.io/kratosforge](https://kratosdatagod.github.io/kratosforge/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
 
 | Document | What it covers |
 | --- | --- |
@@ -88,7 +88,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |
 
-**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
+**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
 
 ## Layout
 
@@ -119,7 +119,7 @@ fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the 
 
 ### Desktop app
 
-Download [fabric-desktop.exe](https://github.com/KratosDataGod/fabric-desktop/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
+Download [fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
 
 Each time it starts, the app checks its components before anything else runs. The check only shows a window when something is updating or needs attention:
 

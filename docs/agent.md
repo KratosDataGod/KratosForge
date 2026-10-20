@@ -56,7 +56,7 @@ The full list, in alphabetical order, is in [permissions.md](permissions.md#the-
 
 ## Configure
 
-Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/agent.example.toml) to:
+Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/agent.example.toml) to:
 
 | OS | Config | Home (queue, logs, caches) |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fabric-desktop-agent
 journalctl -u fabric-desktop-agent -f
 ```
 
-Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/fabric-desktop-agent.service).
+Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/fabric-desktop-agent.service).
 
 ### Linux (container)
 
@@ -138,7 +138,7 @@ docker run -d --name fd-agent --restart unless-stopped --stop-timeout 900 \
 docker exec fd-agent fabric-desktop agent status
 ```
 
-See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/Dockerfile).
+See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/Dockerfile).
 
 ### Windows
 
@@ -151,7 +151,7 @@ notepad C:\ProgramData\FabricDesktop\agent.toml
 Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ```
 
-[The script](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
+[The script](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
 
 ## Operate
 
@@ -259,7 +259,7 @@ enabled = true
 entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
 ```
 
-**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
+**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/KratosForge/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
 
 | Parameter | Example | Meaning |
 | --- | --- | --- |

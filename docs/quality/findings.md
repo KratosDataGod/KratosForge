@@ -3,7 +3,7 @@
 Every finding from the [engineering quality baseline](README.md), reviewed at `main` **3bee0db** (2026-10-18). Line numbers refer to that commit.
 
 - **Evidence** is **Reproduced** (a script ran the real engine code and showed it), **Code** (read and traced, not run) or **Count** (from `git grep`, the syntax tree or coverage data).
-- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/fabric-desktop/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/fabric-desktop/pull/166) (UX-) and says what this one adds.
+- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/KratosForge/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/KratosForge/pull/166) (UX-) and says what this one adds.
 - **Open PR** names a pull request open at review time that already fixes part of it.
 - **Fix** points at a [remediation spec](remediation.md).
 - Nothing here was run against a Fabric tenant.

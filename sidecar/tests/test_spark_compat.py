@@ -126,3 +126,21 @@ def test_a_fabric_style_cell_runs_in_the_notebook_kernel():
         "df.withColumn('rn', F.row_number().over(w)).filter('rn = 1').selectExpr('id', 'v * 10 AS v10').orderBy('id')")
     assert out["status"] == "ok", out
     assert out["outputs"][-1]["rows"] == [[1, 30.0], [3, 20.0]]
+
+
+def test_spark_conf_keeps_settings_and_the_time_zone_changes_duckdb():
+    spark = spark_local.session()  # the kernel test above restarted the session
+    spark.conf.set("spark.sql.shuffle.partitions", 8)
+    assert spark.conf.get("spark.sql.shuffle.partitions") == "8"
+    spark.conf.set("spark.sql.parquet.vorder.enabled", True)
+    assert spark.conf.get("spark.sql.parquet.vorder.enabled") == "true"
+    assert spark.conf.get("not.set", None) is None
+    with pytest.raises(KeyError):
+        spark.conf.get("not.set")
+    spark.conf.set("spark.sql.session.timeZone", "America/New_York")
+    try:
+        assert spark.sql("SELECT current_setting('TimeZone') AS tz").first()[0] == "America/New_York"
+    finally:
+        spark.conf.unset("spark.sql.session.timeZone")
+    assert spark.sql("SELECT current_setting('TimeZone') AS tz").first()[0] == "UTC"
+    assert spark.conf.get("spark.sql.session.timeZone") == "UTC"

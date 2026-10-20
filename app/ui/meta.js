@@ -405,6 +405,7 @@ function keysCard(e) {
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
       }, "tool primary small") : null),
     e.keys_sql ? h("pre", { class: "sql-block" }, e.keys_sql)
+      : e.keys_from ? h("p", { class: "muted-text" }, `Keys come from ${e.keys_from}, so there's no MERGE into LH_Keys to copy. Each run of this entity takes its keys from ${e.keys_from}.`)
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 

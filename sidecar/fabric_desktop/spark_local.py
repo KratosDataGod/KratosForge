@@ -25,7 +25,7 @@ from duckdb.experimental.spark.sql import dataframe as _dataframe
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, sql as _sql
+from . import lakehouse, spark_api, sql as _sql
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
 
@@ -346,6 +346,24 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         self._views: dict[str, str] = {}
         self._snapshot = None
+        self._conf = spark_api.LocalRuntimeConfig(self)
+        self._local_context = spark_api.LocalSparkContext(self)
+        catalog = self.catalog
+        catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
+
+    @property
+    def sparkContext(self) -> spark_api.LocalSparkContext:  # noqa: N802
+        return self._local_context
+
+    @property
+    def version(self) -> str:
+        return spark_api.SPARK_VERSION
+
+    def range(self, start: int, end: int | None = None, step: int = 1, numPartitions: int | None = None) -> DataFrame:  # noqa: A003, N803, ARG002
+        """``spark.range``: one column ``id``, as in Spark."""
+        if end is None:
+            start, end = 0, start
+        return DataFrame(self.conn.sql(f"SELECT range AS id FROM range({int(start)}, {int(end)}, {int(step)})"), self)
 
     # Lakehouse tables are registered once per attached lakehouse; a new attach starts over.
     def _bound(self) -> dict[str, str]:
@@ -471,7 +489,15 @@ class _Builder:
     def appName(self, *_a: Any) -> _Builder:  # noqa: N802
         return self
 
-    def config(self, *_a: Any, **_kw: Any) -> _Builder:
+    def config(self, key: Any = None, value: Any = None, conf: Any = None, map: Any = None) -> _Builder:  # noqa: A002
+        """Settings given to the builder go to spark.conf, as in Spark."""
+        pairs = dict(map or {})
+        if conf is not None and hasattr(conf, "getAll"):
+            pairs.update(dict(conf.getAll()))
+        if key is not None:
+            pairs[key] = value
+        for k, v in pairs.items():
+            session().conf.set(k, v)
         return self
 
     master = enableHiveSupport = appName
@@ -502,6 +528,7 @@ def reset() -> None:
 
 
 def install(namespace: dict[str, Any]) -> None:
+    spark_api.install()
     _alias_pyspark()
     namespace["spark"] = session()
 

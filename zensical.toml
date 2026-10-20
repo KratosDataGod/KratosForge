@@ -33,6 +33,7 @@ nav = [
   { "Use the app" = [
     { "User guide" = "user-guide.md" },
     { "Notebooks and SQL" = "notebooks.md" },
+    { "Spark on this PC" = "notebook-spark-on-this-pc.md" },
     { "Local data projects" = "local-data.md" },
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },

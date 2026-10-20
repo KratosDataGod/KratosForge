@@ -94,6 +94,28 @@ def test_cancel_while_paused_keeps_variables(kernel):
     assert paused(kernel)["status"] == "ok"
 
 
+def test_cancel_ends_a_cell_stuck_in_an_evaluate(kernel):
+    import threading
+    kernel.start("a = 1\nb = 2", breakpoints=[2])
+    assert paused(kernel)["paused"]["line"] == 2
+    answer = {}
+
+    def evaluate():
+        try:
+            answer["r"] = kernel.debug("eval", "sum(1 for _ in iter(int, 1))")
+        except Exception as exc:  # noqa: BLE001 - the process kernel may be closed before it answers
+            answer["error"] = exc
+    t = threading.Thread(target=evaluate, daemon=True)
+    t.start()
+    time.sleep(1.0)  # the cell's thread is now inside the expression
+    assert kernel.interrupt()["interrupted"] is True
+    deadline = time.monotonic() + 10
+    while (snap := kernel.poll(-1, 0.3))["status"] == "running" and time.monotonic() < deadline:
+        pass
+    assert snap["status"] == "cancelled" and snap.get("paused") is None
+    assert {v["name"] for v in kernel.variables()} >= {"a"}
+
+
 def test_a_cell_without_breakpoints_is_not_traced(kernel):
     snap = kernel.start("import sys\nprint(sys.gettrace() is None)")
     snap = paused(kernel)

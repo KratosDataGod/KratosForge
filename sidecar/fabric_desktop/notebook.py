@@ -325,9 +325,10 @@ class Kernel:
         run = self._current
         if run is None or run.done.is_set() or run.thread is None:
             return {"interrupted": False}
-        if run.debugger is not None and run.debugger.stop():  # paused: the cell's thread ends it itself
-            run.done.wait(2.0)
-            return {"interrupted": True, "stopped": run.done.is_set()}
+        # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
+        # interrupt it the usual way.
+        if run.debugger is not None and run.debugger.stop() and run.done.wait(0.5):
+            return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()

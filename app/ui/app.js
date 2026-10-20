@@ -431,7 +431,9 @@ function navStartView(view) {
   return f.rail ? main : "home";
 }
 
-// Alt+Left and Alt+Right, except while typing or with a dialog open.
+// Alt+Left and Alt+Right, except while typing or with a dialog open. Keys pressed inside the embedded
+// Fabric portal never reach this page (it is a separate child webview, main.rs add_child); there they
+// move within Fabric's own history, so the top-bar buttons are the way out.
 function navKey(e) {
   if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;

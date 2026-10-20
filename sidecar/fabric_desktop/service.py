@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import math
 import platform
@@ -16,10 +17,12 @@ import pyarrow as pa
 import pyarrow.csv as pa_csv
 
 from .audit import AuditLog
+from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from .filenames import file_stem
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -49,10 +52,14 @@ from .risk_service import RiskMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
+from .capacity_history_service import CapacityHistoryMixin
+from .validate_service import ValidateMixin
 from .kernel_proc import ProcessKernel
-from .notebook import Kernel, NotebookStore, check_watches
+from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
+
+_log = logging.getLogger(__name__)
 
 # How long a cell start waits for an external tool's run that holds the attached lakehouse.
 ATTACH_WAIT_SECONDS = 10.0
@@ -63,14 +70,14 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin):
+class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
         self.kernel = self._new_kernel()
-        self.notebooks = NotebookStore(self.root / "notebooks")
+        self.notebooks = NotebookShelf(self.root / "notebooks", self._notebook_places)
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
         self._tables_lock = threading.Lock()
@@ -130,8 +137,8 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         try:
             user = self.auth.signed_in_user()
             tenant = self.auth.signed_in_tenant()
-        except Exception:  # no client ID yet, or offline: the UI offers sign-in
-            pass
+        except Exception as exc:  # no client ID yet, or offline: the UI offers sign-in
+            _log.info("Not signed in: %s", describe(exc))
         return {"python": platform.python_version(), "user": user, "tenant": tenant}
 
     def _start_retention_sweep(self) -> None:
@@ -338,24 +345,20 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         """Endorsement needs Fabric's admin scan and an admin-only permission, which Fabric Desktop
         doesn't ask for; Fabric's own catalog, embedded on the same page, shows it."""
         return {"pending": False, "available": False, "items": {},
-                "reason": "Endorsement shows in Fabric's catalog below. Fabric Desktop by KratosBI doesn't ask for admin permissions."}
+                "reason": "Endorsement shows in Fabric's catalog below. KratosForge doesn't ask for admin permissions."}
 
     @property
     def favorites_file(self) -> Path:
         return self.root / "favorites.json"
 
     def _favorites(self) -> set[str]:
-        try:
-            return set(json.loads(self.favorites_file.read_text()))
-        except (OSError, ValueError):
-            return set()
+        return set(jsonfile.read_json(self.favorites_file, []))
 
     def set_favorite(self, lakehouse_id: str, favorite: bool) -> list[str]:
         """Stars are kept on this PC; Fabric has no public API for its own favorites."""
         favorites = self._favorites()
         (favorites.add if favorite else favorites.discard)(lakehouse_id)
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.favorites_file.write_text(json.dumps(sorted(favorites)))
+        jsonfile.write_json(self.favorites_file, sorted(favorites), indent=None)
         return sorted(favorites)
 
     def list_items(self, workspace_id: str) -> list[dict[str, Any]]:
@@ -369,10 +372,7 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         """Workspace ids starred as favorites and pinned to the top, kept on this PC.
 
         Pins keep the order they were pinned in."""
-        try:
-            marks = json.loads(self.workspace_marks_file.read_text())
-        except (OSError, ValueError):
-            marks = {}
+        marks = jsonfile.read_json(self.workspace_marks_file, {})
         return {"favorites": list(marks.get("favorites", [])), "pins": list(marks.get("pins", []))}
 
     def set_workspace_mark(self, workspace_id: str, mark: str, on: bool) -> dict[str, list[str]]:
@@ -381,8 +381,7 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         marks = self.workspace_marks()
         ids = [i for i in marks[mark] if i != workspace_id]
         marks[mark] = ids + [workspace_id] if on else ids
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.workspace_marks_file.write_text(json.dumps(marks))
+        jsonfile.write_json(self.workspace_marks_file, marks, indent=None)
         return marks
 
     def create_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any]:
@@ -527,8 +526,7 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         report = sqlcompat.analyze(query, target)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        stem = "".join(ch for ch in (name or "SQL") if ch.isalnum() or ch in " -_").strip()[:60] or "SQL"
-        base = f"{stem} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
+        base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
         for n in range(1, 1000):
             path = folder / (f"{base}.json" if n == 1 else f"{base} ({n}).json")
@@ -617,10 +615,21 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         self._attach(lakehouse_ref)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
+        # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
+        # folder (HD-038, finding EN-11), and an existing file is never replaced.
+        base = f"{file_stem(lakehouse_ref.get('name', ''))} query {time.strftime('%Y-%m-%d %H%M%S')}"
         rows = 0
         with sql.Stream(query, dialect) as result:
-            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+            for n in range(1, 1000):
+                path = folder / (f"{base}.csv" if n == 1 else f"{base} ({n}).csv")
+                try:
+                    sink = open(path, "xb")
+                except FileExistsError:
+                    continue
+                break
+            else:
+                raise ValueError("Couldn't find a free file name in Downloads for the export.")
+            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
                 for batch in result:
                     out.write_batch(batch)
                     rows += batch.num_rows
@@ -653,13 +662,30 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self) -> dict[str, Any]:
-        return self.notebooks.new()
+    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
+        return self._with_place(self.notebooks.new(place=place))
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
-        return nb | {"check": compute_check(nb["cells"], nb["lakehouse"]),
-                     "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+        return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
+                                       "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+
+    def _with_place(self, nb: dict[str, Any]) -> dict[str, Any]:
+        """Adds where the notebook is saved and, in a notebooks repository, where its data is per
+        environment (the repository's locations.toml). A lakehouse attached to the notebook wins."""
+        place = self.notebooks.place_of(nb["name"])
+        return nb | {"place": place, "locations": self._git_locations_of(place["root"]) if place else None}
+
+    def notebook_places(self) -> dict[str, Any]:
+        """Where a notebook can be saved: the app's own folder and each notebooks repository."""
+        return {"places": [{"root": None, "label": "This PC"}] +
+                [{"root": p["root"], "label": p["label"]} for p in self.notebooks.places()]}
+
+    def move_notebook(self, name: str, place: str | None) -> dict[str, Any]:
+        """Moves a notebook's file into a notebooks repository (or back to the app's own folder).
+        The moved file shows as a change in that repository; nothing is committed."""
+        return self.notebooks.move(name, place)
 
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
@@ -692,13 +718,14 @@ class Service(AccessCacheMixin, PipelineMixin, PipelineRunMixin, GitMixin, Incid
         return {"deleted": name}
 
     def publish_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
-                         compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                         compute: str | None = None, workspace: dict[str, str] | None = None,
+                         location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Save the notebook, then create or update it as a notebook item in its workspace: the one
         picked for it (saved with the notebook), else the attached lakehouse's workspace.
 
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
-        return self._publish(name, cells, lakehouse_ref, compute, workspace)
+        return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
 
 
 def _json_value(value: Any) -> Any:

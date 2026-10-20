@@ -74,6 +74,16 @@ def test_cancel_keeps_variables_and_stop_ends_only_the_process(kernel):
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
 
 
+def described(pid):
+    """What a process that should have ended is doing, for a failure message."""
+    try:
+        status = Path(f"/proc/{pid}/status").read_text()
+    except OSError:
+        return f"{pid}: no /proc entry"
+    keep = ("Name", "State", "PPid", "SigPnd", "ShdPnd", "SigBlk")
+    return f"{pid}: pgid {os.getpgid(pid)}; " + "; ".join(line for line in status.splitlines() if line.split(":")[0] in keep)
+
+
 def alive(pid):
     """Whether process ``pid`` is still running (a zombie waiting to be reaped counts as ended)."""
     if sys.platform == "win32":
@@ -112,7 +122,31 @@ def test_stop_ends_the_processes_a_cell_started_too(kernel):
     deadline = time.monotonic() + 10
     while alive(pid) and time.monotonic() < deadline:
         time.sleep(0.1)
-    assert not alive(pid)
+    assert not alive(pid), described(pid)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="on Windows the Job Object holds every process the kernel starts")
+@pytest.mark.parametrize("how", ["start_new_session=True", "process_group=0"])
+def test_stop_ends_a_process_that_left_the_kernels_group(kernel, how):
+    """A cell's process in its own session or group (a server it started) outlived Stop."""
+    kernel.start("import subprocess, sys, time\n"
+                 f"child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'], {how})\n"
+                 "grand = subprocess.Popen([sys.executable, '-c', 'import subprocess, sys, time; "
+                 "p = subprocess.Popen([sys.executable, \"-c\", \"import time; time.sleep(120)\"], start_new_session=True); "
+                 "print(p.pid, flush=True); time.sleep(120)'], stdout=subprocess.PIPE, text=True)\n"
+                 "print(child.pid, grand.pid, grand.stdout.readline().strip(), flush=True)\ntime.sleep(120)")
+    deadline = time.monotonic() + 30
+    pids = []
+    while not pids and time.monotonic() < deadline:
+        words = text(kernel.poll(-1, 0.5)).split()
+        pids = [int(w) for w in words] if len(words) == 3 and all(w.isdigit() for w in words) else []
+    assert pids and all(alive(p) for p in pids)
+    assert os.getpgid(pids[0]) != os.getpgid(kernel.pid), "the child left the kernel's group"
+    assert kernel.stop() == {"stopped": True}
+    deadline = time.monotonic() + 10
+    while any(alive(p) for p in pids) and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert not any(alive(p) for p in pids), [described(p) for p in pids]
 
 
 def test_a_crash_ends_the_cell_with_a_reason_and_the_next_cell_gets_a_fresh_kernel(kernel):
@@ -204,13 +238,33 @@ def test_a_cell_past_the_time_limit_is_interrupted_and_keeps_variables(kernel, q
 
 def test_a_cell_that_ignores_the_interrupt_has_its_process_ended(kernel, quick_limits):
     kernel.run("kept = 1")
-    kernel.time_limit = 0.5
     pid = kernel.pid
-    kernel.start("import time\ntime.sleep(600)")  # one long call: the interrupt waits for it
+    # One long call: the interrupt waits for it. The limit is set only once the cell is inside it,
+    # or a slow machine could interrupt the bytecode before the call, and the cell would just stop.
+    kernel.time_limit = 0
+    kernel.start("import time\nprint('in', flush=True)\ntime.sleep(600)")
+    deadline = time.monotonic() + 30
+    while "in" not in text(kernel.poll(-1, 0.2)) and time.monotonic() < deadline:
+        pass
+    time.sleep(0.3)
+    kernel.time_limit = 0.5
     snap = until_done(kernel)
     assert snap["status"] == "error" and "didn't stop when interrupted" in text(snap)
     out = kernel.run("'kept' in dir()")
     assert out["outputs"] == [{"type": "text", "text": "False"}] and kernel.pid != pid
+
+
+def test_a_poll_as_the_process_ends_reports_the_ended_cell_not_a_fresh_process(kernel):
+    kernel.run("kept = 1")
+    kernel.start("import time\ntime.sleep(600)")
+    proc, pid = kernel._proc, kernel.pid
+    kernel._end(proc, "Stopped: over the limit.")  # what the limits watcher does
+    proc.wait()
+    real, looks = proc.poll, iter([None])
+    proc.poll = lambda: next(looks, real())  # the first check still sees it running: it ends just after
+    snap = until_done(kernel)
+    assert snap["status"] == "error" and "over the limit" in text(snap)
+    assert kernel.pid == pid, "a poll doesn't start a process; the next cell does"
 
 
 @pytest.mark.skipif(not sys.platform.startswith(("linux", "win")), reason="memory is read on Windows and Linux")

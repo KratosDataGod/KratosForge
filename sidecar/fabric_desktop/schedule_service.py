@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import os
 import subprocess
 import sys
@@ -11,15 +12,32 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .fabric_api import FabricClient
 from .fabric_run import describe_schedule
 from .local_schedules import LocalSchedules, target_label
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 # Fabric item types that have schedules, and the job type each one runs.
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
 TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job"}
 STALE_LOCK_SECONDS = 12 * 3600
+
+
+def _without_webhook(text: str, url: Any) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and redact.secrets doesn't know."""
+    if not isinstance(url, str) or not url:
+        return text
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
+    return text
 
 
 def _now() -> str:
@@ -118,22 +136,28 @@ class ScheduleMixin:
         finally:
             lock.unlink(missing_ok=True)
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
-        schedules.log_run(row)
         if row["status"] == "failed":
-            self._alert_failed_schedule(row)
+            problem = self._alert_failed_schedule(row)
+            if problem:  # recorded with the run, so Monitor shows the alert didn't go out
+                row["alert_error"] = problem
+        schedules.log_run(row)
         return row
 
     def _run_notebook_here(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
+        # As Run all: code cells with something in them, and never a frozen one.
         code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
+        frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
+        code = [c for c in code if not (c.get("meta") or {}).get("frozen")]
+        skipped = f", {frozen} frozen cell{'s' if frozen != 1 else ''} skipped" if frozen else ""
         for i, cell in enumerate(code, 1):
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
                 err = next((o for o in res["outputs"] if o.get("type") == "error"), {})
                 why = f"{err.get('ename')}: {err.get('evalue')}" if err else res["status"]
-                return {"status": "failed", "message": f"Cell {i} of {len(code)} failed: {why}", "cells": i}
-        return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran", "cells": len(code)}
+                return {"status": "failed", "message": f"Cell {i} of {len(code)} failed{skipped}: {why}", "cells": i}
+        return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran{skipped}", "cells": len(code)}
 
     def _run_meta_here(self, env: str, names: list[str] | None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]
@@ -147,15 +171,20 @@ class ScheduleMixin:
         return {"status": "ok", "tables": len(results), "rows": rows,
                 "message": f"{len(results)} tables, {rows:,} rows written"}
 
-    def _alert_failed_schedule(self, row: dict[str, Any]) -> None:
-        url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
-        if not url:
-            return
+    def _alert_failed_schedule(self, row: dict[str, Any]) -> str:
+        """Post the failed run to Teams. Returns why the alert didn't go out, or "" (sent, or no webhook)."""
         from .dataops_service import post_teams
+        url = None
         try:
+            url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
+            if not url:
+                return ""
             post_teams(url, f"Scheduled run failed on this PC: {row['label']}", [row.get("message") or "See Monitor > Schedules"])
-        except Exception:
-            pass  # Monitor still shows it
+            return ""
+        except Exception as exc:  # the run is still logged, with the webhook kept out of what it says
+            problem = f"Couldn't post the Teams alert: {_without_webhook(describe(exc), url)}"
+            _log.warning("%s (schedule %s)", problem, row.get("schedule_id"))
+            return problem
 
     # ---- every schedule, in one list
 
@@ -169,12 +198,13 @@ class ScheduleMixin:
         try:
             project = self._project()  # type: ignore[attr-defined]
             wanted |= {c.get("workspace_id") for c in project.environments.values() if c.get("workspace_id")}
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("No metadata project; its workspaces aren't added: %s", describe(exc))
         for n in self.notebooks.list():  # type: ignore[attr-defined]
             try:
                 nb = self.notebooks.load(n["name"])  # type: ignore[attr-defined]
-            except Exception:
+            except Exception as exc:
+                _log.warning("Couldn't load notebook %r to find its workspace: %s", n["name"], describe(exc))
                 continue
             ws = (nb.get("workspace") or {}).get("workspace_id") or (nb.get("lakehouse") or {}).get("workspace_id")
             if ws:
@@ -198,7 +228,7 @@ class ScheduleMixin:
                     threading.Thread(target=self._scan_fabric_schedules, args=(token, all_workspaces), daemon=True).start()
             fabric = dict(self._fabric_schedules or {})
         return {"pc": pc, "windows": self.pc_schedules.scheduler.available, "fabric": fabric,
-                "runs": self.pc_schedules.runs(200)}
+                "runs": self.pc_schedules.runs(200), "pc_set_aside": self.pc_schedules.set_aside()}
 
     def _scan_fabric_schedules(self, token: str, all_workspaces: bool) -> None:
         client = FabricClient(lambda: token)
@@ -210,18 +240,22 @@ class ScheduleMixin:
                                           "error": f"{type(exc).__name__}: {exc}"}
             return
 
+        missed: list[str] = []  # one log line per scan, not one per item (a large tenant could flood the log)
+
         def items(ws: dict[str, str]) -> list[dict[str, Any]]:
             try:
                 return [{"workspace_id": ws["id"], "workspace_name": ws["name"], **it}
                         for it in client.list_items(ws["id"]) if it.get("type") in SCHEDULED_TYPES]
-            except Exception:
+            except Exception as exc:
+                missed.append(f"items in workspace {ws['id']}: {describe(exc)}")
                 return []
 
         def schedules(it: dict[str, Any]) -> list[dict[str, Any]]:
             job = SCHEDULED_TYPES[it["type"]]
             try:
                 found = client.list_schedules(it["workspace_id"], it["id"], job)
-            except Exception:
+            except Exception as exc:
+                missed.append(f"schedules of item {it['id']}: {describe(exc)}")
                 return []
             if not found:
                 return []
@@ -229,8 +263,8 @@ class ScheduleMixin:
             try:
                 runs = client.list_job_instances(it["workspace_id"], it["id"])
                 last = runs[0] if runs else None
-            except Exception:
-                pass
+            except Exception as exc:
+                missed.append(f"last run of item {it['id']}: {describe(exc)}")
             return [{"id": s["id"], "enabled": s.get("enabled", False), "text": describe_schedule(s),
                      "owner": s.get("owner") if isinstance(s.get("owner"), dict) else None,  # Fabric runs it as its owner
                      "configuration": s.get("configuration") or {}, "job_type": job,
@@ -244,6 +278,8 @@ class ScheduleMixin:
         with ThreadPoolExecutor(max_workers=8) as pool:
             found = [it for chunk in pool.map(items, workspaces) for it in chunk]
             rows = [r for chunk in pool.map(schedules, found) for r in chunk]
+        if missed:
+            _log.warning("Fabric schedules: %d reads failed; the first was %s", len(missed), missed[0])
         rows.sort(key=lambda r: (r["workspace_name"].lower(), str(r["name"]).lower()))
         with self._fabric_schedules_lock:
             self._fabric_schedules = {"pending": False, "items": rows, "all_workspaces": all_workspaces,

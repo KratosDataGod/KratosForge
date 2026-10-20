@@ -118,5 +118,5 @@ class AccessCacheMixin:
                 raise PermissionError(CHANGED_SINCE) from None
             if changes is None:  # an engine whose central_restrict can't check the list: never write blind
                 raise PermissionError("This version can't check the planned change before writing it, so "
-                                      "nothing was changed. Update Fabric Desktop by KratosBI and try again.") from None
+                                      "nothing was changed. Update KratosForge and try again.") from None
         return self.central_restrict(cache.FAMILY, cache.READER_ROLE, members, True, changes)  # type: ignore[attr-defined]

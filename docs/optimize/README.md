@@ -1,6 +1,6 @@
 # Optimize and the central lakehouse
 
-Optimize keeps optimization results in one Microsoft Fabric lakehouse that every Fabric Desktop by KratosBI installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
+Optimize keeps optimization results in one Microsoft Fabric lakehouse that every KratosForge installation in your organization can write to and read from. That includes findings, recommendations, applied fixes, measurements, local runs and savings. The lakehouse is the system of record; nothing about it lives only on one PC.
 
 > **Status: Preview.** None of this has been tried on a live Fabric tenant yet. The plan is in [plan.md](plan.md).
 
@@ -8,7 +8,7 @@ Optimize keeps optimization results in one Microsoft Fabric lakehouse that every
 
 - One lakehouse is enough for a whole organization. You don't need one per developer, project or workspace.
 - If you need separate boundaries, such as business units, regulated data or separate environments, use separate optimization lakehouses. Each installation is connected to one at a time and can switch between the ones it knows.
-- The default name is `FabricDesktop_Central`: it is Fabric Desktop's central lakehouse, where other features keep their organization-wide data too ([Table families](#table-families)). It is a separate item from the platform's `LH_Meta`, which is per environment. A lakehouse created before this release under the old default name, `FabricDesktop_Optimization`, keeps working as it is.
+- The default name is `FabricDesktop_Central`: it is KratosForge's central lakehouse, where other features keep their organization-wide data too ([Table families](#table-families)). It is a separate item from the platform's `LH_Meta`, which is per environment. A lakehouse created before this release under the old default name, `FabricDesktop_Optimization`, keeps working as it is.
 
 ## Where it is in the app
 
@@ -87,7 +87,7 @@ Every installation adds what its analysis finds to the shared lakehouse, and eve
 
 ## The tables
 
-All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/fabric-desktop/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
+All are Delta tables in `dbo` (or directly under Tables in a lakehouse without schemas), named `fdopt_` so they can't collide with yours: `installations`, `analysis_runs`, `artifacts`, `findings`, `recommendations`, `actions`, `measurements`, `cu_usage`, `savings`, `local_execution`, `dependencies`, `rules`, `audit`, `config` and `schema_version`. Columns are in [`sidecar/fabric_desktop/optimize/schema.py`](https://github.com/KratosDataGod/KratosForge/blob/main/sidecar/fabric_desktop/optimize/schema.py). You never need to query them yourself.
 
 ## Table families
 
@@ -97,7 +97,7 @@ The central lakehouse holds more than Optimize's tables. Each feature that keeps
 | --- | --- | --- |
 | `fdopt_` | Optimize | Findings, recommendations, measurements and savings, plus the installations, audit and settings every family shares |
 | `fdacc_` | Governance (Preview) | The access cache: who can reach what, updated with changes only ([below](#the-access-cache-fdacc_)) |
-| `fdcap_` | FinOps (planned) | Capacity setting history |
+| `fdcap_` | FinOps (Preview) | [Capacity settings history](#capacity-settings-history) |
 | `fdten_` | Enterprise readiness (Preview) | [Tenant settings history](#tenant-settings-history) |
 | `fdinc_` | Incident management (planned) | Incident history |
 
@@ -141,6 +141,21 @@ A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenant
 - **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
 - **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
 - **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
+
+### Capacity settings history
+
+A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`, no Fabric administrator role) is kept in three `fdcap_` tables with the same columns as the tenant settings history, so its history shows both:
+
+| Table | One row per |
+| --- | --- |
+| `fdcap_snapshot` | Capacity setting (`displayName`, `sku`, `region`, `state`) whose value differs from its last row; `scope_type` is `capacity` and `scope_id` the capacity id |
+| `fdcap_change` | Difference found, between two reads |
+| `fdcap_read` | Capacity read, or one row for a read that failed (`unreadable` without `Capacity.Read.All`, otherwise `failed`) |
+
+- **Only what you can see.** People see different capacities, so a capacity missing from your read isn't recorded as changed or deleted. It just isn't compared, and its last read shows how old its history is.
+- **When and by whom.** As for tenant settings, a change is only ever "between these two reads", and `read_by` is an Entra object id.
+- **Only reads.** It never resizes, pauses or changes a capacity.
+- **What's built.** The engine call `capacity_settings_read`, untested on a live tenant; `tenant_settings_history` returns its changes and gaps beside the tenant's. The page comes after a mockup.
 
 For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix. `Family(..., schema="access")` puts its tables in a schema of its own (lowercase, not another family's); then `OptimizeMixin.central_restrict(family, role_name, members, approve=...)` keeps them from DefaultReader as above, raising with what it would change unless `approve=True`; pass the changes you showed as `shown=` so it refuses if they no longer match. Families never PUT data access roles themselves.
 

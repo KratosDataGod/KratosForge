@@ -6,7 +6,7 @@ Release gates are not defined here. The pass/fail gates for a pilot or productio
 
 Two review threads also give each PR a PASS, CONDITIONAL PASS or FAIL: the UX and simplicity review (`docs/ux/release-review.md`) and the engineering quality review (`docs/quality/`). A FAIL from either one keeps a PR out of a merge round until its owner fixes it or Chris overrides it. A CONDITIONAL PASS goes into the round with its conditions listed in the merge-round question. Neither review merges or releases anything.
 
-## How Fabric Desktop is distributed
+## How KratosForge is distributed
 
 There is no installer, store or package feed. The product is two files published as GitHub release assets, and the app updates itself from them.
 
@@ -58,7 +58,7 @@ Run on every release-management pass. It is safe to repeat: it changes nothing o
 6. **Repair** only what integration broke: a conflict where both sides' intent is clear, resolved so neither change is lost, on the integration branch or as a corrective PR. Anything that changes a feature's behaviour goes back to its owner with a corrective request (format below). Two incompatible designs go to Chris as a decision, never a compromise invented here.
 7. **Ask for the merge round.** One question to Chris naming the PRs, the order and the evidence. Nothing merges without his go for that round.
 8. **Merge** in order, waiting for each merge's `main` CI where the next PR conflicts with it. Watch the Preview publish of `main`'s newest commit.
-9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256` and `engine_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/fabric-desktop/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
+9. **Verify Preview.** The `latest` release's `version.json` names `main`'s tip and its `exe_sha256` and `engine_sha256` equal the GitHub digests of the uploaded assets (`curl -s https://api.github.com/repos/KratosDataGod/KratosForge/releases/tags/latest | jq '.assets[] | {name, digest}'`). If the engine zip is missing, re-run the failed release job of `main`'s tip run.
 10. **Report** in the thread: what was reviewed, merged, fixed, what failed and what is blocked.
 
 ### PR states
@@ -87,7 +87,7 @@ Sent to the owning workstream through the project coordinator:
 
 ### What each PR must say (handoff contract)
 
-The [pull request template](https://github.com/KratosDataGod/fabric-desktop/blob/main/.github/pull_request_template.md) asks every PR for: what a user sees before and after, the workstream and feature ID, related issue, shared files and contracts touched (engine methods, record schemas, settings, `audit.py`, `server.py`, `app.js`, `features.js`), PRs it depends on or conflicts with, tests added and run, Preview labelling, permission changes, and release notes in user words. The release manager reads these instead of reconstructing intent from diffs.
+The [pull request template](https://github.com/KratosDataGod/KratosForge/blob/main/.github/pull_request_template.md) asks every PR for: what a user sees before and after, the workstream and feature ID, related issue, shared files and contracts touched (engine methods, record schemas, settings, `audit.py`, `server.py`, `app.js`, `features.js`), PRs it depends on or conflicts with, tests added and run, Preview labelling, permission changes, and release notes in user words. The release manager reads these instead of reconstructing intent from diffs.
 
 ## Promoting to Stable
 

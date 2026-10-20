@@ -7,6 +7,7 @@ Response: {"id": 1, "result": [...]}  or  {"id": 1, "error": "message"}
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 import threading
@@ -22,7 +23,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "list_tables", "list_files", "preview_job", "run_job", "history",
            "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
-           "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_domains",
+           "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
            "platform_key_tables", "platform_create_key_table", "platform_sources", "platform_save_source",
@@ -48,7 +49,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -78,7 +79,9 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_stage_all", "git_unstage", "git_discard", "git_scan", "git_commit", "git_log", "git_commit_detail",
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
-           "git_path_info", "git_notebook_info", "audit_log",
+           "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
+           "git_platform_diff", "git_platform_export", "git_platform_deploy",
+           "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
            "pipeline_run_check", "pipeline_run_start", "pipeline_run_status", "pipeline_run_cancel", "pipeline_runs",
@@ -101,8 +104,10 @@ from .optimize_service import METHODS as OPTIMIZE_METHODS  # noqa: E402
 METHODS |= OPTIMIZE_METHODS
 
 from .tenant_history_service import METHODS as TENANT_HISTORY_METHODS  # noqa: E402
+from .capacity_history_service import METHODS as CAPACITY_HISTORY_METHODS  # noqa: E402
 
 METHODS |= TENANT_HISTORY_METHODS
+METHODS |= CAPACITY_HISTORY_METHODS
 
 # Governance's request and shortcut notices to Teams (platform_notify_service.py).
 from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa: E402
@@ -113,6 +118,11 @@ METHODS |= PLATFORM_NOTIFY_METHODS
 from .access_cache_service import METHODS as ACCESS_CACHE_METHODS  # noqa: E402
 
 METHODS |= ACCESS_CACHE_METHODS
+
+# Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
+from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
+
+METHODS |= VALIDATE_METHODS
 
 
 def handle(service: Service, line: str) -> dict:
@@ -180,6 +190,23 @@ def _log_file() -> IO[str]:
     return open(os.path.join(base, "FabricDesktop", "sidecar.log"), "a", encoding="utf-8", buffering=1)
 
 
+class _SafeFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return secrets(super().format(record))
+
+
+def _log_to_stderr() -> None:
+    """The engine's ``fabric_desktop.*`` log lines (INFO and up) go to stderr, which the shell keeps
+    in sidecar.log, with anything credential-shaped removed. Without a handler they went nowhere."""
+    logger = logging.getLogger("fabric_desktop")
+    if logger.handlers:
+        return
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(_SafeFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
 def main() -> None:
     # Started from a windowed app, Python can have no stderr at all (sys.stderr is
     # None). Log to a file then, rather than failing on the first write.
@@ -191,6 +218,7 @@ def main() -> None:
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
     sys.stdout = sys.stderr
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
+    _log_to_stderr()
     _refresh_integration_launcher()
     service = Service()
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()

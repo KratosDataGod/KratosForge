@@ -240,7 +240,7 @@ jobs:
         with:
           name: sbom-app
       # Signed proof that these exact files were built by this workflow from this commit.
-      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/fabric-desktop
+      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
@@ -275,5 +275,5 @@ jobs:
             gh release edit latest --notes "$BODY"
           else
             gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
-              --title "Fabric Desktop by KratosBI (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
+              --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi

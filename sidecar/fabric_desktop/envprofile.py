@@ -38,9 +38,9 @@ FABRIC_DOCS = "https://learn.microsoft.com/en-us/fabric/data-engineering/using-p
 # Fabric Desktop publishes Python notebooks with this kernel (fabric_run.PYTHON_NOTEBOOK_METADATA).
 FABRIC_PYTHON_KERNEL = "3.11"
 # Modules a notebook gets from Fabric Desktop on this PC and from Fabric itself in Fabric.
-PROVIDED = {"fabric_desktop": "Fabric Desktop by KratosBI's lakehouse module (added to the published notebook in Fabric)",
-            "notebookutils": "Fabric's notebook utilities (Fabric Desktop by KratosBI's version on this PC)",
-            "mssparkutils": "Fabric's notebook utilities (Fabric Desktop by KratosBI's version on this PC)"}
+PROVIDED = {"fabric_desktop": "KratosForge's lakehouse module (added to the published notebook in Fabric)",
+            "notebookutils": "Fabric's notebook utilities (KratosForge's version on this PC)",
+            "mssparkutils": "Fabric's notebook utilities (KratosForge's version on this PC)"}
 # Spark exists on both sides, as different engines: DuckDB's PySpark API here, Fabric's Spark there.
 SPARK = {"pyspark"}
 _DYNAMIC = re.compile(r"\b(importlib\.import_module|__import__)\s*\(|^\s*%(pip|conda)\b|^\s*!\s*pip\b|"

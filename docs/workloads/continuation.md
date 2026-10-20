@@ -44,7 +44,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 - Recovery is scoped by kind (stage 2.3A): `sync(evaluated=...)` takes the set of kinds that were actually read, so unreadable agent records never recover agent-offline incidents and an unreadable run log never recovers workload incidents.
 - Routes live in each agent's `agent.toml`, with webhooks only in environment variables. The app keeps its single Teams webhook setting. Sharing routes across agents waits for stage 2B's platform catalog.
 - Escalation is a Teams post to a named route, once per incident, only while nobody acknowledged it. No paging service.
-- Ownership (from the coordinator, 2026-10-17): the Git-native program owns Source Control, Fabric Git sync, deployment workflow and validation, and later environment profiles; coordinate before release/deploy screens or environment config UI. The enterprise program assigned FD-122 (agent operations dashboard), FD-123 (incidents), FD-124 (multi-worker) and governance views here; it owns FD-129 (exceptions) and FD-130 (multi-team permissions). Name in docs and UI: "Fabric Desktop by KratosBI"; identifiers unchanged.
+- Ownership (from the coordinator, 2026-10-17): the Git-native program owns Source Control, Fabric Git sync, deployment workflow and validation, and later environment profiles; coordinate before release/deploy screens or environment config UI. The enterprise program assigned FD-122 (agent operations dashboard), FD-123 (incidents), FD-124 (multi-worker) and governance views here; it owns FD-129 (exceptions) and FD-130 (multi-team permissions). Name in docs and UI: "KratosForge"; identifiers unchanged.
 
 ## Validation evidence
 
@@ -70,4 +70,4 @@ Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chri
 
 ## Resume prompt
 
-> Continue the workload operations program in KratosDataGod/fabric-desktop. Read `docs/workloads/continuation.md` and `docs/workloads/plan.md` on the newest program branch, check the open PRs it lists, then do its "Next action".
+> Continue the workload operations program in KratosDataGod/KratosForge. Read `docs/workloads/continuation.md` and `docs/workloads/plan.md` on the newest program branch, check the open PRs it lists, then do its "Next action".

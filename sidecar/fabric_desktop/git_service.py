@@ -21,6 +21,7 @@ from typing import Any
 
 from .git import cli
 from .git.cli import GitError
+from .git import platform_files, scopes
 from .git.ops import Operations
 from .git.repo import Repository, _folder, init as git_init
 
@@ -91,8 +92,45 @@ class GitMixin:
 
     def git_repos(self) -> dict[str, Any]:
         data = self._git_saved()
-        repos = [{**r, "exists": Path(r["path"]).is_dir()} for r in data["repos"] if r.get("path")]
-        return {"repos": repos, "current": data.get("current")}
+        repos = []
+        for r in data["repos"]:
+            if not r.get("path"):
+                continue
+            exists = Path(r["path"]).is_dir()
+            repos.append({**r, "exists": exists, **(scopes.describe(r["path"]) if exists else
+                                                    {"kind": None, "suggested": None})})
+        return {"repos": repos, "current": data.get("current"), "kinds": scopes.KINDS}
+
+    def _notebook_places(self) -> list[tuple[str, str, Path]]:
+        """The notebooks repositories this PC opened, as places notebooks can be saved."""
+        out = []
+        for r in self._git_saved()["repos"]:
+            root = r.get("path")
+            if root and Path(root).is_dir() and scopes.read_kind(root) == "notebooks":
+                out.append((root, r.get("name") or Path(root).name, Path(root) / "notebooks"))
+        return out
+
+    def _git_locations_of(self, root: str) -> dict[str, Any]:
+        return scopes.read_locations(root)
+
+    def git_locations(self, repo: str) -> dict[str, Any]:
+        """Where a notebooks repository's notebooks find their data, per environment."""
+        r = self._notebooks_repo(repo)
+        return scopes.read_locations(r.root)
+
+    def git_set_locations(self, repo: str, envs: dict[str, Any]) -> dict[str, Any]:
+        """Writes the repository's locations.toml (ids and names only). It shows as a change to
+        commit; nothing in Fabric changes."""
+        r = self._notebooks_repo(repo)
+        if not isinstance(envs, dict):
+            raise GitError("Locations are given per environment.", kind="invalid")
+        return scopes.write_locations(r.root, envs) | {"status": r.status()}
+
+    def _notebooks_repo(self, repo: str) -> Repository:
+        r = self._repo(repo)
+        if scopes.read_kind(r.root) != "notebooks":
+            raise GitError("Locations belong to a notebooks repository.", kind="invalid")
+        return r
 
     def git_open(self, path: str) -> dict[str, Any]:
         """Opens the repository holding ``path`` (any folder inside it) and remembers it."""
@@ -110,10 +148,157 @@ class GitMixin:
             self._git_save(data)
         return self.git_repos()
 
-    def git_init(self, path: str, branch: str = "main") -> dict[str, Any]:
+    def git_init(self, path: str, branch: str = "main", kind: str | None = None) -> dict[str, Any]:
+        """Makes an existing folder a repository. With ``kind``, also writes the marker saying what
+        it holds (the folder's own files are left as they are)."""
+        if kind:
+            scopes.check_kind(kind)
+            if (_folder(path, must_exist=False) / scopes.MARKER).exists():
+                raise GitError(f"This folder already says what it holds in {scopes.MARKER}. "
+                               "Make it a repository first, then choose what it holds.", kind="confirm")
         repo = git_init(path, branch)
+        if kind:
+            scopes.set_kind(repo, kind)
         self._git_remember(repo)
         return repo.status()
+
+    def git_create(self, path: str, kind: str, branch: str = "main") -> dict[str, Any]:
+        """A new, empty folder made a repository of ``kind`` with that kind's starting files."""
+        repo = scopes.create(path, kind, branch)
+        self._git_remember(repo)
+        return repo.status()
+
+    def git_set_kind(self, repo: str, kind: str, confirm: bool = False) -> dict[str, Any]:
+        """Says what an opened repository holds, by writing its marker file (a change to commit)."""
+        r = self._repo(repo)
+        return {**scopes.set_kind(r, kind, confirm), "status": r.status()}
+
+    # ---- a platform repository: definitions in Git, deployed in each environment's platform
+
+    def _platform_repo(self, repo: str) -> Repository:
+        r = self._repo(repo)
+        if scopes.read_kind(r.root) != "platform":
+            raise GitError("This repository doesn't hold platform definitions. Create a platform repository, "
+                           "or choose what this one holds.", kind="invalid")
+        return r
+
+    def _deployed(self, env: str | None = None) -> dict[str, Any]:
+        """What the platform has deployed, as platform-file records. Only reads, with the calls the
+        Platform and Policies pages make. ``env`` None: what export writes (the catalog, and key
+        tables from every environment); otherwise what that environment's platform holds."""
+        from .central.service import CATALOG_ENV
+        from .meta.project import ENVIRONMENTS
+
+        if env is not None and env not in ENVIRONMENTS:
+            raise GitError(f"{env!r} isn't an environment.", kind="invalid")
+        cat = self._catalog()  # type: ignore[attr-defined]
+        if env is None:
+            ordered = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)  # type: ignore[attr-defined]
+            tables = {e: client.call("list_key_tables") for e, client in ordered}
+            admins = cat.call("list_admins")
+        else:
+            here = self._platform(env)  # type: ignore[attr-defined]
+            tables, admins = {env: here.call("list_key_tables")}, here.call("list_admins")
+        # policies_ready only looks; list_policies would create the policy tables on an older platform.
+        try:
+            ready = cat.call("policies_ready")
+        except LookupError:  # a platform whose functions predate this check
+            raise GitError("The platform's functions are older than this app. Open Platform > Settings, choose "
+                           "Finish or repair, then try again.", kind="invalid") from None
+        policies = None
+        if ready:
+            policies = [cat.call("get_policy", id=p["id"]) for p in cat.call("list_policies")]
+        return platform_files.from_platform({
+            "domains": cat.call("list_domains"), "sources": cat.call("list_sources"), "key_tables": tables,
+            "glossary": cat.call("list_glossary"), "admins": admins, "shortcut_rules": cat.call("shortcut_rules"),
+            "policies": policies, "projects": cat.call("list_projects")})
+
+    def git_platform_diff(self, repo: str, env: str = "prod") -> dict[str, Any]:
+        """The platform repository's files compared with what ``env``'s platform has deployed.
+        Reads only: nothing in the repository or in Fabric changes."""
+        r = self._platform_repo(repo)
+        git = platform_files.read_repo(r.root)
+        deployed = self._deployed(env)
+        items = platform_files.compare(git, deployed)
+        return {"env": env, "items": items, "counts": platform_files.summary(items), "problems": git["problems"],
+                "policies_set_up": deployed["policies"] is not None, "labels": platform_files.LABELS}
+
+    def git_platform_export(self, repo: str, confirm: bool = False) -> dict[str, Any]:
+        """Writes what is deployed into the platform repository, one file per object, as changes to
+        review. Nothing is committed and nothing in Fabric changes. A file with uncommitted changes
+        is replaced only with ``confirm``; files for objects that aren't deployed are left alone."""
+        r = self._platform_repo(repo)
+        st = r.status()
+        uncommitted = {e["path"] for k in ("staged", "unstaged", "untracked", "conflicts") for e in st.get(k) or []}
+        defs = self._deployed()
+        try:
+            out = platform_files.export(r.root, defs, uncommitted, confirm)
+        except GitError as exc:
+            if exc.kind == "confirm":
+                return {"needs_confirm": True, "message": str(exc), "changes": getattr(exc, "changes", [])}
+            raise
+        return out | {"disagree": defs["disagree"], "policies_set_up": defs["policies"] is not None,
+                      "status": r.status()}
+
+    def _deployed_envs(self) -> tuple[dict[str, dict[str, Any]], dict[str, Any], str]:
+        """Each distinct platform's deployed records, its client, and which one holds the catalog."""
+        from .central.service import CATALOG_ENV
+
+        def ident(client: Any) -> str:
+            return getattr(client, "functions_id", None) or str(getattr(client, "path", ""))
+
+        catalog = ident(self._catalog())  # type: ignore[attr-defined]
+        envs, clients, cat_env = {}, {}, CATALOG_ENV
+        for env, client in self._distinct_platforms():  # type: ignore[attr-defined]
+            envs[env], clients[env] = self._deployed(env), client
+            if ident(client) == catalog:
+                cat_env = env
+        return envs, clients, cat_env
+
+    def git_platform_deploy(self, repo: str, remove: list[dict[str, Any]] | None = None,
+                            confirm: str = "") -> dict[str, Any]:
+        """Makes the platform match the platform repository's committed files: the catalog, and
+        admins and key tables in every environment. Without ``confirm`` it only returns the plan;
+        with that plan's id it runs it, step by step, stopping at the first refusal. Objects only
+        deployed are removed only when listed in ``remove``. Platform admins only; each step is
+        audited by the platform as the person deploying."""
+        r = self._platform_repo(repo)
+        st = r.status()
+        if any(st.get(k) for k in ("staged", "unstaged", "untracked", "conflicts")):
+            raise GitError("Commit the changes in this repository first, so what is deployed is in Git's history.",
+                           kind="dirty")
+        if not st.get("commit"):
+            raise GitError("Commit the platform files first.", kind="invalid")
+        # Files Git ignores aren't in any commit, so a deploy that read them wouldn't be "from" one.
+        paths = [*platform_files.FOLDERS.values(), *platform_files.FILES.values()]
+        ignored = [x for x in r.git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", *paths,
+                                    read_only=True).split("\0") if platform_files.is_platform_file(x)]
+        if ignored:
+            raise GitError(f"Git ignores {', '.join(sorted(ignored)[:5])}{' and more' if len(ignored) > 5 else ''}, so "
+                           "it isn't in any commit. Move it out of the platform folders or stop ignoring it and "
+                           "commit it, then deploy.", kind="dirty")
+        if not self._catalog().call("whoami").get("admin"):  # type: ignore[attr-defined]
+            raise GitError("Only platform admins deploy platform definitions.", kind="denied")
+        envs, clients, cat_env = self._deployed_envs()
+        ticked = {(str(x.get("kind")), str(x.get("id"))) for x in remove or []}
+        note = f"Deployed from the platform repository at commit {st['commit'][:12]}"
+        # What the commit holds, read from Git itself: exactly what the note says was deployed.
+        git = platform_files.read_repo(r.root, platform_files.committed_files(r, st["commit"]))
+        p = platform_files.plan(git, envs, cat_env, ticked, note)
+        out = {**p, "commit": st["commit"], "catalog_env": cat_env, "labels": platform_files.LABELS}
+        if p["stops"] or confirm != p["plan_id"]:
+            return out | {"needs_confirm": not p["stops"], "done": []}
+        done = []
+        for step in p["steps"]:
+            client = clients[step["env"] or cat_env]
+            try:
+                res = client.call(step["op"], **step["args"])
+                if step["op"] == "adopt_sources" and res.get("conflicts"):  # reported, not raised: stop here
+                    raise GitError("; ".join(res["conflicts"]), kind="invalid")
+            except Exception as exc:  # noqa: BLE001 - stop at the first refusal and say where
+                return out | {"done": done, "failed": step, "message": str(exc), "total": len(p["steps"])}
+            done.append(step)
+        return out | {"done": done, "deployed": True}
 
     # ---- the work that talks to a remote (background)
 
@@ -241,8 +426,10 @@ class GitMixin:
                 rel = p.relative_to(repo.root).as_posix()
                 state = next((e["state"] for group in ("conflicts", "staged", "unstaged", "untracked")
                               for e in st[group] if e["path"] == rel), None)
+                kind = scopes.read_kind(repo.root)
                 return {"repo": str(repo.root), "name": repo.root.name, "branch": st["branch"], "path": rel,
-                        "state": state, "changed": st["changed"]}
+                        "state": state, "changed": st["changed"], "kind": kind,
+                        "wrong_place": scopes.wrong_place(kind, "notebooks") if rel.endswith(".ipynb") else None}
         return None
 
     def git_notebook_info(self, name: str) -> dict[str, Any] | None:

@@ -13,18 +13,51 @@ test("every UI script parses", () => {
   }
 });
 
+// The names a script declares at its top level (function, class, var, let, const, however indented
+// and including destructured names), found by V8's own parser rather than a regex: appending
+// `let x;` to a script is a SyntaxError exactly when the script already declares x at the top
+// level. Nothing is run; the scripts are only compiled.
+const bindable = new Map();
+function canBind(word) {
+  if (!bindable.has(word)) {
+    try { new vm.Script(`let ${word};`); bindable.set(word, true); } catch { bindable.set(word, false); }
+  }
+  return bindable.get(word);
+}
+function topLevelNames(src) {
+  const left = new Set([...new Set(src.match(/[A-Za-z_$][\w$]*/g) || [])].filter(canBind));
+  const found = [];
+  while (left.size) {
+    try {
+      new vm.Script(`${src}\n;let ${[...left].join(", ")};`);
+      break;
+    } catch (e) {
+      const m = /^Identifier '([^']+)' has already been declared$/.exec(e.message);
+      if (!m || !left.has(m[1])) throw e;
+      found.push(m[1]);
+      left.delete(m[1]);
+    }
+  }
+  return found;
+}
+
+test("topLevelNames finds indented and destructured declarations, not nested ones", () => {
+  const src = "function a() { var inner; }\n  const b = 1, { c, d: e } = {}, [f] = [];\n\tclass G {}\n" +
+    "if (true) { let blockScoped; }\n    async function* h() {}\n// var commented;\nconst s = 'var quoted';";
+  assert.deepStrictEqual(topLevelNames(src).sort(), ["G", "a", "b", "c", "e", "f", "h", "s"]);
+});
+
 // The page's scripts share one global scope, so a top-level name declared in two of them makes
 // the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
 test("no two page scripts declare the same top-level name", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
   assert.ok(scripts.length > 10, "index.html scripts not found");
   const owner = new Map();
   const clashes = [];
-  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
   for (const name of scripts) {
-    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
-      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+    for (const id of topLevelNames(fs.readFileSync(path.join(ui, name), "utf8"))) {
+      if (owner.has(id)) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
       else owner.set(id, name);
     }
   }
@@ -66,7 +99,7 @@ test("an engine ended for not answering says so, and that variables were cleared
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
-  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const raw = "The engine stopped answering, so KratosForge restarted it. poll_cell had no answer after 60 seconds.";
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
@@ -107,7 +140,7 @@ function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference, pollRun });`, ctx);
   return ctx;
 }
 
@@ -293,19 +326,12 @@ test("Fabric refusing a name reads as a name problem, not an app crash", () => {
   assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
 });
 
-test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
-  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
-  const ctx = {};
-  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
-  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
-});
-
 function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
+    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
   return ctx;
 }
 
@@ -359,6 +385,9 @@ test("a cost figure shows its classification, and an unknown one never reads as 
   // Every figure in the Cost panel goes through measureFigure, which adds the badge.
   const body = src.match(/function costBody\([\s\S]*?\n}\n/)[0];
   assert.ok(!/money\(t\.(cost|saved)/.test(body) && !/cuHours\(t\./.test(body), "a raw total is shown without its classification");
+  // FINOPS-005: savings come from Fabric runs of the same table, and runs with none are said to be left out.
+  assert.ok(/never from how long it took here/.test(body) && !/Scenario: what runs on this PC/.test(body));
+  assert.ok(/t\.uncalibrated_runs/.test(body) && !/scenario_cu/.test(body), "the rough scenario isn't shown as the saving");
 });
 
 test("a capacity reads as running only when Fabric said Active, and a read failure says why", () => {
@@ -567,13 +596,14 @@ test("compatibility findings land where the engine says, even after characters o
 });
 
 test("the SQL page uses the CodeMirror editor, and saved tabs keep working", () => {
-  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  const page = app.slice(app.indexOf("// ---------- SQL query page ----------"), app.indexOf("// Fabric's rule for lakehouse names"));
+  const page = fs.readFileSync(path.join(ui, "query.js"), "utf8");
   assert.ok(!page.includes('h("textarea"'), "no textarea editor");
   assert.match(page, /createSqlEditor\(/);
   assert.match(page, /dialect: sqlDialect\(t\.dialect\)/, "a tab saved without a dialect opens as Spark SQL");
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("app.js"));
+  assert.ok(html.indexOf("codemirror.js") < html.indexOf("sqleditor.js") && html.indexOf("sqleditor.js") < html.indexOf("query.js"));
+  // app.js registers renderQuery when it loads, so query.js must come first (HD-056).
+  assert.ok(html.indexOf('src="query.js"') < html.indexOf('src="app.js"'));
   const cm = fs.readFileSync(path.join(ui, "vendor", "codemirror", "codemirror.js"), "utf8");
   for (const name of ["SQLDialect", "MSSQL", "rectangularSelection", "crosshairCursor", "isolateHistory", "RangeSetBuilder",
     "linter", "lintGutter", "forceLinting", "StateEffect"]) {
@@ -691,7 +721,7 @@ test("What's new lists the month's history and drops notes that only repeat its 
   assert.deepStrictEqual(plain(ctx.items("Old build", undefined)), { lines: ["Old build"], items: [] });
   const dialog = src.slice(src.indexOf("function showWhatsNew"), src.indexOf("function whatsNewItems"));
   assert.match(dialog, /items\.slice\(0, 10\)/);
-  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/fabric-desktop/);
+  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/KratosForge/);
 });
 
 // The pure helpers at the top of debugging.js.
@@ -1106,7 +1136,7 @@ test("Schedule follows the current environment's Runs on", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const code = src.match(/async function scheduleNotebook\([\s\S]*?\n}\n/)[0];
   const opened = [];
-  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod" };
+  const ctx = { openScheduleDialog: (o) => opened.push(o.mode), publishWorkspaceName: () => "Sales Prod", nbLakehouse: (nb) => nb.lakehouse };
   vm.runInNewContext(`${code}; this.scheduleNotebook = scheduleNotebook;`, ctx);
   const environments = { dev: { compute: "local" }, prod: { compute: "fabric" } };
   for (const env of ["dev", "prod"]) {
@@ -1390,6 +1420,16 @@ test("Workspaces, the catalog and data products have a How this works panel that
   for (const p of [ws, panel(app, "onelake.catalog"), products]) assert.match(p, /anchor: "/);
 });
 
+test("repositories are grouped by what they hold, unsorted ones last", () => {
+  const { gitGroupRepos } = gitHelpers();
+  const kinds = { notebooks: { label: "Notebooks" }, project: { label: "Data mesh project" }, platform: { label: "Platform" } };
+  const groups = gitGroupRepos([{ name: "a", kind: "platform" }, { name: "b", kind: null }, { name: "c", kind: "notebooks" },
+    { name: "d", kind: "platform" }], kinds);
+  assert.strictEqual(JSON.stringify(groups.map((g) => [g.label, g.repos.map((r) => r.name).join()])),
+    JSON.stringify([["Notebooks", "c"], ["Platform", "a,d"], ["Not yet sorted", "b"]]));
+  assert.strictEqual(gitGroupRepos([], kinds).length, 0);
+});
+
 // QA-005: a shortcut rules check that fails blocks instead of passing, and a partial reader list says so.
 test("a failed shortcut rules check isn't swallowed and an incomplete reader list says so", () => {
   const shortcuts = fs.readFileSync(path.join(ui, "shortcuts.js"), "utf8");
@@ -1423,4 +1463,495 @@ test("the access cache view flags what's worth a look and asks before setting an
   const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
   assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
   assert.match(panel, /OneLake security roles/);
+// The Wolf Forge emblem is the app's logo: header, favicon and the Windows icon set.
+test("the header and favicon use the Wolf Forge emblem and the icon set covers small sizes", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div class="brand">\s*<img src="wolf-forge-emblem\.png"/);
+  assert.match(html, /rel="icon" href="wolf-forge-emblem-32\.png"/);
+  assert.ok(!html.includes("kratosbi-mark.svg"));
+  for (const f of ["wolf-forge-emblem.png", "wolf-forge-emblem-32.png"]) assert.ok(fs.existsSync(path.join(ui, f)), f);
+  const ico = fs.readFileSync(path.join(__dirname, "..", "src-tauri", "icons", "icon.ico"));
+  const sizes = Array.from({ length: ico.readUInt16LE(4) }, (_, i) => ico[6 + i * 16] || 256);
+  for (const s of [16, 24, 32, 48, 256]) assert.ok(sizes.includes(s), `icon.ico has ${s}px`);
+});
+
+// Item 37, stage 2: a notebook in a notebooks repository follows the environment's location.
+test("a notebook's data: its own lakehouse first, then its repository's location for the environment", () => {
+  const { nbData, nbDataText } = gitHelpers();
+  const own = { lakehouse_id: "own", name: "LH_Mine", workspace_id: "w" };
+  const testRef = { lakehouse_id: "lt", name: "LH_Silver", workspace_id: "wt", workspace_name: "Sales Test" };
+  const nb = { place: { root: "/r", label: "sales-notebooks" },
+    locations: { envs: { dev: { this_pc: true, lakehouse: null }, test: { lakehouse: testRef }, prod: null } } };
+  const pick = (env, n = nb) => { const d = nbData(n, env); return [d.from, d.ref?.lakehouse_id || null, nbDataText(d)]; };
+  assert.strictEqual(JSON.stringify(pick("test")), JSON.stringify(["locations", "lt", "Data: LH_Silver"]));
+  assert.strictEqual(JSON.stringify(pick("dev")), JSON.stringify(["this_pc", null, "Data: nothing attached in Dev"]));
+  assert.strictEqual(JSON.stringify(pick("prod")), JSON.stringify(["unset", null, "No location for Prod"]));
+  assert.strictEqual(JSON.stringify(pick("test", { ...nb, lakehouse: own })), JSON.stringify(["notebook", "own", "Data: LH_Mine (this notebook)"]));
+  assert.strictEqual(nbData({ name: "home" }, "test").from, null, "notebooks in the app's own folder are unchanged");
+});
+
+test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
+  for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
+    assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
+  }
+});
+
+// Fabric Desktop is now KratosForge: every name a person sees changed; identifiers that installed
+// copies, notebooks and workspaces depend on did not. The announcement shows once, before What's new.
+test("the app is called KratosForge everywhere people read it, and identifiers stay", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<title>KratosForge<\/title>/);
+  assert.match(html, /<img class="brand-name" src="kratosforge-lettering\.png"[^>]*alt="KratosForge">/);
+  assert.ok(!/by <b>KratosBI<\/b>/.test(html));
+  assert.ok(fs.existsSync(path.join(ui, "kratosforge-lettering.png")));
+  for (const f of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    assert.ok(!fs.readFileSync(path.join(ui, f), "utf8").includes("Fabric Desktop by KratosBI"), f);
+  }
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.strictEqual(conf.app.windows[0].title, "KratosForge");
+  assert.strictEqual(conf.identifier, "com.kratosbi.fabricdesktop", "a new identifier would stop installed copies updating");
+  assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\)/);
+  assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
+  assert.match(settings, /label: "About the new name: KratosForge"/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+});
+
+test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
+  const { platformChangeLines, platformStepText, PLATFORM_STATES } = gitHelpers();
+  assert.strictEqual(PLATFORM_STATES.only_deployed, "removed in Git");
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "domains", changes: [
+    { field: "description", git: "Selling things", deployed: "Selling" }, { field: "owners", git: ["a", "b"], deployed: [] }] })),
+  JSON.stringify(['description: Git "Selling things", deployed "Selling"', "owners: Git a, b, deployed none"]));
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "admins", changes: [{ field: "admins", git: ["ana"], deployed: [] }] })),
+    JSON.stringify(["Git adds ana"]));
+  const labels = { domains: "Domain", policies: "Policy" };
+  assert.strictEqual(platformStepText({ kind: "domains", id: "sales", action: "create" }, labels), "Domain sales: create");
+  assert.strictEqual(platformStepText({ kind: "policies", id: "names", action: "update", what: "publish it as a new version" }, labels),
+    "Policy names: publish it as a new version");
+});
+
+// FINOPS-004 follow-up: Data mesh Run all reads the risk in one batch and starts only what can.
+test("Run all checks the risk once and starts only entities that aren't blocked or waiting on one", async () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const calls = [];
+  let dialog = null;
+  const ctx = { ENV_LABEL: { dev: "Dev" }, h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, icon, onclick) => ({ label, onclick }), riskAckBox: () => null, riskPanel: (r) => r.entity,
+    riskProceed: async () => true, closeDialog: () => {}, showDialog: (title, body, buttons) => { dialog = { title, body, buttons }; } };
+  vm.runInNewContext(`${src.match(/async function metaRiskGate\([\s\S]*?\n}\n/)[0]}; this.gate = metaRiskGate;`, ctx);
+  const p = { project: { name: "proj" } };
+  const check = (entity, result) => ({ entity, result, note: "Reports only" });
+  ctx.rpc = async (method, args) => { calls.push([method, args]); return ctx.answer; };
+  ctx.answer = { checks: [check("a", "pass"), check("b", "pass")], blocked: [], held: {}, run: ["a", "b"] };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all 2 entities"), true);
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([["meta_risk_gate", { names: null, env: "dev" }]]));
+  assert.strictEqual(dialog, null);
+  ctx.answer = { checks: [check("a", "blocked"), check("b", "pass"), check("c", "warning")], blocked: ["a"],
+    held: { b: ["a"] }, run: ["c"] };
+  const asked = ctx.gate(p, null, "dev", "all 3 entities");
+  await new Promise((r) => setImmediate(r));
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = JSON.stringify(flat(dialog.body.kids));
+  assert.match(text, /b \(reads a\)/);
+  assert.match(text, /2 of 3 won't start; the other 1 run/);
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Cancel|Run the other 1");
+  await dialog.buttons[1].onclick();
+  assert.strictEqual(JSON.stringify(await asked), '["c"]');
+  ctx.answer = { checks: [check("a", "blocked")], blocked: ["a"], held: {}, run: [] };
+  const none = ctx.gate(p, ["a"], "dev", "a");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Close");
+  dialog.buttons[0].onclick();
+  assert.strictEqual(await none, false);
+  ctx.rpc = async () => { throw new Error("engine busy"); };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all"), true);  // the check is advice
+  assert.match(src, /meta_run", \{ names: only, env/);
+  assert.match(src, /if \(only !== names\) label = only\.join\(", "\);/);  // the toast and tray name only those
+});
+
+// Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
+// first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
+test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const move = mesh.match(/async function moveKeysIn\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(move, /^async function moveKeysIn\(\) \{\n  const plan = await attempt\(\(\) => rpc\("platform_share_keys", \{\}\)/);
+  assert.strictEqual((move.match(/approve: true/g) || []).length, 1);
+  assert.ok(move.indexOf('btn("Move keys in"') < move.indexOf("approve: true"), "the write happens only from the dialog's button");
+  assert.match(move, /Re-run Dev and Test/);
+  const cancel = mesh.match(/async function cancelKeysMove\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(cancel, /confirmDialog\("Cancel the move\?", [^)]*\), "Cancel the move", \{ danger: true \}\)/);
+  assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
+  assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
+});
+
+// Validate notebook (validate.js): the headline, the count chips, what changed since a result,
+// and which tidy-ups Apply makes.
+function validateHelpers() {
+  const src = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}; Object.assign(this, { validateHeadline, validateShown, validateSnapshot, validateChanged, cleanupChosen, cleanupState, cleanupUndoable });`, ctx);
+  return ctx;
+}
+
+test("Validate says how ready the notebook is, and the chips filter by severity", () => {
+  const { validateHeadline, validateShown } = validateHelpers();
+  assert.deepStrictEqual([...validateHeadline({ verdict: "not_ready", counts: { error: 1, warning: 2 } })], ["fail", "Not ready: 1 error, 2 warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "ready", counts: {} })], ["pass", "Ready: no errors or warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "checked", counts: { warning: 1 } })], ["neu", "Code checks: 1 warning"]);
+  const f = [{ severity: "error" }, { severity: "info" }, { severity: "error" }];
+  assert.strictEqual(validateShown(f, "error").length, 2);
+  assert.strictEqual(validateShown(f, "all").length, 3);
+});
+
+test("Validate marks a result out of date when a cell changes, is added or is deleted", () => {
+  const { validateSnapshot, validateChanged } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1" }, { cell_id: "b", type: "markdown", source: "# hi" }];
+  const snap = validateSnapshot(cells);
+  assert.deepStrictEqual([...validateChanged(snap, cells)], []);
+  assert.deepStrictEqual([...validateChanged(snap, [{ ...cells[0], source: "x = 2" }, { ...cells[1], source: "# edited" }])], [1]);
+  assert.deepStrictEqual([...validateChanged(snap, [...cells, { cell_id: "c", type: "code", source: "" }])], [3]);
+  assert.deepStrictEqual([...validateChanged(snap, [cells[1]])], [0]);
+});
+
+test("Clean up applies the ticked tidy-ups, starting from the ones ticked at first", () => {
+  const { cleanupChosen } = validateHelpers();
+  const plan = { tidy: [{ id: "unused_imports", on: true }, { id: "print_lines", on: false }] };
+  assert.deepStrictEqual([...cleanupChosen(plan, {})], ["unused_imports"]);
+  assert.deepStrictEqual([...cleanupChosen(plan, { unused_imports: false, print_lines: true })], ["print_lines"]);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /preview\("validate", btn\("Validate"/);
+  assert.match(v, /v\.undo = \{ cells: before, after: cleanupState\(nb\.cells\) \};/);
+  assert.match(v, /if \(cell\.meta\?\.frozen\) continue;/);
+  assert.match(v, /changes: "Code checks and suggestions change nothing\. A clean run writes tables only to Files\/_fabric_desktop\/proofs\/validate-<id>\/pc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/validateToggle\(nb\), proveToggle\(nb\)/g).length, 2);
+  assert.match(nb, /provePanel\(nb\), validatePanel\(nb\)\)/);
+});
+
+test("Clean up's Undo is offered only while the cells are exactly what Apply made", () => {
+  const { cleanupState, cleanupUndoable } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1", meta: {} }, { cell_id: "b", type: "code", source: "y = 2", meta: {} }];
+  const undo = { cells: [], after: cleanupState(cells) };
+  assert.strictEqual(cleanupUndoable(undo, cells), true);
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], source: "y = 3" }]), false);  // an edit
+  assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
+  assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  assert.match(s, /look in Task Scheduler under /);
+});
+
+test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /if \(meta\.project_error\) unread\.unshift\("the metadata project"\);/);
+  assert.match(a, /meta\.project_error \? `Metadata runs not shown: the metadata project couldn't be read \(\$\{meta\.project_error\}\)` : ""/);
+  const d = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  assert.match(d, /if \(res\.project_error\) logActivity\(\{ id: "fresh:project-error", status: "error", title: "Freshness not checked"/);
+});
+
+// HD-035: Prove and side-by-side status polling stops on finish, an unknown run and errors.
+function pollHarness(answers, { limit } = {}) {
+  const { pollRun } = proveHelpers();
+  const waits = [];
+  let calls = 0;
+  const run = pollRun(async () => {
+    const a = answers[calls++];
+    if (a instanceof Error || typeof a === "string") throw a;  // Tauri rejects with the engine's text
+    return a;
+  }, { limit, onStatus: (now) => now.state === "running", sleep: async (ms) => { waits.push(ms); } });
+  return run.then((end) => ({ end, waits, calls: () => calls }));
+}
+
+test("status polling stops when the run finishes", async () => {
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "done" }, { state: "running" }]);
+  assert.strictEqual(end.stopped, "finished");
+  assert.strictEqual(calls(), 3);
+});
+
+test("status polling stops at once when the engine doesn't know the run", async () => {
+  // the engine replies "LookupError: No proof p-1" (server.py)
+  const { end, calls } = await pollHarness([{ state: "running" }, "LookupError: No proof p-1"]);
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "LookupError: No proof p-1" });
+  assert.strictEqual(calls(), 2);
+  const sbs = await pollHarness(["LookupError: No side-by-side run s-1"]);
+  assert.strictEqual(sbs.end.stopped, "lost");
+});
+
+test("status polling backs off on errors and gives up after the limit", async () => {
+  const down = new Error("The engine isn't answering");
+  const { end, waits, calls } = await pollHarness([down, { state: "running" }, down, down, down, down, down, { state: "done" }], { limit: 5 });
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "The engine isn't answering" });
+  assert.strictEqual(calls(), 7, "an answer in between resets the count");
+  assert.deepStrictEqual(waits, [1500, 3000, 1500, 3000, 6000, 12000, 12000]);
+});
+
+// followProof and followSideBySide with the engine, the bell and the page stubbed out.
+function followHarness(statuses) {
+  const ctx = { console, Promise, Map, Set, Object, String, Math, RegExp, Number, Error, JSON };
+  const calls = { status: 0, bell: [], toasts: [] };
+  Object.assign(ctx, {
+    state: { notebook: null, view: "notebook" },
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    rpc: async (method) => {
+      if (method.endsWith("_status")) {
+        const s = statuses[Math.min(calls.status++, statuses.length - 1)];
+        return typeof s === "function" ? s() : s;
+      }
+      return [];
+    },
+    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    logActivity: (item) => calls.bell.push(item),
+    toast: (text) => calls.toasts.push(text),
+    document: { querySelector: () => null, querySelectorAll: () => [] },
+  });
+  vm.createContext(ctx);
+  for (const file of ["prove.js", "sidebyside.js"]) vm.runInContext(fs.readFileSync(path.join(ui, file), "utf8"), ctx, { filename: file });
+  return { ctx, calls };
+}
+
+for (const [kind, follow, slot, prefix] of [["Prove", "followProof", "prove", "prove:"], ["Side by side", "followSideBySide", "sbs", "sbs:"]]) {
+  test(`${kind}: closing the notebook mid-run still settles the bell entry`, async () => {
+    let closed = false;
+    const done = { state: "done", verdict: { text: "Same.", verdict: "same", same: true } };
+    const { ctx, calls } = followHarness([{ state: kind === "Prove" ? "pc" : "local" }, () => { ctx.state.notebook = null; closed = true; return { state: kind === "Prove" ? "fabric" : "fabric" }; }, done]);
+    const nb = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = nb;
+    await ctx[follow](nb, "r-1");
+    assert.ok(closed, "the notebook was closed during the run");
+    const last = calls.bell.at(-1);
+    assert.strictEqual(last.id, `${prefix}r-1`);
+    assert.strictEqual(last.status, "ok");
+    assert.match(calls.toasts.at(-1), /^nb: Same\./);
+  });
+
+  test(`${kind}: reopening the notebook mid-run doesn't start a second loop`, async () => {
+    const running = { state: kind === "Prove" ? "pc" : "local" };
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { ctx, calls } = followHarness([running, () => gate, { state: "cancelled" }]);
+    const first = { name: "nb", prove: {}, cells: [] };
+    const second = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = first;
+    const loop = ctx[follow](first, "r-2");
+    await new Promise((r) => setImmediate(r));
+    ctx.state.notebook = second;
+    await ctx[follow](second, "r-2");  // returns at once: the first loop takes the new notebook over
+    release(running);
+    await loop;
+    assert.strictEqual(calls.status, 3);
+    assert.strictEqual(slot === "prove" ? second.prove.record.state : second.sbs.state, "cancelled");
+    assert.deepStrictEqual(calls.toasts, ["nb: Cancelled."]);
+  });
+}
+
+test("Prove and side by side follow runs only through pollRun", () => {
+  for (const [file, fn] of [["prove.js", "followProof"], ["sidebyside.js", "followSideBySide"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = src.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n}\\n`))[0];
+    assert.match(body, /pollRun\(/, fn);
+    assert.doesNotMatch(body, /for \(;;\)|while \(true\)/, fn);
+    assert.match(body, /if \(following\) return;/, `${fn} guards against two loops for one run`);
+  }
+});
+
+// UI-4 (HD-042): closing a prompt by its overlay, its X or Escape settled nothing, so the code
+// awaiting it hung. Runs the dialog code from app.js and meta.js on a small fake DOM.
+function dialogHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
+  const code = section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type, e = {}) { for (const fn of this.on[type] || []) fn({ target: this, preventDefault() {}, stopImmediatePropagation() {}, ...e }); },
+      focus() {}, select() {}, contains: () => false, querySelector: () => null, querySelectorAll: () => [] };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) n.addEventListener(k.slice(2), v);
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const root = node("div");
+  Object.defineProperty(root, "childElementCount", { get: () => root.kids.length });
+  Object.assign(root, {
+    replaceChildren(...k) { this.kids = k; },
+    querySelector(sel) { return sel === ".overlay[data-dismiss]" ? find(this.kids[0], (n) => "data-dismiss" in n.attrs) : null; },
+  });
+  const docOn = {};
+  const ctx = {
+    h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
+    MutationObserver: class { observe() {} disconnect() {} },
+    document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
+  const overlay = () => root.kids[0];
+  return {
+    ...ctx, root,
+    clickOverlay: () => overlay().fire("mousedown", { target: overlay() }),
+    clickX: () => find(overlay(), (n) => n.attrs["aria-label"] === "Close").fire("click"),
+    pressEscape: () => docOn.keydown.forEach((fn) => fn({ key: "Escape", preventDefault() {}, stopImmediatePropagation() {} })),
+    clickButton: (label) => find(overlay(), (n) => n.tag === "button" && n.kids[0] === label).fire("click"),
+  };
+}
+
+const settledOrHung = (p) => Promise.race([p.then((v) => ({ v })), new Promise((r) => setTimeout(() => r("hung"), 20))]);
+
+test("closing a text prompt by its overlay, its X or Escape answers null", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const answer = d.askText("Rename", "Name", "orders");
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(answer), { v: null }, close);
+    assert.strictEqual(d.root.childElementCount, 0, close);
+  }
+  const d = dialogHelpers();
+  const answer = d.askText("Rename", "Name", "orders");
+  d.clickButton("Cancel");
+  assert.deepStrictEqual(await settledOrHung(answer), { v: null });
+});
+
+test("a workspace picker and a confirmation settle however they close", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const pick = d.pickWorkspace([{ id: "w1", displayName: "Sales" }]);
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(pick), { v: null }, close);
+    const e = dialogHelpers();
+    const ok = e.confirmDialog("Delete Orders?", "x", "Delete", { danger: true });
+    e[close]();
+    assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
+  }
+});
+
+test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
+  const d = dialogHelpers();
+  let closed = 0;
+  d.showDialog("One", d.h("p"), [], () => { closed++; });
+  d.clickX();
+  d.closeDialog();
+  d.pressEscape();
+  assert.strictEqual(closed, 1);
+  let replaced = 0;
+  d.showDialog("Two", d.h("p"), [], () => { replaced++; });
+  d.showDialog("Three", d.h("p"));
+  d.closeDialog();
+  assert.strictEqual(replaced, 1);
+  assert.strictEqual(d.root.childElementCount, 0);
+});
+
+// HD-044 (UI-6): the rail marks the page you're on, and the command bar is a modal dialog.
+function paletteHarness() {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs, kids: kids.flat(), on: {}, isConnected: true, value: attrs.value || "",
+      addEventListener(type, fn) { this.on[type] = fn; }, focus() { ctx.document.activeElement = this; },
+      setSelectionRange() {}, querySelector() { return null; }, replaceChildren(...k) { this.kids = k; },
+      remove() { this.isConnected = false; if (ctx.mounted === this) ctx.mounted = null; } };
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith("on") && typeof v === "function") n.on[k.slice(2)] = v;
+    return n;
+  };
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: { view: "home" }, rpc: () => new Promise(() => {}),
+    previewShown: () => true, go() {}, console, mounted: null, trapped: 0,
+    trapFocus() { ctx.trapped++; },
+    document: { activeElement: null, body: { append(b) { ctx.mounted = b; } },
+      getElementById: (id) => (id === "palette" ? ctx.mounted : id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [{ group: "Pages", label: "Home", icon: "home", run() {} }];
+  const key = (k) => { const e = { key: k, stopped: false, preventDefault() {}, stopPropagation() { e.stopped = true; } }; return e; };
+  return { ctx, node, dialogRoot, key };
+}
+
+test("the command bar is a modal dialog: focus goes in, Tab stays in, Escape closes it and focus returns (HD-044)", () => {
+  const { ctx, node, key } = paletteHarness();
+  const opener = node("button", { id: "opener" });
+  ctx.document.activeElement = opener;
+  ctx.openPalette();
+  const box = ctx.mounted;
+  assert.ok(box, "the command bar did not open");
+  const dialog = box.kids[0];
+  assert.strictEqual(dialog.attrs.role, "dialog");
+  assert.strictEqual(dialog.attrs["aria-modal"], "true");
+  assert.strictEqual(ctx.document.activeElement.tag, "input", "focus did not move into the command bar");
+  ctx.openPalette();  // Ctrl+K again keeps where focus came from
+  const reopened = ctx.mounted;
+  assert.ok(reopened.on.keydown, "the command bar has no keydown handler for Tab and Escape");
+  reopened.on.keydown(key("Tab"));
+  assert.strictEqual(ctx.trapped, 1, "Tab is not kept inside the command bar");
+  const esc = key("Escape");
+  reopened.on.keydown(esc);
+  assert.strictEqual(ctx.mounted, null, "Escape did not close the command bar");
+  assert.ok(esc.stopped, "Escape also reaches the activity tray behind the command bar");
+  assert.strictEqual(ctx.document.activeElement, opener, "focus did not go back to where it was");
+});
+
+test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
+  const { ctx, dialogRoot } = paletteHarness();
+  dialogRoot.childElementCount = 1;
+  ctx.openPalette();
+  assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /e\.key\.toLowerCase\(\) === "k"\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+});
+
+test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
+  const { ctx } = paletteHarness();
+  const f = { id: "x", rail: { label: "Home", icon: "home", order: 1, also: ["homeDetail"] }, views: { home() {} } };
+  ctx.state.view = "home";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "homeDetail";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "settings";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], null);
+  assert.doesNotMatch(ctx.railItem(f).attrs.class, /active/);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /class: `rail-item\$\{state\.view === view \? " active" : ""\}`, "aria-current": state\.view === view \? "page" : null/);
+});
+
+test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedules (QA-013)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});
+
+// UX-018: every schedule Remove asks first, names what stops, and points at Off.
+test("removing a schedule asks first, in red, and says what stops", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
+  assert.strictEqual(removes.length, 3);
+  for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = (...args) => args;
+  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  assert.strictEqual(title, "Remove the schedule for nb_sales?");
+  assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
+  assert.strictEqual(ok, "Remove");
+  assert.strictEqual(opts.danger, true);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });

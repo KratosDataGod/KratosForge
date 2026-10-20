@@ -6,7 +6,7 @@ const SOURCE_TEXT = {
   policy: "Set by your organization",
   environment: "Set on this PC (FABRIC_DESKTOP_CLIENT_ID)",
   user: "Set by you",
-  built_in: "Comes with Fabric Desktop by KratosBI",
+  built_in: "Comes with KratosForge",
   default: "Default",
 };
 // When sign-in isn't Microsoft's own, people see that app's name, publisher and consent prompt instead,
@@ -14,7 +14,7 @@ const SOURCE_TEXT = {
 function clientIdNote(source) {
   const lead = "Sign-in isn't using Microsoft's Fabric sign-in. Microsoft shows this app's own name and publisher, and may ask you or an admin to approve it.";
   if (source === "policy") return `${lead} Your organization set it, so only they can change it.`;
-  if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart Fabric Desktop by KratosBI and sign in again.`;
+  if (source === "environment") return `${lead} It comes from the FABRIC_DESKTOP_CLIENT_ID setting on this PC. To go back, remove that variable (setx FABRIC_DESKTOP_CLIENT_ID ""), restart KratosForge and sign in again.`;
   if (source === "user") return `${lead} To go back, clear the ID and sign in again.`;
   if (source === "built_in") return `${lead} It came with this build.`;
   return null;
@@ -59,7 +59,7 @@ function openLink(url) {
 // ---------- sign-out ----------
 
 async function signOut() {
-  if (!(await confirmDialog("Sign out?", "Fabric Desktop by KratosBI forgets your sign-in on this PC, in the app and in the Fabric views. " +
+  if (!(await confirmDialog("Sign out?", "KratosForge forgets your sign-in on this PC, in the app and in the Fabric views. " +
     "Scheduled runs on this PC wait until someone signs in again. Notebooks and settings stay.", "Sign out"))) return;
   await attempt(() => rpc("sign_out"), "Sign-out failed");
   await invoke("fabric_view_sign_out").catch(() => {});
@@ -80,7 +80,7 @@ function accountMenu(anchor) {
     { label: "Help and user guide", icon: "help", action: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
     { label: "Report a problem", icon: "bug", action: reportProblem },
     { label: "What's new", icon: "rocket", action: () => showWhatsNew(true) },
-    { info: `Fabric Desktop by KratosBI build ${state.build || "unknown"} · ${channelLabel()}` },
+    { info: `KratosForge build ${state.build || "unknown"} · ${channelLabel()}` },
   );
   if (state.user) items.push({ label: "Sign out", icon: "signOut", action: signOut });
   showMenu(anchor, items);
@@ -102,7 +102,8 @@ function redactReport(text, level = "support") {
     .replace(/(\bbearer\s+)[A-Za-z0-9._~+/=\-]{8,}/gi, "$1[removed]")
     .replace(/([?&]sig=)[^&\s"'<>]+/gi, "$1[removed]")
     .replace(/(\b[a-z][a-z0-9+.\-]*:\/\/)[^/\s:@"'<>]+:[^@/\s"'<>]+@/gi, "$1[removed]@")
-    .replace(/https:\/\/[A-Za-z0-9.\-]+\.webhook\.office\.com\/[^\s"'<>]+/g, "[removed]")
+    .replace(/https:\/\/(?:[A-Za-z0-9.\-]+\.webhook\.office\.com\/|outlook\.office(?:365)?\.com\/webhook(?:b2)?\/)[^\s"'<>]+/gi, "[removed]")
+    .replace(/\/webhook(?:b2)?\/[^\s"'<>/]+@[^\s"'<>/]+\/IncomingWebhook\/[^\s"'<>]+/gi, "[removed]")
     .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b/g, "[removed]")
     .replace(/(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])/g, "[removed]")
     .replace(/\bAKIA[0-9A-Z]{16}\b/g, "[removed]")
@@ -119,7 +120,7 @@ function redactReport(text, level = "support") {
 function diagnostics() {
   const errors = activity.items.filter((i) => i.status === "error" || i.status === "failed").slice(0, 10);
   return [
-    `Fabric Desktop by KratosBI build: ${state.build || "unknown"} (${channelLabel()})`,
+    `KratosForge build: ${state.build || "unknown"} (${channelLabel()})`,
     `Engine Python: ${state.python || "unknown"}`,
     `Signed in: ${state.tenant ? "yes" : "no"}`,
     `Page: ${state.view}`,
@@ -140,10 +141,10 @@ function reportProblem() {
     if (support.startsWith("mailto:")) {
       // Mail apps cap a link's length; the full text is also on the clipboard.
       await copyText(text, "Report");
-      openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("Fabric Desktop by KratosBI problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
+      openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("KratosForge problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
     } else {
       await copyText(text, "Report");
-      openLink(support || "https://github.com/KratosDataGod/fabric-desktop/issues/new");
+      openLink(support || "https://github.com/KratosDataGod/KratosForge/issues/new");
     }
     closeDialog();
   };
@@ -170,7 +171,7 @@ function showWhatsNew(asked = false) {
   if (!asked && (!notes || !state.commit || seen === state.commit)) return;
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
   const { lines, items } = whatsNewItems(notes, release?.history);
-  const repo = "https://github.com/KratosDataGod/fabric-desktop";
+  const repo = "https://github.com/KratosDataGod/KratosForge";
   const day = (d) => {
     const [y, m, dd] = String(d || "").split("-").map(Number);
     return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
@@ -183,13 +184,61 @@ function showWhatsNew(asked = false) {
     list.append(...items.slice(10).map(item));
     more.remove();
   }, "tool link small whatsnew-more") : null;
-  showDialog("What's new in Fabric Desktop by KratosBI", h("div", { class: "setup" },
+  showDialog("What's new in KratosForge", h("div", { class: "setup" },
     lines.length ? h("ul", { class: "whatsnew" }, lines.map((l) => h("li", {}, l))) : null,
     items.length ? [h("b", {}, "New in the last 30 days"), h("div", { class: "whatsnew-scroll" }, list), more] : null,
     !lines.length && !items.length ? h("p", {}, "No notes for this build.") : null,
     h("p", { class: "muted-text small" }, `Build ${state.build || "unknown"} · ${channelLabel()}. `, learnMore("updates", "About updates"),
-      " · ", h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); openLink(repo); } }, "Fabric Desktop on GitHub"))),
+      " · ", h("a", { href: "#", class: "learn-more", onclick: (e) => { e.preventDefault(); openLink(repo); } }, "KratosForge on GitHub"))),
   [btn("Got it", null, closeDialog, "tool primary")]);
+}
+
+// ---------- The new name ----------
+
+// Fabric Desktop became KratosForge. The first start after that update shows a full-window
+// announcement, once; then() runs when it closes (What's new waits behind it). From the command
+// palette, whenever asked. Button, Escape or Enter closes it; with reduced motion nothing moves.
+const RENAME_SEEN = "fd.rename.kratosforge.seen";
+
+function showRenameSplash(then = () => {}, asked = false) {
+  let seen = false;
+  try { seen = localStorage.getItem(RENAME_SEEN) === "1"; } catch { /* show it */ }
+  if (seen && !asked) { then(); return false; }
+  try { localStorage.setItem(RENAME_SEEN, "1"); } catch { /* shown again next start */ }
+  const done = () => { closeDialog(); then(); };
+  // Sparks leave the anvil once; embers keep rising behind the name. Spread is fixed, not random,
+  // so every start looks the same.
+  const sparks = Array.from({ length: 14 }, (_, i) => h("span", { class: "splash-spark",
+    style: `--a:${-160 + i * (140 / 13)}deg;--d:${90 + (i * 37) % 70}px;--t:${0.5 + (i % 4) * 0.08}s` }));
+  const embers = Array.from({ length: 26 }, (_, i) => h("span", { class: "splash-ember",
+    style: `--x:${(i * 41) % 100}%;--s:${2 + (i % 3)}px;--dur:${5 + (i * 7) % 6}s;--delay:${-((i * 13) % 50) / 10}s;--drift:${(i % 2 ? 1 : -1) * (10 + (i * 11) % 30)}px` }));
+  const enter = btn("Enter the forge", null, done, "splash-go");
+  const overlay = h("div", { class: "overlay splash", role: "dialog", "aria-modal": "true",
+    "aria-labelledby": "splash-title", "aria-describedby": "splash-text",
+    onkeydown: (e) => {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(); }
+    } },
+    h("div", { class: "splash-embers", "aria-hidden": "true" }, embers),
+    h("div", { class: "splash-stage" },
+      h("div", { class: "splash-anvil", "aria-hidden": "true" },
+        h("span", { class: "splash-ring" }),
+        sparks,
+        h("img", { class: "splash-emblem", src: "wolf-forge-emblem.png", width: 128, height: 128, alt: "" })),
+      h("h1", { id: "splash-title", class: "splash-title" },
+        h("span", { class: "splash-old" }, h("s", {}, "Fabric Desktop"), " is now"),
+        h("img", { class: "splash-letters", src: "kratosforge-lettering.png", width: 800, height: 117, alt: "KratosForge" })),
+      h("p", { class: "splash-tag" }, "Same engine. Same projects. Forged for what's next."),
+      h("p", { id: "splash-text", class: "splash-text" },
+        "Everything you built is where you left it: notebooks, metadata projects, schedules, your sign-in and settings. " +
+        "Only the name and the look changed."),
+      h("div", { class: "splash-actions" }, enter,
+        h("a", { href: "#", class: "splash-link", onclick: (e) => {
+          e.preventDefault();
+          attempt(() => invoke("open_doc", { page: "kratosforge.md" }), "Could not open the guide");
+        } }, "What changed and what didn't"))));
+  document.getElementById("dialog-root").replaceChildren(overlay);
+  enter.focus();
+  return true;
 }
 
 // The build's own notes, unless they only repeat the newest history item (on Preview the notes
@@ -229,7 +278,7 @@ async function renderSettings() {
       state.user ? (state.tenant ? `Directory ${state.tenant}` : "") : "Sign in to see your Fabric workspaces and lakehouses.",
       state.user ? btn("Sign out", "signOut", signOut, "tool outline")
         : btn("Sign in", "person", async () => { if (await signIn()) render(); }, "tool primary")),
-    settingRow("App (client) ID", "Leave it empty: Fabric Desktop by KratosBI signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
+    settingRow("App (client) ID", "Leave it empty: KratosForge signs in through Microsoft's own Fabric sign-in, so nobody has to register an app. Only paste an ID if your organization gave you its own app.",
       h("div", { class: "row" }, idInput,
         locked("client_id") ? null : btn("Save", null, async () => {
           if (await saveSettings({ client_id: idInput.value.trim() })) { toast("Saved. Sign in again to use it."); render(); }
@@ -241,7 +290,7 @@ async function renderSettings() {
         if (await saveSettings({ client_id: "" })) { toast("Saved. Sign in again to use it."); render(); }
       }, "tool outline small") : null) : null,
     s.client_id.source !== "default" ? settingRow("Admin approval",
-      "If sign-in says your organization needs to approve Fabric Desktop by KratosBI, send this link to a Microsoft Entra admin. They open it once for everyone.",
+      "If sign-in says your organization needs to approve KratosForge, send this link to a Microsoft Entra admin. They open it once for everyone.",
       btn("Copy the link", "copyArrowRight", async () => {
         if (!(await copyText(adminConsentUrl(), "Link"))) toast(adminConsentUrl());
       }, "tool outline")) : null);
@@ -249,12 +298,12 @@ async function renderSettings() {
   // Updates
   const channel = (value, label, help) => h("label", { class: `choice-row${s.channel.value === value ? " selected" : ""}` },
     h("input", { type: "radio", name: "channel", value, checked: s.channel.value === value ? true : null, disabled: locked("channel") ? true : null,
-      onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time Fabric Desktop by KratosBI starts`); render(); } } }),
+      onchange: async () => { if (await saveSettings({ channel: value })) { toast(`${label}: takes effect the next time KratosForge starts`); render(); } } }),
     h("span", {}, h("b", {}, label), h("span", { class: "muted-text small" }, help)));
   const updates = h("section", { class: "card pad" }, h("h2", {}, "Updates"),
     h("p", { class: "muted-text small" }, s.auto_update?.value === false
-      ? "Your organization rolls out new builds, so Fabric Desktop by KratosBI doesn't update itself. "
-      : "Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. ",
+      ? "Your organization rolls out new builds, so KratosForge doesn't update itself. "
+      : "KratosForge checks for an update each time it starts and installs it before opening. ",
       `This is build ${state.build || "unknown"}. `, learnMore("updates")),
     h("div", { class: "choices" },
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
@@ -338,7 +387,7 @@ async function renderSettings() {
     btn("Open Platform > Settings", "building", () => goPlatform("settings"), "tool outline"))) : null;
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
-      h("p", { class: "sub" }, "How Fabric Desktop by KratosBI signs in, updates and talks to you. ", learnMore("settings")))),
+      h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
     tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
@@ -410,7 +459,7 @@ async function usageSection(s) {
     settingRow(`Share usage data with ${u.destination === "organization" ? "your organization" : "KratosBI"}`,
       u.available
         ? "Once a day, sends how often each action was used, how often it failed and how long it took, with the build and Windows version. Never your data, code, queries, file, table or workspace names, your account or your organization."
-        : "This build of Fabric Desktop by KratosBI has nowhere to send usage data, so it sends nothing.",
+        : "This build of KratosForge has nowhere to send usage data, so it sends nothing.",
       toggle, locked ? "policy" : null),
     h("dl", { class: "about" },
       h("dt", {}, "Goes to"), h("dd", {}, USAGE_WHERE[u.destination] || "Nowhere"),
@@ -586,7 +635,7 @@ function getStarted(project, notebookCount) {
     [!!state.user, "Sign in with your work account", "So the app can see your Fabric workspaces.", () => signIn().then((ok) => ok && render())],
     [done("lakehouse"), "Open a lakehouse", "Browse its tables and files, or query them with SQL.", () => go("onelake")],
     [notebookCount > 0, "Run a notebook on this PC", "Python and Spark-style code, run on your own processor.", () => newNotebook()],
-    [false, "Set up a metadata project", "Describe your medallion tables once and let Fabric Desktop by KratosBI build and run them.", () => go("metadata")],
+    [false, "Set up a metadata project", "Describe your medallion tables once and let KratosForge build and run them.", () => go("metadata")],
   ];
   const box = h("section", { class: "card pad get-started" },
     h("div", { class: "row" }, h("h2", { class: "grow" }, "Get started"),
@@ -609,6 +658,7 @@ registerFeature({
     { label: "Sign in", icon: "person", keywords: "log in account", run: () => signIn().then((ok) => ok && render()), when: () => !state.user },
     { label: "Report a problem", icon: "bug", keywords: "bug support help feedback", run: reportProblem },
     { label: "What's new", icon: "rocket", keywords: "release notes update changelog", run: () => showWhatsNew(true) },
+    { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
   ],
 });

@@ -28,6 +28,15 @@ function nextRunText(iso) {
   return `${day} ${t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+// UX-018: removing a schedule can't be undone, so say what stops and point at Off.
+// offHere: false where the list has no Off control (the Fabric tab of the schedule dialog).
+function confirmRemoveSchedule(what, text, fabric, offHere = true) {
+  const how = fabric ? "Fabric deletes the schedule and stops starting runs from it."
+    : "Its Windows task is deleted and it stops running on this PC.";
+  return confirmDialog(`Remove the schedule for ${what}?`,
+    `${text}. ${how} Past runs stay where they are. To stop it for a while instead, turn it Off${offHere ? "" : " in Monitor > Schedules"}.`, "Remove", { danger: true });
+}
+
 // Rows for this PC's schedules; actions redraw through `changed`.
 function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
   return rows.map((s) => h("tr", {},
@@ -38,7 +47,8 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
     h("td", {}, s.text),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,
-      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null),
+      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null,
+      s.last?.alert_error ? h("div", { class: "reason" }, s.last.alert_error) : null),
     h("td", { class: "n nowrap" },
       btn("Run now", "play", async () => {
         if (await attempt(() => rpc("run_pc_schedule_now", { schedule_id: s.id }), "Not started")) {
@@ -47,14 +57,15 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
         }
       }, "tool link small"),
       btn("Remove", "delete", async () => {
+        if (!(await confirmRemoveSchedule(s.label, s.text, false))) return;
         if (await attempt(() => rpc("delete_pc_schedule", { schedule_id: s.id }), "Not removed")) changed();
       }, "tool link small"))));
 }
 
-const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with Fabric Desktop by KratosBI closed, while you are signed in to Windows. A run missed while the PC was off starts when it is back.";
+const PC_SCHEDULE_NOTE = "Windows starts these runs on this PC, even with KratosForge closed, while you are signed in to Windows. A run missed while the PC was off starts when it is back.";
 
 // One dialog for a notebook's or an environment's schedules, on this PC or in Fabric.
-//   o.pc = { target, query, intro }   o.fabric = { intro, list(), add(schedule), remove(id), unavailable }
+//   o.what names it in confirms.   o.pc = { target, query, intro }   o.fabric = { intro, list(), add(schedule), remove(id), unavailable }
 async function openScheduleDialog(o) {
   let mode = o.mode === "fabric" && !o.fabric?.unavailable ? "fabric" : "pc";
   const list = h("div", { class: "scroll schedule-list" });
@@ -76,6 +87,7 @@ async function openScheduleDialog(o) {
       h("td", {}, s.enabled ? h("span", { class: "pill-s pass" }, "On") : h("span", { class: "pill-s neu" }, "Paused")),
       h("td", {}, s.text),
       h("td", { class: "n" }, btn("Remove", "delete", async () => {
+        if (!(await confirmRemoveSchedule(o.what, s.text, true, false))) return;
         const next = await attempt(() => o.fabric.remove(s.id), "Not removed");
         if (next) showFabric(next);
       }, "tool link small"))))))
@@ -139,6 +151,21 @@ async function loadSchedules(box, refresh) {
   if (res.fabric.pending) schedulesPage.timer = setTimeout(() => loadSchedules(box, false), 1500);
 }
 
+// This PC's schedules file couldn't be read and was moved aside (QA-011): its schedules are no longer
+// listed, but Task Scheduler may still start tasks made for them.
+function setAsideNotice(files) {
+  if (!files?.length) return null;
+  const [latest] = files;
+  return h("div", { class: "card pad warn-box set-aside" },
+    h("div", {}, h("b", {}, "Some schedules on this PC may be missing. "),
+      "The schedules file couldn't be read ", when(latest.at), " and was moved aside to ",
+      h("span", { class: "mono" }, latest.file), ". Schedules saved before then aren't listed here."),
+    h("div", { class: "small" }, "Windows may still run tasks made for them: look in Task Scheduler under ",
+      h("span", { class: "mono" }, "FabricDesktop"), ". Their runs fail and don't show here. The file has the old schedules if you need to add them again. This warning goes away once that file is moved out of the folder or deleted."),
+    h("div", { class: "muted-text small mono" }, latest.path),
+    files.length > 1 ? h("div", { class: "muted-text small" }, `${files.length - 1} older ${files.length === 2 ? "copy is" : "copies are"} kept next to it.`) : null);
+}
+
 function drawSchedules(box) {
   const res = schedulesPage.data;
   const redraw = () => loadSchedules(box, false);
@@ -157,6 +184,7 @@ function drawSchedules(box) {
       h("span", {}, h("b", {}, (fabric.items || []).filter((s) => s.enabled).length), " in Fabric"),
       failing ? h("span", { class: "bad" }, h("b", {}, failing), " failed last time") : null),
     h("h3", { class: "schedule-head" }, "On this PC"),
+    setAsideNotice(res.pc_set_aside),
     res.windows ? null : h("p", { class: "muted-text small" }, "Only Windows starts these. On this system they are saved but nothing runs them."),
     pc.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["", "What", "When", "Next run", "Last run", ""].map((c) => h("th", {}, c)))),
@@ -196,6 +224,7 @@ function drawSchedules(box) {
           }, "tool link small"),
           btn("Open", "publish", () => openInFabric(fabricItemLink({ type: s.item_type, item_id: s.item_id, workspace_id: s.workspace_id })), "tool link small"),
           btn("Remove", "delete", async () => {
+            if (!(await confirmRemoveSchedule(s.name, s.text, true))) return;
             if (await attempt(() => rpc("delete_fabric_schedule", { workspace_id: s.workspace_id, item_id: s.item_id,
               job_type: s.job_type, schedule_id: s.id }), "Not removed")) redraw();
           }, "tool link small"))))))

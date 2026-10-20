@@ -1,6 +1,8 @@
-# Fabric Desktop by KratosBI documentation
+# KratosForge documentation
 
-Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+KratosForge runs Microsoft Fabric data engineering work on your own PC (notebooks, Spark SQL, and a metadata-driven medallion framework) and writes the results straight into OneLake. Start with the guide for what you're doing.
+
+Formerly Fabric Desktop: [what changed with the new name, and what didn't](kratosforge.md).
 
 ## Start here
 
@@ -51,6 +53,7 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
+| [validate-notebook.md](validate-notebook.md) | Engineers, analysts | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up (Preview) |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
 | [platform.md](platform.md) | Platform owners | The central platform: one key system, one landing zone, the catalog; platform admins, requests, the Platform page; creating, joining, moving keys |
@@ -88,11 +91,11 @@ Fabric Desktop by KratosBI runs Microsoft Fabric data engineering work on your o
 | [product/release-readiness.md](product/release-readiness.md) | Platform owners | What must be true before an enterprise pilot, the capability matrix and the pilot checklist |
 | [product/PRODUCT_MANAGEMENT_PROCESS.md](product/PRODUCT_MANAGEMENT_PROCESS.md) | Product owner, contributors | How work is chosen, ranked, built and accepted: the [feature inventory](product/FEATURE_INVENTORY.md), [backlog](product/PRODUCT_BACKLOG.md), [roadmap](product/PRIORITIZED_ROADMAP.md), [PR-ready specs](product/pr-ready/README.md), [implementation review](product/IMPLEMENTATION_REVIEW_PROCESS.md) and [competitive matrix](product/COMPETITIVE_CAPABILITY_MATRIX.md) |
 | [why-fabric-desktop.md](why-fabric-desktop.md) | Everyone | Why it exists: the Power BI model for data engineering |
-| [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md) | Contributors | Setting up, rules for changes, pull requests |
+| [CONTRIBUTING.md](https://github.com/KratosDataGod/KratosForge/blob/main/CONTRIBUTING.md) | Contributors | Setting up, rules for changes, pull requests |
 
 ## What is tested and what isn't
 
-Fabric Desktop by KratosBI is new, and it's honest about what has been proven.
+KratosForge is new, and it's honest about what has been proven.
 
 **Tested on every build**, by automated tests on Windows and Linux, against local Delta tables:
 

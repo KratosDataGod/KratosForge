@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -27,8 +28,12 @@ from .fabric_run import TERMINAL, describe_schedule, fabric_ipynb, schedule_conf
 from .meta.engine import Engine, RunResult, apply_clean
 from .meta.project import ENVIRONMENTS, GateError, validate
 from .meta import keys as keys_mod
+from .meta_service import NoMetadataProject
 from .meta.store import META_LAKEHOUSE, META_SCHEMAS, LocalStore, OneLakeStore
 from .onelake import FileStore
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 NOTEBOOK_JOB = "RunNotebook"
 FABRIC_APP = "https://app.fabric.microsoft.com"
@@ -87,7 +92,8 @@ class CloudMixin:
         """A Fabric client only if the user is already signed in: Monitor must never pop a sign-in."""
         try:
             token = self.auth.silent_token(FABRIC_SCOPES)  # type: ignore[attr-defined]
-        except Exception:  # no client ID configured
+        except Exception as exc:  # no client ID configured
+            _log.info("No silent Fabric token for Monitor: %s", describe(exc))
             return None
         return FabricClient(lambda: token) if token else None
 
@@ -95,11 +101,15 @@ class CloudMixin:
         """Metadata runs from every environment, newest first, for Monitor and Home.
 
         Environments in OneLake are read only when the user is already signed in, so this never
-        pops a sign-in; ``unavailable`` says why an environment was left out."""
+        pops a sign-in; ``unavailable`` says why an environment was left out. A project that can't be
+        read (a broken project.toml, say) is not "no runs": ``project_error`` says why."""
         try:
             project = self._project()  # type: ignore[attr-defined]
-        except Exception:  # no metadata project yet
+        except NoMetadataProject:  # no metadata project yet
             return {"runs": [], "unavailable": {}}
+        except Exception as exc:
+            _log.warning("Couldn't read the metadata project for its runs: %s", describe(exc))
+            return {"runs": [], "unavailable": {}, "project_error": describe(exc)}
         signed_in = None
         runs: list[dict[str, Any]] = []
         unavailable: dict[str, str] = {}
@@ -150,11 +160,16 @@ class CloudMixin:
 
     def _publish(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                  compute: str | None = None, workspace: dict[str, str] | None = None,
-                 fabric_cells: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-        """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here)."""
+                 fabric_cells: list[dict[str, Any]] | None = None,
+                 location_ref: dict[str, str] | None = None) -> dict[str, Any]:
+        """``fabric_cells``, when given, is what goes to Fabric instead of ``cells`` (which are saved here).
+        ``location_ref`` is the lakehouse from the notebook repository's locations for the current
+        environment: Fabric gets it when the notebook has none of its own, but it isn't saved into
+        the notebook, so the notebook keeps following the environment."""
         self._replay_refuse(name, "publishing it to Fabric")  # type: ignore[attr-defined]
+        saved_ref, lakehouse_ref = lakehouse_ref, lakehouse_ref or location_ref
         ws = self._publish_workspace(name, lakehouse_ref, workspace)
-        self.notebooks.save(name, cells, lakehouse_ref, compute, ws)  # type: ignore[attr-defined]
+        self.notebooks.save(name, cells, saved_ref, compute, ws)  # type: ignore[attr-defined]
         schemas = (self._schemas_enabled(lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"])  # type: ignore[attr-defined]
                    if lakehouse_ref else True)
         ipynb = json.dumps(fabric_ipynb(fabric_cells or cells, lakehouse_ref, schemas)).encode()
@@ -170,9 +185,11 @@ class CloudMixin:
                        "?experience=fabric-developer"}
 
     def run_notebook_in_fabric(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
-                               compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                               compute: str | None = None, workspace: dict[str, str] | None = None,
+                               location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Publish the notebook, then run it on its workspace's Fabric capacity."""
-        item = self._publish(name, cells, lakehouse_ref, compute, workspace)
+        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
+        lakehouse_ref = lakehouse_ref or location_ref
         job_id = self.fabric_jobs.run_item_job(item["workspace_id"], item["id"], NOTEBOOK_JOB)  # type: ignore[attr-defined]
         # As published: a Python notebook, or Spark (what the cost view counts it as).
         engine = "python" if lakehouse_ref and uses_local_module(cells) and not uses_spark(cells) else "spark"
@@ -198,14 +215,15 @@ class CloudMixin:
 
     def add_notebook_schedule(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None,
                               schedule: dict[str, Any], compute: str | None = None,
-                              workspace: dict[str, str] | None = None) -> dict[str, Any]:
+                              workspace: dict[str, str] | None = None,
+                              location_ref: dict[str, str] | None = None) -> dict[str, Any]:
         """Publish the notebook (so the schedule runs what is on screen), then add a schedule to it."""
         config = schedule_configuration(schedule.get("kind", "daily"), schedule.get("times"),
                                         schedule.get("every_minutes"), schedule.get("weekdays"),
                                         schedule.get("time_zone") or "UTC")
-        item = self._publish(name, cells, lakehouse_ref, compute, workspace)
+        item = self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
         self.fabric_jobs.create_schedule(item["workspace_id"], item["id"], NOTEBOOK_JOB, config)  # type: ignore[attr-defined]
-        return self.notebook_schedules(name, lakehouse_ref)
+        return self.notebook_schedules(name, lakehouse_ref or location_ref)
 
     def delete_notebook_schedule(self, name: str, schedule_id: str, lakehouse_ref: dict[str, str] | None = None,
                                  workspace: dict[str, str] | None = None) -> dict[str, Any]:
@@ -267,8 +285,9 @@ class CloudMixin:
                 lh_id = store.lakehouse_ids[t["lakehouse"]]
                 try:  # so Fabric's own engines keep the same history; the job below vacuums with it too
                     maintenance.set_retention(store.uri(t["lakehouse"], t["schema"], t["table"]), days, store.options())
-                except Exception:  # noqa: BLE001 - the maintenance job still runs with the right retention
-                    pass
+                except Exception as exc:  # noqa: BLE001 - the maintenance job still runs with the right retention
+                    _log.warning("Couldn't set Delta retention before table maintenance; the job still sets it: %s",
+                                 describe(exc))
                 ws = store.workspace_of(t["lakehouse"])
                 job_id = self.fabric_jobs.run_table_maintenance(  # type: ignore[attr-defined]
                     ws, lh_id, t["table"], t["schema"], vacuum_retention=maintenance.fabric_retention(days))
@@ -541,7 +560,7 @@ class CloudMixin:
         name = (name or f"SM_{layer.title()}").strip()
         try:
             model = fabric.save_semantic_model(store.workspace_id, name, parts,
-                                               f"Direct Lake over {lakehouse}, built by Fabric Desktop by KratosBI from the metadata project",
+                                               f"Direct Lake over {lakehouse}, built by KratosForge from the metadata project",
                                                replace=replace)
         except FileExistsError as exc:  # it exists and the user hasn't confirmed replacing it
             return {"confirm": {"name": name, "id": exc.args[1] if len(exc.args) > 1 else "",

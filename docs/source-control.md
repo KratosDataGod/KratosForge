@@ -1,6 +1,6 @@
 # Source control (Preview)
 
-**Source control** keeps a folder on your PC in Git without leaving Fabric Desktop by KratosBI. You can clone a repository, change notebooks and metadata files, see exactly what changed, make a branch, commit and push. It works with GitHub, Azure DevOps and any other Git server, over HTTPS or SSH.
+**Source control** keeps a folder on your PC in Git without leaving KratosForge. You can clone a repository, change notebooks and metadata files, see exactly what changed, make a branch, commit and push. It works with GitHub, Azure DevOps and any other Git server, over HTTPS or SSH.
 
 Open it from **Source control** at the bottom of the left rail, or from the branch name in the top bar.
 
@@ -8,7 +8,7 @@ Open it from **Source control** at the bottom of the left rail, or from the bran
 
 ## Before you start
 
-- **Install Git for Windows** from [git-scm.com](https://git-scm.com/download/win). It includes Git Credential Manager, which signs you in to GitHub and Azure DevOps in your browser and keeps the sign-in in Windows Credential Manager. Fabric Desktop by KratosBI uses the Git you installed and never sees your password or token.
+- **Install Git for Windows** from [git-scm.com](https://git-scm.com/download/win). It includes Git Credential Manager, which signs you in to GitHub and Azure DevOps in your browser and keeps the sign-in in Windows Credential Manager. KratosForge uses the Git you installed and never sees your password or token.
 - **For SSH**, add your key to the SSH agent (`ssh-add`) and connect to the server once in a terminal so its host key is known. The app doesn't ask for passphrases or accept host keys for you.
 - **Tell Git who you are** in **Repository settings** if Git asks. The name and email are saved for that repository only.
 
@@ -19,11 +19,81 @@ Open it from **Source control** at the bottom of the left rail, or from the bran
 | **Clone a repository** | Paste the address from GitHub or Azure DevOps (`https://…` or `git@…`). The copy goes to a new folder under `source\repos` in your user folder, or a folder you pick. Cloning runs in the background with progress and **Cancel**; a cancelled or failed clone removes only the folder it made. |
 | **Open a folder** | A folder that is already a Git repository. |
 | **Version my notebooks** | Starts a repository in the folder the app keeps your notebooks in. |
-| **Start a new repository** | Makes a new repository in a folder that isn't one yet. It refuses a folder that is already inside another repository. |
+| **New repository** | Makes a new repository for one kind of definition (below), in an empty folder, with that kind's starting files. It refuses a folder that is already inside another repository. |
+| **Make a folder a repository** | From the command bar: turns a folder that isn't a repository yet into one, without adding files. |
 
 The app remembers up to 50 repositories; pick one from the name at the top of the page. **Repository settings > Take it off the list** forgets a repository without deleting any files.
 
 Addresses are checked before Git sees them: unencrypted `http://`, addresses with a password or token in them, and anything that isn't a Git address are refused.
+
+## Repository kinds
+
+Each kind of definition lives in its own repository, so a notebook change never rides along with a platform change. A repository says what it holds in a small file at its root, `fabric-desktop.repo.toml` (for example `kind = "platform"`).
+
+| Kind | How many | Starts with |
+| --- | --- | --- |
+| **Notebooks** | One per team or project | `notebooks/` and `locations.toml`, where these notebooks find their data in each environment (workspace and lakehouse ids, never passwords or keys) |
+| **Data mesh project** | One per domain or project | Nothing extra; the project's own files go here as today |
+| **Platform** | One per tenant, for platform admins | `platform.toml` (where the platform's items live) and folders for domains, sources, key tables, landing zones and policies |
+| **Capacity** | One or more, for capacity admins | `capacity.toml`: which workspaces sit on which capacity |
+
+Every kind also gets a `.gitignore` that keeps local data (`.local/`), caches and `.env` files out of Git. The new files show as changes to review; nothing is committed or pushed for you.
+
+The repository list at the top of the page is grouped by kind. A repository that doesn't say what it holds shows **What does this repository hold?** with a button per kind; the app suggests one from what is in the folder (for example `environments.toml` means a data mesh project). Choosing writes only the marker file, as a change you commit. Changing a kind a repository already states asks first.
+
+A notebook saved in a repository of another kind shows **wrong repository** next to **Save**, so it can be moved to a notebooks repository.
+
+### Notebooks in a notebooks repository
+
+Every notebooks repository you open here is also a place to save notebooks, next to the app's own notebooks folder (**This PC**).
+
+- **New notebook** asks where to save it once you have a notebooks repository. It goes under `notebooks/` in that repository, as a change to commit. The last choice is remembered.
+- **Move this notebook** (from the notebook's **Data** button or the command bar) moves its file to another place. The copy is checked before the original is removed, and nothing moves if a notebook with that name is already there. Nothing is committed.
+- Names stay unique across all places, so schedules, runs and published items still find a notebook by its name.
+- Home lists where each notebook is saved.
+
+**Where the data is.** A notebook in a notebooks repository has a **Data** button next to **Save**. It shows the lakehouse for the environment picked in the top bar, taken from the repository's `locations.toml`:
+
+1. A lakehouse attached to the notebook itself always wins, as before.
+2. Otherwise, the repository's location for the current environment. Switching the environment switches the lakehouse for the next run, and the Explorer marks it, for example **Test location**.
+3. Otherwise nothing is attached. **This PC** means that environment attaches nothing on purpose; an environment with no location shows **No location for Test**.
+
+Running cells, **Publish to OneLake**, **Run in Fabric** and Fabric schedules use the location's lakehouse when the notebook has none of its own. It is never saved into the notebook, so the notebook keeps following the environment. **Prove** and **Side by side** don't use locations yet; attach a lakehouse to the notebook for those.
+
+**Editing locations.** **Data locations** (next to the repository's name on this page, or **Edit locations** on the notebook's **Data** button) shows Dev, Test and Prod, each with a workspace, a lakehouse and an optional Fabric SQL database, picked from what you can see in Fabric. Saving writes `locations.toml` with workspace and item ids and their names, as a change to commit. Nothing in Fabric changes, and no passwords or keys are written.
+
+### Platform repository
+
+For platform definitions, Git is the source of truth and each environment's platform holds what is deployed. A platform repository has a **Platform** tab next to **Changes**.
+
+**Compare with** Dev, Test or Prod shows every object as **same**, **changed** (with each field's value in Git and deployed), **only in Git** (not deployed yet) or **removed in Git** (deployed, but its file is gone). Comparing only reads; nothing changes in Git or in Fabric.
+
+**Export from platform** writes what the platform holds into the repository, one file per object, as changes to review. Nothing is committed and nothing in Fabric changes. Only files whose text changes are written, so exporting twice changes nothing. A file you changed and haven't committed is replaced only after a second confirm. Files for objects that aren't deployed are left as they are, never deleted.
+
+| File | Holds |
+| --- | --- |
+| `domains/<id>.toml` | id, name, parent, description, owners. A domain from Fabric keeps only its `fabric_domain_id` and our fields; its name and parent come from Fabric. |
+| `sources/<code>.toml` | source_id, code, title, description, owner, system type, active, expected hours |
+| `key_tables/<name>.toml` | name, business key, description, domain |
+| `policies/<id>.toml` | status, the published version's `[definition]` and each assignment as `[[assign]]` |
+| `glossary.toml` | each term with its definition, domain and owner |
+| `admins.toml` | the platform admins |
+| `shortcut_rules.toml` | the shortcut request rules |
+
+Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, readers, shortcut health, source connections, webhook URLs, passwords or connection strings. A policy that was never published isn't exported. On a platform without policies yet, no policy files are written. When environments disagree about a key table, export keeps Prod's fields and lists the difference.
+
+**Deploy** makes the platform match the committed files: the catalog (in Prod), and admins and key tables in every environment. It shows its plan first and runs only that plan, after one confirm.
+
+- Only platform admins can deploy, and only committed files: commit first, so what is deployed is in Git's history. Each step is recorded in the platform's audit as you, with the commit in policy notes.
+- A changed policy is published as a new version; a published version never changes. A policy with a draft in progress in the platform is skipped, so a deploy never overwrites someone's draft.
+- A source id is never renumbered: a file whose `source_id` doesn't match the platform stops the whole deploy before anything is written. A new source keeps the id its file gives it. Source connections stay as they are in the platform.
+- Key tables are created where missing, never renamed, changed or removed (their keys stay).
+- Something removed in Git is removed only when you tick it, after every other change: policies are retired (never deleted), then sources, then domains (subdomains first). A domain or source still in use is refused. Glossary terms can't be removed yet.
+- If the platform refuses a step, the deploy stops there and says which step and why. Steps already done show as **same** next time.
+
+The platform's functions must include this release's changes: if Export or Compare says they are older than the app, open Platform > Settings and choose **Finish or repair**.
+
+The capacity starting file is still a template: the capacity drift report is the next stage in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
 
 ## Changes
 
@@ -64,13 +134,14 @@ The **History** tab lists commits on the current branch. Click one for its messa
 
 ## Notebooks in a repository
 
-A notebook saved inside a repository shows its branch and whether it has uncommitted changes next to **Save**; click it to open Source control. Your notebooks folder isn't a repository unless you make it one: **Version my notebooks** makes it one, or clone a repository and save notebooks there.
+A notebook saved inside a repository shows its branch and whether it has uncommitted changes next to **Save**; click it to open Source control. Your notebooks folder isn't a repository unless you make it one: **Version my notebooks** makes it one, or save notebooks in a notebooks repository (see [Notebooks in a notebooks repository](#notebooks-in-a-notebooks-repository)).
 
 ## What it doesn't do yet
 
 - Stage single lines of a file (whole files only).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
+- Compare the capacity repository with Fabric (see **Repository kinds**).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

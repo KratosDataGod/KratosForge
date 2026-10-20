@@ -9,6 +9,11 @@ async function openWizard() {
   if (state.notebook?.dirty && !(await saveNotebook())) return;
   const t = await attempt(() => rpc("wizard_templates"), "Could not open the wizard");
   if (!t) return;
+  // An engine from an older build lists templates without the gallery's groups and choices.
+  if (!t.groups || !t.choices || !t.multiline) {
+    toast("The local engine is older than this app, so it can't list the templates. Restart KratosForge to update it.", true);
+    return;
+  }
   Object.assign(wizardState, { step: 1, template: null, values: {}, preview: null, problem: "", templates: t, group: "all", search: "",
     lakehouse: state.notebook?.lakehouse || null, name: "" });
   drawWizard();

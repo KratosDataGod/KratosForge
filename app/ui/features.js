@@ -40,6 +40,7 @@ const PREVIEW_FEATURES = {
   schedules: "Schedules",
   sideBySide: "Side by side",
   prove: "Prove this notebook",
+  validate: "Validate notebook",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",
@@ -127,7 +128,7 @@ function withHowItWorks(main, panel) {
 
 // ---------- command bar (Ctrl+K) ----------
 
-const palette = { notebooks: null, selected: 0 };
+const palette = { notebooks: null, selected: 0, opener: null };
 
 // Everything the bar can find for this text: commands, then notebooks, workspaces and entities.
 function paletteItems(text) {
@@ -158,12 +159,23 @@ function paletteItems(text) {
   return items;
 }
 
+// A modal dialog: focus moves in, Tab stays in, Escape closes it and focus goes back to where it was.
 function openPalette(initial = "") {
+  // Not over another dialog: Ctrl+K there would leave two modals, with focus trapped in the one behind.
+  if (document.getElementById("dialog-root")?.childElementCount) return;
+  const opener = document.getElementById("palette") ? palette.opener : document.activeElement;
+  palette.opener = opener;
   closeMenu();
   const input = h("input", { type: "text", value: initial, placeholder: "Search pages, actions, notebooks, workspaces and entities",
     "aria-label": "Command bar" });
   const list = h("div", { class: "palette-list", role: "listbox" });
-  const close = () => { document.getElementById("palette")?.remove(); };
+  const close = () => {
+    const open = document.getElementById("palette");
+    if (!open) return;
+    open.remove();
+    palette.opener = null;
+    if (opener?.isConnected && typeof opener.focus === "function") opener.focus();
+  };
   const draw = () => {
     const items = paletteItems(input.value);
     palette.selected = Math.min(palette.selected, Math.max(0, items.length - 1));
@@ -184,11 +196,15 @@ function openPalette(initial = "") {
     if (e.key === "ArrowDown") { e.preventDefault(); palette.selected = Math.min(items.length - 1, palette.selected + 1); draw(); }
     else if (e.key === "ArrowUp") { e.preventDefault(); palette.selected = Math.max(0, palette.selected - 1); draw(); }
     else if (e.key === "Enter" && items[palette.selected]) { e.preventDefault(); close(); items[palette.selected].run(); }
-    else if (e.key === "Escape") { e.preventDefault(); close(); }
   });
-  close();
-  const box = h("div", { id: "palette", class: "palette-overlay", onmousedown: (e) => { if (e.target === box) close(); } },
-    h("div", { class: "palette", role: "dialog", "aria-label": "Command bar" },
+  document.getElementById("palette")?.remove();  // reopening keeps the first opener
+  const box = h("div", { id: "palette", class: "palette-overlay", onmousedown: (e) => { if (e.target === box) close(); },
+    onkeydown: (e) => {
+      if (e.key === "Tab") trapFocus(e, box);
+      // One Escape closes one thing, not the activity tray behind it too.
+      else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }
+    } },
+    h("div", { class: "palette", role: "dialog", "aria-modal": "true", "aria-label": "Command bar" },
       h("label", { class: "palette-input" }, icon("search", 18), input, h("kbd", {}, "Esc")), list));
   document.body.append(box);
   palette.selected = 0;

@@ -3,11 +3,11 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping shape Fabric Desktop by KratosBI. Before you post, please **search the Ideas** for the same problem. If it's there, upvote it and add your situation as a comment instead.
+        Thanks for helping shape KratosForge. Before you post, please **search the Ideas** for the same problem. If it's there, upvote it and add your situation as a comment instead.
 
         This forum is **public**. Don't include tenant names, workspace or item IDs, data, connection strings, or screenshots with data in them.
 
-        How ideas are voted on and prioritized: [docs/ideas.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/ideas.md)
+        How ideas are voted on and prioritized: [docs/ideas.md](https://github.com/KratosDataGod/KratosForge/blob/main/docs/ideas.md)
   - type: textarea
     id: problem
     attributes:

@@ -4,7 +4,7 @@
 
 state.meta = {
   project: null,       // summary from meta_project
-  tab: "entities",     // entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
+  tab: "overview",     // overview | entities | layers | keys | sources | runs | health | model | tests | environments | domains | products | links
   env: (() => { try { return localStorage.getItem("fd.env") || "dev"; } catch { return "dev"; } })(),  // set from the top bar
   entity: null,        // open entity detail
   layersDraft: null,   // unsaved layer edits
@@ -68,9 +68,10 @@ async function loadMetaProject() {
   return p;
 }
 
-// Metadata's tabs, in four groups so new metadata features join a group instead of a long row.
+// Data mesh's tabs, in groups so new features join a group instead of a long row. Overview comes first.
 // [group id, label, [[tab id, label, preview feature id]]]
 const META_TAB_GROUPS = [
+  ["overview", "Overview", [["overview", "Domains", "mesh"]]],
   ["design", "Design", [["entities", "Entities"], ["layers", "Layers"], ["keys", "Surrogate keys"], ["sources", "Source systems"]]],
   ["runs", "Runs", [["runs", "Runs"]]],
   ["quality", "Quality", [["tests", "Tests", "tests"], ["health", "Table health", "health"]]],
@@ -123,7 +124,7 @@ async function renderMetadata() {
     visible(group[2]).length > 1 ? h("div", { class: "seg meta-tabs", role: "group", "aria-label": group[1] }, visible(group[2]).map(([id, label, previewId]) =>
       h("button", { class: m.tab === id ? "on" : null, onclick: () => goMeta(id) }, tabLabel(label, previewId)))) : null,
     body));
-  const render = { entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
+  const render = { overview: renderMeshOverviewTab, entities: renderEntitiesTab, layers: renderLayersTab, keys: renderKeysTab, sources: renderSourcesTab,
     runs: renderRunsTab, health: renderHealthTab, model: renderModelTab, tests: renderTestsTab, environments: renderEnvTab,
     domains: renderMeshDomainsTab, products: renderMeshProductsTab, links: renderMeshLinksTab }[m.tab];
   await render(body, p);
@@ -424,13 +425,9 @@ function confirmDialog(title, text, okLabel = "OK", opts = {}) {
           oninput: (e) => { ok.disabled = e.target.value.trim() !== opts.typeToConfirm; },
           onkeydown: (e) => { if (e.key === "Enter" && !ok.disabled) done(true); } }));
     }
-    const overlay = showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok]);
+    showDialog(title, h("div", {}, h("p", { class: "text" }, text), typed), [cancel, ok],
+      () => { if (!settled) { settled = true; resolve(false); } });
     if (opts.danger && !typed) cancel.focus();
-    new MutationObserver((_, watch) => {
-      if (overlay.isConnected) return;
-      watch.disconnect();
-      if (!settled) { settled = true; resolve(false); }
-    }).observe(document.getElementById("dialog-root"), { childList: true });
   });
 }
 
@@ -444,52 +441,58 @@ function dataTable(preview) {
 
 async function runEntities(names, opts = {}) {
   const p = state.meta.project;
-  const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
+  let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
   if (inFabric(p, env) && !state.user && !(await signIn())) return;
-  if (!(await metaRiskGate(p, names || p.entities.map((e) => e.name), env, label))) return;
+  const go = await metaRiskGate(p, names, env, label);
+  if (!go) return;
+  const only = go === true ? names : go;
+  if (only !== names) label = only.join(", ");  // only those that can start
   if (inFabric(p, env)) {
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
-  const results = await metaCall("meta_run", { names, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
+  const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
-  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], names ? label : "Run all");
+  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
-  logRunActivity(`${names ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
+  logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
   render();
 }
 
-// The risk check (FINOPS-004) for each entity in the run, shown as one dialog when anything should
-// stop or slow it. When every entity is blocked there is no way to run anyway; when only some are,
-// the run can go ahead and the blocked ones are refused or fail as they would without the check.
+// The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
+// when anything should stop or slow it. Resolves true to run as asked, a list of names to run only
+// those (the rest are blocked, or read from one that is), or false. When nothing can start there is
+// no way to run.
 async function metaRiskGate(p, names, env, label) {
   const wid = (n) => `meta:${p.project?.name || "project"}:${n}`;
-  const checks = await Promise.all(names.map((n) => rpc("risk_check", { id: wid(n), action: "run", env })
-    .then((r) => [n, r]).catch(() => null)));
-  const found = checks.filter((c) => c && (c[1].result === "warning" || c[1].result === "blocked"));
-  if (!found.length) return true;
-  const blocked = found.filter(([, r]) => r.result === "blocked").length;
-  const allBlocked = blocked === names.length;
+  const gate = await rpc("meta_risk_gate", { names, env }).catch(() => null);
+  if (!gate) return true;
+  const found = gate.checks.filter((c) => c.result === "warning" || c.result === "blocked").map((c) => [c.entity, c]);
+  const held = Object.entries(gate.held || {});
+  if (!found.length && !held.length) return true;
+  const stopped = gate.checks.length - gate.run.length;
+  const none = !gate.run.length;
   return new Promise((resolve) => {
     const boxes = new Map(found.map(([n, r]) => [n, riskAckBox(r)]));
     const go_ = async () => {
-      for (const [n, r] of found) {
+      for (const [n, r] of found.filter(([n]) => gate.run.includes(n))) {
         if (!(await riskProceed({ id: wid(n), action: "run", env }, r, boxes.get(n)))) return;
       }
       closeDialog();
-      resolve(true);
+      resolve(stopped ? gate.run : true);
     };
     showDialog(`Run ${label} in ${ENV_LABEL[env]}?`, h("div", { class: "wl-confirm" },
-      found.map(([n, r]) => [found.length > 1 || names.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
-      blocked && !allBlocked ? h("p", { class: "text" }, `${blocked} of ${names.length} can't start; the others run if you go ahead.`) : null,
-      h("p", { class: "muted-text small" }, found[0][1].note)),
-    allBlocked
+      found.map(([n, r]) => [gate.checks.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
+      held.length ? h("p", { class: "text" }, `Waiting because they read from one that can't start: ${held.map(([n, ups]) => `${n} (reads ${ups.join(", ")})`).join("; ")}.`) : null,
+      stopped && !none ? h("p", { class: "text" }, `${stopped} of ${gate.checks.length} won't start; the other ${gate.run.length} run if you go ahead.`) : null,
+      h("p", { class: "muted-text small" }, (found[0]?.[1] || gate.checks[0])?.note || "")),
+    none
       ? [btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
       : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
-        btn("Run anyway", null, go_, "tool primary")]);
+        btn(stopped ? `Run the other ${gate.run.length}` : "Run anyway", null, go_, "tool primary")]);
   });
 }
 
@@ -751,7 +754,7 @@ function scheduleMetaRuns(env) {
   const p = state.meta.project;
   const fabric = inFabric(p, env);
   openScheduleDialog({
-    title: `Schedule ${ENV_LABEL[env]} runs`,
+    title: `Schedule ${ENV_LABEL[env]} runs`, what: `${ENV_LABEL[env]} runs`,
     mode: fabric ? "fabric" : "pc",
     pc: { target: { kind: "meta", env }, query: { kind: "meta", env },
           intro: `This PC runs every entity in ${ENV_LABEL[env]}, in layer order, from the project files as they are when it runs.` },

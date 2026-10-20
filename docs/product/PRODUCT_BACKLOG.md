@@ -1,6 +1,6 @@
 # Product backlog
 
-One backlog for Fabric Desktop by KratosBI, in twelve categories. It consolidates the gaps found in
+One backlog for KratosForge, in twelve categories. It consolidates the gaps found in
 [the feature inventory](FEATURE_INVENTORY.md) with the backlogs that specialist programs already
 keep, without restating their requirements.
 
@@ -34,8 +34,8 @@ place to rank all work without creating a second, drifting copy of anyone's requ
 | Fuller What's new dialog | none (one thread) | Its project thread; tracked here as PB-100 |
 | Codebase audit and hardening | HD-001..057 | Its project thread (docs/hardening/backlog.md); tracked here as PB-101, which now also owns PB-010, PB-051 and PB-071, with overlaps noted on the items listed in PB-101 |
 | Release management | none yet | Its project thread (docs/release-management/): release engineering and integration order; ids recorded when it sends them |
-| UX and simplicity oversight | UX-001..021 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/fabric-desktop/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management. UX-021 (Preview tags on untested Fabric writes, absorbs QA-020): Prove for Publish and Run all in Fabric, Staged roadmap for Promote, Sync keys, variable library and quarantine replay, Codebase audit and hardening for Create workspace; UX-018 (absorbs QA-019) stays with this thread |
-| Engineering quality review | QA-001..030, PR-QA-01..14 | Its project thread ([docs/quality/](https://github.com/KratosDataGod/fabric-desktop/pull/176)): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; tracked here as PB-103, a blocker because QA-001 and QA-002 lose data. Routed to other owners: QA-001, QA-002 and QA-009 Prove; QA-003, QA-004, QA-006, QA-007 and QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012 and QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 |
+| UX and simplicity oversight | UX-001..021 | Its project thread ([docs/ux/backlog.md](https://github.com/KratosDataGod/KratosForge/pull/166)); tracked here as PB-102. Routed to other owners: UX-010 and UX-014 Workload management; UX-003, UX-005 and UX-012 Enterprise readiness; UX-004 Local data engine; UX-009 Staged roadmap (keys); UX-002 and UX-013 Codebase audit and hardening; UX-007 Release management. UX-021 (Preview tags on untested Fabric writes, absorbs QA-020): Prove for Publish and Run all in Fabric, Staged roadmap for Promote, Sync keys, variable library and quarantine replay, Codebase audit and hardening for Create workspace; UX-018 (absorbs QA-019) stays with this thread |
+| Engineering quality review | QA-001..030, PR-QA-01..14 | Its project thread ([docs/quality/](https://github.com/KratosDataGod/KratosForge/pull/176)): the independent code-quality gate that gives the release manager PASS, CONDITIONAL PASS or FAIL; tracked here as PB-103, a blocker because QA-001 and QA-002 lose data. Routed to other owners: QA-001, QA-002 and QA-009 Prove; QA-003, QA-004, QA-006, QA-007 and QA-010 Codebase audit and hardening; QA-005 Enterprise governance; QA-008 wording FinOps first (PR #174), then Prove, Local data engine, governance and Codebase audit and hardening for their own files, and UX and simplicity oversight for the README and top-level docs; QA-012 and QA-016 Enterprise readiness; QA-015 Release management; QA-019 folded into UX-018 and QA-020 into UX-021 |
 | Optimize central lakehouse | PR-OPT-001..009 | Its project thread, from Chris's Optimize brief of 2026-10-18: a shared optimization lakehouse (fdopt_ tables), local execution and optimization savings tracking, reporting, offline sync, multiple lakehouses, security and its own cost accounting; tracked here as PB-104. Works with the Administration and FinOps sprint on CU labels (PB-050) and measured CU import (PB-089). Its Cost and savings tab replaces Monitor > Cost (unit testing item 36) |
 | Simplified incident management | none yet | Its project thread, from Chris's unit testing on 2026-10-18 (item 33): detect, triage and hand off incidents, stored in a central lakehouse or handed to ServiceNow or Jira; tracked here as PB-105. Builds on the Workload management thread's incidents (PB-047) |
 | Master product (unassigned) | none | Items found in this assessment that no program owns yet; the product owner assigns them |
@@ -228,7 +228,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 local SQL in the editor: the SQL thread owns the editor; the LDE thread supplies the local engine calls (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-001)
-- **Pull requests:** [#118](https://github.com/KratosDataGod/fabric-desktop/pull/118)
+- **Pull requests:** [#118](https://github.com/KratosDataGod/KratosForge/pull/118)
 - **Acceptance criteria:**
     - As defined in SQL-001 by its owning thread
 
@@ -242,7 +242,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01), [FEAT-FAB-11](FEATURE_INVENTORY.md#feat-fab-11)
 - **Dependencies:** Overlaps FD-LDE-004 T-SQL translation (LDE thread, built on SQL-002's profiles) and FD-LDE-014 SQL compatibility validation (SQL thread) (owners per docs/local-data-engine-plan.md section 3, PR #126)
 - **Owner:** SQL development sprint (SQL-002)
-- **Pull requests:** [#120](https://github.com/KratosDataGod/fabric-desktop/pull/120)
+- **Pull requests:** [#120](https://github.com/KratosDataGod/KratosForge/pull/120)
 - **Acceptance criteria:**
     - As defined in SQL-002 by its owning thread
 
@@ -256,7 +256,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SQL-01](FEATURE_INVENTORY.md#feat-sql-01)
 - **Dependencies:** Overlaps FD-LDE-003 and FD-LDE-019: the SQL thread owns execution and streaming (SQL-003); the LDE thread supplies engine calls and large-dataset export (owners per docs/local-data-engine-plan.md section 3, PR #126), Overlaps HD-015 external SQL timeout interrupts (Codebase audit and hardening backlog, PB-101)
 - **Owner:** SQL development sprint (SQL-003)
-- **Pull requests:** [#134](https://github.com/KratosDataGod/fabric-desktop/pull/134)
+- **Pull requests:** [#134](https://github.com/KratosDataGod/KratosForge/pull/134)
 - **Acceptance criteria:**
     - As defined in SQL-003 by its owning thread
 
@@ -445,7 +445,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-FAB-10](FEATURE_INVENTORY.md#feat-fab-10)
 - **Dependencies:** none
 - **Owner:** Local Fabric pipeline execution (ORCH-001)
-- **Pull requests:** [#130](https://github.com/KratosDataGod/fabric-desktop/pull/130)
+- **Pull requests:** [#130](https://github.com/KratosDataGod/KratosForge/pull/130)
 - **Acceptance criteria:**
     - As defined in ORCH-001 by its owning thread
 
@@ -593,7 +593,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-META-09](FEATURE_INVENTORY.md#feat-meta-09), [FEAT-META-10](FEATURE_INVENTORY.md#feat-meta-10)
 - **Dependencies:** Product-owner decision D1, Overlaps HD-023 promote a named commit (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Staged roadmap (FD-121)
-- **Pull requests:** [#113](https://github.com/KratosDataGod/fabric-desktop/pull/113)
+- **Pull requests:** [#113](https://github.com/KratosDataGod/KratosForge/pull/113)
 - **Acceptance criteria:**
     - D1 answered
     - Rolling back a release restores the previous configuration in every target
@@ -720,7 +720,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-GOV-05](FEATURE_INVENTORY.md#feat-gov-05)
 - **Dependencies:** Overlaps HD-031 label Block as not enforced (governance) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise governance foundation (GOV-001)
-- **Pull requests:** [#119](https://github.com/KratosDataGod/fabric-desktop/pull/119)
+- **Pull requests:** [#119](https://github.com/KratosDataGod/KratosForge/pull/119)
 - **Acceptance criteria:**
     - As defined in GOV-001 by its owning thread
 
@@ -773,7 +773,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-META-17](FEATURE_INVENTORY.md#feat-meta-17)
 - **Dependencies:** none
 - **Owner:** Staged roadmap (FD-128)
-- **Pull requests:** [#124](https://github.com/KratosDataGod/fabric-desktop/pull/124)
+- **Pull requests:** [#124](https://github.com/KratosDataGod/KratosForge/pull/124)
 - **Acceptance criteria:**
     - As defined in FD-128 by its owning program
 
@@ -813,7 +813,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-GOV-01](FEATURE_INVENTORY.md#feat-gov-01), [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-123)
-- **Pull requests:** [#127](https://github.com/KratosDataGod/fabric-desktop/pull/127)
+- **Pull requests:** [#127](https://github.com/KratosDataGod/KratosForge/pull/127)
 - **Acceptance criteria:**
     - A late table produces one Teams message
 
@@ -913,7 +913,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ADM-04](FEATURE_INVENTORY.md#feat-adm-04)
 - **Dependencies:** Overlaps UX-005 one first-run card on Home (Enterprise readiness) (UX and simplicity backlog, PB-102)
 - **Owner:** Enterprise readiness (FD-136)
-- **Pull requests:** [#94](https://github.com/KratosDataGod/fabric-desktop/pull/94)
+- **Pull requests:** [#94](https://github.com/KratosDataGod/KratosForge/pull/94)
 - **Acceptance criteria:**
     - Accepted through the implementation review process
 
@@ -941,7 +941,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-SHL-09](FEATURE_INVENTORY.md#feat-shl-09)
 - **Dependencies:** none
 - **Owner:** Fuller What's new dialog
-- **Pull requests:** [#132](https://github.com/KratosDataGod/fabric-desktop/pull/132)
+- **Pull requests:** [#132](https://github.com/KratosDataGod/KratosForge/pull/132)
 - **Acceptance criteria:**
     - As defined by its owning thread
 
@@ -999,7 +999,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-OPS-02](FEATURE_INVENTORY.md#feat-ops-02), [FEAT-GOV-07](FEATURE_INVENTORY.md#feat-gov-07), [FEAT-SHL-06](FEATURE_INVENTORY.md#feat-shl-06)
 - **Dependencies:** Simplified incident management (PB-105, Chris's unit testing, 2026-10-18, item 33) extends these screens
 - **Owner:** Workload management (FD-123, Workloads stage 2.3B)
-- **Pull requests:** [#125](https://github.com/KratosDataGod/fabric-desktop/pull/125)
+- **Pull requests:** [#125](https://github.com/KratosDataGod/KratosForge/pull/125)
 - **Acceptance criteria:**
     - As defined in FD-123 by its owning program
 
@@ -1014,7 +1014,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** Overlaps PR-OPT-003 and PR-OPT-004, whose savings categories reuse these CU labels (Optimize central lakehouse, PB-104), Monitor > Cost moves to Optimize > Cost and savings (Chris's unit testing, 2026-10-18, item 36; PB-104)
 - **Owner:** Administration and FinOps sprint (FINOPS-001)
 - **Merged duplicates:** Calibrate cost estimates against the Capacity Metrics app (feature inventory, FEAT-ADM-01)
-- **Pull requests:** [#117](https://github.com/KratosDataGod/fabric-desktop/pull/117)
+- **Pull requests:** [#117](https://github.com/KratosDataGod/KratosForge/pull/117)
 - **Acceptance criteria:**
     - As defined in FINOPS-001 by its owning thread
 
@@ -1027,7 +1027,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Current-state evidence:** fabric_api.py lists capacities only; PR #123 merged 2026-10-17; awaiting implementation review
 - **Dependencies:** [PB-050](#pb-050)
 - **Owner:** Administration and FinOps sprint (FINOPS-002)
-- **Pull requests:** [#123](https://github.com/KratosDataGod/fabric-desktop/pull/123)
+- **Pull requests:** [#123](https://github.com/KratosDataGod/KratosForge/pull/123)
 - **Acceptance criteria:**
     - As defined in FINOPS-002 by its owning thread
 
@@ -1066,7 +1066,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ORC-05](FEATURE_INVENTORY.md#feat-orc-05)
 - **Dependencies:** none
 - **Owner:** Workload management (FD-122)
-- **Pull requests:** [#133](https://github.com/KratosDataGod/fabric-desktop/pull/133)
+- **Pull requests:** [#133](https://github.com/KratosDataGod/KratosForge/pull/133)
 - **Acceptance criteria:**
     - As defined in FD-122 by its owning program
 
@@ -1093,7 +1093,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ADM-06](FEATURE_INVENTORY.md#feat-adm-06)
 - **Dependencies:** Product-owner decision D-C1
 - **Owner:** Enterprise readiness (FD-137)
-- **Pull requests:** [#121](https://github.com/KratosDataGod/fabric-desktop/pull/121)
+- **Pull requests:** [#121](https://github.com/KratosDataGod/KratosForge/pull/121)
 - **Acceptance criteria:**
     - D-C1 recorded
     - Nothing is collected without consent and a policy switch
@@ -1146,7 +1146,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-EXT-02](FEATURE_INVENTORY.md#feat-ext-02)
 - **Dependencies:** Overlaps HD-006 run-notebook approval shows and binds the code (P0); HD-014 workspace limits on every capability (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Bring your own AI integration (PR-AI-001..012)
-- **Pull requests:** [#99](https://github.com/KratosDataGod/fabric-desktop/pull/99), [#100](https://github.com/KratosDataGod/fabric-desktop/pull/100), [#101](https://github.com/KratosDataGod/fabric-desktop/pull/101), [#102](https://github.com/KratosDataGod/fabric-desktop/pull/102), [#103](https://github.com/KratosDataGod/fabric-desktop/pull/103), [#104](https://github.com/KratosDataGod/fabric-desktop/pull/104), [#105](https://github.com/KratosDataGod/fabric-desktop/pull/105), [#106](https://github.com/KratosDataGod/fabric-desktop/pull/106), [#107](https://github.com/KratosDataGod/fabric-desktop/pull/107), [#108](https://github.com/KratosDataGod/fabric-desktop/pull/108), [#110](https://github.com/KratosDataGod/fabric-desktop/pull/110), [#112](https://github.com/KratosDataGod/fabric-desktop/pull/112)
+- **Pull requests:** [#99](https://github.com/KratosDataGod/KratosForge/pull/99), [#100](https://github.com/KratosDataGod/KratosForge/pull/100), [#101](https://github.com/KratosDataGod/KratosForge/pull/101), [#102](https://github.com/KratosDataGod/KratosForge/pull/102), [#103](https://github.com/KratosDataGod/KratosForge/pull/103), [#104](https://github.com/KratosDataGod/KratosForge/pull/104), [#105](https://github.com/KratosDataGod/KratosForge/pull/105), [#106](https://github.com/KratosDataGod/KratosForge/pull/106), [#107](https://github.com/KratosDataGod/KratosForge/pull/107), [#108](https://github.com/KratosDataGod/KratosForge/pull/108), [#110](https://github.com/KratosDataGod/KratosForge/pull/110), [#112](https://github.com/KratosDataGod/KratosForge/pull/112)
 - **Acceptance criteria:**
     - As defined in PR-AI-001..012
     - Each PR passes the implementation review
@@ -1217,7 +1217,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** Chris creates the Azure Trusted Signing account (D-C3), Overlaps HD-021 enforce signing (waits on Chris, D-C3) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-103, FD-104)
 - **Mandatory (blocker):** Without signing the app does not run on many managed PCs; the launch audience is about 5,000 people.
-- **Pull requests:** [#28](https://github.com/KratosDataGod/fabric-desktop/pull/28)
+- **Pull requests:** [#28](https://github.com/KratosDataGod/KratosForge/pull/28)
 - **Acceptance criteria:**
     - Released exe and engine DLLs carry a valid signature
     - A Smart App Control PC starts the engine
@@ -1263,7 +1263,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** Overlaps HD-007 log redaction before JSON encoding (P0); HD-017 audit chain across processes (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-125)
 - **Mandatory (required):** Enterprise compliance needs an audit record of changes to shared data.
-- **Pull requests:** [#89](https://github.com/KratosDataGod/fabric-desktop/pull/89)
+- **Pull requests:** [#89](https://github.com/KratosDataGod/KratosForge/pull/89)
 - **Acceptance criteria:**
     - As defined in FD-125
     - Accepted through the implementation review
@@ -1294,7 +1294,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Dependencies:** none
 - **Owner:** Enterprise readiness (FD-131b)
 - **Mandatory (required):** Sensitive data protection policy needs bounded local copies.
-- **Pull requests:** [#95](https://github.com/KratosDataGod/fabric-desktop/pull/95)
+- **Pull requests:** [#95](https://github.com/KratosDataGod/KratosForge/pull/95)
 - **Acceptance criteria:**
     - As defined in FD-131b
     - A dry run deletes nothing
@@ -1447,7 +1447,7 @@ review moves it to Accepted; a merge alone does neither.
 - **Inventory features:** [FEAT-ADM-03](FEATURE_INVENTORY.md#feat-adm-03)
 - **Dependencies:** Overlaps HD-005 restore removes the stale WAL and verifies (P0) (Codebase audit and hardening backlog, PB-101)
 - **Owner:** Enterprise readiness (FD-126)
-- **Pull requests:** [#91](https://github.com/KratosDataGod/fabric-desktop/pull/91)
+- **Pull requests:** [#91](https://github.com/KratosDataGod/KratosForge/pull/91)
 - **Acceptance criteria:**
     - As defined in FD-126
 

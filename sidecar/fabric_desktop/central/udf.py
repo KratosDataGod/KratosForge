@@ -68,6 +68,34 @@ def import_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, 
 
 
 @udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def close_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, reason: str = "") -> dict:
+    return _run(sqlDB, "close_keys", ctx, reason=reason)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def stage_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, staging: bool,
+               live: bool = False) -> dict:
+    return _run(sqlDB, "stage_keys", ctx, staging=staging, live=live)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def keys_state(sqlDB: fn.FabricSqlConnection) -> dict:
+    return _run(sqlDB, "keys_state")
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.context(argName="ctx")
+@udf.function()
+def clear_keys(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext) -> dict:
+    return _run(sqlDB, "clear_keys", ctx)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
 @udf.function()
 def key_stats(sqlDB: fn.FabricSqlConnection, name: str) -> dict:
     return _run(sqlDB, "key_stats", name=name)
@@ -414,6 +442,12 @@ def publish_policy(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContex
 def set_policy_status(sqlDB: fn.FabricSqlConnection, ctx: fn.UserDataFunctionContext, id: str, status: str,
                       note: str = "") -> dict:
     return _run(sqlDB, "set_policy_status", ctx, id=id, status=status, note=note)
+
+
+@udf.connection(argName="sqlDB", alias="platform")
+@udf.function()
+def policies_ready(sqlDB: fn.FabricSqlConnection) -> bool:
+    return _run(sqlDB, "policies_ready")
 
 
 @udf.connection(argName="sqlDB", alias="platform")

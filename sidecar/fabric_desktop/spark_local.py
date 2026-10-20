@@ -354,7 +354,7 @@ class LocalSparkSession(SparkSession):
             for view in self._views.values():
                 try:
                     self.conn.unregister(view)
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001  # silent-ok: best-effort cleanup of a view on a connection being reset
                     pass
             self._views = {}
             self._snapshot = current
@@ -496,7 +496,7 @@ def reset() -> None:
     if _session is not None:
         try:
             _session.conn.close()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # silent-ok: best-effort close of a session being replaced
             pass
     _session = None
 
@@ -511,5 +511,5 @@ def interrupt() -> None:
     for conn in ([_session.conn] if _session else []) + [duckdb.default_connection()]:
         try:
             conn.interrupt()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # silent-ok: best-effort Cancel; a connection with nothing running may refuse
             pass

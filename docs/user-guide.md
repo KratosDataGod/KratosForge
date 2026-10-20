@@ -1,11 +1,12 @@
-# Fabric Desktop by KratosBI user guide
+# KratosForge user guide
 
-Fabric Desktop by KratosBI runs your data work on your own PC and keeps the results in Microsoft Fabric's OneLake. It looks and works like Fabric, so most pages will feel familiar. This guide walks through every page: what it is for, how to use it, and what happens behind it.
+KratosForge runs your data work on your own PC and keeps the results in Microsoft Fabric's OneLake. It looks and works like Fabric, so most pages will feel familiar. This guide walks through every page: what it is for, how to use it, and what happens behind it.
 
 The app's **Learn more** links open the sections of this page. Two areas have their own, longer guides:
 
 - **[Notebooks and SQL](notebooks.md):** writing and running notebooks on your PC, Fabric code that works here, publishing, Run in Fabric and schedules, and the SQL query tab.
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
+- **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
 - **[Metadata framework](metadata-guide.md):** building and running medallion layers from config, step by step, with a reference for every setting.
 
@@ -69,7 +70,7 @@ Click your initial at the top right:
 1. **Sign in** with your work account, the same one you use for Fabric. Windows often signs you in with no prompt. There's no app ID to ask anyone for.
 2. **Open a lakehouse** from **OneLake** or **Workspaces** to browse its tables and files, or query them with SQL.
 3. **Create a notebook** from **Create**. Cells run on this PC, not on your Fabric capacity.
-4. **Set up a metadata project** (Data mesh in the left rail) when you want Fabric Desktop by KratosBI to build and run your medallion layers for you.
+4. **Set up a metadata project** (Data mesh in the left rail) when you want KratosForge to build and run your medallion layers for you.
 
 Home shows a **Get started** list with these steps until you have a metadata project. Each step has a **Start** button and gets a tick when done. **Hide** removes the list.
 
@@ -130,6 +131,10 @@ New items:
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
 
+## Validate a notebook (Preview)
+
+In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
+
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
@@ -171,7 +176,7 @@ Every item in every workspace you can open: lakehouses, warehouses, notebooks, s
 - **Type** narrows by item type, grouped as Fabric groups them (Data, Insights, Processes, Solutions, Configurations). Pick a group or open it to pick one type. **Clear** resets it.
 - **Click a column heading** to sort by it; click again to reverse.
 - **Star** an item to make it a favorite. Fabric has no public API for its own favorites, so these are kept on this PC.
-- **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. Fabric Desktop by KratosBI's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
+- **Endorsement** (Certified or Promoted) shows in the Fabric catalog embedded on the page. KratosForge's own list greys out Endorsed items, because reading endorsement needs an admin-only permission it doesn't ask for.
 - **Layer** shows which metadata layer a lakehouse is, when it belongs to your metadata project.
 - **Environments** on the left (**All**, **Dev**, **Test**, **Prod**) shows only that environment's items, and **Location** marks each item's environment. See [Environments and solutions](#environments-and-solutions).
 - **Group by** puts the list under headings: **Environment**, **Solution**, or **Solution, then environment**. Click a heading to open or close it; the first one starts open. Your choice is kept on this PC.
@@ -233,10 +238,11 @@ Changing roles needs workspace **Admin**. Needs `OneLake.ReadWrite.All`, `Worksp
 
 ## Data mesh
 
-The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and Fabric Desktop by KratosBI builds and runs them. Its tabs are in five groups:
+The **Data mesh** page (it was called Metadata) is where your metadata project lives. Metadata describes each table of your medallion layers once, in a file, and KratosForge builds and runs them. Its tabs are in six groups:
 
 | Group | Tabs |
 | --- | --- |
+| Overview (Preview) | Domains: the page opens here. Your organization's domains and how they feed each other; open a domain to see its projects, their layers, products and readers, then a layer of the project on this PC to see where each table comes from and what reads it. Read only. See [Data mesh](data-mesh.md#from-domains-to-tables) |
 | Design | Entities, Layers, Surrogate keys, Source systems |
 | Runs | Every run, with its steps, rows and problems |
 | Quality | Tests and Table health |
@@ -288,16 +294,16 @@ What your Fabric estate could do better, what was fixed and what it could save, 
 - **Share results with your team** shows until this PC is connected to an optimization lakehouse: **Create a lakehouse** makes one in a workspace you pick, and **Connect to a lakehouse** lists the ones already in a workspace. Nothing on the page waits for it.
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
-- **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (a scenario, not a measured saving), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
+- **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (estimated from Fabric runs of the same table, never from their time on this PC; Not known when the table hasn't run in Fabric in the last 90 days), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
 
 ## Monitor
 
 Monitor has two halves.
 
-**From Fabric Desktop by KratosBI** (top) has three tabs:
+**From KratosForge** (top) has three tabs:
 
-- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
-- **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off.
+- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
+- **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. **Remove** asks first and says what stops: on this PC it deletes the Windows task, in Fabric it deletes the schedule there, and past runs stay. To stop a schedule for a while, turn it Off instead. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off. If this PC's schedules file is ever damaged (a crash mid-save, say), it is moved aside to `schedules.json.corrupt-<time>` in the app's folder, and a warning above the list says when and where. Schedules saved before then aren't listed, but Task Scheduler may still have tasks for them under **FabricDesktop**. Their runs fail and don't show here. The moved-aside file has the old schedules if you want to add them again. The warning goes away once that file is moved out of the folder or deleted.
 - **Operations** (Preview): the views for running workloads day to day. **Show** picks one, and Operations opens on the last one you used:
   - **Workloads**: everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
   - **Queue**: what is running, queued and next, on this PC, on agents and in Fabric, with who owns each item. See [Queue](#queue-preview) below.
@@ -309,7 +315,7 @@ Monitor has two halves.
 
 ### Workloads (Preview)
 
-A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). Fabric Desktop by KratosBI never reads your whole tenant.
+A workload is something you build and run: a metadata entity (one per table, in each environment it is configured for), a notebook on this PC (with its Fabric item when it has one), or a pipeline, notebook or Spark job definition in the workspaces the app works in (the ones you pinned, your environments' workspaces and the ones your notebooks publish to). KratosForge never reads your whole tenant.
 
 **How this works**, beside the list, says what it reads (and that it never reads your whole tenant), what you can change from it, and where ownership and the action log are kept. It folds to its title, and the app remembers that.
 
@@ -317,7 +323,7 @@ A workload is something you build and run: a metadata entity (one per table, in 
 
 | Column | What it means |
 | --- | --- |
-| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (Fabric Desktop by KratosBI couldn't read it), **Healthy**, or **No recorded runs**. |
+| **Health** | **Failing** (its last run failed), **Late** (it missed its [freshness promise](metadata-guide.md#freshness-promises)), **Needs attention** (a decision is waiting, or a run was cancelled), **Not observed** (KratosForge couldn't read it), **Healthy**, or **No recorded runs**. |
 | **Owner** | The team or technical owner, and whether it was declared in the project's files or assigned on this PC. **No owner** when nobody is set, or when a template placeholder such as "me" is all there is. |
 | **Deployed to** | Each environment and where it runs: This PC, an agent, or Fabric and its workspace. |
 | **Last run** | How the newest recorded run ended. |
@@ -326,7 +332,7 @@ A workload is something you build and run: a metadata entity (one per table, in 
 
 The line above the list says what each source is and how fresh it is, for example "Cached 3 h · Fabric items in 4 workspaces (1 refused access)". **Refresh** reads them again.
 
-**Not observed is not failing.** When your sign-in has expired, a workspace refuses access or Fabric asks the app to slow down, the workload shows **Not observed** with the reason. That says nothing about the workload itself, only that Fabric Desktop by KratosBI couldn't read it. The last reading it had is shown as **Cached**, and becomes **Stale** after an hour.
+**Not observed is not failing.** When your sign-in has expired, a workspace refuses access or Fabric asks the app to slow down, the workload shows **Not observed** with the reason. That says nothing about the workload itself, only that KratosForge couldn't read it. The last reading it had is shown as **Cached**, and becomes **Stale** after an hour.
 
 **Mine** means you are its team, technical owner, business contact or support contact, declared in the project's files or assigned on this PC. It never means "you ran it last".
 
@@ -337,7 +343,7 @@ The line above the list says what each source is and how fresh it is, for exampl
 - **Deployments:** each environment with where it runs, as whom, where its tables are, which version it runs (and **Behind** when the project has moved on), its schedules and latest run.
 - **What changed:** runs, promotions, edits to its definition, actions taken from this app and ownership changes, newest first.
 - **Who is affected:** what reads from it in the project, and the data products it feeds with their consumers. Only declared links are listed.
-- **Recent runs** and **Actions from Fabric Desktop by KratosBI**.
+- **Recent runs** and **Actions from KratosForge**.
 
 **Actions say what they will do first.** **Retry**, **Run** and **Cancel the run** open a confirmation that names the environment, where it runs, as whom, what it writes and any warning (the last failure, or an environment that runs an older version). Runs go through the same paths as Data mesh > Run, Run in Fabric and Run now on a schedule. Each action is recorded as **Submitted**, then as **Succeeded** or **Failed** once the run records say how it ended. A cancel counts as succeeded only when Fabric reports the job as cancelled.
 
@@ -367,7 +373,7 @@ An incident is one record per problem in an environment: a table whose last run 
 
 ### Agents (Preview)
 
-An [agent](agent.md) is Fabric Desktop by KratosBI running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
+An [agent](agent.md) is KratosForge running on your own server. Every minute or so it writes a status record to each environment it serves, in that environment's `LH_Meta`. Monitor > Operations > Agents reads those records. It never reaches the agent's server, and nothing on it starts, stops or changes an agent.
 
 **How this works**, beside the list, says what the page reads, that it changes nothing and stores nothing, what an agent is, the four steps to set one up (each linked to its section of the [agent guide](agent.md)), and what is coming: shared schedules and takeover (Preview, off by default). It folds to its title, and the app remembers that.
 
@@ -420,7 +426,7 @@ The banner at the top lists what to look at: a certificate that has expired or e
 
 ## Source control (Preview)
 
-**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. The whole page is described in [Source control](source-control.md).
+**Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
 
 ## Settings
 
@@ -428,7 +434,7 @@ Open Settings from the gear at the bottom of the left rail, or from the account 
 
 | Section | What's there |
 | --- | --- |
-| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: Fabric Desktop by KratosBI then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
+| **Account** | Who you're signed in as, **Sign out**, and the **App (client) ID**. Leave it empty: KratosForge then uses Microsoft's own Fabric sign-in and nobody registers an app. Only paste an ID if your organization gave you its own app ([Permissions](permissions.md#using-your-own-app-registration)); **Admin approval** then copies the link a Microsoft Entra admin opens once to approve it. When an ID is in use, a note says so, where it came from and how to go back; if you set it here, **Use Microsoft's sign-in** clears it. |
 | **Updates** | Stable or Preview channel. See [Updates](#updates). |
 | **Preview features** | Show or hide the features tagged Preview. Promote, Sync keys, the variable library, quarantine Replay and the risk check before a run are core steps: they always show, with their Preview tag. |
 | **Platform** (Preview) | A link to **Platform > Settings**, where each environment's [platform](platform.md) is created, joined or repaired. See [Platform settings](#platform-settings). |
@@ -445,13 +451,13 @@ On **Platform > Settings**. Each environment shows whether it uses a Platform wo
 
 ### External AI tools
 
-**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. Fabric Desktop by KratosBI has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
+**Settings > Integrations** (Preview) lets AI tools you already use, such as Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot or any MCP client, read your projects and, with your approval, run work on this PC. KratosForge has no AI of its own: no chat, no model to pick, no AI key. It sends nothing to any AI service; your tools ask it for things. None of these tools has been tried with it yet, so each is marked **Untested**.
 
 1. Turn on **Let AI tools connect**. It's off until you do, and your organization can keep it off.
 2. **Add a tool**: pick it, name it, and choose what it may do. **Read metadata** (names, structure, schemas, checks, no rows) is always included. **Read data** reads rows. **Run code on this PC** runs Python and notebooks, and asks you every time.
 3. Paste the setup it shows into your tool once, then **Test connection**. The setup uses a command whose path stays the same after updates.
 
-When a tool asks for something that needs you, a prompt opens over whatever page you're on, showing the tool, what it wants to do, on what, and any code in full. **Allow once** lets that exact request through one time; **Deny** refuses it. A tool can't approve anything itself, and text it sends can't either. Requests nobody answers are dropped after 5 minutes. Fabric Desktop by KratosBI must be open for you to see them.
+When a tool asks for something that needs you, a prompt opens over whatever page you're on, showing the tool, what it wants to do, on what, and any code in full. **Allow once** lets that exact request through one time; **Deny** refuses it. A tool can't approve anything itself, and text it sends can't either. Requests nobody answers are dropped after 5 minutes. KratosForge must be open for you to see them.
 
 | Part of the tab | What it's for |
 | --- | --- |
@@ -464,7 +470,7 @@ Code a tool runs gets a process of its own that's ended afterwards. It can read 
 
 ## Updates
 
-Fabric Desktop by KratosBI checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed: the build's own notes, then everything that reached the app in the 30 days before that build, newest first. The 10 newest show; **Show more** lists the rest, each with a link to its pull request. A link at the bottom opens Fabric Desktop by KratosBI on GitHub. You can open What's new again from the account menu.
+KratosForge checks for an update each time it starts and installs it before opening. After an update, **What's new** lists what changed: the build's own notes, then everything that reached the app in the 30 days before that build, newest first. The 10 newest show; **Show more** lists the rest, each with a link to its pull request. A link at the bottom opens KratosForge on GitHub. You can open What's new again from the account menu.
 
 ![What's new, with the 10 newest changes and Show more](images/whats-new.png)
 
@@ -473,7 +479,7 @@ There are two channels:
 - **Stable** (the default): builds that have been checked and released.
 - **Preview**: every new build as soon as it's ready. For testers; things may change or break.
 
-A channel change takes effect the next time Fabric Desktop by KratosBI starts. More detail, including where files are kept, is in [install.md](install.md#updates).
+A channel change takes effect the next time KratosForge starts. More detail, including where files are kept, is in [install.md](install.md#updates).
 
 ## Preview features
 
@@ -483,7 +489,7 @@ The [documentation home](README.md#what-is-tested-and-what-isnt) says what is te
 
 ## Report a problem
 
-Account menu or Settings > **Report a problem**. Describe what happened; Fabric Desktop by KratosBI adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
+Account menu or Settings > **Report a problem**. Describe what happened; KratosForge adds its build, channel, the engine's Python version, your tenant id, the page you're on and the recent errors from Activity (the bell). It never adds your data, file contents or passwords, and you can read everything it adds before you send.
 
 **Send** copies the report and opens your organization's support contact if it has one, or a new GitHub issue where you paste it. **Copy only** just copies it.
 
@@ -491,7 +497,7 @@ Ideas and feature requests go to the ideas forum instead: see [Submitting ideas]
 
 ## For IT admins
 
-Setting Fabric Desktop by KratosBI up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
+Setting KratosForge up for an organization, so nobody has to type an app ID: see [Configure Azure and Fabric](azure-setup.md) and [Rolling out to your organization](permissions.md#rolling-out-to-your-organization). For teams sharing projects and environments, see [Working across teams](teams.md).
 
 ### Audit trail
 

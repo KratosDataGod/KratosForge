@@ -163,7 +163,7 @@ function workloadRow(r) {
 
 async function renderWorkload() {
   if (!wlPage.id) return go("monitor");
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const w = wlPage.detail?.id === wlPage.id ? wlPage.detail : await attempt(() => rpc("workload_detail", { id: wlPage.id }), "Couldn't open the workload");
   if (state.view !== "workload") return;
   if (!w) {

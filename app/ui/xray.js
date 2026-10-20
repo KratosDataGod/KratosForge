@@ -146,7 +146,9 @@ function xrayHow() {
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
       + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
     results: "Findings are kept on this PC. Lakehouse and table findings added to the central lakehouse show in "
-      + "Optimize > Opportunities for everyone who uses it. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
+      + "Optimize > Opportunities, and anyone who can read that lakehouse can read them, including the workspace, "
+      + "lakehouse and table names of every workspace this scan reached; the app hides items you can't open, but "
+      + "that is a courtesy, not security. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
     anchor: "estate-x-ray-preview",
   });
 }

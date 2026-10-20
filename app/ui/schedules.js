@@ -38,7 +38,8 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
     h("td", {}, s.text),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,
-      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null),
+      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null,
+      s.last?.alert_error ? h("div", { class: "reason" }, s.last.alert_error) : null),
     h("td", { class: "n nowrap" },
       btn("Run now", "play", async () => {
         if (await attempt(() => rpc("run_pc_schedule_now", { schedule_id: s.id }), "Not started")) {
@@ -139,6 +140,21 @@ async function loadSchedules(box, refresh) {
   if (res.fabric.pending) schedulesPage.timer = setTimeout(() => loadSchedules(box, false), 1500);
 }
 
+// This PC's schedules file couldn't be read and was moved aside (QA-011): its schedules are no longer
+// listed, but Task Scheduler may still start tasks made for them.
+function setAsideNotice(files) {
+  if (!files?.length) return null;
+  const [latest] = files;
+  return h("div", { class: "card pad warn-box set-aside" },
+    h("div", {}, h("b", {}, "Some schedules on this PC may be missing. "),
+      "The schedules file couldn't be read ", when(latest.at), " and was moved aside to ",
+      h("span", { class: "mono" }, latest.file), ". Schedules saved before then aren't listed here."),
+    h("div", { class: "small" }, "Windows may still run tasks made for them: look in Task Scheduler under ",
+      h("span", { class: "mono" }, "FabricDesktop"), ". Their runs fail and don't show here. The file has the old schedules if you need to add them again. This warning goes away once that file is moved out of the folder or deleted."),
+    h("div", { class: "muted-text small mono" }, latest.path),
+    files.length > 1 ? h("div", { class: "muted-text small" }, `${files.length - 1} older ${files.length === 2 ? "copy is" : "copies are"} kept next to it.`) : null);
+}
+
 function drawSchedules(box) {
   const res = schedulesPage.data;
   const redraw = () => loadSchedules(box, false);
@@ -157,6 +173,7 @@ function drawSchedules(box) {
       h("span", {}, h("b", {}, (fabric.items || []).filter((s) => s.enabled).length), " in Fabric"),
       failing ? h("span", { class: "bad" }, h("b", {}, failing), " failed last time") : null),
     h("h3", { class: "schedule-head" }, "On this PC"),
+    setAsideNotice(res.pc_set_aside),
     res.windows ? null : h("p", { class: "muted-text small" }, "Only Windows starts these. On this system they are saved but nothing runs them."),
     pc.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["", "What", "When", "Next run", "Last run", ""].map((c) => h("th", {}, c)))),

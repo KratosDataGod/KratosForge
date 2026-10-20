@@ -21,7 +21,8 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from .filenames import file_stem
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -349,17 +350,13 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         return self.root / "favorites.json"
 
     def _favorites(self) -> set[str]:
-        try:
-            return set(json.loads(self.favorites_file.read_text()))
-        except (OSError, ValueError):
-            return set()
+        return set(jsonfile.read_json(self.favorites_file, []))
 
     def set_favorite(self, lakehouse_id: str, favorite: bool) -> list[str]:
         """Stars are kept on this PC; Fabric has no public API for its own favorites."""
         favorites = self._favorites()
         (favorites.add if favorite else favorites.discard)(lakehouse_id)
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.favorites_file.write_text(json.dumps(sorted(favorites)))
+        jsonfile.write_json(self.favorites_file, sorted(favorites), indent=None)
         return sorted(favorites)
 
     def list_items(self, workspace_id: str) -> list[dict[str, Any]]:
@@ -373,10 +370,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         """Workspace ids starred as favorites and pinned to the top, kept on this PC.
 
         Pins keep the order they were pinned in."""
-        try:
-            marks = json.loads(self.workspace_marks_file.read_text())
-        except (OSError, ValueError):
-            marks = {}
+        marks = jsonfile.read_json(self.workspace_marks_file, {})
         return {"favorites": list(marks.get("favorites", [])), "pins": list(marks.get("pins", []))}
 
     def set_workspace_mark(self, workspace_id: str, mark: str, on: bool) -> dict[str, list[str]]:
@@ -385,8 +379,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         marks = self.workspace_marks()
         ids = [i for i in marks[mark] if i != workspace_id]
         marks[mark] = ids + [workspace_id] if on else ids
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.workspace_marks_file.write_text(json.dumps(marks))
+        jsonfile.write_json(self.workspace_marks_file, marks, indent=None)
         return marks
 
     def create_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any]:
@@ -531,8 +524,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         report = sqlcompat.analyze(query, target)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        stem = "".join(ch for ch in (name or "SQL") if ch.isalnum() or ch in " -_").strip()[:60] or "SQL"
-        base = f"{stem} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
+        base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
         for n in range(1, 1000):
             path = folder / (f"{base}.json" if n == 1 else f"{base} ({n}).json")
@@ -621,10 +613,21 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         self._attach(lakehouse_ref)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
+        # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
+        # folder (HD-038, finding EN-11), and an existing file is never replaced.
+        base = f"{file_stem(lakehouse_ref.get('name', ''))} query {time.strftime('%Y-%m-%d %H%M%S')}"
         rows = 0
         with sql.Stream(query, dialect) as result:
-            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+            for n in range(1, 1000):
+                path = folder / (f"{base}.csv" if n == 1 else f"{base} ({n}).csv")
+                try:
+                    sink = open(path, "xb")
+                except FileExistsError:
+                    continue
+                break
+            else:
+                raise ValueError("Couldn't find a free file name in Downloads for the export.")
+            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
                 for batch in result:
                     out.write_batch(batch)
                     rows += batch.num_rows

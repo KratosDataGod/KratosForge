@@ -108,3 +108,53 @@ def test_support_bundle_holds_versions_and_logs_with_personal_details_taken_out(
 def test_describe_is_log_safe():
     assert redact.describe(ValueError(f"refused Bearer {JWT}")) == "ValueError: refused Bearer [removed]"
     assert redact.describe(KeyError()) == "KeyError"
+
+
+G1, G2, G3 = ("11111111-2222-3333-4444-555555555555", "72f988bf-86f1-41af-91ab-2d7cd011db47",
+              "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+
+
+@pytest.mark.parametrize("url", [
+    f"https://contoso.webhook.office.com/webhookb2/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+    f"https://contoso.webhook.office.com/webhookb2/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}/V2xyzTOKEN",
+    f"https://outlook.office.com/webhook/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+    f"https://Outlook.Office365.com/webhook/{G1}@{G2}/IncomingWebhook/0123456789abcdef/{G3}",
+])
+def test_office_365_connector_webhooks_are_removed(url):
+    # QA-016: the address is the credential, so none of its path may survive.
+    assert redact.secrets(f"POST {url} failed: 400") == "POST [removed] failed: 400"
+    body = json.dumps({"channel": "alerts", "url": url, "status": 400})
+    assert redact.secrets(body) == json.dumps({"channel": "alerts", "url": "[removed]", "status": 400})
+    assert "IncomingWebhook" not in redact.for_support(f"Teams said no ({url}).")
+
+
+@pytest.mark.parametrize("text", [
+    "open https://outlook.office.com/mail/inbox or https://www.office.com/launch/word",
+    "docs at https://learn.microsoft.com/office/webhooks and https://portal.office.com/",
+])
+def test_office_urls_without_a_webhook_path_are_kept(text):
+    assert redact.secrets(text) == text
+
+
+def test_a_failed_webhook_post_does_not_leak_the_path():
+    # QA-016: requests names the host and the path apart, so the full-URL pattern never sees the URL.
+    import requests
+    path = ("/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000/IncomingWebhook/"
+            "abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123456789")
+    with pytest.raises(requests.RequestException) as caught:
+        requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)  # refused: the same message shape as DNS or network failures
+    text = redact.describe(caught.value)
+    assert "SECRETSECRET" not in text and "IncomingWebhook" not in text
+    assert "127.0.0.1" in text  # the rest of the message still says what failed
+
+
+def test_the_outbox_stores_a_failed_legacy_webhook_post_without_its_secret():
+    # notify.failure is what the Teams outbox saves in its error column after a retry fails.
+    import requests
+    from fabric_desktop.workloads import notify
+    path = ("/webhook/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000/IncomingWebhook/"
+            "abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555")
+    with pytest.raises(requests.RequestException) as caught:
+        requests.post("https://127.0.0.1:9" + path, json={}, timeout=2)
+    stored = notify.failure(caught.value)
+    assert "abcdef0123456789" not in stored and "IncomingWebhook" not in stored

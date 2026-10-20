@@ -168,6 +168,8 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
 
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there sets the original aside and writes the lines that still read back in its place, so later reads and saves keep them. `meta_service.py` waits for #293, and `app_settings.py` remains.
+
 ### QA-012 Two audit-chain writers (Medium)
 
 **Evidence: Code.** `AuditLog` (`sidecar/fabric_desktop/audit.py:100-110,135-146`) caches the chain head in `self._prev` under a `threading.Lock`. The desktop (`service.py:79`), Task Scheduler runs (`cli.py:279-283`) and the agent (`agent.py:69`) all write the same folder. `integrations/audit.py:128` writes inside a store transaction, "one writer at a time across every process". The two copies also disagree on which fields are content (`audit.py:67` lists nine names the integration copy lacks).
@@ -214,6 +216,8 @@ secrets("webhook https://contoso.webhook.office.com/webhookb2/abc/IncomingWebhoo
 **Overlaps.** EN-5 / HD-007 (agent log redaction on JSON text; open PR #157) is about where redaction runs, not what it matches.
 
 **Fix.** PR-QA-06: `redact.secrets` includes the Git patterns and URL user info; delete the fallback; `livetest.scrub` calls it. **Verify:** the two strings above in `app/tests/redact-cases.json`.
+
+**Status.** URL user info, provider tokens and `*.webhook.office.com` webhooks fixed on `main` (#181); the legacy Office 365 connector form (`outlook.office.com/webhook/...`) and the bare webhook path a failed post prints (`url: /webhookb2/...`) added in #303.
 
 ### QA-017 RPC methods with no screen (Medium)
 
@@ -269,6 +273,8 @@ The fakes themselves are good: `test_fabric_api.py:22-33` checks method, URL and
 **Evidence: Code.** `jobqueue.py:63-83` and `integrations/store.py:77-96` are twins (thread-local connection, WAL, `begin immediate`); only `jobqueue.py:69` sets `synchronous=full`. `workloads/store.py:55-63` uses a deferred transaction and a process-local lock with no WAL. `workloads/notify.py:113-114` uses `with sqlite3.connect(...)`, which commits but never closes, at five call sites. `central/client.py:57` and `backup.py` have their own.
 
 **Fix.** PR-QA-06: `sqlite_util.connect(path, durable=)` and `tx()`. **Verify:** the six modules use it; a `ResourceWarning` filter turned into an error in the notify tests.
+
+**Status.** Leak fixed: `workloads/notify.py` `Outbox` and `workloads/platform_notify.py` `Ledger` now close every connection (`notify.transaction`: commit, rollback on error, then close; `tests/test_sqlite_connections_closed.py`). The other sites don't leak per call: `jobqueue.py:63-71` and `integrations/store.py:77-84` (with `integrations/audit.py`) keep one connection per thread by design; `workloads/store.py:55-63` and `backup.py:68-74,227-242` close in `finally` (counted over 20-40 operations each). Unifying the idioms and the durability drift (only `jobqueue` sets `synchronous=full`) remain open.
 
 ### QA-023 Prove and side by side are clones (Low)
 

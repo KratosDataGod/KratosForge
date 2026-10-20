@@ -238,6 +238,45 @@ def test_save_replay_bundle_writes_code_inputs_and_the_redacted_error(tmp_path, 
     assert shared["lakehouse"] == {"name": "LH_Bronze"}
 
 
+class FixedClock:
+    """prove_service's ``time`` with strftime at one second, so two saves want the same name."""
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+    def strftime(self, fmt, *args):
+        return time.strftime(fmt, time.struct_time((2026, 10, 20, 12, 0, 0, 1, 293, 0)))
+
+
+def test_save_replay_bundle_never_replaces_a_file_with_its_name(tmp_path, monkeypatch):
+    from fabric_desktop import prove_service
+    s = service(tmp_path, monkeypatch)
+    cells = failing_notebook(s, tmp_path)
+    monkeypatch.setattr(prove_service, "time", FixedClock())
+    first = Path(call(s, "replay_bundle_save", name="events", cells=cells, failed=3, lakehouse_ref=LH)["path"])
+    assert first.name == "replay-events-20261020-120000.zip"
+    first.write_bytes(b"hand-edited")
+    second = Path(call(s, "replay_bundle_save", name="events", cells=cells, failed=3, lakehouse_ref=LH)["path"])
+    assert second.name == "replay-events-20261020-120000-2.zip" and first.read_bytes() == b"hand-edited"
+    assert replay.read(second)["notebook"] == "events"
+
+
+def test_save_replay_bundle_is_created_exclusively_even_if_the_name_was_free_a_moment_ago(tmp_path, monkeypatch):
+    # Another save makes the file between the free-name check and the write: Path.exists says
+    # every name is free, and the file already there must still not be replaced.
+    from fabric_desktop import prove_service
+    s = service(tmp_path, monkeypatch)
+    cells = failing_notebook(s, tmp_path)
+    monkeypatch.setattr(prove_service, "time", FixedClock())
+    mine = tmp_path / "home" / "Downloads" / "replay-events-20261020-120000.zip"
+    mine.parent.mkdir(parents=True)
+    mine.write_bytes(b"hand-edited")
+    monkeypatch.setattr(Path, "exists", lambda self, *a, **k: False)
+    out = Path(call(s, "replay_bundle_save", name="events", cells=cells, failed=3, lakehouse_ref=LH)["path"])
+    assert mine.read_bytes() == b"hand-edited"
+    assert out.name == "replay-events-20261020-120000-2.zip"
+
+
 def test_policy_can_keep_data_out_of_bundles(tmp_path, monkeypatch):
     s = service(tmp_path, monkeypatch)
     cells = failing_notebook(s, tmp_path)

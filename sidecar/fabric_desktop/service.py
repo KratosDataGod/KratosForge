@@ -22,6 +22,7 @@ from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from .filenames import file_stem
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -531,8 +532,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         report = sqlcompat.analyze(query, target)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        stem = "".join(ch for ch in (name or "SQL") if ch.isalnum() or ch in " -_").strip()[:60] or "SQL"
-        base = f"{stem} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
+        base = f"{file_stem(name)} compatibility {report['target']['id']} {time.strftime('%Y-%m-%d %H%M%S')}"
         text = sqlcompat.report_json(report, query)
         for n in range(1, 1000):
             path = folder / (f"{base}.json" if n == 1 else f"{base} ({n}).json")
@@ -621,10 +621,21 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         self._attach(lakehouse_ref)
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{lakehouse_ref['name']} query {time.strftime('%Y-%m-%d %H%M%S')}.csv"
+        # The lakehouse name is cleaned as sql_compat_export cleans its name, so it can't leave the
+        # folder (HD-038, finding EN-11), and an existing file is never replaced.
+        base = f"{file_stem(lakehouse_ref.get('name', ''))} query {time.strftime('%Y-%m-%d %H%M%S')}"
         rows = 0
         with sql.Stream(query, dialect) as result:
-            with pa_csv.CSVWriter(str(path), result.schema or pa.schema([])) as out:
+            for n in range(1, 1000):
+                path = folder / (f"{base}.csv" if n == 1 else f"{base} ({n}).csv")
+                try:
+                    sink = open(path, "xb")
+                except FileExistsError:
+                    continue
+                break
+            else:
+                raise ValueError("Couldn't find a free file name in Downloads for the export.")
+            with sink, pa_csv.CSVWriter(sink, result.schema or pa.schema([])) as out:
                 for batch in result:
                     out.write_batch(batch)
                     rows += batch.num_rows

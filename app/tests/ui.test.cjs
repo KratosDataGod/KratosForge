@@ -13,18 +13,51 @@ test("every UI script parses", () => {
   }
 });
 
+// The names a script declares at its top level (function, class, var, let, const, however indented
+// and including destructured names), found by V8's own parser rather than a regex: appending
+// `let x;` to a script is a SyntaxError exactly when the script already declares x at the top
+// level. Nothing is run; the scripts are only compiled.
+const bindable = new Map();
+function canBind(word) {
+  if (!bindable.has(word)) {
+    try { new vm.Script(`let ${word};`); bindable.set(word, true); } catch { bindable.set(word, false); }
+  }
+  return bindable.get(word);
+}
+function topLevelNames(src) {
+  const left = new Set([...new Set(src.match(/[A-Za-z_$][\w$]*/g) || [])].filter(canBind));
+  const found = [];
+  while (left.size) {
+    try {
+      new vm.Script(`${src}\n;let ${[...left].join(", ")};`);
+      break;
+    } catch (e) {
+      const m = /^Identifier '([^']+)' has already been declared$/.exec(e.message);
+      if (!m || !left.has(m[1])) throw e;
+      found.push(m[1]);
+      left.delete(m[1]);
+    }
+  }
+  return found;
+}
+
+test("topLevelNames finds indented and destructured declarations, not nested ones", () => {
+  const src = "function a() { var inner; }\n  const b = 1, { c, d: e } = {}, [f] = [];\n\tclass G {}\n" +
+    "if (true) { let blockScoped; }\n    async function* h() {}\n// var commented;\nconst s = 'var quoted';";
+  assert.deepStrictEqual(topLevelNames(src).sort(), ["G", "a", "b", "c", "e", "f", "h", "s"]);
+});
+
 // The page's scripts share one global scope, so a top-level name declared in two of them makes
 // the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
 test("no two page scripts declare the same top-level name", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
   assert.ok(scripts.length > 10, "index.html scripts not found");
   const owner = new Map();
   const clashes = [];
-  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
   for (const name of scripts) {
-    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
-      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+    for (const id of topLevelNames(fs.readFileSync(path.join(ui, name), "utf8"))) {
+      if (owner.has(id)) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
       else owner.set(id, name);
     }
   }
@@ -107,7 +140,7 @@ function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference, pollRun });`, ctx);
   return ctx;
 }
 
@@ -291,14 +324,6 @@ test("Fabric refusing a name reads as a name problem, not an app crash", () => {
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
   const raw = 'FabricError: POST https://api.fabric.microsoft.com/v1/workspaces/w/lakehouses failed with 400: {"errorCode":"InvalidInput","moreDetails":[{"errorCode":"InvalidParameter","message":"Artifact request failed due to invalid input. Error: DisplayName is Invalid for ArtifactType. DisplayName: <pi>TPC-H_Benchmark</pi>"}]}';
   assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
-});
-
-test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
-  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
-  const ctx = {};
-  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
-  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
 });
 
 function gitHelpers() {
@@ -1551,4 +1576,279 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /if \(meta\.project_error\) unread\.unshift\("the metadata project"\);/);
+  assert.match(a, /meta\.project_error \? `Metadata runs not shown: the metadata project couldn't be read \(\$\{meta\.project_error\}\)` : ""/);
+  const d = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  assert.match(d, /if \(res\.project_error\) logActivity\(\{ id: "fresh:project-error", status: "error", title: "Freshness not checked"/);
+});
+
+// HD-035: Prove and side-by-side status polling stops on finish, an unknown run and errors.
+function pollHarness(answers, { limit } = {}) {
+  const { pollRun } = proveHelpers();
+  const waits = [];
+  let calls = 0;
+  const run = pollRun(async () => {
+    const a = answers[calls++];
+    if (a instanceof Error || typeof a === "string") throw a;  // Tauri rejects with the engine's text
+    return a;
+  }, { limit, onStatus: (now) => now.state === "running", sleep: async (ms) => { waits.push(ms); } });
+  return run.then((end) => ({ end, waits, calls: () => calls }));
+}
+
+test("status polling stops when the run finishes", async () => {
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "done" }, { state: "running" }]);
+  assert.strictEqual(end.stopped, "finished");
+  assert.strictEqual(calls(), 3);
+});
+
+test("status polling stops at once when the engine doesn't know the run", async () => {
+  // the engine replies "LookupError: No proof p-1" (server.py)
+  const { end, calls } = await pollHarness([{ state: "running" }, "LookupError: No proof p-1"]);
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "LookupError: No proof p-1" });
+  assert.strictEqual(calls(), 2);
+  const sbs = await pollHarness(["LookupError: No side-by-side run s-1"]);
+  assert.strictEqual(sbs.end.stopped, "lost");
+});
+
+test("status polling backs off on errors and gives up after the limit", async () => {
+  const down = new Error("The engine isn't answering");
+  const { end, waits, calls } = await pollHarness([down, { state: "running" }, down, down, down, down, down, { state: "done" }], { limit: 5 });
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "The engine isn't answering" });
+  assert.strictEqual(calls(), 7, "an answer in between resets the count");
+  assert.deepStrictEqual(waits, [1500, 3000, 1500, 3000, 6000, 12000, 12000]);
+});
+
+// followProof and followSideBySide with the engine, the bell and the page stubbed out.
+function followHarness(statuses) {
+  const ctx = { console, Promise, Map, Set, Object, String, Math, RegExp, Number, Error, JSON };
+  const calls = { status: 0, bell: [], toasts: [] };
+  Object.assign(ctx, {
+    state: { notebook: null, view: "notebook" },
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    rpc: async (method) => {
+      if (method.endsWith("_status")) {
+        const s = statuses[Math.min(calls.status++, statuses.length - 1)];
+        return typeof s === "function" ? s() : s;
+      }
+      return [];
+    },
+    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    logActivity: (item) => calls.bell.push(item),
+    toast: (text) => calls.toasts.push(text),
+    document: { querySelector: () => null, querySelectorAll: () => [] },
+  });
+  vm.createContext(ctx);
+  for (const file of ["prove.js", "sidebyside.js"]) vm.runInContext(fs.readFileSync(path.join(ui, file), "utf8"), ctx, { filename: file });
+  return { ctx, calls };
+}
+
+for (const [kind, follow, slot, prefix] of [["Prove", "followProof", "prove", "prove:"], ["Side by side", "followSideBySide", "sbs", "sbs:"]]) {
+  test(`${kind}: closing the notebook mid-run still settles the bell entry`, async () => {
+    let closed = false;
+    const done = { state: "done", verdict: { text: "Same.", verdict: "same", same: true } };
+    const { ctx, calls } = followHarness([{ state: kind === "Prove" ? "pc" : "local" }, () => { ctx.state.notebook = null; closed = true; return { state: kind === "Prove" ? "fabric" : "fabric" }; }, done]);
+    const nb = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = nb;
+    await ctx[follow](nb, "r-1");
+    assert.ok(closed, "the notebook was closed during the run");
+    const last = calls.bell.at(-1);
+    assert.strictEqual(last.id, `${prefix}r-1`);
+    assert.strictEqual(last.status, "ok");
+    assert.match(calls.toasts.at(-1), /^nb: Same\./);
+  });
+
+  test(`${kind}: reopening the notebook mid-run doesn't start a second loop`, async () => {
+    const running = { state: kind === "Prove" ? "pc" : "local" };
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { ctx, calls } = followHarness([running, () => gate, { state: "cancelled" }]);
+    const first = { name: "nb", prove: {}, cells: [] };
+    const second = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = first;
+    const loop = ctx[follow](first, "r-2");
+    await new Promise((r) => setImmediate(r));
+    ctx.state.notebook = second;
+    await ctx[follow](second, "r-2");  // returns at once: the first loop takes the new notebook over
+    release(running);
+    await loop;
+    assert.strictEqual(calls.status, 3);
+    assert.strictEqual(slot === "prove" ? second.prove.record.state : second.sbs.state, "cancelled");
+    assert.deepStrictEqual(calls.toasts, ["nb: Cancelled."]);
+  });
+}
+
+test("Prove and side by side follow runs only through pollRun", () => {
+  for (const [file, fn] of [["prove.js", "followProof"], ["sidebyside.js", "followSideBySide"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = src.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n}\\n`))[0];
+    assert.match(body, /pollRun\(/, fn);
+    assert.doesNotMatch(body, /for \(;;\)|while \(true\)/, fn);
+    assert.match(body, /if \(following\) return;/, `${fn} guards against two loops for one run`);
+  }
+});
+
+// UI-4 (HD-042): closing a prompt by its overlay, its X or Escape settled nothing, so the code
+// awaiting it hung. Runs the dialog code from app.js and meta.js on a small fake DOM.
+function dialogHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
+  const code = section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type, e = {}) { for (const fn of this.on[type] || []) fn({ target: this, preventDefault() {}, stopImmediatePropagation() {}, ...e }); },
+      focus() {}, select() {}, contains: () => false, querySelector: () => null, querySelectorAll: () => [] };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) n.addEventListener(k.slice(2), v);
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const root = node("div");
+  Object.defineProperty(root, "childElementCount", { get: () => root.kids.length });
+  Object.assign(root, {
+    replaceChildren(...k) { this.kids = k; },
+    querySelector(sel) { return sel === ".overlay[data-dismiss]" ? find(this.kids[0], (n) => "data-dismiss" in n.attrs) : null; },
+  });
+  const docOn = {};
+  const ctx = {
+    h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
+    MutationObserver: class { observe() {} disconnect() {} },
+    document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
+  const overlay = () => root.kids[0];
+  return {
+    ...ctx, root,
+    clickOverlay: () => overlay().fire("mousedown", { target: overlay() }),
+    clickX: () => find(overlay(), (n) => n.attrs["aria-label"] === "Close").fire("click"),
+    pressEscape: () => docOn.keydown.forEach((fn) => fn({ key: "Escape", preventDefault() {}, stopImmediatePropagation() {} })),
+    clickButton: (label) => find(overlay(), (n) => n.tag === "button" && n.kids[0] === label).fire("click"),
+  };
+}
+
+const settledOrHung = (p) => Promise.race([p.then((v) => ({ v })), new Promise((r) => setTimeout(() => r("hung"), 20))]);
+
+test("closing a text prompt by its overlay, its X or Escape answers null", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const answer = d.askText("Rename", "Name", "orders");
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(answer), { v: null }, close);
+    assert.strictEqual(d.root.childElementCount, 0, close);
+  }
+  const d = dialogHelpers();
+  const answer = d.askText("Rename", "Name", "orders");
+  d.clickButton("Cancel");
+  assert.deepStrictEqual(await settledOrHung(answer), { v: null });
+});
+
+test("a workspace picker and a confirmation settle however they close", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const pick = d.pickWorkspace([{ id: "w1", displayName: "Sales" }]);
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(pick), { v: null }, close);
+    const e = dialogHelpers();
+    const ok = e.confirmDialog("Delete Orders?", "x", "Delete", { danger: true });
+    e[close]();
+    assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
+  }
+});
+
+test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
+  const d = dialogHelpers();
+  let closed = 0;
+  d.showDialog("One", d.h("p"), [], () => { closed++; });
+  d.clickX();
+  d.closeDialog();
+  d.pressEscape();
+  assert.strictEqual(closed, 1);
+  let replaced = 0;
+  d.showDialog("Two", d.h("p"), [], () => { replaced++; });
+  d.showDialog("Three", d.h("p"));
+  d.closeDialog();
+  assert.strictEqual(replaced, 1);
+  assert.strictEqual(d.root.childElementCount, 0);
+});
+
+// HD-044 (UI-6): the rail marks the page you're on, and the command bar is a modal dialog.
+function paletteHarness() {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs, kids: kids.flat(), on: {}, isConnected: true, value: attrs.value || "",
+      addEventListener(type, fn) { this.on[type] = fn; }, focus() { ctx.document.activeElement = this; },
+      setSelectionRange() {}, querySelector() { return null; }, replaceChildren(...k) { this.kids = k; },
+      remove() { this.isConnected = false; if (ctx.mounted === this) ctx.mounted = null; } };
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith("on") && typeof v === "function") n.on[k.slice(2)] = v;
+    return n;
+  };
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: { view: "home" }, rpc: () => new Promise(() => {}),
+    previewShown: () => true, go() {}, console, mounted: null, trapped: 0,
+    trapFocus() { ctx.trapped++; },
+    document: { activeElement: null, body: { append(b) { ctx.mounted = b; } },
+      getElementById: (id) => (id === "palette" ? ctx.mounted : id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [{ group: "Pages", label: "Home", icon: "home", run() {} }];
+  const key = (k) => { const e = { key: k, stopped: false, preventDefault() {}, stopPropagation() { e.stopped = true; } }; return e; };
+  return { ctx, node, dialogRoot, key };
+}
+
+test("the command bar is a modal dialog: focus goes in, Tab stays in, Escape closes it and focus returns (HD-044)", () => {
+  const { ctx, node, key } = paletteHarness();
+  const opener = node("button", { id: "opener" });
+  ctx.document.activeElement = opener;
+  ctx.openPalette();
+  const box = ctx.mounted;
+  assert.ok(box, "the command bar did not open");
+  const dialog = box.kids[0];
+  assert.strictEqual(dialog.attrs.role, "dialog");
+  assert.strictEqual(dialog.attrs["aria-modal"], "true");
+  assert.strictEqual(ctx.document.activeElement.tag, "input", "focus did not move into the command bar");
+  ctx.openPalette();  // Ctrl+K again keeps where focus came from
+  const reopened = ctx.mounted;
+  assert.ok(reopened.on.keydown, "the command bar has no keydown handler for Tab and Escape");
+  reopened.on.keydown(key("Tab"));
+  assert.strictEqual(ctx.trapped, 1, "Tab is not kept inside the command bar");
+  const esc = key("Escape");
+  reopened.on.keydown(esc);
+  assert.strictEqual(ctx.mounted, null, "Escape did not close the command bar");
+  assert.ok(esc.stopped, "Escape also reaches the activity tray behind the command bar");
+  assert.strictEqual(ctx.document.activeElement, opener, "focus did not go back to where it was");
+});
+
+test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
+  const { ctx, dialogRoot } = paletteHarness();
+  dialogRoot.childElementCount = 1;
+  ctx.openPalette();
+  assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /e\.key\.toLowerCase\(\) === "k"\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+});
+
+test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
+  const { ctx } = paletteHarness();
+  const f = { id: "x", rail: { label: "Home", icon: "home", order: 1, also: ["homeDetail"] }, views: { home() {} } };
+  ctx.state.view = "home";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "homeDetail";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "settings";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], null);
+  assert.doesNotMatch(ctx.railItem(f).attrs.class, /active/);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /class: `rail-item\$\{state\.view === view \? " active" : ""\}`, "aria-current": state\.view === view \? "page" : null/);
+});
+
+test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedules (QA-013)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });

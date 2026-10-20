@@ -26,7 +26,9 @@ const order = () => page().evaluate(() => state.notebook.cells.map((c) => c.cell
 
 before(async () => {
   if (skip) return;
-  app = await openApp({ mocks: { save_notebook: (p) => { saved = p; return { saved: true }; } } });
+  app = await openApp({
+    engine: ["start_cell", "poll_cell", "kernel_variables", "kernel_complete", "interrupt_cell"],
+    mocks: { save_notebook: (p) => { saved = p; return { saved: true }; } } });
   await page().evaluate((cells) => {
     loadIntoState({ name: "Organise", cells });
     state.ribbonTab = "view";
@@ -130,4 +132,22 @@ test("dragging a cell by its grip moves it above or below the cell it's dropped 
   await dragCell(await idOf("c3"), await idOf("m3"), true);
   assert.deepStrictEqual(await order(), ["m1", "c1", "m2", "c2", "m3", "c3"]);
   assert.strictEqual(await page().locator(".drop-above, .drop-below, .dragging").count(), 0);
+});
+
+test("a cell that fails inside a collapsed section opens the section, and Run all stops there", { skip }, async () => {
+  await page().evaluate(() => {
+    loadIntoState({ name: "Fails", cells: [
+      { type: "markdown", cell_id: "h", source: "# Steps", meta: { heading_collapsed: true } },
+      { type: "code", cell_id: "ok", source: "x = 1", meta: {} },
+      { type: "code", cell_id: "bad", source: "raise ValueError('boom')", meta: {} },
+      { type: "code", cell_id: "after", source: "y = 2", meta: {} },
+    ] });
+    go("notebook");
+  });
+  assert.strictEqual(await page().locator(".cell").count(), 1);
+  await page().evaluate(() => runAll());
+  await page().waitForFunction(() => state.notebook.cells[2].status === "error" && state.kernel !== "busy");
+  assert.strictEqual(await page().locator(".cell").count(), 4);
+  await cell(await idOf("bad")).getByText(/boom/).first().waitFor();
+  assert.deepStrictEqual(await page().evaluate(() => state.notebook.cells.map((c) => c.status)), [null, "ok", "error", null]);
 });

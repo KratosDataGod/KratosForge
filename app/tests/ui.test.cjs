@@ -2033,5 +2033,6 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.match(nb, /visibleCells\(nb\.cells\)\.map\(renderCell\)/);
   assert.match(nb, /\.\.\.cellHeadExtras\(cell\)/);
   assert.match(nb, /return \[\.\.\.items, \.\.\.cellMenuExtras\(cell\)\];/);
+  assert.match(nb, /cell\.status === "error" && state\.notebook\?\.cells\.includes\(cell\) && revealCell\(cell\)/);
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n {2}<script src="nbcells\.js"><\/script>/);
 });

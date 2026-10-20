@@ -1153,6 +1153,10 @@ async function runCell(cell, { timeLimit = true } = {}) {
   setKernel(stopRequested ? "stopped" : "idle");
   depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
+  // A failed cell inside a collapsed section: open the section so the error can be seen.
+  if (cell.status === "error" && state.notebook?.cells.includes(cell) && revealCell(cell)) {
+    document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "nearest" });
+  }
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   return ok;

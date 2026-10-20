@@ -194,3 +194,18 @@ def test_a_sent_alert_or_no_webhook_adds_nothing_to_the_run_record(svc, monkeypa
     assert "alert_error" not in svc.run_schedule(sid)  # no webhook set
     monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x"})
     assert "alert_error" not in svc.run_schedule(sid) and sent == ["Scheduled run failed on this PC: Bad"]
+
+
+def test_a_legacy_connector_webhook_that_cant_be_reached_is_not_stored_with_the_run(svc, monkeypatch):
+    # A legacy Office 365 connector URL carries its secret in the path; requests puts the path in a ConnectionError.
+    legacy = ("https://127.0.0.1:9/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000"
+              "/IncomingWebhook/abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123")
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": legacy})
+    out = svc.run_schedule(sid)
+    assert out["alert_error"].startswith("Couldn't post the Teams alert: ConnectionError:")
+    assert "[webhook]" in out["alert_error"]
+    stored = svc.pc_schedules.runs_file.read_text(encoding="utf-8")
+    for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
+        assert secret not in out["alert_error"] and secret not in stored

@@ -12,6 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .fabric_api import FabricClient
 from .fabric_run import describe_schedule
@@ -24,6 +25,19 @@ _log = logging.getLogger(__name__)
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
 TYPE_LABELS = {"Notebook": "Notebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "Spark job"}
 STALE_LOCK_SECONDS = 12 * 3600
+
+
+def _without_webhook(text: str, url: Any) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and redact.secrets doesn't know."""
+    if not isinstance(url, str) or not url:
+        return text
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
+    return text
 
 
 def _now() -> str:
@@ -156,14 +170,15 @@ class ScheduleMixin:
     def _alert_failed_schedule(self, row: dict[str, Any]) -> str:
         """Post the failed run to Teams. Returns why the alert didn't go out, or "" (sent, or no webhook)."""
         from .dataops_service import post_teams
+        url = None
         try:
             url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
             if not url:
                 return ""
             post_teams(url, f"Scheduled run failed on this PC: {row['label']}", [row.get("message") or "See Monitor > Schedules"])
             return ""
-        except Exception as exc:  # the run is still logged; describe() drops the webhook's signature
-            problem = f"Couldn't post the Teams alert: {describe(exc)}"
+        except Exception as exc:  # the run is still logged, with the webhook kept out of what it says
+            problem = f"Couldn't post the Teams alert: {_without_webhook(describe(exc), url)}"
             _log.warning("%s (schedule %s)", problem, row.get("schedule_id"))
             return problem
 

@@ -670,6 +670,19 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
                                        "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
 
+    def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""
+        from .notebook_inputs import inputs
+        return inputs(cells, self.notebooks.extra(name, "inputs"))
+
+    def notebook_inputs_set(self, name: str, cells: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
+        """Keeps the bar's values with the notebook (its code doesn't change); empty values forget them."""
+        from .notebook_inputs import check_values, inputs
+        values = check_values(values)
+        kept = {group: given for group, given in values.items() if given}
+        self.notebooks.set_extra(name, "inputs", kept or None)
+        return inputs(cells, kept)
+
     def _with_place(self, nb: dict[str, Any]) -> dict[str, Any]:
         """Adds where the notebook is saved and, in a notebooks repository, where its data is per
         environment (the repository's locations.toml). A lakehouse attached to the notebook wins."""

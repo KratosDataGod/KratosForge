@@ -45,6 +45,7 @@ const PREVIEW_FEATURES = {
   deps: "Cell dependencies",
   debug: "Variable history and watches",
   replay: "Failure replay bundles",
+  inputs: "Parameters and widgets bar",
   cost: "Cost",
   capacity: "Capacity status",
   usage: "Measured usage import",

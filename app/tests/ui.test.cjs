@@ -1470,7 +1470,7 @@ test("a notebook's data: its own lakehouse first, then its repository's location
 test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(state\.notebook\)/);
   assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
@@ -1941,4 +1941,16 @@ test("Databricks dbutils snippets and docs", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
   assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// Parameters and widgets bar (Preview): above the cells, values added after their cell when it runs.
+test("parameters and widgets bar sits above the cells and adds its values to the run", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /computeNote\(nb\), inputsBar\(nb\), nb\.cells\.map\(renderCell\)/);
+  assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
+  const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
+  assert.match(bar, /previewMarked\("inputs"/);
+  assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="nbinputs\.js"><\/script>/);
 });

@@ -117,7 +117,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), inputsBar(nb), nb.cells.map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -1116,7 +1116,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
   let last = null;
   try {
     const watches = await dbgWatches(state.notebook);  // debugging.js
-    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
+    let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
       ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;

@@ -2014,3 +2014,10 @@ test("notebook magics page shows both %run parameter forms", () => {
   assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
   assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
 });
+
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});

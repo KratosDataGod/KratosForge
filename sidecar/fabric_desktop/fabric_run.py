@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 from . import magics
-from .notebook import to_ipynb
+from .notebook import configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
 TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
@@ -273,6 +273,11 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             elif m := next((m for m in magics.find(source) if m.name == "sql" and _SQL_WRITE.search(m.rest)), None):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
+        if magics.cell(source).language == "configure":
+            try:
+                configure_report(magics.cell(source).body)
+            except ValueError as exc:
+                fabric.append({"cell": n, "text": f"has a %%configure Fabric can't read: {exc}", "code": _snippet(source)})
         if magics.cell(source).header in ("%%cmd", "%%powershell"):
             fabric.append({"cell": n, "text": "runs a Windows shell; Fabric runs on Linux (use %%sh there)",
                            "code": _snippet(source)})

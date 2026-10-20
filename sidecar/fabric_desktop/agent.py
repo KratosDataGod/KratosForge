@@ -23,6 +23,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from . import agent_status, shared_schedules
 from .agent_config import AgentConfig
@@ -38,7 +39,7 @@ from .runtime import Runtime
 from .workloads import evaluate, model
 from .workloads.incidents import IncidentLog
 from .workloads.agents import read_status
-from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send
+from .workloads.notify import DEFAULT_ROUTE, Outbox, Quiet, Route, Routing, failure, send, single
 
 KIND_META = "meta"
 
@@ -46,6 +47,17 @@ KIND_META = "meta"
 def _epoch(local: dt.datetime) -> float:
     return local.timestamp()  # naive datetimes are this machine's local time, as schedules are
 
+
+
+def _without_webhook(text: str, url: str) -> str:
+    """``text`` with the webhook's path and query replaced: a legacy Office 365 connector URL carries its
+    secret in the path, which requests puts in connection errors and redact.secrets doesn't know (QA-016)."""
+    parts = urlsplit(url)
+    for piece in sorted({url, parts.path + ("?" + parts.query if parts.query else ""), parts.path, parts.query},
+                        key=len, reverse=True):
+        if len(piece) > 1:
+            text = text.replace(piece, "[webhook]")
+    return text
 
 class Agent:
     def __init__(self, config: AgentConfig, runtime: Runtime | None = None, queue: JobQueue | None = None,
@@ -67,6 +79,8 @@ class Agent:
         self._mailbox_at = 0.0
         self._incidents_at = 0.0
         self._outbox: Outbox | None = None
+        self._alert_box: Outbox | None = None  # "job didn't finish" alerts Teams didn't take yet
+        self._alert_lock = threading.Lock()  # workers alert at once; one send at a time posts each just once
         self.audit = AuditLog(config.home / "audit", app="agent")
         if config.pipeline.enabled:
             p = config.pipeline
@@ -317,16 +331,40 @@ class Agent:
                 "rows_written": sum(r.get("rows_written") or 0 for r in results),
                 "run_ids": [r["run_id"] for r in results if r.get("run_id")]}
 
+    def _alert_outbox(self) -> Outbox:
+        if self._alert_box is None:
+            self._alert_box = Outbox(self.config.home / "job_alerts.sqlite3", clock=self.clock)
+        return self._alert_box
+
+    def send_waiting_alerts(self) -> None:
+        """Post job alerts Teams didn't take before (no network, Teams down), marked as delayed. They
+        wait in job_alerts.sqlite3 in the agent's home and are dropped after three days."""
+        url = self.config.teams_webhook
+        if not url or (self._alert_box is None and not (self.config.home / "job_alerts.sqlite3").exists()):
+            return
+        with self._alert_lock:
+            result = send([], single(url), self._alert_outbox(), f"agent {self.config.name}", post_teams)
+        if result.get("error"):
+            self.log.warning("couldn't post waiting alerts to Teams; they'll go with the next try",
+                             extra=fields(error=_without_webhook(result["error"], url)))
+
     def _alert(self, job: dict[str, Any], error: str) -> None:
         url = self.config.teams_webhook
         if not url:
             return
+        self.send_waiting_alerts()  # older alerts first
         env = str(job["payload"].get("env", "")).title()
-        try:
-            post_teams(url, f"KratosForge agent {self.config.name}: a {env} job didn't finish",
-                       [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]])
-        except Exception as exc:  # the log has it either way
-            self.log.warning("couldn't post the alert to Teams", extra=fields(job_id=job["id"], error=failure(exc)))
+        title = f"KratosForge agent {self.config.name}: a {env} job didn't finish"
+        lines = [f"Job {job['id']} ({job['source'] or 'manual'})", error[:1500]]
+        with self._alert_lock:
+            try:
+                post_teams(url, title, lines)
+                return
+            except Exception as exc:  # kept, and sent with the next try
+                problem = _without_webhook(failure(exc), url)
+                self._alert_outbox().add(title, lines, problem)
+        self.log.warning("couldn't post the alert to Teams; it goes with the next try",
+                         extra=fields(job_id=job["id"], error=problem))
 
     # ---- the loop
 
@@ -351,6 +389,7 @@ class Agent:
         if self.clock() - self._status_at >= self.config.status_seconds:
             self._status_at = self.clock()
             self.publish_status()
+            self.send_waiting_alerts()
 
     def _guarded(self, job: dict[str, Any]) -> None:
         if self.mailbox:

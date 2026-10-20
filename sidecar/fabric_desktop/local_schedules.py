@@ -21,6 +21,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .fabric_run import WEEKDAYS, describe_schedule, schedule_configuration
+from .jsonfile import read_json, write_json
 
 TASK_FOLDER = "FabricDesktop"
 RUNS_FILE = "schedule_runs.jsonl"
@@ -190,14 +191,11 @@ class LocalSchedules:
         return self.root / RUNS_FILE
 
     def _load(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            return {"engine": "", "schedules": []}
+        # A torn file is set aside (not overwritten by the next save), so its schedules can be recovered
+        return read_json(self.file, {"engine": "", "schedules": []})
 
     def _save(self, data: dict[str, Any]) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.file.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        write_json(self.file, data, indent=1)
 
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)

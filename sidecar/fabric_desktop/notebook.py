@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 import traceback
+import types
 import warnings
 from pathlib import Path
 from typing import Any, Callable
@@ -223,16 +224,20 @@ class Kernel:
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
+        self._tasks: list[str] = []
+        self.task_values: dict[str, dict[str, Any]] = {}
         self.restart()
 
     # ---- namespace
 
     def _base_namespace(self) -> dict[str, Any]:
-        from . import notebookutils_local
+        from . import dbutils_local, notebookutils_local
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display}
-        utils = notebookutils_local.build(notebookutils_local.Host(
+        host = notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
-            variables=self.variable_libraries))
+            variables=self.variable_libraries, display=self._display, tasks=self._tasks,
+            task_values=self.task_values)
+        utils = notebookutils_local.build(host)
         get_secret = utils.credentials.getSecret
 
         def remembered_secret(*args: Any, **kwargs: Any) -> str:
@@ -242,7 +247,9 @@ class Kernel:
         utils.credentials.getSecret = remembered_secret
         sys.modules["notebookutils"] = utils
         sys.modules["mssparkutils"] = utils
-        ns.update(notebookutils=utils, mssparkutils=utils)
+        dbutils = dbutils_local.build(host, utils)
+        _databricks_runtime(dbutils)
+        ns.update(notebookutils=utils, mssparkutils=utils, dbutils=dbutils)
         try:
             from . import spark_local
             spark_local.install(ns)
@@ -253,11 +260,16 @@ class Kernel:
     def restart(self) -> None:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
+        self._reset()
+
+    def _reset(self) -> None:
+        """A fresh namespace and spark session; restart() once nothing is running."""
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.reset()
         from . import lakehouse
         lakehouse.reads_reset()
+        self.task_values.clear()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
 
@@ -323,18 +335,21 @@ class Kernel:
         return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": snap["outputs"]}
 
     def _execute(self, code: str, run: _Run, watches: list[str] | None = None) -> None:
+        from .dbutils_local import RestartPython
         from .notebookutils_local import NotebookExit
         out, err = _routers()
         ident = threading.get_ident()
         out.targets[ident] = err.targets[ident] = run
         self._local.run = run
         status = "error"
+        restart = False
         try:
             try:
                 status = self._exec(code, self.namespace, run)
                 self._flush_figures(run)
-            except NotebookExit:
+            except NotebookExit as done:
                 status = "ok"
+                restart = isinstance(done, RestartPython)
             except KeyboardInterrupt:
                 status = "cancelled"
                 run.add({"type": "text", "text": "Cancelled. Variables are kept."})
@@ -348,6 +363,9 @@ class Kernel:
             out.targets.pop(ident, None)
             err.targets.pop(ident, None)
             self._local.run = None
+            if restart:
+                self._reset()  # this cell is the one running, so there is nothing to interrupt
+                run.add({"type": "text", "text": "Python restarted. Variables were cleared."})
             run.finish(status)
 
     def _watch(self, watches: list[str], run: _Run) -> None:
@@ -371,6 +389,7 @@ class Kernel:
 
     def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
         """Run one cell's code in ``namespace``; returns "ok" or "error"."""
+        from .dbutils_local import RestartPython
         from .notebookutils_local import NotebookExit
         head = code.lstrip()
         if head.startswith("%%sql"):
@@ -404,8 +423,9 @@ class Kernel:
                     namespace["_"] = value
                     self._emit(run, display(value))
         except NotebookExit as done:
-            print(f"Notebook exited with value: {done.value}")
-            namespace["__fd_exit__"] = done.value
+            if not isinstance(done, RestartPython):
+                print(f"Notebook exited with value: {done.value}")
+                namespace["__fd_exit__"] = done.value
             raise
         except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
             self._emit(run, self._error(exc))
@@ -481,11 +501,15 @@ class Kernel:
         return self._run_notebook_in(name, ns, arguments or {})
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any]) -> Any:
+        from .dbutils_local import RestartPython
         from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
         cells = self.load_notebook(name.rsplit("/", 1)[-1])
         has_parameters = any("parameters" in (c.get("meta") or {}).get("tags", []) for c in cells)
+        widgets = getattr(namespace.get("dbutils"), "widgets", None)
+        if arguments and widgets is not None:
+            widgets.bind(arguments)  # Databricks notebooks read their arguments as widgets
         if arguments and not has_parameters:
             namespace.update(arguments)
         run = getattr(self._local, "run", None)
@@ -495,6 +519,9 @@ class Kernel:
             try:
                 status = self._exec(cell["source"], namespace, run)
             except NotebookExit as done:
+                if isinstance(done, RestartPython):
+                    raise RuntimeError(f"Notebook {name!r} asked to restart Python, which only the notebook "
+                                       f"you run can do.") from None
                 return done.value
             if status != "ok":
                 raise RuntimeError(f"Notebook {name!r} failed; its error is shown above.")
@@ -545,7 +572,7 @@ class Kernel:
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
-        return ("input", "display", "notebookutils", "mssparkutils", "spark", "In", "Out")
+        return ("input", "display", "notebookutils", "mssparkutils", "dbutils", "spark", "In", "Out")
 
     def _hidden(self, name: str, value: Any) -> bool:
         return bool(_SECRET_NAME.search(name)) or (isinstance(value, str) and value in self._secrets)
@@ -619,6 +646,25 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+def _databricks_runtime(dbutils: Any) -> None:
+    """``from databricks.sdk.runtime import dbutils`` gives the kernel's dbutils, unless the real
+    Databricks SDK is installed (then it is left alone)."""
+    import importlib.util
+    loaded = sys.modules.get("databricks")
+    if loaded is not None and not getattr(loaded, "__fd_shim__", False):
+        return
+    if loaded is None and importlib.util.find_spec("databricks") is not None:
+        return
+    root = types.ModuleType("databricks")
+    root.__fd_shim__ = True  # type: ignore[attr-defined]
+    sdk = types.ModuleType("databricks.sdk")
+    runtime = types.ModuleType("databricks.sdk.runtime")
+    runtime.dbutils = dbutils  # type: ignore[attr-defined]
+    root.sdk = sdk  # type: ignore[attr-defined]
+    sdk.runtime = runtime  # type: ignore[attr-defined]
+    sys.modules.update({"databricks": root, "databricks.sdk": sdk, "databricks.sdk.runtime": runtime})
 
 
 def _line_magics(code: str) -> str:

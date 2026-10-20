@@ -96,6 +96,20 @@ from pyspark.sql import functions as F
 | `runtime.context` | Works; `isLocal` is true here |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
 
+**Databricks `dbutils`** is there too, so notebooks written for Databricks run here unchanged where the same thing exists on this PC. It is a global in every cell, and `from databricks.sdk.runtime import dbutils` works.
+
+| Area | What works here |
+| --- | --- |
+| `fs` | `ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`, the same as `notebookutils.fs`. `dbfs:/`, `/dbfs/` and `/Volumes/` paths are Databricks storage, which this PC can't reach: use `Files/...` or a `file:` path |
+| `notebook` | `run` (returns the exit value as a string, as in Databricks) and `exit`. Arguments passed to `run` are what the child notebook's widgets return. `entry_point...getContext()` gives `notebookPath`, `userName` and `tags` |
+| `widgets` | `text`, `dropdown`, `combobox`, `multiselect`, `get`, `getAll`, `getArgument`, `remove`, `removeAll`. A widget's value is the argument the run passed, else its default |
+| `secrets` | `get`, `getBytes` and `list`, where the scope is an **Azure Key Vault name** (as with Key Vault backed scopes), read as you with the Key Vault Secrets User role. Databricks-backed scopes live in Databricks and can't be read here. Secret values are hidden in Variables |
+| `jobs.taskValues` | `set` and `get`. In `notebookutils.notebook.runMultiple`, an activity reads what its upstream activities set, by activity name. Run by hand, `get` returns `debugValue`, as in Databricks |
+| `library` | `restartPython()` stops the cell and restarts Python, clearing variables. Installing libraries isn't possible here, because the engine's packages are fixed |
+| `data` | `summarize(df)` shows a summary of the data frame |
+
+Fabric has no `dbutils`, so **Where a notebook runs** says a notebook that uses it runs on this PC only; in Fabric, use `notebookutils`.
+
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.
 
 **`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.

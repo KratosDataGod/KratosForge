@@ -60,11 +60,18 @@ class Host:
     def __init__(self, token: Callable[[str], str] | None = None,
                  run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
                  notebook_name: Callable[[], str] | None = None,
-                 variables: Callable[[str], dict[str, str] | None] | None = None):
+                 variables: Callable[[str], dict[str, str] | None] | None = None,
+                 display: Callable[..., None] | None = None,
+                 tasks: list[str] | None = None, task_values: dict[str, dict[str, Any]] | None = None):
         self.token = token
         self.run_notebook = run_notebook
         self.notebook_name = notebook_name or (lambda: "")
         self.variables = variables
+        self.display = display or (lambda *values, **_kw: print(*values))
+        # runMultiple's running activity names, innermost last, and the task values each set
+        # (dbutils.jobs.taskValues). Shared by every namespace the kernel builds.
+        self.tasks = tasks if tasks is not None else []
+        self.task_values = task_values if task_values is not None else {}
 
 
 def _store() -> FileStore:
@@ -374,6 +381,8 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
             print(f"Note: {', '.join(notes)} isn't enforced on this PC; the notebooks run one at a time.")
         results: dict[str, Any] = {}
         failed: list[str] = []
+        if not host.tasks:
+            host.task_values.clear()  # a new job run starts with no task values
         for a in activities:
             blocked = [d for d in a["dependencies"] if d in failed]
             if blocked:
@@ -381,6 +390,7 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
                 failed.append(a["name"])
                 continue
             for attempt in range(a["retry"] + 1):
+                host.tasks.append(a["name"])
                 try:
                     results[a["name"]] = {"exitVal": run(a["path"], arguments=a["args"]), "exception": None}
                     break
@@ -388,6 +398,8 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
                     results[a["name"]] = {"exitVal": None, "exception": f"{type(exc).__name__}: {exc}"}
                     if attempt < a["retry"]:
                         time.sleep(a["retry_interval"])
+                finally:
+                    host.tasks.pop()
             if results[a["name"]]["exception"]:
                 failed.append(a["name"])
         if failed:

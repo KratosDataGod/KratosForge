@@ -249,6 +249,8 @@ const SNIPPETS = [
   ["List files", 'notebookutils.fs.ls("Files")'],
   ["Get a Key Vault secret", 'secret = notebookutils.credentials.getSecret("https://<vault>.vault.azure.net/", "<secret-name>")'],
   ["Run another notebook", 'result = notebookutils.notebook.run("Other notebook", 600, {"run_date": "2026-01-01"})'],
+  ["Databricks widget", 'dbutils.widgets.text("run_date", "2026-01-01", "Run date")\nrun_date = dbutils.widgets.get("run_date")'],
+  ["Databricks secret (Key Vault scope)", 'secret = dbutils.secrets.get("<vault-name>", "<secret-name>")'],
   ["Plot with matplotlib", 'import matplotlib.pyplot as plt\nplt.bar(["East", "West"], [960, 1350])\nplt.show()'],
 ];
 

@@ -1961,7 +1961,7 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
-  assert.match(docs, /\| `lakehouse` \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
+  assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
   assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
   assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
 });
@@ -1969,6 +1969,12 @@ test("notebookutils.lakehouse and isValidToken are documented", () => {
 // Notebook utilities: notebookutils.notebook reads Fabric notebook items; changes go through Publish.
 test("notebookutils.notebook item reads are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
-  assert.match(docs, /\| `notebook` items \| `get`, `list` and `getDefinition` read Fabric notebook items as you/);
+  assert.match(docs, /\| `notebook` items \(Preview\) \| `get`, `list` and `getDefinition` read Fabric notebook items as you/);
   assert.match(docs, /use \*\*Publish to OneLake\*\*, which shows what it replaces first/);
+});
+
+// notebookutils rows that read Fabric live are marked Preview until they run on a tenant.
+test("notebookutils docs mark the live Fabric reads Preview", () => {
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
 });

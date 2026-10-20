@@ -86,7 +86,7 @@ from pyspark.sql import functions as F
 - **`read.schema(...)`** takes a `StructType`. CSV columns get its names and types by position; Parquet and JSON columns are matched by name. A value that doesn't fit the type becomes null, as in Spark's default mode. A schema on a table, a Delta path or text files stops the cell.
 - **Not available on this PC:** RDDs, UDFs, streaming, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
 
-**`notebookutils` (and `mssparkutils`)** cover:
+**`notebookutils` (and `mssparkutils`)** cover the areas below. Rows marked Preview read Fabric live as you and haven't been run on a tenant yet.
 
 | Area | What works here |
 | --- | --- |
@@ -94,8 +94,8 @@ from pyspark.sql import functions as F
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission). `isValidToken` says whether a token hasn't expired yet (it reads only the expiry) |
 | `runtime.context` | Works; `isLocal` and `isForInteractive` are true here, and `currentNotebookId` is empty because a notebook on this PC isn't a Fabric item |
-| `notebook` items | `get`, `list` and `getDefinition` read Fabric notebook items as you (the workspace defaults to the attached lakehouse's; `getDefinition` returns the ipynb text). `create`, `update`, `updateDefinition` and `delete` run in Fabric only: on this PC, use **Publish to OneLake**, which shows what it replaces first |
-| `lakehouse` | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
+| `notebook` items (Preview) | `get`, `list` and `getDefinition` read Fabric notebook items as you (the workspace defaults to the attached lakehouse's; `getDefinition` returns the ipynb text). `create`, `update`, `updateDefinition` and `delete` run in Fabric only: on this PC, use **Publish to OneLake**, which shows what it replaces first |
+| `lakehouse` (Preview) | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.

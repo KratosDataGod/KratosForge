@@ -125,3 +125,10 @@ def test_where_it_runs_knows_notebook_item_changes():
     changes = compute_check([{"type": "code", "source": "notebookutils.notebook.updateDefinition('x', d)"}], {"id": "lh"})
     runs = compute_check([{"type": "code", "source": "notebookutils.notebook.run('x')"}], {"id": "lh"})
     assert reads["local"]["ok"] and runs["local"]["ok"] and not changes["local"]["ok"]
+
+
+def test_negative_max_results_lists_everything():
+    from fabric_desktop.notebookutils_local import _limit
+    assert _limit([1, 2, 3], -1) == [1, 2, 3]
+    assert _limit([1, 2, 3], 2) == [1, 2]
+    assert _limit([1, 2, 3], 0) == []

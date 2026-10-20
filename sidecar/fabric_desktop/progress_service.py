@@ -1,8 +1,8 @@
 """Profile (progress.py has the rules): what the app calls, and the one place evidence comes in.
 
 ``_progress_observe`` runs when a validation finishes (validate_service). It records a row unless
-the signed-in person has turned off Record my accomplishments (on by default), and it never
-changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
+the signed-in person has turned off Record my accomplishments (on by default) or preview features
+are hidden (Profile is one), and it never changes the validation's result. Everything is stored per account on this PC; nothing is sent anywhere.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from . import progress
+from . import app_settings, progress
 from .redact import describe
 
 _log = logging.getLogger(__name__)
@@ -52,6 +52,8 @@ class ProgressMixin:
 
     def _progress_observe(self, record: dict[str, Any]) -> list[dict[str, Any]]:
         """Record a finished validation if it is a verified accomplishment. Returns achievements it earned."""
+        if not app_settings.value("show_preview"):
+            return []  # Profile is a Preview feature: nothing is recorded while it's hidden
         row = progress.from_validation(record)
         if row is None:
             return []

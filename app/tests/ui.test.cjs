@@ -1868,6 +1868,8 @@ test("Profile opens from the account menu and the command bar, and Validate pass
   }
   assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
   assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
+  assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
+  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
   const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
   assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);

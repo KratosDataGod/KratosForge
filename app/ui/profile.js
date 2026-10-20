@@ -4,6 +4,7 @@
 // Loaded after features.js; everything here runs after startup.
 
 const profilePage = { tab: "overview", data: null, days: 90, achievements: false, report: null };
+const RECORDING_ON = "Recording is on: notebooks that pass Validate are kept in a private record on this PC. Turn it off in Profile > Settings.";
 
 async function loadProfile() {
   profilePage.data = await attempt(() => rpc("profile_get", {}), "Could not open your profile");
@@ -76,7 +77,8 @@ function profileOverview(p) {
     h("section", { class: "card pad" },
       h("h2", {}, "Recorded accomplishments", h("span", { class: "muted-text small" }, ` ${p.evidence.filter((r) => !r.excluded).length} verified · stored only on this PC`)),
       p.evidence.length ? h("div", { class: "profile-rows" }, p.evidence.map(profileRow))
-        : h("p", { class: "muted-text" }, "Nothing yet. Validate a notebook that reads or writes a lakehouse table; when its clean run finishes Ready, it is recorded here."),
+        : h("div", {}, h("p", { class: "muted-text" }, "Nothing yet. Validate a notebook that reads or writes a lakehouse table; when its clean run finishes Ready, it is recorded here."),
+          h("p", { class: "muted-text small" }, RECORDING_ON)),
       p.evidence.length ? h("p", { class: "muted-text small" }, "Validating the same code again adds nothing. Change the notebook and validate it to record a new revision.") : null),
     h("section", { class: "card pad" },
       h("h2", {}, "Skills", h("span", { class: "muted-text small" }, ` Evidence coverage, rules v${pr.rules_version}`)),
@@ -253,7 +255,9 @@ function profileSettings(p) {
 function profileEarned(earned) {
   if (!earned?.length) return;
   const names = earned.map((a) => `${a.name} (+${a.xp} XP)`).join(", ");
-  setTimeout(() => toast(`Achievement earned: ${names}. See it in Profile.`, false, { log: true }), 2500);
+  // The first achievement is also the first time most people hear that recording is on.
+  const first = earned.some((a) => a.id === "first-flame") ? ` ${RECORDING_ON}` : "";
+  setTimeout(() => toast(`Achievement earned: ${names}. See it in Profile.${first}`, false, { log: true }), 2500);
 }
 
 registerFeature({

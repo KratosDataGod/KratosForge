@@ -267,3 +267,10 @@ def test_names_in_the_markdown_report_are_escaped_and_the_copy_text_is_not():
 def test_profile_details_and_the_summary_are_not_written_to_the_audit_log():
     for key in ("identity", "report_summary"):
         assert key in audit._CONTENT
+
+
+def test_nothing_is_recorded_while_preview_features_are_hidden(plain, monkeypatch):
+    from fabric_desktop import app_settings
+    monkeypatch.setattr(app_settings, "value", lambda key: False if key == "show_preview" else app_settings.DEFAULTS.get(key))
+    assert plain._progress_observe(validation()) == []
+    assert call(plain, "profile_get")["evidence"] == []

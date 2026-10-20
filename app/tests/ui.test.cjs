@@ -1560,3 +1560,10 @@ test("Schedules warns when this PC's schedules file was moved aside (QA-011)", (
   assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
   assert.match(s, /look in Task Scheduler under /);
 });
+
+test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedules (QA-013)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});

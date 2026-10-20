@@ -179,3 +179,58 @@ def test_set_aside_copies_are_listed_newest_first(tmp_path):
     os.utime(tmp_path / "schedules.json.corrupt-by-hand", (oct19, oct19))  # no stamp in its name: its mtime
     assert [x["at"] for x in s.set_aside()] == ["2026-10-20T09:00:00+00:00", "2026-10-19T09:00:00+00:00",
                                                 "2026-10-18T09:00:00+00:00"]
+
+
+def test_a_failed_run_whose_teams_alert_fails_says_so_in_its_run_record(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x?sig=SECRET"})
+
+    def refused(url, title, lines):
+        raise RuntimeError(f"Teams answered 403 for {url}")
+    monkeypatch.setattr(dataops_service, "post_teams", refused)
+    out = svc.run_schedule(sid)
+    assert out["status"] == "failed" and out["message"].startswith("Cell 1 of 1 failed: ZeroDivisionError")
+    assert out["alert_error"].startswith("Couldn't post the Teams alert: RuntimeError: Teams answered 403")
+    assert "SECRET" not in out["alert_error"]
+    [logged] = svc.pc_schedule_runs()
+    assert logged["alert_error"] == out["alert_error"]  # Monitor > Runs and Schedules show it
+    assert svc.pc_schedules.listing()[0]["last"]["alert_error"] == out["alert_error"]
+
+
+def test_a_failed_run_is_logged_even_when_the_alert_settings_cant_be_read(svc, monkeypatch):
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+
+    def broken():
+        raise OSError("settings.json is locked")
+    monkeypatch.setattr(svc, "_settings", broken)
+    out = svc.run_schedule(sid)
+    assert out["status"] == "failed" and "settings.json is locked" in out["alert_error"]
+    assert [r["status"] for r in svc.pc_schedule_runs()] == ["failed"]
+
+
+def test_a_sent_alert_or_no_webhook_adds_nothing_to_the_run_record(svc, monkeypatch):
+    from fabric_desktop import dataops_service
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    sent = []
+    monkeypatch.setattr(dataops_service, "post_teams", lambda url, title, lines: sent.append(title))
+    assert "alert_error" not in svc.run_schedule(sid)  # no webhook set
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": "https://example.webhook.office.com/x"})
+    assert "alert_error" not in svc.run_schedule(sid) and sent == ["Scheduled run failed on this PC: Bad"]
+
+
+def test_a_legacy_connector_webhook_that_cant_be_reached_is_not_stored_with_the_run(svc, monkeypatch):
+    # A legacy Office 365 connector URL carries its secret in the path; requests puts the path in a ConnectionError.
+    legacy = ("https://127.0.0.1:9/webhookb2/11111111-2222-3333-4444-555555555555@66666666-7777-8888-9999-000000000000"
+              "/IncomingWebhook/abcdef0123456789abcdef0123456789/11111111-2222-3333-4444-555555555555/V2SECRETSECRET0123")
+    svc.notebooks.save("Bad", [{"type": "code", "source": "1 / 0"}])
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Bad"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    monkeypatch.setattr(svc, "_settings", lambda: {"teams_webhook": legacy})
+    out = svc.run_schedule(sid)
+    assert out["alert_error"].startswith("Couldn't post the Teams alert: ConnectionError:")  # what went wrong is kept
+    stored = svc.pc_schedules.runs_file.read_text(encoding="utf-8")
+    for secret in ("V2SECRETSECRET0123", "abcdef0123456789abcdef0123456789", "webhookb2"):
+        assert secret not in out["alert_error"] and secret not in stored

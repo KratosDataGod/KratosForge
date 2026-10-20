@@ -38,7 +38,8 @@ function pcScheduleRows(rows, changed, { showWhat = false } = {}) {
     h("td", {}, s.text),
     h("td", {}, s.enabled ? nextRunText(s.next_run) : h("span", { class: "muted-text" }, "Paused")),
     h("td", {}, scheduleRunPill(s.last), s.last ? h("span", { class: "muted-text small" }, " ", when(s.last.started)) : null,
-      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null),
+      s.last && s.last.status !== "ok" && s.last.message ? h("div", { class: "reason" }, s.last.message) : null,
+      s.last?.alert_error ? h("div", { class: "reason" }, s.last.alert_error) : null),
     h("td", { class: "n nowrap" },
       btn("Run now", "play", async () => {
         if (await attempt(() => rpc("run_pc_schedule_now", { schedule_id: s.id }), "Not started")) {

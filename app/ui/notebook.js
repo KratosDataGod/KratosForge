@@ -1003,14 +1003,17 @@ function renderResultViewer(o, wrap, bar, numeric, count) {
         : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q ? " matching" : ""}`;
   };
   async function load(offset) {
+    const ask = (v.asked = (v.asked || 0) + 1);
     v.busy = true;
     draw();
     try {
       const p = await rpc("notebook_frame_page", { frame: o.frame, offset: Math.max(0, offset), limit: RESULT_PAGE,
         sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
+      if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
       if (p.gone) v.gone = true;
       else { v.page = p; v.offset = p.offset; }
     } catch (err) {
+      if (ask !== v.asked) return;
       toast(`Could not load rows: ${friendlyError(err)}`, true);
     }
     v.busy = false;

@@ -1,6 +1,7 @@
 """The result viewer behind a notebook table output: paging, search, sort and downloads (frames.py)."""
 
 import datetime as dt
+import sys
 import zipfile
 
 import polars as pl
@@ -145,3 +146,14 @@ def test_process_kernel_pages_and_downloads_in_its_own_process(tmp_path):
             k.frame_page(out["frame"])
     finally:
         k.close()
+
+
+def test_time_zone_timestamps_page_sort_and_search_without_pytz(monkeypatch):
+    # Delta's default timestamp has a time zone; DuckDB's fetchall() would need pytz for it.
+    monkeypatch.setitem(sys.modules, "pytz", None)
+    store = Frames()
+    ts = pa.array([dt.datetime(2026, 10, 20, h, tzinfo=dt.timezone.utc) for h in range(3)], pa.timestamp("us", tz="UTC"))
+    fid = store.keep(pa.table({"at": ts, "n": [1, 2, 3]}))
+    page = store.page(fid, sort=0, desc=True)
+    assert page["types"][0] == "timestamp" and page["rows"][0][1] == 3 and "2026-10-20 02:00:00" in page["rows"][0][0]
+    assert store.page(fid, q="01:00")["total"] == 1

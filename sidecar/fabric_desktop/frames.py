@@ -90,6 +90,14 @@ def type_name(t: pa.DataType) -> str:
     return str(t)
 
 
+def _rows(result: Any) -> list[list[Any]]:
+    """A query's rows through Arrow: DuckDB's own fetchall() needs pytz for time zone-aware
+    timestamps (Delta's default), and the engine doesn't ship pytz."""
+    table = (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+    cols = [c.to_pylist() for c in table.columns]
+    return [list(r) for r in zip(*cols)] if cols else []
+
+
 def _cell(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
@@ -154,7 +162,7 @@ class Frames:
             if sort is not None and 0 <= int(sort) < len(cols):
                 order = f" ORDER BY {cols[int(sort)]} {'DESC' if desc else 'ASC'} NULLS LAST"
             total = con.execute(f"SELECT count(*) FROM t{where}", params).fetchone()[0] if q else table.num_rows
-            rows = con.execute(f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params).fetchall()
+            rows = _rows(con.execute(f"SELECT * FROM t{where}{order} LIMIT {limit} OFFSET {offset}", params))
         finally:
             con.close()
         return {"frame": fid, "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema],

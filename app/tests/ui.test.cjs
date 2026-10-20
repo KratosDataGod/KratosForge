@@ -2079,3 +2079,22 @@ test("a result the kernel no longer holds says to run the cell again; downloads 
   assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
   assert.match(nb, /previewMarked\("resultViewer", menu\)/);
 });
+
+test("a slow search answer that arrives after a newer one is dropped", async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const answers = [slow, Promise.resolve({ frame: "f1", offset: 0, rows: [["new"]], total: 1 })];
+  const { ctx } = resultViewerHarness([]);
+  ctx.rpc = () => answers.shift();
+  const o = { frame: "f1", columns: ["s"], rows: [["a"]], total_rows: 1 };
+  const wrap = ctx.h("div"); const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [false], "1 row");
+  const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
+  search.value = "o"; search.listeners.input();
+  search.value = "new"; search.listeners.input();
+  await new Promise((r) => setImmediate(r));
+  release({ frame: "f1", offset: 0, rows: [["old"]], total: 9 });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(o.viewer.page.rows), [["new"]]);
+  assert.strictEqual(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, "Rows 1 to 1 of 1 matching");
+});

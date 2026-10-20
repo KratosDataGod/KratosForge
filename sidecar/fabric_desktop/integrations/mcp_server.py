@@ -294,7 +294,7 @@ def build_server(registry: Registry | None = None, service_factory: Callable[[],
 
     server = _Server("fabric-desktop", version=__version__, title="KratosForge",
                     description="Local Microsoft Fabric data engineering: projects, workspaces, lakehouses and notebooks.",
-                    instructions=INSTRUCTIONS, website_url="https://github.com/KratosDataGod/fabric-desktop",
+                    instructions=INSTRUCTIONS, website_url="https://github.com/KratosDataGod/KratosForge",
                     on_list_tools=list_tools, on_call_tool=call_tool,
                     on_list_resources=list_resources, on_list_resource_templates=list_resource_templates,
                     on_read_resource=read_resource, on_list_prompts=list_prompts, on_get_prompt=get_prompt,

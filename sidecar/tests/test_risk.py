@@ -11,7 +11,7 @@ import pytest
 from fabric_desktop import app_settings, estate_service, risk
 from fabric_desktop import measurement as ms
 from fabric_desktop.workloads import model
-from tests.test_workloads import scan, signed_in, svc  # noqa: F401 - the fixture is used by name
+from tests.test_workloads import project, scan, signed_in, svc  # noqa: F401 - the fixtures are used by name
 
 NOW = dt.datetime(2026, 10, 18, 12, 0, tzinfo=dt.timezone.utc)
 
@@ -277,3 +277,72 @@ def test_an_external_tool_can_ask_for_the_risk_and_gets_the_same_answer(svc, ite
     assert cap.permission == "READ_METADATA" and cap.status == "preview"
     out = services.check_run_risk(svc, None, item, "run_item")
     assert out["result"] == risk.BLOCKED and out["id"] == svc.risk_check(item, "run_item")["id"]
+
+
+# --------------------------------------------------------------------------- Data mesh Run all
+
+
+def test_run_all_checks_every_entity_once_and_starts_only_those_not_blocked_or_reading_a_blocked_one(
+        svc, project, monkeypatch):  # noqa: F811
+    from fabric_desktop.meta.project import impact, run_order
+    order = run_order(project)
+    bad = order[0]
+    real = svc._risk_facts
+    seen = []
+
+    def facts_(w, action, env, refresh, memo=None):
+        seen.append((w["name"], id(memo)))
+        f = real(w, action, env, refresh, memo)
+        return f | {"definition_errors": ["broken on purpose"]} if w["name"] == bad else f
+    monkeypatch.setattr(svc, "_risk_facts", facts_)
+    gate = svc.meta_risk_gate(None, "dev")
+    assert [c["entity"] for c in gate["checks"]] == order and gate["enforced"] is False
+    assert len({m for _, m in seen}) == 1  # one batch, one shared memo
+    assert gate["blocked"] == [bad] and gate["held"] and set(gate["held"]) == set(impact(project, bad))
+    assert all(bad in ups or set(ups) & set(gate["held"]) for ups in gate["held"].values())
+    assert gate["run"] == [n for n in order if n != bad and n not in gate["held"]]
+    assert svc.meta_runs("dev") == []  # nothing ran
+    some = svc.meta_risk_gate([order[-1], order[1]], "dev")
+    assert [c["entity"] for c in some["checks"]] == [n for n in order if n in (order[-1], order[1])]
+
+
+def test_one_entity_whose_check_fails_is_unknown_and_still_runs(svc, project, monkeypatch):  # noqa: F811
+    from fabric_desktop.meta.project import run_order
+    first = run_order(project)[0]
+    real = svc._risk_facts
+
+    def facts_(w, *a):
+        if w["name"] == first:
+            raise RuntimeError("Delta log unreadable")
+        return real(w, *a)
+    monkeypatch.setattr(svc, "_risk_facts", facts_)
+    gate = svc.meta_risk_gate(None, "dev")
+    c = gate["checks"][0]
+    assert c["entity"] == first and c["result"] == risk.UNKNOWN and "Delta log unreadable" in c["summary"]
+    assert first in gate["run"] and gate["blocked"] == []
+
+
+def test_a_batch_reads_each_workspace_capacity_and_the_run_history_once(svc, monkeypatch):  # noqa: F811
+    calls = {"health": 0, "runs": 0}
+
+    def health(refresh=False):
+        calls["health"] += 1
+        return {"environments": [capacity() | {"env": "dev"}]}
+
+    def fabric_runs(limit=500, refresh=False):
+        calls["runs"] += 1
+        return []
+    monkeypatch.setattr(svc, "capacity_health", health)
+    monkeypatch.setattr(svc, "fabric_runs", fabric_runs)
+    memo, reads = {}, []
+    for _ in range(3):
+        assert svc._risk_capacity("ws1", "Sales Dev", False, reads, memo)["capacity_id"] == "cap1"
+        svc._risk_cu([{"job_id": "j1"}], memo)
+    assert calls == {"health": 1, "runs": 1}
+    svc._risk_capacity("ws1", "Sales Dev", False, [], None)
+    assert calls["health"] == 2  # a single check isn't cached
+
+
+def test_the_gate_is_read_only_and_registered():
+    from fabric_desktop import audit, server
+    assert "meta_risk_gate" in audit.READ_ONLY and "meta_risk_gate" in server.METHODS

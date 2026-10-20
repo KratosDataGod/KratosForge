@@ -62,7 +62,38 @@ Running cells, **Publish to OneLake**, **Run in Fabric** and Fabric schedules us
 
 **Editing locations.** **Data locations** (next to the repository's name on this page, or **Edit locations** on the notebook's **Data** button) shows Dev, Test and Prod, each with a workspace, a lakehouse and an optional Fabric SQL database, picked from what you can see in Fabric. Saving writes `locations.toml` with workspace and item ids and their names, as a change to commit. Nothing in Fabric changes, and no passwords or keys are written.
 
-The platform and capacity starting files are still templates: exporting and deploying platform definitions, and the capacity drift report, are the next stages in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
+### Platform repository
+
+For platform definitions, Git is the source of truth and each environment's platform holds what is deployed. A platform repository has a **Platform** tab next to **Changes**.
+
+**Compare with** Dev, Test or Prod shows every object as **same**, **changed** (with each field's value in Git and deployed), **only in Git** (not deployed yet) or **removed in Git** (deployed, but its file is gone). Comparing only reads; nothing changes in Git or in Fabric.
+
+**Export from platform** writes what the platform holds into the repository, one file per object, as changes to review. Nothing is committed and nothing in Fabric changes. Only files whose text changes are written, so exporting twice changes nothing. A file you changed and haven't committed is replaced only after a second confirm. Files for objects that aren't deployed are left as they are, never deleted.
+
+| File | Holds |
+| --- | --- |
+| `domains/<id>.toml` | id, name, parent, description, owners. A domain from Fabric keeps only its `fabric_domain_id` and our fields; its name and parent come from Fabric. |
+| `sources/<code>.toml` | source_id, code, title, description, owner, system type, active, expected hours |
+| `key_tables/<name>.toml` | name, business key, description, domain |
+| `policies/<id>.toml` | status, the published version's `[definition]` and each assignment as `[[assign]]` |
+| `glossary.toml` | each term with its definition, domain and owner |
+| `admins.toml` | the platform admins |
+| `shortcut_rules.toml` | the shortcut request rules |
+
+Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, readers, shortcut health, source connections, webhook URLs, passwords or connection strings. A policy that was never published isn't exported. On a platform without policies yet, no policy files are written. When environments disagree about a key table, export keeps Prod's fields and lists the difference.
+
+**Deploy** makes the platform match the committed files: the catalog (in Prod), and admins and key tables in every environment. It shows its plan first and runs only that plan, after one confirm.
+
+- Only platform admins can deploy, and only committed files: commit first, so what is deployed is in Git's history. Each step is recorded in the platform's audit as you, with the commit in policy notes.
+- A changed policy is published as a new version; a published version never changes. A policy with a draft in progress in the platform is skipped, so a deploy never overwrites someone's draft.
+- A source id is never renumbered: a file whose `source_id` doesn't match the platform stops the whole deploy before anything is written. A new source keeps the id its file gives it. Source connections stay as they are in the platform.
+- Key tables are created where missing, never renamed, changed or removed (their keys stay).
+- Something removed in Git is removed only when you tick it, after every other change: policies are retired (never deleted), then sources, then domains (subdomains first). A domain or source still in use is refused. Glossary terms can't be removed yet.
+- If the platform refuses a step, the deploy stops there and says which step and why. Steps already done show as **same** next time.
+
+The platform's functions must include this release's changes: if Export or Compare says they are older than the app, open Platform > Settings and choose **Finish or repair**.
+
+The capacity starting file is still a template: the capacity drift report is the next stage in the [repositories by scope plan](git-integration-plan.md#repositories-by-scope).
 
 ## Changes
 
@@ -110,7 +141,7 @@ A notebook saved inside a repository shows its branch and whether it has uncommi
 - Stage single lines of a file (whole files only).
 - Create a pull request inside the app (it opens the service's page).
 - Rebase, cherry-pick, tags or submodules.
-- Deploy the platform repository, or compare the capacity repository with Fabric (see **Repository kinds**).
+- Compare the capacity repository with Fabric (see **Repository kinds**).
 - Connect a Fabric workspace to Git, or deploy between environments. Those are the next phases in the [Git integration plan](git-integration-plan.md).
 - It hasn't been tried with many Git servers and sign-in setups yet, which is why it is tagged **Preview**.
 

@@ -145,7 +145,7 @@ function reportProblem() {
       openLink(`${support}${support.includes("?") ? "&" : "?"}subject=${encodeURIComponent("KratosForge problem")}&body=${encodeURIComponent(text.slice(0, 1500))}`);
     } else {
       await copyText(text, "Report");
-      openLink(support || "https://github.com/KratosDataGod/fabric-desktop/issues/new");
+      openLink(support || "https://github.com/KratosDataGod/KratosForge/issues/new");
     }
     closeDialog();
   };
@@ -172,7 +172,7 @@ function showWhatsNew(asked = false) {
   if (!asked && (!notes || !state.commit || seen === state.commit)) return;
   try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
   const { lines, items } = whatsNewItems(notes, release?.history);
-  const repo = "https://github.com/KratosDataGod/fabric-desktop";
+  const repo = "https://github.com/KratosDataGod/KratosForge";
   const day = (d) => {
     const [y, m, dd] = String(d || "").split("-").map(Number);
     return y ? new Date(y, m - 1, dd).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";

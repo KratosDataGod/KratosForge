@@ -221,3 +221,38 @@ def test_reading_a_torn_comparison_file_twice_keeps_the_good_rows(svc):
     assert sorted(r["id"] for r in first) == sorted(r["id"] for r in second) == ["a", "b"]
     aside = set_aside_files(svc.side_by_side_file)
     assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == text
+
+
+def test_a_failed_repair_still_shows_the_good_rows_on_every_read(svc, monkeypatch):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + json.dumps({"id": "b", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+
+    calls = []
+
+    def disk_full(path, data):
+        calls.append(path)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(jsonfile, "write_text", disk_full)
+    first, second = svc.side_by_side_list(), svc.side_by_side_list()
+    assert sorted(r["id"] for r in first) == sorted(r["id"] for r in second) == ["a", "b"]
+    assert svc.side_by_side_file.read_text(encoding="utf-8") == text  # the original stays until a repair works
+    assert [p.read_text(encoding="utf-8") for p in set_aside_files(svc.side_by_side_file)] == [text]  # one copy, not one per read
+    assert calls == [svc.side_by_side_file]  # and one failed swap: later reads don't retry an unchanged file
+
+
+def test_after_a_failed_repair_the_next_save_still_rewrites_the_file(svc, monkeypatch):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+    real = jsonfile.write_text
+
+    def fail_once(path, data):
+        monkeypatch.setattr(jsonfile, "write_text", real)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(jsonfile, "write_text", fail_once)
+    assert [r["id"] for r in svc.side_by_side_list()] == ["a"]
+    svc._sbs_save({"id": "d", "local": {}})
+    assert [json.loads(line)["id"] for line in svc.side_by_side_file.read_text(encoding="utf-8").splitlines()] == ["a", "d"]

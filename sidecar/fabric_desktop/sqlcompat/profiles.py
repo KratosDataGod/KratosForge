@@ -33,7 +33,7 @@ DOCS = {
     "spark_datetime": ("https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html", ""),
     "duckdb_regex": ("https://duckdb.org/docs/stable/sql/functions/regular_expressions", ""),
     "fabric_runtime": (f"{LEARN}/fabric/data-engineering/runtime", ""),
-    "local": ("https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md", ""),
+    "local": ("https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md", ""),
 }
 
 

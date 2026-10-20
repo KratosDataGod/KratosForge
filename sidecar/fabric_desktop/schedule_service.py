@@ -146,14 +146,18 @@ class ScheduleMixin:
     def _run_notebook_here(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
+        # As Run all: code cells with something in them, and never a frozen one.
         code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
+        frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
+        code = [c for c in code if not (c.get("meta") or {}).get("frozen")]
+        skipped = f", {frozen} frozen cell{'s' if frozen != 1 else ''} skipped" if frozen else ""
         for i, cell in enumerate(code, 1):
             res = self.kernel.run(cell["source"])  # type: ignore[attr-defined]
             if res["status"] not in ("ok",):
                 err = next((o for o in res["outputs"] if o.get("type") == "error"), {})
                 why = f"{err.get('ename')}: {err.get('evalue')}" if err else res["status"]
-                return {"status": "failed", "message": f"Cell {i} of {len(code)} failed: {why}", "cells": i}
-        return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran", "cells": len(code)}
+                return {"status": "failed", "message": f"Cell {i} of {len(code)} failed{skipped}: {why}", "cells": i}
+        return {"status": "ok", "message": f"{len(code)} cell{'s' if len(code) != 1 else ''} ran{skipped}", "cells": len(code)}
 
     def _run_meta_here(self, env: str, names: list[str] | None) -> dict[str, Any]:
         project = self._project()  # type: ignore[attr-defined]

@@ -70,4 +70,4 @@ Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chri
 
 ## Resume prompt
 
-> Continue the workload operations program in KratosDataGod/fabric-desktop. Read `docs/workloads/continuation.md` and `docs/workloads/plan.md` on the newest program branch, check the open PRs it lists, then do its "Next action".
+> Continue the workload operations program in KratosDataGod/KratosForge. Read `docs/workloads/continuation.md` and `docs/workloads/plan.md` on the newest program branch, check the open PRs it lists, then do its "Next action".

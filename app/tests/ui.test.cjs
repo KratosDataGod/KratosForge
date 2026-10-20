@@ -1500,6 +1500,29 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
 });
 
+// Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
+// first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
+test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const move = mesh.match(/async function moveKeysIn\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(move, /^async function moveKeysIn\(\) \{\n  const plan = await attempt\(\(\) => rpc\("platform_share_keys", \{\}\)/);
+  assert.strictEqual((move.match(/approve: true/g) || []).length, 1);
+  assert.ok(move.indexOf('btn("Move keys in"') < move.indexOf("approve: true"), "the write happens only from the dialog's button");
+  assert.match(move, /Re-run Dev and Test/);
+  const cancel = mesh.match(/async function cancelKeysMove\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(cancel, /confirmDialog\("Cancel the move\?", [^)]*\), "Cancel the move", \{ danger: true \}\)/);
+  assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
+  assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
+});
+
 // Validate notebook (validate.js): the headline, the count chips, what changed since a result,
 // and which tidy-ups Apply makes.
 function validateHelpers() {

@@ -119,6 +119,12 @@ from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
 
+# Notebook files (notebook_files_service.py): search, open a file, save a copy, delete and restore,
+# and copy a Fabric notebook to this PC.
+from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FILES_METHODS
+
 # Comments on notebook cells (comments_service.py), kept in the notebook file.
 from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 

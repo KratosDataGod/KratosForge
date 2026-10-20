@@ -97,6 +97,18 @@ def test_scheduled_notebook_runs_and_logs_its_result(svc):
     assert rows["Good"]["last"]["status"] == "ok" and rows["Bad"]["last"]["status"] == "failed"
 
 
+def test_a_scheduled_run_skips_frozen_cells_as_run_all_does(svc):
+    # A frozen cell is one the person said not to run; saved and loaded as Jupyter's run_control.frozen.
+    svc.notebooks.save("Frozen", [{"type": "code", "source": "a = 1"},
+                                  {"type": "code", "source": "1 / 0", "meta": {"frozen": True}},
+                                  {"type": "code", "source": "b = a + 1"}])
+    assert svc.notebooks.load("Frozen")["cells"][1]["meta"] == {"frozen": True}
+    sid = svc.add_pc_schedule({"kind": "notebook", "name": "Frozen"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+    row = svc.run_schedule(sid)
+    assert row["status"] == "ok", row["message"]
+    assert row["message"] == "2 cells ran, 1 frozen cell skipped" and row["cells"] == 2
+
+
 def test_a_run_still_going_is_not_started_twice(svc):
     svc.notebooks.save("Slow", [{"type": "code", "source": "x = 1"}])
     sid = svc.add_pc_schedule({"kind": "notebook", "name": "Slow"}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]

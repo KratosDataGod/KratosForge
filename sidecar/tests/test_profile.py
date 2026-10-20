@@ -117,10 +117,55 @@ def test_the_level_curve_is_fixed_and_titles_follow_it():
 def test_missing_evidence_is_not_a_low_score():
     cover = {c["name"]: c["state"] for c in progress.coverage(profile_with(validation()))}
     assert cover["Data Engineering"] == "Insufficient evidence"
-    assert cover["Performance & Optimization"] == "Not tracked yet"
+    assert cover["Performance & Optimization"] == "Not seen yet"  # tracked through Prove, none yet
+    assert cover["Security & Governance"] == "Not tracked yet"
     rows = [validation(name=f"nb{i % 2}", revision=f"r{i}", at=f"2026-10-{1 + 4 * i:02d}T10:00:00+00:00") for i in range(3)]
     assert {c["name"]: c["state"] for c in progress.coverage(profile_with(*rows))}["Data Engineering"] == "Emerging"
     assert all(set(c) == {"name", "state", "rows", "artifacts", "days"} for c in progress.coverage(progress.empty()))  # no score
+
+
+def proof(name="Orders", revision="p1", verdict="same", state="done", receipt="a" * 64,
+          at="2026-10-20T12:00:00+00:00", pc_seconds=12.5, fabric_seconds=95.0):
+    return {"id": "20261020-120000-abcdef", "name": name, "state": state, "finished_at": at, "receipt_id": receipt,
+            "code": {"revision": revision, "cells": []}, "tables": [{"name": "dbo.order_values"}],
+            "verdict": {"verdict": verdict, "level": "exact"},
+            "scorecard": {"time": {"pc": {"seconds": pc_seconds, "kind": "measured"},
+                                   "fabric": {"total_seconds": fabric_seconds, "kind": "measured"}}}}
+
+
+def test_only_a_finished_proof_that_matched_is_evidence():
+    row = progress.from_proof(proof(), proof()["receipt_id"])
+    assert row["type"] == "prove.match" and row["ref"] == {"source": "receipt", "id": "a" * 64, "revision": "p1"}
+    assert row["measurement"]["pc_seconds"] == 12.5 and row["measurement"]["kind"] == "measured"
+    assert "order_values" not in json.dumps(row)  # a count, never a table name
+    for bad in (proof(verdict="differs"), proof(verdict="inconclusive"), proof(state="failed")):
+        assert progress.from_proof(bad, "a" * 64) is None
+    assert progress.from_proof(proof(), None) is None  # no receipt, no evidence
+
+
+def test_proof_forged_is_awarded_once_and_more_proofs_earn_capped_xp():
+    p = progress.empty()
+    progress.add(p, progress.from_proof(proof(), "a" * 64))
+    got = progress.progression(p)
+    assert [a["id"] for a in got["achievements"]] == ["proof-forged"] and got["xp"] == 150
+    progress.add(p, progress.from_proof(proof(revision="p2"), "b" * 64))   # the same notebook again: no XP
+    progress.add(p, progress.from_proof(proof(name="Sales", revision="p3"), "c" * 64))
+    got = progress.progression(p)
+    assert got["xp"] == 150 + progress.NEW_PROOF_XP and [a["id"] for a in got["achievements"]] == ["proof-forged"]
+    assert "proof-forged" not in {u["id"] for u in got["next"]}
+
+
+def test_the_report_names_proofs_their_receipts_and_measured_times():
+    now = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
+    p = profile_with(validation())
+    progress.add(p, progress.from_proof(proof(), "a" * 64))
+    out = progress.report(p, 90, now=now)["markdown"]
+    assert "Proved notebook Orders gives the same results on a workstation and in Microsoft Fabric" in out
+    assert "workstation 12.5 s, Microsoft Fabric 95 s end to end, measured in the same proof. *(Verified, E2)*" in out
+    assert f"Run receipt {'a' * 64} (SHA-256)" in out and "XP" not in out
+    no_times = progress.empty()
+    progress.add(no_times, progress.from_proof(proof(pc_seconds=None, fabric_seconds=None), "a" * 64))
+    assert "No before and after measurements in this period. *(Not measured)*" in progress.report(no_times, 90, now=now)["markdown"]
 
 
 # ---- the report
@@ -225,7 +270,7 @@ def test_a_clean_run_records_first_flame_and_validating_again_adds_nothing(svc):
     svc._auth = Auth("dev@contoso.com")
     call(svc, "profile_save", settings={"record": True})
     st = done(svc, call(svc, "notebook_validate_start", name="Orders", cells=WRITES, lakehouse_ref=LH, runs_on="pc")["id"])
-    assert st["verdict"] == "ready" and st["earned"] == [{"id": "first-flame", "name": "First Flame", "xp": 50}]
+    assert st["verdict"] == "ready" and st["earned"] == [{"id": "first-flame", "name": "First Flame", "xp": 50, "first": True}]
     again = done(svc, call(svc, "notebook_validate_start", name="Orders", cells=WRITES, lakehouse_ref=LH, runs_on="pc")["id"])
     assert again["earned"] == []
     got = call(svc, "profile_get")

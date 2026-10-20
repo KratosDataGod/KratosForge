@@ -250,7 +250,7 @@ function profileSettings(p) {
   return withHowItWorks(h("div", {}, rows, data), profileHowItWorks());
 }
 
-// ---------- after a validation ----------
+// ---------- after a validation or proof ----------
 
 // Achievements already shown, so following the same Validate result again (or after a restart) never
 // announces or reveals an award twice. The engine reports an award as earned only on the run that earned it.
@@ -270,7 +270,7 @@ function profileForget() {
   try { localStorage.setItem(PROFILE_CELEBRATED, JSON.stringify([...profileCelebrated()].filter((k) => !mine(k)))); } catch { /* nothing kept to forget */ }
 }
 
-// Called by Validate when a clean run earned something; shown after Validate's own message, with the
+// Called by Validate and Prove when a run earned something; shown after their own message, with the
 // Achievement Reveal on that message when Achievement celebrations is on (motion.js, off by default).
 function profileEarned(earned) {
   if (!earned?.length) return;
@@ -282,7 +282,7 @@ function profileEarned(earned) {
   try { localStorage.setItem(PROFILE_CELEBRATED, JSON.stringify([...seen])); } catch { /* not kept: only this session remembers */ }
   const names = fresh.map((a) => `${a.name} (+${a.xp} XP)`).join(", ");
   // The first achievement is also the first time most people hear that recording is on.
-  const first = fresh.some((a) => a.id === "first-flame") ? ` ${RECORDING_ON}` : "";
+  const first = fresh.some((a) => a.first) ? ` ${RECORDING_ON}` : "";
   setTimeout(() => {
     toast(`Achievement earned: ${names}. See it in Profile.${first}`, false, { log: true });
     forgeEvent("achievement.unlocked", document.getElementById("toast"));  // one reveal per message, however many awards it names

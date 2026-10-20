@@ -46,7 +46,7 @@ before(async () => {
 after(async () => { if (app) await app.close(); });
 
 test("the engine awards First Flame for the first verified notebook", { skip }, () => {
-  assert.deepStrictEqual(data.earned, [{ id: "first-flame", name: "First Flame", xp: 50 }]);
+  assert.deepStrictEqual(data.earned, [{ id: "first-flame", name: "First Flame", xp: 50, first: true }]);
 });
 
 test("Overview shows the verified accomplishment, level and achievement", { skip }, async () => {

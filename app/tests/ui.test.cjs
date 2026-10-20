@@ -1494,7 +1494,7 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
   const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
   assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\) \|\| showUpdateSplash\(\);/);
   assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
   assert.match(settings, /label: "About the new name: KratosForge"/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
@@ -1913,6 +1913,75 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
 });
 
+// Notebook files (notebook-files.js): the Saved in chips, search hits, and what Publish says changed in Fabric.
+function notebookFilesHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registered: [], registerFeature(f) { ctx.registered.push(f); } };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFilesPlaces, nbFilesShown, nbHitParts, nbHitCount, nbChangeTitle });`, ctx);
+  return ctx;
+}
+
+test("All notebooks filters by where notebooks are saved", () => {
+  const { nbFilesPlaces, nbFilesShown } = notebookFilesHelpers();
+  const repo = { root: "C:/git/sales", label: "sales-notebooks" };
+  const list = [{ name: "A", place: null }, { name: "B", place: repo }, { name: "C", place: repo }];
+  assert.deepStrictEqual([...nbFilesPlaces(list).map((p) => `${p.label} ${p.count}`)], ["All 3", "This PC 1", "sales-notebooks 2"]);
+  assert.deepStrictEqual([...nbFilesShown(list, "pc").map((n) => n.name)], ["A"]);
+  assert.deepStrictEqual([...nbFilesShown(list, repo.root).map((n) => n.name)], ["B", "C"]);
+  assert.strictEqual(nbFilesShown(list, null).length, 3);
+});
+
+test("A search hit marks the match, and the count covers name-only matches", () => {
+  const { nbHitParts, nbHitCount } = notebookFilesHelpers();
+  assert.deepStrictEqual([...nbHitParts({ text: "x = region_map.join()", start: 4, end: 14 })], ["x = ", "region_map", ".join()"]);
+  const found = { notebooks: [{ name_match: true, hits: [] }, { name_match: false, hits: [{}, {}] }, { name_match: true, hits: [{}] }] };
+  assert.strictEqual(nbHitCount(found), 4);
+});
+
+test("Publish names each change made in Fabric", () => {
+  const { nbChangeTitle } = notebookFilesHelpers();
+  assert.strictEqual(nbChangeTitle({ kind: "changed", position: 3 }), "Cell 3: changed");
+  assert.strictEqual(nbChangeTitle({ kind: "added", position: 6 }), "Cell 6: added");
+  assert.strictEqual(nbChangeTitle({ kind: "reordered", position: null }), "Cells were reordered");
+});
+
+test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publish check are wired", () => {
+  const { registered } = notebookFilesHelpers();
+  assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
+  assert.ok(registered[0].views.notebooks);
+  assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["notebooks"\]/);
+  assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
+  assert.match(app, /rpc\("publish_notebook", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(app, /rpc\("run_notebook_in_fabric", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "item-preview.js"), "utf8"), /preview\("fabricEdit", btn\("Edit on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /fabricEdit: "Edit Fabric notebooks on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="validate\.js"><\/script>\n  <script src="notebook-files\.js"><\/script>/);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /confirmDialog\(`Delete \$\{name\}\?`, .*"Delete", \{ danger: true \}\)/);
+  assert.match(files, /"Replace with mine", \{ danger: true \}/);
+});
+
+test("the update splash lists the build's notes and each change since the build this PC ran before", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateHighlights\([\s\S]*?\n}\n/)[0]}; this.f = updateHighlights;`, ctx);
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const items = [{ title: "Notebook steps", commit: "c3" }, { title: "SCD templates ", commit: "c2" }, { title: "Keys move", commit: "c1" }];
+  assert.deepStrictEqual(plain(ctx.f([], items, "c1")), ["Notebook steps", "SCD templates"]);
+  assert.deepStrictEqual(plain(ctx.f(["Faster runs"], items, "c2")), ["Faster runs", "Notebook steps"]);
+  assert.deepStrictEqual(plain(ctx.f([], items, "gone")), ["Notebook steps"], "an unknown build shows only the newest change");
+  assert.deepStrictEqual(plain(ctx.f(["Notebook steps"], items, "")), ["Notebook steps"], "no repeats");
+  assert.deepStrictEqual(plain(ctx.f([], items, "c3")), []);
+  assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
+  assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
+  assert.match(src, /label: "Show the update splash"/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
+});
+
 // UX-018: every schedule Remove asks first, names what stops, and points at Off.
 test("removing a schedule asks first, in red, and says what stops", () => {
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
@@ -1971,4 +2040,12 @@ test("lineage walks every hop both ways, to the products and the projects that r
   const flow = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
   assert.match(flow, /pick\("both", "Whole lineage"\), pick\("up", "Only what it reads"\), pick\("down", "Only what reads it"\)/);
   assert.match(flow, /preview\("lineage", btn\("Columns", "flow", \(\) => columnLineage\(e\.name\)/);
+});
+
+// Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
+test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
+  assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
+  assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });

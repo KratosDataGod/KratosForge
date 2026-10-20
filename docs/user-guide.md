@@ -76,7 +76,11 @@ Home shows a **Get started** list with these steps until you have a metadata pro
 
 ## Home
 
-Home answers "what happened since I was last here". From the top:
+Home answers "what happened since I was last here".
+
+Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and the **Start something** buttons wait. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
+
+From the top:
 
 | Section | What it shows |
 | --- | --- |

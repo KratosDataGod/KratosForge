@@ -1949,3 +1949,66 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// UX-020: one look for "still loading" and "nothing here yet", built by shared helpers.
+function stateHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = app.match(/function loading\([\s\S]*?\n}\n/)[0] + app.match(/function emptyState\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false) });
+  const ctx = { h: node, icon: (name, size) => node("svg", { name, size }) };
+  vm.runInNewContext(`${code}; Object.assign(this, { loading, emptyState });`, ctx);
+  const text = (n) => typeof n === "string" ? n : n.kids.map(text).join("");
+  return { ...ctx, text };
+}
+
+test("loading() is a status line with a spinner and the label, plus any classes asked for (UX-020)", () => {
+  const { loading, text } = stateHelpers();
+  const plain = loading();
+  assert.strictEqual(plain.attrs.role, "status");
+  assert.deepStrictEqual(plain.attrs.class.split(" "), ["loading", "muted-text"]);
+  assert.strictEqual(plain.kids[0].attrs.class, "spinner");
+  assert.strictEqual(plain.kids[0].attrs["aria-hidden"], "true");
+  assert.strictEqual(text(plain), "Loading...");
+  const runs = loading("Loading runs...", "monitor-empty");
+  assert.deepStrictEqual(runs.attrs.class.split(" "), ["loading", "muted-text", "monitor-empty"]);
+  assert.strictEqual(text(runs), "Loading runs...");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.loading > \.spinner \{[^}]*animation: spin/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ \.loading > \.spinner/);
+});
+
+test("emptyState() draws the .empty markup: icon, title, text and action, each optional (UX-020)", () => {
+  const { emptyState, text } = stateHelpers();
+  const action = { tag: "button", attrs: {}, kids: ["New entity"] };
+  const full = emptyState({ icon: "branch", title: "No entities yet", text: "Add one from a template.", action });
+  assert.strictEqual(full.attrs.class, "empty");
+  assert.deepStrictEqual(full.kids.map((k) => k.tag), ["svg", "span", "span", "button"]);
+  assert.deepStrictEqual(full.kids[0].attrs, { name: "branch", size: 32 });
+  assert.deepStrictEqual([full.kids[1].attrs.class, text(full.kids[1])], ["title", "No entities yet"]);
+  assert.deepStrictEqual([full.kids[2].attrs.class, text(full.kids[2])], ["text", "Add one from a template."]);
+  const bare = emptyState({ title: "No links yet" });
+  assert.deepStrictEqual(bare.kids.map((k) => k.attrs.class), ["title"]);
+  const two = emptyState({ title: "x", action: [action, action] });
+  assert.strictEqual(two.kids.filter((k) => k.tag === "button").length, 2);
+});
+
+test("hand-built empty states and the converted Loading lines use the shared helpers (UX-020)", () => {
+  for (const name of ["mesh.js", "meshflow.js", "meshmap.js", "meta.js", "platform.js", "git.js"]) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    assert.doesNotMatch(src, /h\("div", \{ class: "empty" \}/, `${name} builds .empty by hand`);
+    assert.match(src, /emptyState\(\{/, name);
+  }
+  for (const name of ["agents.js", "incidents.js", "workloads.js", "schedules.js", "integrations.js"]) {
+    assert.match(fs.readFileSync(path.join(ui, name), "utf8"), /loading\(/, name);
+  }
+});
+
+test("Home draws at once while the component check runs, and calls nothing until it returns (UX-020)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const starting = app.match(/function startingHome\([\s\S]*?\n}\n/)[0];
+  assert.doesNotMatch(starting, /rpc\(|invoke\(|homeCache/);
+  assert.match(app, /async function renderHome\(\) \{\n  if \(state\.starting\) \{ setView\(startingHome\(\)\); return; \}/);
+  const boot = app.slice(app.lastIndexOf("hydrateIcons();"));
+  assert.ok(boot.indexOf("renderHome()") < boot.indexOf("checkComponents()"), "Home must draw before the check starts");
+  assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
+});

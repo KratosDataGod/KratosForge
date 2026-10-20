@@ -210,9 +210,9 @@ async function renderEntitiesTab(body, p) {
         h("td", {}, r ? [statusPill(r.status), h("span", { class: "muted-text" }, " ", when(r.started_at))]
           : h("span", { class: "muted-text" }, "never")),
         h("td", {}, e.owner));
-    }))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No entities yet"),
-    h("span", { class: "text" }, "Add one from a template. It starts out meeting your layer's standards."),
-    btn("New entity", "add", newEntityDialog, "tool primary")));
+    }))) : emptyState({ title: "No entities yet",
+    text: "Add one from a template. It starts out meeting your layer's standards.",
+    action: btn("New entity", "add", newEntityDialog, "tool primary") }));
 }
 
 function newEntityDialog(preset) {
@@ -889,10 +889,10 @@ async function renderKeysTab(body) {
       h("td", { class: "n" }, t.created ? t.keys.toLocaleString() : h("span", { class: "muted-text" }, "not created")),
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
-    : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
-        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      addKeyTableButton(k, rerender, "tool primary"));
+    : emptyState({ title: "No key tables yet",
+      text: k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys.",
+      action: addKeyTableButton(k, rerender, "tool primary") });
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,

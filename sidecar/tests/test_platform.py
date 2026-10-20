@@ -337,6 +337,23 @@ def test_keys_move_to_the_platform_with_their_numbers(svc):
         svc.meta_keys_to_lakehouse("dev")
 
 
+def test_no_lh_keys_merge_once_keys_come_from_the_platform(svc, monkeypatch):
+    assert svc.meta_entity("silver.customers")["keys_sql"].startswith("-- Surrogate keys")
+    assert svc.meta_entity("silver.customers")["keys_from"] == ""
+    svc.meta_keys_to_platform("dev")
+    ent = svc.meta_entity("silver.customers")
+    # A MERGE into LH_Keys would issue keys SQL_Platform never sees, so there is none to copy or start from.
+    assert ent["keys_sql"] is None and ent["keys_from"] == "SQL_Platform"
+    assert svc.meta_keys("dev")["lakehouse"] == "SQL_Platform"
+    with pytest.raises(GateError, match="come from SQL_Platform"):
+        svc.meta_key_notebook("silver.customers")
+    monkeypatch.setattr(svc, "_keys_config", lambda: {"shared": True})
+    assert svc.meta_entity("silver.customers")["keys_from"] == "SQL_Keys"
+    assert svc.meta_keys("dev")["lakehouse"] == "SQL_Keys"
+    # Test still issues keys in LH_Keys, so its MERGE stays.
+    assert svc.meta_entity("silver.customers", env="test")["keys_from"] == ""
+
+
 def test_teams_build_bronze_from_the_one_landing_zone(svc):
     landing = svc._landing_dir("dev") / "Files" / "erp" / "customers"
     landing.mkdir(parents=True)

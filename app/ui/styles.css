@@ -1468,3 +1468,12 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+
+/* Optimize > Settings history */
+.sh-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
+.sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
+.sh-gap { background: #fdf0dc; border-color: #e8c48a; color: #5c3200; }
+.sh-gap p { margin: 0; }
+.sh-scroll { overflow-x: auto; }
+.sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font: inherit; }

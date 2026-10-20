@@ -117,7 +117,7 @@ A Fabric administrator's read of Fabric's tenant settings (`GET /v1/admin/tenant
 - **When and by whom.** A change is only ever "between these two reads". Fabric's tenant settings API says neither when a setting changed nor who changed it, so the history doesn't claim either.
 - **People.** `read_by` holds the reader's Microsoft Entra object id, never a name or email.
 - **Only reads.** It never changes a setting. A read by someone who isn't a Fabric administrator is recorded as `unreadable`, so a gap in the history shows as a gap, not as "nothing changed".
-- **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant. The page that shows the history comes after a mockup.
+- **What's built.** The engine calls `tenant_settings_read` and `tenant_settings_history`, untested on a live tenant, and the **Settings history** tab (Preview) below.
 
 ### Capacity settings history
 
@@ -132,7 +132,17 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 - **Only what you can see.** People see different capacities, so a capacity missing from your read isn't recorded as changed or deleted. It just isn't compared, and its last read shows how old its history is.
 - **When and by whom.** As for tenant settings, a change is only ever "between these two reads", and `read_by` is an Entra object id.
 - **Only reads.** It never resizes, pauses or changes a capacity.
-- **What's built.** The engine call `capacity_settings_read`, untested on a live tenant; `tenant_settings_history` returns its changes and gaps beside the tenant's. The page comes after a mockup.
+- **What's built.** The engine call `capacity_settings_read`, untested on a live tenant; `tenant_settings_history` returns its changes and gaps beside the tenant's.
+
+### Settings history tab
+
+**Optimize > Settings history** (Preview) shows both histories in one list. It only reads the six tables above until you press a button:
+
+- **Capacities last read** and **Tenant settings last read**: the newest successful read of each.
+- **Read capacities now** calls `capacity_settings_read`; **Read tenant settings (administrators)** calls `tenant_settings_read`. Each reads Fabric once and adds rows. The first read in a lakehouse asks before it creates the tables.
+- A warning lists reads that failed since the last good one, with the reason: changes made then weren't seen.
+- **Changes** lists each change as "between" two reads, with the scope (Tenant, or the capacity's latest name), the setting and its old and new values. **Show** filters to the tenant, all capacities or one capacity.
+- Nothing reads on a schedule.
 
 For developers: a family is a `schema.Family` registered with `schema.register` at import of the module that owns it. Its prefix is `fd`, 2 to 8 lowercase letters and `_`; its migrations are numbered from 1, and the first creates `schema_version`. `OptimizeMixin.central_family(family, approve=...)` returns the connected lakehouse with the family's tables in place; it creates or upgrades tables only with `approve=True`, passed after the person confirmed, and otherwise raises with what it would do. Write with `setup.write(..., family=family)`. A family's `default_config` keys are stored in `fdopt_config` with the family's prefix.
 

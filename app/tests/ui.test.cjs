@@ -1957,3 +1957,61 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// Optimize > Settings history (item 30): changes from fdten_ and fdcap_, named and filtered, and a
+// read that asks before it creates the tables.
+test("Settings history names capacities, filters by scope and asks before creating its tables", async () => {
+  const src = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(src, /\["settings", "Settings history"\]\]/);
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = { calls: [], toasts: [], renders: 0 };
+  vm.createContext(ctx);
+  vm.runInContext(`${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}${fn("settingsHistoryRead")}
+    this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead;`, ctx);
+  const changes = [  // newest first, as tenant_settings_history returns them
+    { scope_type: "capacity", scope_id: "cap-1", setting: "sku", changed_after: "t1", changed_by_time: "t2", old_json: '"F64"', new_json: '"F128"' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: "t1", changed_by_time: "t2", old_json: '"Old"', new_json: '"Prod"' },
+    { scope_type: "tenant", scope_id: "ten", setting: "ExportToExcel", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '{"enabled":true}' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '"Old"' },
+    { scope_type: "capacity", scope_id: "cap-2", setting: "override:Copilot", changed_after: "t1", changed_by_time: "t2", old_json: "true", new_json: null },
+  ];
+  const names = ctx.names(changes);
+  assert.strictEqual(JSON.stringify(names), '{"cap-1":"Prod"}');  // the newest name; cap-2 has none yet
+  assert.strictEqual(ctx.rows(changes, names, "all").length, 5);
+  assert.strictEqual(ctx.rows(changes, names, "tenant").map((r) => r.scope).join(), "Tenant");
+  assert.strictEqual(ctx.rows(changes, names, "capacity").length, 4);
+  const [sku] = ctx.rows(changes, names, "cap-1");
+  assert.strictEqual(JSON.stringify([sku.after, sku.by, sku.scope, sku.setting, sku.was, sku.now]), '["t1","t2","Capacity Prod","sku","\\"F64\\"","\\"F128\\""]');
+  const [ov] = ctx.rows(changes, names, "cap-2");
+  assert.strictEqual(JSON.stringify([ov.scope, ov.setting, ov.now]), '["Capacity cap-2","Override: Copilot",null]');
+
+  // The first read asks; only a yes passes approve.
+  ctx.toast = (t, err) => ctx.toasts.push([t, !!err]);
+  ctx.render = () => { ctx.renders += 1; };
+  ctx.friendlyError = (e) => ({ text: String(e.message).replace(/^PermissionError: /, "") });
+  ctx.attempt = async (f) => { try { return await f(); } catch { return undefined; } };
+  ctx.rpc = async (method, args) => {
+    ctx.calls.push([method, JSON.stringify(args)]);
+    if (!args.approve) throw new Error("PermissionError: Setting up adds 3 tables. Confirm to continue.");
+    return { outcome: "read", changes: [{}, {}] };
+  };
+  ctx.confirmDialog = async (title, text) => { ctx.asked = [title, text]; return ctx.yes; };
+  ctx.yes = false;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.asked[1], "Setting up adds 3 tables.");
+  assert.strictEqual(JSON.stringify(ctx.calls), '[["capacity_settings_read","{}"]]');
+  ctx.yes = true;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.calls[2][1], '{"approve":true}');
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Capacities read: 2 changes",false]');
+  // An unreadable read is recorded by the engine and shown as an error toast, not asked about again.
+  ctx.rpc = async () => ({ outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings.", changes: [] });
+  await ctx.read("tenant_settings_read", "Tenant settings");
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
+  assert.strictEqual(ctx.renders, 2);
+
+  const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
+  for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
+    assert.ok(how.includes(t), t);
+  }
+});

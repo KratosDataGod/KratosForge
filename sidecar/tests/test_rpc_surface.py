@@ -34,6 +34,7 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 
 # Allowlisted methods with no UI caller, each with why it stays. Remove a name when the UI starts
 # calling it or when it leaves METHODS; the test below fails until you do.
+# Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 NO_UI_CALLER: dict[str, str] = {
     # MCP / local HTTP API tools (in-process).
     "notebook_environment": _MCP,
@@ -100,7 +101,7 @@ NO_UI_CALLER: dict[str, str] = {
     "run_cell": _SUPERSEDED,  # notebooks use start_cell / poll_cell
     # Reused in-process by another method.
     "all_shortcuts": _INTERNAL,  # shortcut_service
-    "list_shortcuts": _INTERNAL,  # estate/shortcut services
+    "list_shortcuts": _NO_SCREEN,  # removal candidate: estate/shortcut services call api.list_shortcuts, not this
     "cancel_fabric_run": _INTERNAL,  # workload_service; no button in Activity
     "meta_preflight": _INTERNAL,  # risk_service
     "git_path_info": _INTERNAL,  # git_service

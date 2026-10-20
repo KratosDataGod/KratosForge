@@ -1529,3 +1529,11 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
 });
+
+test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /if \(meta\.project_error\) unread\.unshift\("the metadata project"\);/);
+  assert.match(a, /meta\.project_error \? `Metadata runs not shown: the metadata project couldn't be read \(\$\{meta\.project_error\}\)` : ""/);
+  const d = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  assert.match(d, /if \(res\.project_error\) logActivity\(\{ id: "fresh:project-error", status: "error", title: "Freshness not checked"/);
+});

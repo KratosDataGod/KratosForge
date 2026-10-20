@@ -119,6 +119,11 @@ from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
 
+# Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
+from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FORMATS_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

@@ -198,3 +198,17 @@ def test_a_pc_schedule_run_reads_builtin_paths(svc):
     svc.notebook_resource_add("Sales", "t.txt", b64(b"hi"))
     svc.notebooks.save("Sales", [{"type": "code", "source": 'assert open("builtin/t.txt").read() == "hi"'}])
     assert svc._run_notebook_here("Sales")["status"] == "ok"
+
+
+def test_a_builtin_path_after_another_base_stays_as_written(kernel, tmp_path):
+    base = "abfss://ws@onelake.dfs.fabric.microsoft.com/lh/Files/"
+    assert cell_text(kernel, f'base = "{base}"\nprint(base + "builtin/x.csv")') == f"{base}builtin/x.csv"
+    assert cell_text(kernel, f'import posixpath\nprint(posixpath.join("{base}", "builtin/x.csv"))') == f"{base}builtin/x.csv"
+    assert cell_text(kernel, 'from pathlib import PurePosixPath as P\nprint(P("/data") / "builtin/x.csv")') == "/data/builtin/x.csv"
+    assert cell_text(kernel, 'print(list({"builtin/k": 1}))') == "['builtin/k']"  # a dict key is a name
+    folder = (tmp_path / "N.resources" / "builtin").as_posix()
+    # Where nothing comes before it, it is still the notebook's folder.
+    assert cell_text(kernel, 'n = "a.csv"\nprint("builtin/" + n)') == f"{folder}/a.csv"
+    assert cell_text(kernel, 'import posixpath\nprint(posixpath.join("builtin/", "a.csv"))') == f"{folder}/a.csv"
+    assert cell_text(kernel, 'print({"src": "builtin/a.csv"}["src"])') == f"{folder}/a.csv"
+    assert cell_text(kernel, 'print(open(file="builtin/a.csv").read())') == "x"

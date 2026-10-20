@@ -631,12 +631,40 @@ class _BuiltinPaths(ast.NodeTransformer):
     folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
     changing the working folder, keeps the engine's own folder (and other notebooks, when cells run
     inside the engine) as they were, and works the same for open(), pandas, polars and DuckDB.
-    Only a string that starts with ``builtin/`` (or ``./builtin/``) changes. In an f-string only
-    its leading text can (``f"builtin/{name}"``), never text after a value (``f"{base}builtin/x"``
-    may be a OneLake path); the expressions inside its braces are code and are visited as such."""
+    Only a string that starts with ``builtin/`` (or ``./builtin/``) changes, and only where it is
+    the start of a path: nothing may come before it. So it stays as written after another base:
+    on the right of ``+`` or ``/`` (``base + "builtin/x"``), as a later argument of a join
+    (``posixpath.join(onelake, "builtin/x")``) and in an f-string after a value
+    (``f"{base}builtin/x"``), any of which may be a OneLake path. Dict keys are names, not paths,
+    and stay too. The expressions inside an f-string's braces are code and are visited as such."""
 
     def __init__(self, folder: str):
         self.folder = folder
+
+    def _after_a_base(self, node: ast.AST) -> ast.AST:
+        """A string after a base is left as written; anything else (a call, a name) is visited."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node
+        return self.visit(node)
+
+    def visit_BinOp(self, node: ast.BinOp) -> ast.AST:  # noqa: N802 - ast's name
+        node.left = self.visit(node.left)
+        node.right = self._after_a_base(node.right) if isinstance(node.op, (ast.Add, ast.Div)) else self.visit(node.right)
+        return node
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:  # noqa: N802 - ast's name
+        node.func = self.visit(node.func)
+        name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+        joins = name in ("join", "joinpath")
+        node.args = [self._after_a_base(a) if joins and i else self.visit(a) for i, a in enumerate(node.args)]
+        for kw in node.keywords:
+            kw.value = self.visit(kw.value)
+        return node
+
+    def visit_Dict(self, node: ast.Dict) -> ast.AST:  # noqa: N802 - ast's name
+        node.keys = [k if k is None else self._after_a_base(k) for k in node.keys]
+        node.values = [self.visit(v) for v in node.values]
+        return node
 
     def visit_Constant(self, node: ast.Constant) -> ast.AST:  # noqa: N802 - ast's name
         if isinstance(node.value, str):

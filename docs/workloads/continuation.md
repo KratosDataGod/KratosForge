@@ -7,14 +7,13 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 | Field | Value |
 | --- | --- |
 | Last updated | 2026-10-20 |
-| Base | `main` after #324 (stability round: #281, #301, #310, #311, #312, #317, #324) |
+| Base | `main` after #336 (stability round: #281, #301, #310, #311, #312, #317, #324, #336) |
 | Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-schedule-alert-outbox-4su03b` | #336 | A failed PC schedule's Teams alert waits in `schedule_alerts.sqlite3` and goes, marked Delayed, after the next run | Quality PASS; in the fix round |
 | `claude/workload-how-this-works-4su03b` | #331 | How this works beside Queue, Incidents and Run as | Quality PASS; draft for Chris |
 | `claude/workload-capacity-use-4su03b` | #353 | Capacity use card on the workload page (`workload_capacity_use`) | Draft; with quality |
 
@@ -65,7 +64,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Next action
 
-Land #336, #331 and #353. Then item 76 stage 2B (platform audit of workload actions; stage 1 exists as the action log and ownership history in `workloads.sqlite`), the bell and settings UI for platform notices (mockup first), and Chris's open cards: what counts as a workload, and whether Runs and Schedules merge. Notebook run history and job progress inside the notebook belong to the notebook threads, not this program.
+Land #331 and #353 (#336, the PC schedule alert outbox, merged as 531107e). Then item 76 stage 2B (platform audit of workload actions; stage 1 exists as the action log and ownership history in `workloads.sqlite`), the bell and settings UI for platform notices (mockup first), and Chris's open cards: what counts as a workload, and whether Runs and Schedules merge. Notebook run history and job progress inside the notebook belong to the notebook threads, not this program.
 
 ## Resume prompt
 

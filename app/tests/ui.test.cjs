@@ -729,7 +729,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -1948,6 +1948,34 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
+  const { dbgBpMap, dbgStackText, dbgKeyAction } = dbgHelpers();
+  // Two lines inserted above line 3; line 5 deleted onto line 4; line 9 is past the end now.
+  const moved = { 1: 1, 3: 5, 4: 6, 5: 6, 9: 11 };
+  assert.deepStrictEqual([...dbgBpMap([1, 3, 4, 5, 9], (n) => moved[n] ?? null, 10)], [1, 5, 6]);
+  assert.strictEqual(dbgStackText([{ function: "(cell)", line: 5 }, { function: "double", line: 3 }]), "(cell) line 5 › double line 3");
+  const key = (k, extra = {}) => dbgKeyAction({ key: k, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...extra });
+  assert.strictEqual(key("F5"), "continue");
+  assert.strictEqual(key("F10"), "next");
+  assert.strictEqual(key("F11"), "step");
+  assert.strictEqual(key("F11", { shiftKey: true }), "out");
+  assert.strictEqual(key("F5", { ctrlKey: true }), null);
+  assert.strictEqual(key("Enter"), null);
+});
+
+test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    assert.ok(nb.includes(hook), hook);
+  }
+  assert.match(dbg, /rpc\("debug_cell"/);
+  // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
+  assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
 });
 
 // Once keys come from the platform, the entity's keys card names the database instead of a MERGE.

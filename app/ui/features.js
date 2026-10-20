@@ -43,7 +43,7 @@ const PREVIEW_FEATURES = {
   validate: "Validate notebook",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
-  debug: "Variable history and watches",
+  debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",

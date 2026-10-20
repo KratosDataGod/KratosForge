@@ -1468,3 +1468,9 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+.cm-line.cm-bp { box-shadow: inset 3px 0 0 #c50f1f; background: rgba(197, 15, 31, 0.06); }
+.cm-line.cm-paused { background: rgba(255, 196, 0, 0.28); }
+.output.dbg-paused { background: #fffbea; border-left: 3px solid #c27c00; display: flex; flex-direction: column; gap: 8px; }
+.dbg-frame { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.dbg-eval { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.dbg-eval code { font-family: var(--mono); }

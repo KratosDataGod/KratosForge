@@ -358,6 +358,7 @@ function renderGutter(cell) {
 function cellResults(cell) {
   const parts = [];
   if (cell.status) parts.push(statusLine(cell));
+  if (cell.paused) parts.push(dbgPausedPanel(cell));  // debugging.js
   if (!cell.outputs.length) return cell.hidden?.length ? [...parts, dbgCellWarning(cell)].filter(Boolean) : parts;
   if (cell.meta?.outputs_hidden) {
     parts.push(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "outputs_hidden", false) },
@@ -386,6 +387,9 @@ function cellMenu(cell) {
     items.push({ label: isParams(cell) ? "Remove parameter tag" : "Toggle parameter cell", icon: "braces", action: () => toggleParams(cell) });
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
+    if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
+      items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
+    }
   }
   items.push({ label: cell.meta.frozen ? "Unfreeze cell" : "Freeze cell", icon: "shield", action: () => toggleFreeze(cell) });
   items.push({ label: "Split cell at cursor", icon: "code", action: () => splitCell(cell) });
@@ -398,7 +402,7 @@ function cellMenu(cell) {
 
 function statusLine(cell) {
   const s = cell.status;
-  const label = { queued: ["busy", "Queued"], running: ["busy", "Running"], ok: ["ok", "Succeeded"],
+  const label = { queued: ["busy", "Queued"], running: cell.paused ? ["busy", "Paused"] : ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status" }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
@@ -683,7 +687,8 @@ const editorTheme = CM.EditorView.theme({
 });
 
 function gutters(cell) {
-  return state.lineNumbers && cell.type === "code" ? [CM.lineNumbers(), CM.foldGutter()] : [];
+  return state.lineNumbers && cell.type === "code"
+    ? [CM.lineNumbers({ domEventHandlers: { mousedown: (view, line) => dbgGutterClick(cell, view, line) } }), CM.foldGutter()] : [];
 }
 
 function readOnly(cell) {
@@ -764,6 +769,7 @@ function editorFor(cell) {
       doc: cell.source,
       extensions: [
         gutterComp.of(gutters(cell)),
+        dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
@@ -785,7 +791,7 @@ function editorFor(cell) {
             }
             markDirty();
             if (cell.type === "markdown") refreshOutline();
-            else depsChanged();
+            else { depsChanged(); dbgEdited(cell, u); }
           }
           if (u.focusChanged && u.view.hasFocus) {
             if (state.selected !== cell.id) selectCell(cell);
@@ -823,6 +829,7 @@ function cellKeymap(cell) {
     { key: "Escape", run: () => { editors.get(cell.id)?.contentDOM.blur(); enterCommandMode(cell); return true; } },
     { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
+    { key: "F9", run: () => dbgToggleAtCursor(cell) },
   ];
 }
 
@@ -1091,7 +1098,7 @@ function renderInspect(o, numeric) {
 
 // ---------- running cells ----------
 
-async function runCell(cell, { timeLimit = true } = {}) {
+async function runCell(cell, { timeLimit = true, debug = false } = {}) {
   if (cell.type !== "code") return true;
   if (nbWhere(state.notebook).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1115,13 +1122,15 @@ async function runCell(cell, { timeLimit = true } = {}) {
   try {
     const watches = await dbgWatches(state.notebook);  // debugging.js
     let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
-      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
+      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...dbgStartArgs(cell, debug) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
+      const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
       if (snap.status !== "running") break;
-      if (state.notebook?.cells.includes(cell)) updateResults(cell);
+      // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
+      if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);
       snap = await rpc("poll_cell", { version: snap.version, wait: 0.4 });
     }
     cell.status = snap.status;
@@ -1141,6 +1150,7 @@ async function runCell(cell, { timeLimit = true } = {}) {
     }
     cell.seconds = (performance.now() - started) / 1000;
   }
+  if (cell.paused) dbgSnapshot(cell, null);
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   setKernel(stopRequested ? "stopped" : "idle");
   depsRan(cell, ok);

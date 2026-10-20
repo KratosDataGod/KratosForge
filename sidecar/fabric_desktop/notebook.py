@@ -386,6 +386,13 @@ class Kernel:
             return "ok"
         if cell.language == "shell":
             return self._run_script(cell, run)
+        if cell.language == "writefile":
+            return self._writefile(cell, run)
+        if cell.language == "javascript":
+            self._emit(run, {"type": "error", "ename": "NotSupported", "traceback": "", "evalue":
+                             "%%javascript doesn't run here: cell output is shown in a sandboxed frame without scripts. "
+                             "Use %%html for markup, or display() a chart."})
+            return "error"
         if cell.language == "configure":
             print("Note: %%configure sets Spark session options in Fabric. On this PC it has nothing to set.")
             return "ok"
@@ -397,6 +404,19 @@ class Kernel:
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
         self._patch_pyplot(run)
+        if cell.header == "%%time":
+            started = time.monotonic()
+            status = self._exec_python(code, namespace, run)
+            print(f"Wall time: {_duration(time.monotonic() - started)}")
+            return status
+        if cell.header == "%%timeit":
+            return self._guarded(run, lambda: self._timeit(cell.args, code, namespace))
+        if cell.header == "%%capture":
+            return self._capture(cell.args, code, namespace, run)
+        return self._exec_python(code, namespace, run)
+
+    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+        from .notebookutils_local import NotebookExit
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
@@ -417,6 +437,100 @@ class Kernel:
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
+
+    def _guarded(self, run: _Run | None, fn: Callable[[], Any]) -> str:
+        try:
+            fn()
+        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+            self._emit(run, self._error(exc))
+            return "error"
+        return "ok"
+
+    def _timeit(self, args: str, code: str, namespace: dict[str, Any]) -> None:
+        """``%timeit`` / ``%%timeit``: runs the code many times and prints IPython's summary.
+        ``-n N`` loops per run and ``-r R`` runs; by default enough loops for 0.2 s, 7 runs."""
+        import statistics
+        import timeit
+        flags = dict(re.findall(r"-([nr])\s*(\d+)", args))
+        timer = timeit.Timer(stmt=code, globals=namespace)
+        number = int(flags["n"]) if "n" in flags else timer.autorange()[0]
+        times = [t / number for t in timer.repeat(repeat=int(flags.get("r", 7)), number=number)]
+        spread = statistics.stdev(times) if len(times) > 1 else 0.0
+        print(f"{_duration(statistics.mean(times))} ± {_duration(spread)} per loop (mean ± std. dev. of "
+              f"{len(times)} run{'s' * (len(times) != 1)}, {number} loop{'s' * (number != 1)} each)")
+
+    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+        """``%%capture [name]``: the cell's output is kept instead of shown; ``name.show()`` shows it.
+        An error still shows, so a failing cell isn't silent."""
+        captured = _Run(0)
+        out, err = _routers()
+        ident = threading.get_ident()
+        before = out.targets.get(ident), err.targets.get(ident), getattr(self._local, "run", None)
+        out.targets[ident] = err.targets[ident] = self._local.run = captured
+        try:
+            status = self._exec_python(code, namespace, captured)
+            self._flush_figures(captured)
+        finally:
+            for router, target in ((out, before[0]), (err, before[1])):
+                if target is None:
+                    router.targets.pop(ident, None)
+                else:
+                    router.targets[ident] = target
+            self._local.run = before[2]
+        name = next((w for w in args.split() if not w.startswith("-")), None)
+        if name:
+            namespace[name] = CapturedOutput(captured.outputs, self)
+        for output in captured.outputs:
+            if output["type"] == "error":
+                self._emit(run, output)
+        return status
+
+    def _writefile(self, cell: Any, run: _Run | None) -> str:
+        """``%%writefile [-a] path``: the cell's text into a file on this PC (``-a`` appends)."""
+        words = cell.args.split()
+        append = "-a" in words or "--append" in words
+        target = next((w for w in words if not w.startswith("-")), None)
+        if target is None:
+            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "",
+                             "evalue": "%%writefile needs a file name, like: %%writefile helpers.py"})
+            return "error"
+        path = Path(os.path.expandvars(os.path.expanduser(target.strip("\"'")))).resolve()
+        text = cell.body.removeprefix("\n")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            existed = path.exists()
+            with path.open("a" if append else "w", encoding="utf-8") as f:
+                f.write(text if text.endswith("\n") else text + "\n")
+        except OSError as exc:
+            self._emit(run, self._error(exc))
+            return "error"
+        print(f"{'Appending to' if append else 'Overwriting' if existed else 'Writing'} {path}")
+        return "ok"
+
+    @staticmethod
+    def _env(line: str) -> Any:
+        """``%env`` lists environment variables (values of secret-looking names hidden), ``%env NAME``
+        reads one, and ``%env NAME=value`` sets one for the kernel's process."""
+        line = line.strip()
+        if not line:
+            return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
+        m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
+        if m is None:
+            return os.environ.get(line)
+        name, value = m.groups()
+        if name.upper().startswith("FABRIC_DESKTOP_"):
+            raise ValueError(f"{name} is KratosForge's own setting and can't be changed from a notebook.")
+        os.environ[name] = value
+        print(f"env: {name}={'hidden' if _SECRET_NAME.search(name) else value}")
+        return None
+
+    def _line_magic_help(self) -> str:
+        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
+                "%load_ext, %autoreload and %config (skipped)\n"
+                "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
+                "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
+                "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
 
     def _emit(self, run: _Run | None, output: dict[str, Any]) -> None:
         if run is not None:
@@ -488,11 +602,46 @@ class Kernel:
             return None
         if name == "time":
             started = time.monotonic()
-            value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
-            print(f"Wall time: {time.monotonic() - started:.3f} s")
+            try:
+                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
+            except SyntaxError:  # a statement, such as x = f()
+                exec(compile(line, _CELL_FILE, "exec"), self.namespace)
+                value = None
+            print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
-        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %fs, %sh, !command, "
-                         f"%pip (skipped), %time.")
+        if name == "timeit":
+            m = re.match(r"((?:\s*-[nr]\s*\d+)*)\s*(.*)$", line)
+            return self._timeit(m.group(1), m.group(2), self.namespace)
+        if name == "lsmagic":
+            print(self._line_magic_help())
+            return None
+        if name == "pwd":
+            return os.getcwd()
+        if name == "cd":
+            raise ValueError("%cd isn't supported here: the kernel shares its working folder with the app. "
+                             "Use full paths, or os.path.join with a folder of your own.")
+        if name == "env":
+            return self._env(line)
+        if name in ("who", "whos"):
+            rows = self.variables()
+            if name == "who":
+                print("  ".join(r["name"] for r in rows) or "No variables yet.")
+            else:
+                print("\n".join(f"{r['name']:<20} {r['type']:<16} {r['size'] or r['value']}" for r in rows) or "No variables yet.")
+            return None
+        if name == "reset":
+            if "-f" not in line.split():
+                raise ValueError("%reset asks before clearing in IPython, which a notebook here can't. Use %reset -f.")
+            keep = set(self._base_namespace_keys())
+            for key in [k for k in self.namespace if not k.startswith("__") and k not in keep]:
+                del self.namespace[key]
+            return None
+        if name in ("matplotlib",):
+            return None  # charts are always shown in the cell
+        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
+            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+            return None
+        raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
@@ -664,6 +813,41 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+def _duration(seconds: float) -> str:
+    """A time the way IPython prints it: 3 significant figures in ns, µs, ms or s."""
+    for unit, scale in (("s", 1.0), ("ms", 1e-3), ("µs", 1e-6), ("ns", 1e-9)):
+        if seconds >= scale or unit == "ns":
+            return f"{seconds / scale:.3g} {unit}"
+    return f"{seconds:.3g} s"
+
+
+class CapturedOutput:
+    """What a ``%%capture`` cell printed and showed. ``show()`` (or calling it) shows it again."""
+
+    def __init__(self, outputs: list[dict[str, Any]], kernel: Kernel):
+        self.outputs = [o for o in outputs if o["type"] != "error"]
+        self._kernel = kernel
+
+    @property
+    def stdout(self) -> str:
+        return "".join(o["text"] for o in self.outputs if o["type"] == "stream")
+
+    stderr = ""
+
+    def show(self) -> None:
+        run = getattr(self._kernel._local, "run", None)
+        for output in self.outputs:
+            if output["type"] == "stream":
+                print(output["text"], end="")
+            elif run is not None:
+                run.add(output)
+
+    __call__ = show
+
+    def __repr__(self) -> str:
+        return f"<CapturedOutput: {len(self.outputs)} output{'s' * (len(self.outputs) != 1)}>"
 
 
 def _fs_magic(fs: Any, line: str) -> Any:

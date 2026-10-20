@@ -50,7 +50,7 @@ def test_sql_line_magic_refuses_in_place_changes_and_needs_a_query():
 
 def test_unknown_magic_names_the_supported_ones():
     out = Kernel().run("%nope")
-    assert "%sql" in out["outputs"][-1]["evalue"]
+    assert "%lsmagic" in out["outputs"][-1]["evalue"]
 
 
 def test_rewrite_and_blank_keep_assignments_and_line_numbers():
@@ -287,3 +287,78 @@ def test_windows_shell_cells_are_listed_for_fabric_and_sh_publishes_as_sh():
     cells = [{"type": "code", "source": "%%cmd\ndir"}, {"type": "code", "source": "%sh ls -la\npwd"}]
     assert [r["cell"] for r in compute_check(cells, LH)["fabric"]["reasons"]] == [1]
     assert "".join(fabric_ipynb(cells, None)["cells"][1]["source"]) == "%%sh\nls -la\npwd"
+
+
+# ---- IPython magics: %%time, %timeit, %%capture, %%writefile, %lsmagic, %env, %who, %reset
+
+def test_time_and_timeit():
+    k = Kernel()
+    out = k.run("%%time\nx = sum(range(1000))\nx")
+    texts = [o.get("text", "") for o in out["outputs"]]
+    assert out["status"] == "ok" and "499500" in texts and any(t.startswith("Wall time: ") for t in texts)
+    assert "Wall time" in k.run("%time y = 2")["outputs"][0]["text"] and k.run("y")["outputs"][0]["text"] == "2"
+    out = k.run("%timeit -n 5 -r 3 sum(range(100))")
+    assert out["status"] == "ok", out
+    assert "per loop (mean ± std. dev. of 3 runs, 5 loops each)" in out["outputs"][0]["text"]
+    out = k.run("%%timeit -n 2 -r 2\nz = [i for i in range(10)]")
+    assert "2 runs, 2 loops each" in out["outputs"][0]["text"]
+    out = k.run("%%timeit -n 1 -r 1\n1 / 0")
+    assert out["status"] == "error" and out["outputs"][-1]["ename"] == "ZeroDivisionError"
+
+
+def test_capture_keeps_output_and_shows_errors():
+    k = Kernel()
+    out = k.run("%%capture cap\nprint('quiet')\nspark.createDataFrame([(1,)], ['a'])")
+    assert out["status"] == "ok" and out["outputs"] == []
+    assert k.run("cap.stdout")["outputs"] == [{"type": "text", "text": "'quiet\\n'"}]
+    out = k.run("cap.show()")
+    assert out["outputs"][0]["text"] == "quiet\n" and out["outputs"][1]["type"] == "table"
+    out = k.run("%%capture\nprint('x')\nraise ValueError('loud')")
+    assert out["status"] == "error" and out["outputs"][0]["evalue"] == "loud"
+    out = k.run("print('after')")
+    assert out["outputs"] == [{"type": "stream", "text": "after\n"}]
+
+
+def test_writefile_writes_appends_and_can_be_imported(tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(tmp_path))
+    k = Kernel()
+    target = tmp_path / "helper_mod.py"
+    out = k.run(f"%%writefile {target}\ndef double(x):\n    return 2 * x")
+    assert out["status"] == "ok" and out["outputs"][0]["text"].startswith("Writing ")
+    out = k.run(f"%%writefile -a {target}\nTEN = 10")
+    assert out["outputs"][0]["text"].startswith("Appending to ")
+    assert k.run("import helper_mod\nhelper_mod.double(helper_mod.TEN)")["outputs"] == [{"type": "text", "text": "20"}]
+    assert "needs a file name" in k.run("%%writefile\nx")["outputs"][0]["evalue"]
+
+
+def test_small_ipython_magics():
+    k = Kernel()
+    assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
+    assert k.run("%matplotlib inline")["status"] == "ok"
+    assert "skipped" in k.run("%load_ext autoreload")["outputs"][0]["text"]
+    k.run("%env KF_TEST_VALUE=abc")
+    assert k.run("%env KF_TEST_VALUE")["outputs"] == [{"type": "text", "text": "'abc'"}]
+    k.run("%env KF_TEST_TOKEN=s3cret")
+    assert "s3cret" not in json.dumps(k.run("%env")["outputs"])
+    assert "can't be changed" in k.run("%env FABRIC_DESKTOP_X=1")["outputs"][-1]["evalue"]
+    k.run("alpha = 1\nbeta = [1, 2]")
+    assert k.run("%who")["outputs"][0]["text"].split() == ["alpha", "beta"]
+    assert "list" in k.run("%whos")["outputs"][0]["text"]
+    assert k.run("%pwd")["outputs"][0]["text"] == repr(os.getcwd())
+    assert "working folder" in k.run("%cd /tmp")["outputs"][-1]["evalue"]
+    assert "%reset -f" in k.run("%reset")["outputs"][-1]["evalue"]
+    k.run("%reset -f")
+    assert k.run("alpha")["status"] == "error" and k.run("spark is not None")["outputs"][0]["text"] == "True"
+    assert k.run("%%javascript\nalert(1)")["status"] == "error"
+    assert "%lsmagic" in k.run("%nope")["outputs"][-1]["evalue"]
+
+
+def test_reading_tools_and_publish_with_ipython_cell_magics():
+    assert magics.cell("%%capture out --no-stderr\nx = 1") == magics.Cell("python", "%%capture", "\nx = 1", "out --no-stderr")
+    assert set(depgraph.analyze("%%capture out\nx = 1")["defines"]) == {"out", "x"}
+    w = depgraph.analyze("%%writefile helpers.py\nimport os")
+    assert w["writes"] == [{"kind": "file", "name": "helpers.py", "line": 1}] and w["parsed"]
+    assert depgraph.analyze("%%time\nimport polars as pl")["defines"] == ["pl"]
+    assert depgraph.analyze("%reset -f")["dynamic"][0]["text"] == "%reset clears every variable"
+    cells = [{"type": "code", "source": "%%time\nx = 1"}, {"type": "code", "source": "%%writefile a.py\nx"}]
+    assert ["".join(c["source"]) for c in fabric_ipynb(cells, None)["cells"]] == ["%%time\nx = 1", "%%writefile a.py\nx"]

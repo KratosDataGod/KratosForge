@@ -1999,3 +1999,11 @@ test("notebook shell cells are recognised for the editor", () => {
   for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
   assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
 });
+
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});

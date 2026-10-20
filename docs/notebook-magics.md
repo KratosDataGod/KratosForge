@@ -122,6 +122,30 @@ rules (writes to OneLake need a lakehouse you can write to, and a proof refuses 
 Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks
 before running them again, and Prove warns that it can't contain what a shell command changes.
 
+## IPython magics
+
+The everyday IPython magics that Fabric's and Databricks' notebooks inherit work here too.
+`%lsmagic` lists every magic this PC runs.
+
+| Magic | Does |
+| --- | --- |
+| `%time statement`, `%%time` | Runs it and prints the wall time |
+| `%timeit expression`, `%%timeit` | Runs it many times and prints the mean and spread per loop, as IPython does. `-n 100` sets loops per run and `-r 5` runs; by default it picks enough loops for 0.2 seconds and does 7 runs |
+| `%%capture name` | Keeps the cell's printed output, tables and charts in `name` instead of showing them. `name.stdout` is the text; `name.show()` shows it all. An error still shows |
+| `%%writefile path` | Writes the cell's text to a file on this PC; `-a` appends. A relative path is in the kernel's working folder (`%pwd`); give a full path to choose where |
+| `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden |
+| `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
+| `%pwd` | The kernel's working folder |
+| `%reset -f` | Clears every variable; `spark`, `notebookutils` and `display` stay |
+| `%matplotlib inline` | Accepted: charts always show in the cell |
+| `%load_ext`, `%autoreload`, `%config` | Skipped with a note: they change IPython itself, and this kernel isn't IPython |
+
+Two aren't available, and say why when used: `%cd`, because the kernel shares its working folder
+with the app, and `%%javascript`, because cell output shows in a sandboxed frame without scripts.
+
+Dependencies treat a `%%writefile` cell as writing that file and a `%%capture name` cell as
+defining `name`.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -133,7 +157,8 @@ before running them again, and Prove warns that it can't contain what a shell co
 | `!command`, `x = !command` | Runs in this PC's shell; the assigned form keeps the output lines |
 | `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
 | `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |
-| `%time expression` | Runs the expression and prints the wall time |
+| `%time`, `%%time`, `%timeit`, `%%timeit` | Times a statement or the cell |
+| `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic` | As in IPython; see above |
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
 | `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |

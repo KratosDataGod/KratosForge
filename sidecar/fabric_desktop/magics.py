@@ -97,6 +97,10 @@ DATABRICKS_HEADERS = {"%sql": "sql", "%python": "python", "%scala": "scala", "%r
                       "%sh": "shell"}
 # Script cells (IPython's, and Databricks' %sh): the cell runs in that shell on this PC (shell.py).
 SHELL_HEADERS = {"%%sh": "sh", "%%bash": "bash", "%%cmd": "cmd", "%%powershell": "powershell", "%sh": "sh"}
+# IPython's cell magics that wrap Python (the body runs as Python, timed or captured), and the
+# ones whose body isn't code at all.
+PYTHON_WRAPPERS = {"%%time", "%%timeit", "%%capture"}
+OTHER_HEADERS = {"%%writefile": "writefile", "%%javascript": "javascript", "%%js": "javascript"}
 _ALONE_ONLY = {"%sql", "%python"}
 # What Fabric calls the languages it runs, for publishing (markdown becomes a Markdown cell).
 _TO_FABRIC = {"sql": "%%sql", "scala": "%%spark", "r": "%%sparkr", "shell": "%%sh"}
@@ -106,6 +110,7 @@ class Cell(NamedTuple):
     language: str  # python, sql, markdown, html, shell, scala, r, csharp or configure
     header: str  # the header as written, "" when the cell has none
     body: str  # the cell without its header; Python keeps its line numbers (the header line is blank)
+    args: str = ""  # what follows the header on its line (%%capture out, %%writefile -a helper.py)
 
 
 def cell(source: str) -> Cell:
@@ -113,13 +118,17 @@ def cell(source: str) -> Cell:
     lead = len(source) - len(source.lstrip())
     first, newline, rest = source[lead:].partition("\n")
     word = first.split(None, 1)[0] if first.strip() else ""
-    language = FABRIC_HEADERS.get(word) or ("shell" if word in SHELL_HEADERS else None) or (DATABRICKS_HEADERS.get(word)
+    language = FABRIC_HEADERS.get(word) or ("shell" if word in SHELL_HEADERS else None) or \
+        ("python" if word in PYTHON_WRAPPERS else None) or OTHER_HEADERS.get(word) or (DATABRICKS_HEADERS.get(word)
                                              if word not in _ALONE_ONLY or first.strip() == word else None)
     if language is None:
         return Cell("python", "", source)
+    args = first[len(word):].strip() if word in PYTHON_WRAPPERS or word in OTHER_HEADERS else ""
+    if word in OTHER_HEADERS:  # the first line holds arguments, not content
+        return Cell(language, word, newline + rest, args)
     if language == "python":
-        return Cell("python", word, source[:lead].replace(" ", "").replace("\t", "") + newline + rest)
-    return Cell(language, word, first[len(word):] + newline + rest)
+        return Cell("python", word, source[:lead].replace(" ", "").replace("\t", "") + newline + rest, args)
+    return Cell(language, word, first[len(word):] + newline + rest, args)
 
 
 def fabric_cell(c: dict) -> dict:
@@ -129,8 +138,7 @@ def fabric_cell(c: dict) -> dict:
     if c.get("type") == "markdown":
         return c
     parsed = cell(c.get("source", ""))
-    if not parsed.header or (parsed.header in FABRIC_HEADERS or parsed.header in SHELL_HEADERS and parsed.header != "%sh") \
-            and parsed.language != "markdown":
+    if not parsed.header or parsed.header.startswith("%%") and parsed.language != "markdown":
         return c
     if parsed.language == "markdown":
         return {**c, "type": "markdown", "source": parsed.body.strip("\n").removeprefix(" ")}

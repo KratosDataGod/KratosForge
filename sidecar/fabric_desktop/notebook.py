@@ -631,54 +631,75 @@ class _BuiltinPaths(ast.NodeTransformer):
     folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
     changing the working folder, keeps the engine's own folder (and other notebooks, when cells run
     inside the engine) as they were, and works the same for open(), pandas, polars and DuckDB.
-    Only a string that starts with ``builtin/`` (or ``./builtin/``) changes, and only where it is
-    the start of a path: nothing may come before it. So it stays as written after another base:
-    on the right of ``+`` or ``/`` (``base + "builtin/x"``), as a later argument of a join
-    (``posixpath.join(onelake, "builtin/x")``) and in an f-string after a value
-    (``f"{base}builtin/x"``), any of which may be a OneLake path. Dict keys are names, not paths,
-    and stay too. The expressions inside an f-string's braces are code and are visited as such."""
+
+    An allowlist: a string (or f-string) that starts with ``builtin/`` (or ``./builtin/``) changes
+    only when it is the leftmost piece of the whole value it sits in, found by walking up through
+    ``+``, ``/`` and f-strings, and that value is used on its own, as a call argument, or as the
+    first argument of a join. Anything else stays as written: text after another base (which may
+    be a OneLake path), ``%`` formatting, ``.format(...)``, ``str.join`` and later join arguments,
+    and dict keys. The expressions inside an f-string's braces are code and are visited as such."""
+
+    _JOINS = ("join", "joinpath")
 
     def __init__(self, folder: str):
         self.folder = folder
+        self._parents: dict[int, ast.AST] | None = None
 
-    def _after_a_base(self, node: ast.AST) -> ast.AST:
-        """A string after a base is left as written; anything else (a call, a name) is visited."""
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return node
-        return self.visit(node)
+    def visit(self, node: ast.AST) -> Any:
+        if self._parents is None:  # the tree being rewritten: where each node sits
+            self._parents = {id(c): n for n in ast.walk(node) for c in ast.iter_child_nodes(n)}
+        return super().visit(node)
 
-    def visit_BinOp(self, node: ast.BinOp) -> ast.AST:  # noqa: N802 - ast's name
-        node.left = self.visit(node.left)
-        node.right = self._after_a_base(node.right) if isinstance(node.op, (ast.Add, ast.Div)) else self.visit(node.right)
-        return node
+    def _parent(self, node: ast.AST) -> ast.AST | None:
+        return (self._parents or {}).get(id(node))
 
-    def visit_Call(self, node: ast.Call) -> ast.AST:  # noqa: N802 - ast's name
-        node.func = self.visit(node.func)
-        name = node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
-        joins = name in ("join", "joinpath")
-        node.args = [self._after_a_base(a) if joins and i else self.visit(a) for i, a in enumerate(node.args)]
-        for kw in node.keywords:
-            kw.value = self.visit(kw.value)
-        return node
+    @staticmethod
+    def _call_name(node: ast.AST) -> str:
+        if not isinstance(node, ast.Call):
+            return ""
+        return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
 
-    def visit_Dict(self, node: ast.Dict) -> ast.AST:  # noqa: N802 - ast's name
-        node.keys = [k if k is None else self._after_a_base(k) for k in node.keys]
-        node.values = [self.visit(v) for v in node.values]
-        return node
+    def _starts_a_path(self, node: ast.AST) -> bool:
+        """``node`` is the leftmost leaf of its whole value, and that value is a path on its own."""
+        cur, up = node, self._parent(node)
+        while isinstance(up, ast.BinOp):
+            if not isinstance(up.op, (ast.Add, ast.Div)) or up.left is not cur:
+                return False  # % formatting, or something comes before it
+            cur, up = up, self._parent(up)
+        if isinstance(up, ast.Dict):
+            return all(k is not cur for k in up.keys)
+        if isinstance(up, ast.Attribute):
+            return up.attr != "format"  # "builtin/{}".format(...)
+        if isinstance(up, ast.Call):
+            name = self._call_name(up)
+            if name == "format":
+                return False
+            if name in self._JOINS:
+                return bool(up.args) and up.args[0] is cur
+            return True
+        if isinstance(up, (ast.List, ast.Tuple, ast.Set)):
+            outer = self._parent(up)
+            if isinstance(outer, ast.BinOp) and isinstance(outer.op, ast.Mod):
+                return False
+            return self._call_name(outer) not in self._JOINS + ("format",)
+        return True
 
     def visit_Constant(self, node: ast.Constant) -> ast.AST:  # noqa: N802 - ast's name
         if isinstance(node.value, str):
             path = notebook_resources.resolve(node.value, self.folder)
-            if path is not None:
+            if path is not None and self._starts_a_path(node):
                 return ast.copy_location(ast.Constant(path), node)
         return node
 
     def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:  # noqa: N802 - ast's name
-        for i, part in enumerate(node.values):
+        for part in node.values:
             if isinstance(part, ast.FormattedValue):
                 part.value = self.visit(part.value)  # the code in the braces; not its format spec
-            elif i == 0:
-                node.values[0] = self.visit_Constant(part)
+        first = node.values[0] if node.values else None
+        if isinstance(first, ast.Constant) and isinstance(first.value, str) and self._starts_a_path(node):
+            path = notebook_resources.resolve(first.value, self.folder)
+            if path is not None:
+                node.values[0] = ast.copy_location(ast.Constant(path), first)
         return node
 
 

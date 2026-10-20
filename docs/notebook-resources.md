@@ -32,7 +32,23 @@ with open("builtin/settings.json") as f:
 notebookutils.nbResPath          # the notebook's resources folder; its files are in builtin/
 ```
 
-While a cell runs on this PC, a string in its code that starts with `builtin/` (or `./builtin/`) means the notebook's `builtin` folder when it is the start of the path: on its own, as an argument such as `open("builtin/x.csv")`, as the first part of a join or of a `+`, or at the start of an f-string. That works for `open()`, pandas, polars, DuckDB, `notebookutils.fs` and anything else that takes a path, and for text built from it, such as `f"builtin/{name}"` or `"builtin/" + name`. What is left as written: the bare word `"builtin"` (it is data, not a path); a builtin/ path joined after another base stays as written, whether by `+` or `/` (`base + "builtin/x.csv"`), as a later argument of a join (`posixpath.join(onelake, "builtin/x.csv")`) or after a value in an f-string (`f"{base}builtin/x.csv"`), since the base may be a OneLake path; use `notebookutils.nbResPath` for those; dict keys (`{"builtin/k": 1}`); and every string when the notebook has no resources folder yet. A `..` that would climb out of `builtin` is dropped, so the path stays inside the folder. Two cases need `notebookutils.nbResPath` instead, as they would in any folder: a path built without the slash (`os.path.join("builtin", name)`) and paths inside a `%%sql` cell.
+While a cell runs on this PC, a string in its code that starts with `builtin/` (or `./builtin/`) means the notebook's `builtin` folder when it is the start of the whole path value: on its own (`p = "builtin/x.csv"`), as an argument (`open("builtin/x.csv")`, `pl.read_csv(source="builtin/x.csv")`), as the first piece of a `+` or `/` (`"builtin/" + name`), as the first argument of a join (`os.path.join("builtin/", name)`), or at the start of an f-string (`f"builtin/{name}"`). That works for `open()`, pandas, polars, DuckDB, `notebookutils.fs` and anything else that takes a path.
+
+Anything else stays as written. Use `f"{notebookutils.nbResPath}/builtin/<file>"` for these:
+
+| Left as written | Example |
+| --- | --- |
+| Anything after another base, which may be a OneLake path | `base + "builtin/x.csv"`, `base + f"builtin/{n}"`, `Path(base) / "builtin/x.csv"`, `f"{base}builtin/x.csv"`, `base + ("builtin/x" + ".csv")` |
+| A later argument of a join | `os.path.join(base, "builtin/x.csv")` |
+| `str.join` | `"/".join([base, "builtin/x.csv"])` |
+| `%` formatting | `"builtin/%s" % name`, `"%s/%s" % (base, "builtin/x.csv")` |
+| `.format(...)` | `"builtin/{}".format(name)`, `"{}{}".format(base, "builtin/x.csv")` |
+| A path built without the slash | `os.path.join("builtin", name)` |
+| Dict keys and the bare word | `{"builtin/k": 1}`, `"builtin"` |
+| Paths in a `%%sql` cell | `SELECT * FROM 'builtin/x.csv'` |
+| Every string, when the notebook has no resources folder yet | |
+
+A `..` that would climb out of `builtin` is dropped, so a rewritten path stays inside the folder.
 
 To import a module you added, put the folder on the path first: `sys.path.append(f"{notebookutils.nbResPath}/builtin")`.
 

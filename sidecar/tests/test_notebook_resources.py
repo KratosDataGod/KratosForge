@@ -212,3 +212,31 @@ def test_a_builtin_path_after_another_base_stays_as_written(kernel, tmp_path):
     assert cell_text(kernel, 'import posixpath\nprint(posixpath.join("builtin/", "a.csv"))') == f"{folder}/a.csv"
     assert cell_text(kernel, 'print({"src": "builtin/a.csv"}["src"])') == f"{folder}/a.csv"
     assert cell_text(kernel, 'print(open(file="builtin/a.csv").read())') == "x"
+
+
+
+@pytest.mark.parametrize("code", [
+    'base + f"builtin/{n}"',
+    'os.path.join(base, f"builtin/{n}")',
+    '"/".join([base, "builtin/x.csv"])',
+    '"%s/%s" % (base, "builtin/x.csv")',
+    '"{}{}".format(base, "builtin/x.csv")',
+    'base + ("builtin/x.csv" + "")',
+    '"builtin/%s" % n',
+    '"builtin/{}".format(n)',
+])
+def test_formatting_and_text_after_a_base_stay_as_written(kernel, code):
+    out = cell_text(kernel, f'import os\nbase = "abfss://ws@onelake/lh/Files"\nn = "x.csv"\nprint({code})')
+    assert "N.resources" not in out, out
+
+
+@pytest.mark.parametrize("code", [
+    'open("builtin/a.csv").read()',
+    'open(file="builtin/a.csv").read()',
+    'open("builtin/" + "a.csv").read()',
+    'open(f"builtin/{n}").read()',
+    'open(os.path.join("builtin/", n)).read()',
+    'open(("builtin/a" + ".csv")).read()',
+])
+def test_a_builtin_path_on_its_own_still_reads_the_folder(kernel, code):
+    assert cell_text(kernel, f'import os\nn = "a.csv"\nprint({code})') == "x"

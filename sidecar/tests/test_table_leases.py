@@ -6,6 +6,7 @@ itself honours the conditional requests between two machines is not verified by 
 
 from __future__ import annotations
 
+import socket
 import threading
 import time
 from types import SimpleNamespace
@@ -41,9 +42,16 @@ def held_by(ref, owner):
 def test_a_write_waits_for_another_writer_then_says_who_holds_the_table(local_ref, monkeypatch):
     monkeypatch.setattr(leases, "TABLE_LEASE_WAIT", 0.2)
     held_by(local_ref, "etl-01")
-    with pytest.raises(LeaseBusy, match="dbo.sales is being written by etl-01"):
+    with pytest.raises(LeaseBusy, match=f"dbo.sales is being written by etl-01 on {socket.gethostname()}"):
         publish.publish(pa.table({"id": [1]}), local_ref, "append", "token")
     assert DeltaTable(local_ref.uri).version() == 0  # nothing was written
+
+
+def test_a_lease_left_by_a_killed_kernel_is_taken_over_once_it_expires(local_ref, monkeypatch):
+    assert leases.TABLE_LEASE_TTL < leases.TABLE_LEASE_WAIT  # a dead writer's lease runs out before the next one gives up
+    dead = Leases(LocalBackend(publish._local_leases(local_ref)), "KratosForge", ttl=-1)  # never renewed, already expired
+    assert dead.try_acquire("dbo.sales")
+    assert publish.publish(pa.table({"id": [1]}), local_ref, "append", "token").version() == 1
 
 
 def test_a_write_goes_ahead_once_the_other_writer_finishes(local_ref):

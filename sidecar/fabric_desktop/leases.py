@@ -271,6 +271,18 @@ class Leases:
         stored = self.backend.read(key)
         return self._expires(stored)[1] if stored else ""
 
+    def _holder_and_host(self, key: str) -> str:
+        """The holder for a busy message, with its machine: every desktop's owner is "KratosForge"."""
+        stored = self.backend.read(key)
+        if not stored:
+            return ""
+        owner = self._expires(stored)[1]
+        try:
+            host = json.loads(stored.data).get("host")
+        except (ValueError, AttributeError):
+            host = None
+        return f"{owner} on {host}" if host else owner
+
     @contextmanager
     def hold(self, key: str) -> Iterator["Held"]:
         """Hold ``key`` for the block: wait up to ``wait`` seconds for it, renew it every third of
@@ -279,7 +291,7 @@ class Leases:
         delay = 1.0
         while (etag := self.try_acquire(key)) is None:
             if self.clock() >= deadline:
-                raise LeaseBusy(f"{key} is being written by {self.holder(key) or 'another writer'}; "
+                raise LeaseBusy(f"{key} is being written by {self._holder_and_host(key) or 'another writer'}; "
                                 f"will try again later")
             self.sleep(delay)
             delay = min(delay * 2, 15)
@@ -338,13 +350,17 @@ def table_key(lakehouse: str, schema: str, table: str) -> str:
 # or an agent) also holds this lease, kept in the table's own lakehouse, so writers that know only
 # the table, not its metadata project, still see each other. Metadata runs hold their LH_Meta
 # lease (table_key) first and this one second; nothing takes them the other way round.
-TABLE_LEASE_WAIT = 60
+# A writer that dies mid-write (a killed kernel) leaves its lease for at most TABLE_LEASE_TTL; the next
+# writer waits a little longer than that, so it takes the abandoned lease over instead of failing.
+TABLE_LEASE_TTL = 60
+TABLE_LEASE_WAIT = 90
 
 
 def table_lease(backend: Backend, schema: str, table: str, owner: str, wait: float | None = None,
-                ttl: float = 120) -> AbstractContextManager["Held"]:
+                ttl: float | None = None) -> AbstractContextManager["Held"]:
     """Hold the write lease on ``schema.table`` in the lakehouse ``backend`` keeps its files in."""
-    return Leases(backend, owner=owner, ttl=ttl, wait=TABLE_LEASE_WAIT if wait is None else wait).hold(f"{schema}.{table}")
+    return Leases(backend, owner=owner, ttl=TABLE_LEASE_TTL if ttl is None else ttl,
+                  wait=TABLE_LEASE_WAIT if wait is None else wait).hold(f"{schema}.{table}")
 
 
 def onelake_table_lease(workspace_id: str, lakehouse_id: str, schema: str, table: str,

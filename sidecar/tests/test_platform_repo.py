@@ -381,3 +381,34 @@ def test_a_file_git_ignores_is_never_deployed(svc, exported, tmp_path):
     with pytest.raises(GitError, match="domains/secret.toml"):
         svc.git_platform_deploy(exported)
     assert "secret" not in {d["id"] for d in svc.platform_domains()}
+
+
+def test_deploy_reads_the_commit_not_a_hidden_local_edit(svc, exported, tmp_path):
+    from test_git import raw
+    root = tmp_path / "platform"
+    raw(root, "update-index", "--assume-unchanged", "domains/sales.toml")
+    f = root / "domains" / "sales.toml"
+    f.write_text(f.read_text(encoding="utf-8").replace('"Selling"', '"Hidden edit"'), encoding="utf-8")
+    assert not svc.git_status(exported)["dirty"]  # Git doesn't show it
+    preview = svc.git_platform_deploy(exported)
+    assert preview["steps"] == []  # the commit still says "Selling", as the platform does
+
+
+def test_a_domain_under_a_skipped_parent_is_skipped_too():
+    git = {"domains": {"west": platform_files.domain_record({"id": "west", "name": "West", "parent": "fab"}),
+                       "fab": platform_files.domain_record({"id": "fab", "fabric_domain_id": "f-1"})}, "problems": []}
+    deployed = platform_files.from_platform({"key_tables": {"prod": []}})
+    out = platform_files.plan(git, {"prod": deployed}, "prod", set(), "note")
+    assert out["steps"] == []
+    assert [(b["id"], b["why"].split(".")[0]) for b in out["blocked"]] == [
+        ("fab", "comes from Fabric"), ("west", "is under fab, which is skipped, so it is too")]
+
+
+def test_a_parent_whose_child_stays_is_not_removed():
+    deployed = platform_files.from_platform({"domains": [{"id": "a", "name": "A"}, {"id": "b", "name": "B", "parent_id": "a"}],
+                                             "projects": [{"name": "crm", "domain_id": "b"}], "key_tables": {"prod": []}})
+    out = platform_files.plan({"domains": {}, "problems": []}, {"prod": deployed}, "prod",
+                              {("domains", "a"), ("domains", "b")}, "note")
+    assert out["steps"] == []
+    assert {b["id"]: b["why"] for b in out["blocked"]} == {"b": "is still used by project crm, so it stays.",
+                                                          "a": "is still used by subdomain b, so it stays."}

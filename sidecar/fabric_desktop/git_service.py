@@ -272,7 +272,7 @@ class GitMixin:
         # Files Git ignores aren't in any commit, so a deploy that read them wouldn't be "from" one.
         paths = [*platform_files.FOLDERS.values(), *platform_files.FILES.values()]
         ignored = [x for x in r.git("ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--", *paths,
-                                    read_only=True).split("\0") if x]
+                                    read_only=True).split("\0") if platform_files.is_platform_file(x)]
         if ignored:
             raise GitError(f"Git ignores {', '.join(sorted(ignored)[:5])}{' and more' if len(ignored) > 5 else ''}, so "
                            "it isn't in any commit. Move it out of the platform folders or stop ignoring it and "
@@ -282,7 +282,9 @@ class GitMixin:
         envs, clients, cat_env = self._deployed_envs()
         ticked = {(str(x.get("kind")), str(x.get("id"))) for x in remove or []}
         note = f"Deployed from the platform repository at commit {st['commit'][:12]}"
-        p = platform_files.plan(platform_files.read_repo(r.root), envs, cat_env, ticked, note)
+        # What the commit holds, read from Git itself: exactly what the note says was deployed.
+        git = platform_files.read_repo(r.root, platform_files.committed_files(r, st["commit"]))
+        p = platform_files.plan(git, envs, cat_env, ticked, note)
         out = {**p, "commit": st["commit"], "catalog_env": cat_env, "labels": platform_files.LABELS}
         if p["stops"] or confirm != p["plan_id"]:
             return out | {"needs_confirm": not p["stops"], "done": []}

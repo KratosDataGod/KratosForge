@@ -240,27 +240,78 @@ def _load(path: Path, problems: list[str], rel: str) -> dict[str, Any] | None:
         return None
 
 
-def read_repo(root: str | Path) -> dict[str, Any]:
+def _parse(text: str, problems: list[str], rel: str) -> dict[str, Any] | None:
+    try:
+        return tomllib.loads(text)
+    except ValueError as e:
+        problems.append(f"{rel} can't be read: {e}")
+        return None
+
+
+def is_platform_file(rel: str) -> bool:
+    """Whether a path is one the reader uses: a top-level file, or a .toml directly in a folder."""
+    folder, _, name = rel.rpartition("/")
+    return rel in FILES.values() or (folder in FOLDERS.values() and name.endswith(".toml"))
+
+
+def committed_files(repo: Any, commit: str = "HEAD") -> tuple[dict[str, str], list[str]]:
+    """The platform files exactly as ``commit`` holds them: {path: text}, and problems (a link, or
+    a file that isn't text). Reads Git's objects, never the working folder, so a file Git ignores
+    or a local edit hidden from status (assume-unchanged, skip-worktree) can't slip in."""
+    paths = [*FOLDERS.values(), *FILES.values()]
+    listing = repo.git("ls-tree", "-r", "-z", commit, "--", *paths, read_only=True)
+    texts, problems = {}, []
+    for entry in filter(None, listing.split("\0")):
+        meta, _, rel = entry.partition("\t")
+        mode, kind, sha = meta.split()
+        if kind != "blob" or not is_platform_file(rel):
+            continue  # .gitkeep, deeper folders and anything else the reader doesn't use either
+        if mode == "120000":
+            problems.append(f"{rel} is a link, so it isn't read.")
+            continue
+        try:
+            texts[rel] = repo.git("cat-file", "blob", sha, read_only=True)
+        except (GitError, UnicodeDecodeError) as e:
+            problems.append(f"{rel} can't be read: {e}")
+    return texts, problems
+
+
+def read_repo(root: str | Path, committed: tuple[dict[str, str], list[str]] | None = None) -> dict[str, Any]:
     """The records a platform repository's files hold, with a problem for each file that can't be
-    read or doesn't match its name. A missing single file means that kind isn't in Git yet (None)."""
+    read or doesn't match its name. A missing single file means that kind isn't in Git yet (None).
+    Reads the working folder, or ``committed`` (from committed_files) when given."""
     root = Path(root)
-    problems: list[str] = []
+    problems: list[str] = list(committed[1]) if committed else []
+    if committed:
+        texts = committed[0]
+    else:
+        texts = {}
+        for folder in FOLDERS.values():
+            where = root / folder
+            if where.is_symlink() or not where.is_dir():
+                continue
+            for f in sorted(where.glob("*.toml")):
+                texts[f"{folder}/{f.name}"] = f
+        for name in FILES.values():
+            if (root / name).exists() or (root / name).is_symlink():
+                texts[name] = root / name
+
+    def load(rel: str) -> dict[str, Any] | None:
+        src = texts[rel]
+        return _load(src, problems, rel) if isinstance(src, Path) else _parse(src, problems, rel)
+
     out: dict[str, Any] = {"domains": {}, "sources": {}, "key_tables": {}, "glossary": None, "policies": {},
                            "admins": None, "shortcut_rules": None}
     makers: dict[str, tuple[Callable[[dict[str, Any]], dict[str, Any]], str]] = {
         "domains": (domain_record, "id"), "sources": (source_record, "code"),
         "key_tables": (key_table_record, "name"), "policies": (policy_record, "id")}
     for kind, folder in FOLDERS.items():
-        where = root / folder
-        if where.is_symlink() or not where.is_dir():
-            continue
         make, field = makers[kind]
-        for f in sorted(where.glob("*.toml")):
-            rel = f"{folder}/{f.name}"
-            data = _load(f, problems, rel)
+        for rel in sorted(r for r in texts if r.startswith(folder + "/")):
+            data = load(rel)
             if data is None:
                 continue
-            ident = f.stem
+            ident = rel[len(folder) + 1:-len(".toml")]
             if _s(data.get(field)).lower() != ident:
                 problems.append(f"{rel}: its {field} should be {ident!r}, the file's name.")
                 continue
@@ -269,10 +320,9 @@ def read_repo(root: str | Path) -> dict[str, Any]:
             except PlatformError as e:
                 problems.append(f"{rel}: {e}")
     for kind, name in FILES.items():
-        f = root / name
-        if not f.exists() and not f.is_symlink():
+        if name not in texts:
             continue
-        data = _load(f, problems, name)
+        data = load(name)
         if data is None:
             continue
         if kind == "admins":
@@ -488,30 +538,39 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
     raw_domains = cat["raw"]["domains"]
     parent_of = {i: _s(r.get("parent_id")) for i, r in raw_domains.items()}  # Fabric-backed ones' too
     git_parent = {i: r.get("parent") or parent_of.get(i, "") for i, r in gd.items()}
+    skipped: set[str] = set()
     for ident in sorted(gd, key=lambda i: (_depth(i, git_parent | {k: v for k, v in parent_of.items() if k not in gd}), i)):
         rec, dep = gd[ident], dd.get(ident)
-        if not rec.get("fabric_domain_id") and _depth(ident, {**parent_of, **git_parent}) > 1:
-            blocked.append({"kind": "domains", "id": ident, "why": f"has parent {rec['parent']}, which is a subdomain "
-                            "itself. Subdomains go one level deep: pick a top-level domain as the parent."})
+        parent = git_parent.get(ident, "")
+        why = ""
+        if parent in skipped and parent not in dd:  # its parent won't exist: say so here, not partway through
+            why = f"is under {parent}, which is skipped, so it is too."
+        elif not rec.get("fabric_domain_id") and _depth(ident, {**parent_of, **git_parent}) > 1:
+            why = (f"has parent {rec['parent']}, which is a subdomain itself. Subdomains go one level deep: "
+                   "pick a top-level domain as the parent.")
         elif rec.get("fabric_domain_id") and dep is None:
-            blocked.append({"kind": "domains", "id": ident, "why": "comes from Fabric. Import it from Fabric on Platform > Domains, then deploy again."})
+            why = "comes from Fabric. Import it from Fabric on Platform > Domains, then deploy again."
         elif dep is not None and dep.get("fabric_domain_id", "") != rec.get("fabric_domain_id", ""):
-            blocked.append({"kind": "domains", "id": ident, "why": "is linked to a different Fabric domain in the platform."})
+            why = "is linked to a different Fabric domain in the platform."
+        if why:
+            skipped.add(ident)
+            blocked.append({"kind": "domains", "id": ident, "why": why})
         elif rec != dep:
             steps.append(_step("domains", ident, "update" if dep else "create", "save_domain",
-                               _domain_args(ident, rec, cat["raw"]["domains"].get(ident))))
-    going = {i for i in set(dd) - set(gd) if ("domains", i) in remove}
+                               _domain_args(ident, rec, raw_domains.get(ident))))
+    removed: set[str] = set()
     for ident in sorted(set(dd) - set(gd), key=lambda i: (-_depth(i, parent_of), i)):  # deepest first
         removable.append({"kind": "domains", "id": ident, "env": None})
-        if ident not in going:
+        if ("domains", ident) not in remove:
             continue
-        kept = sorted(c for c, p in {**parent_of, **git_parent}.items() if p == ident and c not in going)
+        kept = sorted(c for c, p in {**parent_of, **git_parent}.items() if p == ident and c not in removed)
         users = sorted({p["name"] for p in cat["raw"].get("projects") or []
                         if ident in (_s(p.get("domain_id")), _s(p.get("subdomain_id")))})
         if kept or users:
             what = [f"subdomain {c}" for c in kept] + [f"project {u}" for u in users]
             blocked.append({"kind": "domains", "id": ident, "why": f"is still used by {', '.join(what)}, so it stays."})
         else:
+            removed.add(ident)
             removals.append(_step("domains", ident, "remove", "delete_domain", {"did": ident}))
 
     # sources: an id is never changed, and a new source keeps the id its file gives it

@@ -22,6 +22,7 @@ from .fabric_run import TERMINAL
 from .meta import freshness as freshness_mod
 from .meta.project import ENVIRONMENTS, impact
 from .meta import mesh as mesh_mod
+from . import measurement as ms
 from .redact import describe
 from .workloads import health, inventory, model, query
 from .workloads.store import ManagementStore
@@ -289,6 +290,31 @@ class WorkloadMixin:
         w["consumers"] = self._wl_consumers(w)
         w["available_actions"] = self._wl_available(w)
         return w
+
+    def workload_capacity_use(self, id: str, days: int = 30) -> dict[str, Any]:
+        """The capacity this workload's runs used in the last ``days``, as far as it is known. Each
+        Fabric run counts with its measured CU when an imported usage row matched it, else the app's
+        estimate, else as unknown (left out of the total, not counted as 0). Runs on this PC start no
+        Fabric job; their OneLake reads and writes still use some capacity, which isn't counted.
+        Reads only what this PC holds: the workload's runs, usage imports and the run history."""
+        w = self._wl_record(id)
+        since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=int(days))
+        recent = [r for r in w.get("runs") or [] if (model.parse_time(r.get("started_at")) or since) >= since]
+        fabric = [r for r in recent if r.get("where") == "fabric"]
+        with_id = [r for r in fabric if r.get("job_id")]
+        measured, est, problem = self._risk_cu(with_id)  # type: ignore[attr-defined]
+        by_job_m = {m.get("run_id"): m for m in measured}
+        by_job_e = {e.get("run_id"): e for e in est}
+        parts = []
+        for r in fabric:
+            j = r.get("job_id")
+            parts.append(by_job_m.get(j) or by_job_e.get(j) or ms.unknown(
+                "fabric_job_cu", ms.CU_SECONDS, "No job id or estimate for this run.", run_id=j))
+        return {"id": id, "days": int(days), "fabric_runs": len(fabric), "pc_runs": len(recent) - len(fabric),
+                "measured_runs": len(measured),
+                "measured": ms.total(measured, "fabric_job_cu", ms.CU_HOURS) if measured else None,
+                "total": ms.total(parts, "fabric_job_cu", ms.CU_HOURS) if parts else None,
+                "problem": problem}
 
     def _wl_fabric_history(self, w: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         d = w["definition"]

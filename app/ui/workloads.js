@@ -194,12 +194,39 @@ async function renderWorkload() {
       h("section", { class: "card pad" }, h("div", { class: "row" }, h("h2", { class: "grow" }, "Ownership"),
         btn("Edit", "person", () => ownershipDialog(w), "tool link small")), ownershipTable(w))),
     workloadIncidentsCard(w),
+    workloadCapacityCard(w),
     h("section", { class: "card pad" }, h("h2", {}, "Deployments"), deploymentsTable(w)),
     h("div", { class: "wl-grid" },
       h("section", { class: "card pad" }, h("h2", {}, "What changed"), timeline(w)),
       h("section", { class: "card pad" }, h("h2", {}, "Who is affected"), affected(w))),
     h("section", { class: "card pad" }, h("h2", {}, "Recent runs"), runsTable(w)),
     (w.actions || []).length ? h("section", { class: "card pad" }, h("h2", {}, "Actions from KratosForge"), actionsTable(w)) : null));
+}
+
+// Capacity use of its runs in the last 30 days (workload_capacity_use): measured where an imported
+// usage row matched the run, else the app's estimate; a run with neither is left out, not counted as 0.
+function workloadCapacityCard(w) {
+  const head = () => h("h2", {}, "Capacity use ", h("span", { class: "muted-text small" }, "last 30 days"), preview("workloads", h("span", {})));
+  const box = h("section", { class: "card pad wl-capacity" }, head(), h("p", { class: "muted-text" }, "Adding up its runs..."));
+  rpc("workload_capacity_use", { id: w.id, days: 30 }).then((u) => {
+    if (!box.isConnected) return;
+    const toCost = btn("Optimize > Cost and savings", null, () => { optimizePage.tab = "cost"; go("optimize"); }, "tool link small");
+    const plural = (n, one) => `${n} ${one}${n === 1 ? "" : "s"}`;
+    const lines = [];
+    if (u.fabric_runs) {
+      lines.push(h("p", {}, `${plural(u.fabric_runs, "run")} in Fabric used `, measureFigure("Capacity use of its Fabric runs", u.total)));
+      lines.push(u.measured_runs
+        ? h("p", { class: "small" }, `${u.measured_runs} of ${u.fabric_runs} matched imported usage: `, measureFigure("Measured capacity use", u.measured),
+          h("div", { class: "muted-text" }, "The rest count with the app's estimate, and a run with neither is left out, not counted as 0."))
+        : h("p", { class: "small" }, "None matched imported usage, so the figure is the app's estimate. Import a Capacity Metrics export in ", toCost, " to measure it."));
+    }
+    if (u.pc_runs) lines.push(h("p", { class: "small" }, `${plural(u.pc_runs, "run")} on this PC started no Fabric job. Their OneLake reads and writes still use some capacity, which isn't counted here.`));
+    if (!lines.length) lines.push(h("p", { class: "muted-text" }, "No runs in the last 30 days."));
+    if (u.problem) lines.push(h("p", { class: "reason small" }, u.problem));
+    if (u.measured_runs) lines.push(h("p", { class: "muted-text small" }, "A match is likely, not proven: usage exports have names and times, not job ids."));
+    box.replaceChildren(head(), ...lines);
+  }).catch((err) => box.replaceChildren(head(), h("p", { class: "muted-text" }, `Couldn't add up its capacity use: ${friendlyError(err).text}`)));
+  return box;
 }
 
 function backToWorkloads() {

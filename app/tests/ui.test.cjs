@@ -1932,3 +1932,15 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
+// each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
+test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  assert.match(src, /workloadIncidentsCard\(w\),\n    workloadCapacityCard\(w\),/);
+  const card = /function workloadCapacityCard\(w\) \{[\s\S]*?\n\}\n/.exec(src)[0];
+  assert.match(card, /rpc\("workload_capacity_use", \{ id: w\.id, days: 30 \}\)/);
+  assert.match(card, /measureFigure\("Capacity use of its Fabric runs", u\.total\)/);
+  assert.match(card, /OneLake reads and writes still use some capacity/);
+  assert.doesNotMatch(card, /no Fabric capacity|saved|savings of/i);
+});

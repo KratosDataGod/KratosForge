@@ -44,7 +44,7 @@ reduced-motion setting**.
 Every key can be fixed in the policy file ([Azure setup](azure-setup.md#4-push-settings-to-everyone)):
 `"motion_level": 0` to `3`, `"motion_wolf"`, `"motion_sparks"`, `"motion_achievements"` (off by default),
 `"motion_ambient"` and `"motion_follow_system"` (`true` or `false`). The earlier
-`"forge_animations": false` still means Off when `motion_level` isn't set.
+`"forge_animations": false` still locks motion Off unless the policy also sets `motion_level`.
 
 ## Every effect and when it plays
 

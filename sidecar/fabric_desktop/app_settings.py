@@ -407,9 +407,12 @@ def load() -> dict[str, Any]:
         if key == "channel" and value not in CHANNELS:
             value, source = default, "default"
         out[key] = {"value": value, "source": source}
-    # The first motion switch turned off means Off, unless a level was chosen since.
-    legacy = out["forge_animations"]
-    if out["motion_level"]["source"] == "default" and legacy["source"] != "default" and legacy["value"] is False:
+    # The first motion switch turned off means Off: from the organization's policy always (unless it
+    # sets motion_level itself), from the person's own choice unless they chose a level since.
+    legacy, level = out["forge_animations"], out["motion_level"]
+    if legacy["value"] is False and (
+            (legacy["source"] == "policy" and level["source"] != "policy")
+            or (legacy["source"] == "user" and level["source"] == "default")):
         out["motion_level"] = {"value": 0, "source": legacy["source"]}
     return out
 

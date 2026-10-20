@@ -98,9 +98,12 @@ def test_forge_animations_off_still_means_motion_off(dirs):
     app_settings.save({"motion_level": 1})  # a level chosen since wins
     assert app_settings.load()["motion_level"] == {"value": 1, "source": "user"}
     dirs.write_text(json.dumps({"forge_animations": False}))
-    assert app_settings.load()["motion_level"] == {"value": 1, "source": "user"}
-    app_settings.save({"motion_level": None})
-    assert app_settings.load()["motion_level"] == {"value": 0, "source": "policy"}  # an old policy file still turns it off
+    # An old policy file still locks motion off, whatever level the person chose.
+    assert app_settings.load()["motion_level"] == {"value": 0, "source": "policy"}
+    with pytest.raises(ValueError, match="organization"):
+        app_settings.save({"motion_level": 2})
+    dirs.write_text(json.dumps({"forge_animations": False, "motion_level": 1}))
+    assert app_settings.load()["motion_level"] == {"value": 1, "source": "policy"}  # a policy level wins over its own old switch
 
 
 def test_service_uses_the_current_app_id(dirs, tmp_path):

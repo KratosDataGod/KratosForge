@@ -1092,6 +1092,23 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .validatepane .link-btn { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
 .validatepane .spinner { width: 14px; height: 14px; flex: none; border: 2px solid var(--accent); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
 .validate-how { padding: 0 16px 16px; }
+/* Cell comments (notebook-comments.js): a panel like Validate's, and a count badge on the cell. */
+.commentspane { width: 380px; flex: none; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--surface); overflow-y: auto; }
+.commentspane .link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer; }
+.comment-slot { display: contents; }
+.comment-badge { gap: 3px; color: var(--accent); font-size: 12px; font-weight: 600; }
+.comment-thread { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+.comment-thread.resolved { background: var(--border-soft); }
+.comment-thread .row { gap: 8px; flex-wrap: wrap; }
+.comment-quote { margin: 0; padding: 4px 8px; border-left: 3px solid var(--brand-orange); background: var(--border-soft); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment { display: flex; flex-direction: column; gap: 2px; }
+.comment-meta { display: flex; gap: 8px; align-items: baseline; color: var(--muted); font-size: 12px; }
+.comment-meta b { color: var(--text); }
+.comment-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment-text .mention { color: var(--accent); font-weight: 600; }
+.comment-actions { font-size: 12px; }
+.comment-form { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
+.comment-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border-input); border-radius: 4px; font: inherit; resize: vertical; }
 .prove-banner { display: flex; gap: 8px; align-items: center; padding: 8px 10px; border-radius: 4px; font-size: 14px; }
 .prove-banner.ok { background: #e7f4e8; color: #0e5c2a; }
 .prove-banner.bad { background: var(--danger-soft); color: var(--danger); }

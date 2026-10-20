@@ -119,6 +119,11 @@ from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
 
+# Comments on notebook cells (comments_service.py), kept in the notebook file.
+from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
+
+METHODS |= COMMENT_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

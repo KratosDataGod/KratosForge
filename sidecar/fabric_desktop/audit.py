@@ -68,6 +68,7 @@ tenant_settings_history
 platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs
 notebook_validate_check notebook_validate_list notebook_validate_status notebook_cleanup_plan notebook_cleanup_apply
+notebook_comments_list
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

@@ -1949,3 +1949,38 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
+// selection, and the panel lists threads in cell order with deleted cells' threads last.
+test("cell comments: mentions, selected lines and the panel's rows", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["commentParts", "commentLines", "commentRows"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(ctx.commentParts("ask @bob.smith, <b>now</b>. me@")), [
+    { text: "ask ", mention: false }, { text: "@bob.smith", mention: true }, { text: ", <b>now</b>. me@", mention: false }]);
+  const code = "a = 1\nb = 2\nc = 3";
+  assert.strictEqual(ctx.commentLines(code, 3, 3), null, "no selection: the whole cell");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 7, 1)), [1, 2]);
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 6, 12)), [2, 2], "ending at a line's start leaves that line out");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 0, code.length)), [1, 3]);
+  const cells = [{ cell_id: "a" }, { cell_id: "b" }];
+  const threads = [
+    { id: "t1", cell_id: "b", resolved: false, comments: [{ at: "2026-10-20T10:00:00+00:00" }] },
+    { id: "t2", cell_id: "gone", resolved: false, comments: [{ at: "2026-10-20T09:00:00+00:00" }] },
+    { id: "t3", cell_id: "a", resolved: false, comments: [{ at: "2026-10-20T11:00:00+00:00" }] },
+    { id: "t4", cell_id: "a", resolved: true, comments: [{ at: "2026-10-20T08:00:00+00:00" }] },
+  ];
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // Comment text only ever becomes text nodes, and deleting asks first, in red.
+  assert.doesNotMatch(src, /innerHTML/);
+  assert.match(src, /"Delete", \{ danger: true \}/);
+  assert.match(src, /nobody is notified/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+});

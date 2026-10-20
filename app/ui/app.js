@@ -1839,7 +1839,7 @@ async function scheduleNotebook() {
   // Where it runs by default: the notebook's own choice, else the environment's compute.
   const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
-    title: `Schedule ${nb.name}`,
+    title: `Schedule ${nb.name}`, what: nb.name,
     mode: fabricDefault && nbLakehouse(nb) ? "fabric" : "pc",
     pc: { target: { kind: "notebook", name: nb.name }, query: { kind: "notebook", name: nb.name },
           intro: "This PC runs the saved notebook, every cell in order, with its attached lakehouse. Save your changes first." },

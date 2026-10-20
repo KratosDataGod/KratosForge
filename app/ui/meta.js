@@ -748,7 +748,7 @@ function scheduleMetaRuns(env) {
   const p = state.meta.project;
   const fabric = inFabric(p, env);
   openScheduleDialog({
-    title: `Schedule ${ENV_LABEL[env]} runs`,
+    title: `Schedule ${ENV_LABEL[env]} runs`, what: `${ENV_LABEL[env]} runs`,
     mode: fabric ? "fabric" : "pc",
     pc: { target: { kind: "meta", env }, query: { kind: "meta", env },
           intro: `This PC runs every entity in ${ENV_LABEL[env]}, in layer order, from the project files as they are when it runs.` },

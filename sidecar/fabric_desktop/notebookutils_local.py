@@ -466,6 +466,11 @@ _ITEM_CHANGES = ("Creating, changing or deleting a lakehouse from a notebook run
                  "do it in Workspaces or Platform setup, where the change is confirmed first.")
 
 
+def _limit(items: list[Any], max_results: int) -> list[Any]:
+    """The first ``max_results`` items; a negative number means all of them, as in Fabric."""
+    return items if max_results is None or max_results < 0 else items[:max_results]
+
+
 def _make_lakehouse(host: Host) -> types.SimpleNamespace:
     def client() -> Any:
         if host.token is None:
@@ -502,11 +507,11 @@ def _make_lakehouse(host: Host) -> types.SimpleNamespace:
         return Item(client().get_lakehouse(item["workspaceId"], item["id"]))
 
     def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
-        return [Item(x) for x in client().list_lakehouses(workspace(workspaceId))[:maxResults]]
+        return [Item(x) for x in _limit(client().list_lakehouses(workspace(workspaceId)), maxResults)]
 
     def listTables(lakehouse: str = "", workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: N802, N803
         item = get(lakehouse, workspaceId)
-        return [Item(t) for t in client().list_tables(item["workspaceId"], item["id"])[:maxResults]]
+        return [Item(t) for t in _limit(client().list_tables(item["workspaceId"], item["id"]), maxResults)]
 
     def refuse(*_a: Any, **_kw: Any) -> None:
         raise NotImplementedError(_ITEM_CHANGES)

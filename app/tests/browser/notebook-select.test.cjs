@@ -111,3 +111,18 @@ test("Z undoes a merge, and cells in different languages aren't merged", { skip 
   assert.deepStrictEqual(app.errors, []);
 });
 
+
+test("Z after typing in a merged cell keeps what was typed and puts back only the other cells", { skip }, async () => {
+  await cell(0).locator(".gutter").click({ position: { x: 10, y: 40 } });
+  await page().keyboard.press("Escape");
+  await page().keyboard.press("Shift+M");  // c1 + c2
+  assert.strictEqual(await page().evaluate(() => state.notebook.cells[0].source), "a = 1\nb = a + 1");
+  await page().evaluate(() => setSource(state.notebook.cells[0], state.notebook.cells[0].source + "\nTYPED_LATER = 1"));
+  await page().keyboard.press("Escape");
+  await page().keyboard.press("z");
+  await page().locator("#toast").getByText(/changed after the merge, so it was left as it is/).waitFor();
+  const sources = await page().evaluate(() => state.notebook.cells.map((c) => c.source));
+  assert.deepStrictEqual(sources.slice(0, 2), ["a = 1\nb = a + 1\nTYPED_LATER = 1", "b = a + 1"]);
+  assert.strictEqual(sources.length, 5);
+  assert.deepStrictEqual(app.errors, []);
+});

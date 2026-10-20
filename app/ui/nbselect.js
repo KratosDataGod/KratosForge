@@ -132,8 +132,13 @@ function deleteSelected() {
 // Undo for a deleted group: the cells go back in their old order.
 function undoDeleteGroup(last) {
   const cells = state.notebook.cells;
-  // Undoing a merge also puts the first cell's own text back, if it's still there.
-  if (last.merge && cells.includes(last.merge.head)) setSource(last.merge.head, last.merge.before);
+  // Undoing a merge also puts the first cell's own text back, but only if it still holds exactly
+  // the merged text: after an edit there, the cell is left as it is and only the others come back.
+  let kept = false;
+  if (last.merge && cells.includes(last.merge.head)) {
+    if (last.merge.head.source === last.merge.after) setSource(last.merge.head, last.merge.before);
+    else kept = true;
+  }
   let restored = null;
   for (const { cell: saved, index } of last.group) {
     const cell = cellFrom(saved);
@@ -148,6 +153,7 @@ function undoDeleteGroup(last) {
   renderNotebook();
   selectionPaint();
   enterCommandMode(restored);
+  if (kept) toast("The merged cell was changed after the merge, so it was left as it is. The other cells are back below it.");
 }
 
 function copySelected(cut = false) {
@@ -215,6 +221,7 @@ function mergeSelected() {
     return magic && t.trimStart().startsWith(magic) ? t.trimStart().slice(magic.length).replace(/^\n/, "") : t;
   });
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
+  undo.merge.after = head.source;
   for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }
   deletedCells.push(undo);
   nbSel.ids.clear();

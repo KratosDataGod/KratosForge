@@ -181,3 +181,42 @@ def test_other_features_reach_the_central_lakehouse_for_their_own_tables(svc, mo
     svc.optimize_registry.add(dict(conn, access="read"))
     with pytest.raises(PermissionError, match="read"):
         svc.central_family(fam)
+
+
+def xray_result(partial=False):
+    where = {"workspace_id": "w1", "workspace_name": "Platform", "lakehouse_id": "lh-sales", "lakehouse_name": "Sales"}
+    return {"scanned": "2026-10-20T09:00:00+00:00", "partial": partial,
+            "lakehouse_rows": [where | {"tables": 1, "bytes": 10, "files": 900, "issues": 1}],
+            "findings": [
+                where | {"schema": "dbo", "table": "orders", "kind": "small_files", "severity": "high",
+                         "title": "dbo.orders has 900 small files", "detail": "d", "action": "optimize",
+                         "files": 900, "bytes": 10},
+                {"kind": "access", "severity": "medium", "title": "Guest Ana has access", "workspace_id": "w1",
+                 "person": "Ana", "action": "access"},
+                {"kind": "cost", "severity": "low", "title": "nb cost", "notebook": "nb", "cost": 1.0}]}
+
+
+def test_xray_findings_reach_optimize_without_people_or_cost():
+    from fabric_desktop import xray
+    out = xray.optimize_records(xray_result(partial=True))
+    assert out["run"]["status"] == "partial" and out["run"]["run_id"] == "xray-2026-10-20T09:00:00+00:00"
+    assert out["artifacts"] == [{"workspace_id": "w1", "item_id": "lh-sales", "item_type": "Lakehouse",
+                                 "display_name": "Sales"}]
+    [finding] = out["findings"]  # the guest's name and this PC's cost estimate stay on this PC
+    assert finding["rule_id"] == "xray.small_files" and finding["target"] == "dbo.orders"
+    assert json.loads(finding["evidence"]) == {"files": 900, "bytes": 10}
+    assert [r["kind"] for r in out["recommendations"]] == ["optimize"]
+
+
+def test_an_xray_scan_is_added_to_the_connected_central_lakehouse(svc):
+    assert svc._xray_share(xray_result()) is None  # not connected: nothing is written anywhere
+    svc.optimize_create("w1", workspace_name="Platform")
+    shared = svc._xray_share(xray_result())
+    assert shared["findings"] == 1 and "error" not in shared
+    assert svc._xray_share(xray_result())["findings"] == 1  # the same scan again adds nothing new
+    [found] = svc.optimize_findings()
+    assert found["title"] == "dbo.orders has 900 small files" and found["occurrences"] == 1
+    assert [r["kind"] for r in svc.optimize_recommendations()] == ["optimize"]
+    conn = svc.central_lakehouse()
+    svc.optimize_registry.add(dict(conn, access="read"))
+    assert svc._xray_share(xray_result()) is None  # read-only: X-ray doesn't try

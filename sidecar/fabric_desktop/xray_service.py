@@ -156,6 +156,7 @@ class XRayMixin:
             except Exception as exc:  # cost needs the run logs; the rest stands without it
                 _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
+            result["shared"] = self._xray_share(result)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
             state: dict[str, Any] = {"running": False}
@@ -163,6 +164,23 @@ class XRayMixin:
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
         with self._xray_lock:
             self._xray_state = state
+
+    def _xray_share(self, result: dict[str, Any]) -> dict[str, Any] | None:
+        """Add the scan's lakehouse and table findings to the central lakehouse this PC is connected
+        to, so Optimize > Opportunities shows them for everyone using it (optimize.Shared). Nothing
+        when the PC isn't connected, the policy turns it off, or the lakehouse is open read-only.
+        Never fails the scan: what went wrong is kept with the result."""
+        conn = self.central_lakehouse()  # type: ignore[attr-defined]
+        if not conn or conn.get("access") != "write":
+            return None
+        try:
+            records = xray.optimize_records(result)
+            out = self._optimize_shared().record_analysis(  # type: ignore[attr-defined]
+                records["run"], records["artifacts"], records["findings"], records["recommendations"])
+            return {"lakehouse": conn.get("lakehouse_name"), "findings": out["findings"]}
+        except Exception as exc:  # noqa: BLE001 - the scan stands without it
+            _log.info("X-ray findings weren't added to the central lakehouse: %s", describe(exc))
+            return {"lakehouse": conn.get("lakehouse_name"), "error": describe(exc)}
 
     def _xray_annotate(self, result: dict[str, Any], refresh: bool = True) -> dict[str, Any]:
         """Which lakehouses the metadata project already manages, and which findings have a fix under way or done."""

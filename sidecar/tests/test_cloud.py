@@ -314,3 +314,31 @@ def test_quote_and_types():
     assert semantic.quote("fact sales") == "'fact sales'" and semantic.quote("ok_1") == "ok_1"
     assert semantic.tmdl_type("decimal(10,2)") == "decimal" and semantic.tmdl_type("timestamp_ntz") == "dateTime"
     assert semantic.tmdl_type("array<string>") is None
+
+
+def test_the_model_names_columns_direct_lake_cant_read_and_never_relates_on_them(svc, tmp_path, monkeypatch):
+    from fabric_desktop import cloud_service, semantic
+    project = svc._project()
+    store = FolderOneLake(tmp_path / "onelake", "test", [l.lakehouse for l in project.layers] + ["LH_Meta"])
+    for e in project.entities.values():
+        lh = project.layer(e.layer).lakehouse
+        store.write(lh, e.schema, e.table, svc._store(project, "dev").read(lh, e.schema, e.table))
+    monkeypatch.setattr(svc, "_store", lambda p, env, create=False: store if env == "test" else type(svc)._store(svc, p, env, create))
+    real = cloud_service.table_schema
+
+    def with_odd_columns(st, lh, schema, table):
+        fields = real(st, lh, schema, table)
+        if table == "fact_sales":  # a struct, and the surrogate key the lookup relates on read back as an array
+            fields = [(c, "array<long>" if c == "customer_sk" else t) for c, t in fields] + [("tags", "struct<a:string>")]
+        return fields
+    monkeypatch.setattr(cloud_service, "table_schema", with_odd_columns)
+
+    built = svc.meta_build_model("test")
+    assert {"table": "fact_sales", "column": "tags", "type": "struct<a:string>"} in built["columns_left_out"]
+    assert {"table": "fact_sales", "column": "customer_sk", "type": "array<long>"} in built["columns_left_out"]
+    assert built["relationships"] == 0  # the relationship's column isn't in the model, so neither is it
+    assert built["relationships_left_out"] == ["fact_sales.customer_sk to dim_customer.customer_sk"]
+    fact = next(c for c in svc.fake.calls if c[0] == "model")[2]["definition/tables/fact_sales.tmdl"]
+    assert "column tags" not in fact and "column customer_sk" not in fact
+    assert semantic.left_out(semantic.ModelTable("t", "e", "dbo", "t", columns=[("a", "long"), ("b", "map<string,int>")])) \
+        == [{"table": "t", "column": "b", "type": "map<string,int>"}]

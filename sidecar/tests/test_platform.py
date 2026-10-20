@@ -637,7 +637,7 @@ class _FakeFabric:
         if domain_id in self.unreadable:
             raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 404: NotFound")
         if domain_id in self.throttled:
-            raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 429: TooManyRequests")
+            raise FabricError("GET roleAssignments failed with 429: TooManyRequests", status=429)
         return self.roles.get(domain_id, [])
 
     def get_workspace(self, wid):

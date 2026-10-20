@@ -1113,8 +1113,7 @@ async function gitPlatformExport(root) {
     out = await attempt(() => rpc("git_platform_export", { repo: root, confirm: true }), "Couldn't export");
     if (!out) return;
   }
-  const extra = [out.skipped.length ? `${out.skipped.length} skipped` : null, out.left.length ? `${out.left.length} not deployed left as they are` : null,
-    out.disagree.length ? `${out.disagree.length} key table${out.disagree.length === 1 ? " differs" : "s differ"} between environments` : null].filter(Boolean);
+  const extra = [out.skipped.length ? `${out.skipped.length} skipped` : null, out.left.length ? `${out.left.length} not deployed left as they are` : null].filter(Boolean);
   toast(out.written.length ? `Exported ${out.written.length} file${out.written.length === 1 ? "" : "s"}. Review them in Changes, then commit.${extra.length ? ` ${extra.join("; ")}.` : ""}`
     : `The files already match the platform.${extra.length ? ` ${extra.join("; ")}.` : ""}`);
   await gitAfterChange(out.status);

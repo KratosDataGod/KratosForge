@@ -184,21 +184,18 @@ class GitMixin:
 
     def _deployed(self, env: str | None = None) -> dict[str, Any]:
         """What the platform has deployed, as platform-file records. Only reads, with the calls the
-        Platform and Policies pages make. ``env`` None: what export writes (the catalog, and key
-        tables from every environment); otherwise what that environment's platform holds."""
+        Platform and Policies pages make. ``env`` None: what export writes (the catalog); otherwise
+        what that environment's platform holds. Key tables come from where that environment's keys
+        are: the shared keys database once keys have moved there."""
         from .central.service import CATALOG_ENV
         from .meta.project import ENVIRONMENTS
 
         if env is not None and env not in ENVIRONMENTS:
             raise GitError(f"{env!r} isn't an environment.", kind="invalid")
         cat = self._catalog()  # type: ignore[attr-defined]
-        if env is None:
-            ordered = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)  # type: ignore[attr-defined]
-            tables = {e: client.call("list_key_tables") for e, client in ordered}
-            admins = cat.call("list_admins")
-        else:
-            here = self._platform(env)  # type: ignore[attr-defined]
-            tables, admins = {env: here.call("list_key_tables")}, here.call("list_admins")
+        here = cat if env is None else self._platform(env)  # type: ignore[attr-defined]
+        tables = self._keys_platform(env or CATALOG_ENV).call("list_key_tables")  # type: ignore[attr-defined]
+        admins = here.call("list_admins")
         # policies_ready only looks; list_policies would create the policy tables on an older platform.
         try:
             ready = cat.call("policies_ready")
@@ -237,11 +234,12 @@ class GitMixin:
             if exc.kind == "confirm":
                 return {"needs_confirm": True, "message": str(exc), "changes": getattr(exc, "changes", [])}
             raise
-        return out | {"disagree": defs["disagree"], "policies_set_up": defs["policies"] is not None,
+        return out | {"policies_set_up": defs["policies"] is not None,
                       "status": r.status()}
 
     def _deployed_envs(self) -> tuple[dict[str, dict[str, Any]], dict[str, Any], str]:
-        """Each distinct platform's deployed records, its client, and which one holds the catalog."""
+        """Each distinct platform's deployed records, its client, and which one holds the catalog;
+        plus "keys", the shared keys database's admins and key tables, once keys have moved there."""
         from .central.service import CATALOG_ENV
 
         def ident(client: Any) -> str:
@@ -253,12 +251,18 @@ class GitMixin:
             envs[env], clients[env] = self._deployed(env), client
             if ident(client) == catalog:
                 cat_env = env
+        if self._keys_config().get("shared"):  # type: ignore[attr-defined]
+            keys = clients["keys"] = self._shared_keys()  # type: ignore[attr-defined]
+            d = platform_files.from_platform({"admins": keys.call("list_admins"),
+                                              "key_tables": keys.call("list_key_tables")})
+            envs["keys"] = {"admins": d["admins"], "key_tables": d["key_tables"]}
         return envs, clients, cat_env
 
     def git_platform_deploy(self, repo: str, remove: list[dict[str, Any]] | None = None,
                             confirm: str = "") -> dict[str, Any]:
-        """Makes the platform match the platform repository's committed files: the catalog, and
-        admins and key tables in every environment. Without ``confirm`` it only returns the plan;
+        """Makes the platform match the platform repository's committed files: the catalog, admins
+        in every environment, and key tables in the shared keys database (in every environment
+        until keys have moved there). Without ``confirm`` it only returns the plan;
         with that plan's id it runs it, step by step, stopping at the first refusal. Objects only
         deployed are removed only when listed in ``remove``. Platform admins only; each step is
         audited by the platform as the person deploying."""

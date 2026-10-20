@@ -195,6 +195,9 @@ class _Cell(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+_SHELL = {"system", "sx", "sh"}
+
+
 def _python(source: str) -> tuple[str | None, list[int]]:
     """The cell's Python (magics blanked, keeping line numbers, ``x = %sql ...`` kept as
     ``x = None``), or None for a cell in another language (SQL, Markdown, Scala...)."""
@@ -204,7 +207,7 @@ def _python(source: str) -> tuple[str | None, list[int]]:
     found = []
     lines = cell.body.split("\n")
     for i, ln in enumerate(lines):
-        if re.match(r"^\s*(!|%%)", ln):
+        if re.match(r"^\s*%%", ln):
             found.append(i + 1)
             lines[i] = ""
     found += [m.line for m in magics.find("\n".join(lines))]
@@ -221,16 +224,24 @@ def analyze(source: str) -> dict[str, Any]:
         _sql(cell.body, out, 1)
         if magics.returns_rows(cell.body):
             out["defines"].append("_sqldf")
+    elif cell.language == "shell":
+        out["effects"].append({"line": 1, "text": "runs shell commands"})
     elif code is not None:
         for line in lines:
             text = source.split("\n")[line - 1].strip()
-            sql = next((m.rest for m in magics.find(text) if m.name == "sql"), None)
-            if sql is not None:
-                _sql(sql, out, line)
-            elif text.startswith("%run"):
+            magic = next(iter(magics.find(text)), None)
+            if magic is None:
+                continue
+            if magic.name == "sql":
+                _sql(magic.rest, out, line)
+            elif magic.name == "run":
                 out["dynamic"].append({"line": line, "text": f"{text} runs another notebook, which can define any name"})
-            elif text.startswith(("%pip", "!pip", "%conda")):
+            elif magic.name in ("pip", "conda") or re.match(r"\s*pip\b", magic.rest) and magic.name in _SHELL:
                 out["effects"].append({"line": line, "text": "installs packages"})
+            elif magic.name in _SHELL:
+                out["effects"].append({"line": line, "text": "runs a shell command"})
+            elif magic.name == "fs" and re.match(r"\s*(cp|mv|rm|mkdirs|put)\b", magic.rest):
+                out["effects"].append({"line": line, "text": "changes files with %fs"})
         try:
             tree = ast.parse(code)
         except SyntaxError as exc:

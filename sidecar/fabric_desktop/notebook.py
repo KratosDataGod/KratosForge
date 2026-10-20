@@ -384,6 +384,8 @@ class Kernel:
         if cell.language == "markdown":
             self._emit(run, {"type": "markdown", "text": cell.body.strip("\n").removeprefix(" ")})
             return "ok"
+        if cell.language == "shell":
+            return self._run_script(cell, run)
         if cell.language == "configure":
             print("Note: %%configure sets Spark session options in Fabric. On this PC it has nothing to set.")
             return "ok"
@@ -472,6 +474,14 @@ class Kernel:
             return self._run_notebook_in(target.strip("\"'"), self.namespace, args)
         if name == "sql":
             return self._sql_value(line)
+        if name in ("system", "sx", "sh"):
+            from . import shell
+            code, lines = shell.system(shell.expand(line, self.namespace),
+                                       echo=None if name != "sx" else (lambda _line: None))
+            self.namespace["_exit_code"] = code
+            return lines if name == "sx" else None
+        if name == "fs":
+            return _fs_magic(self.namespace["notebookutils"].fs, line)
         if name in ("pip", "conda"):
             print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
                   f"are fixed, so this line was skipped.")
@@ -481,7 +491,22 @@ class Kernel:
             value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
             print(f"Wall time: {time.monotonic() - started:.3f} s")
             return value
-        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %pip (skipped), %time.")
+        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %fs, %sh, !command, "
+                         f"%pip (skipped), %time.")
+
+    def _run_script(self, cell: Any, run: _Run | None) -> str:
+        """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
+        A non-zero exit code fails the cell, as a %sh cell does in Databricks."""
+        from . import magics, shell
+        try:
+            code = shell.script(magics.SHELL_HEADERS[cell.header], cell.body.lstrip(" \t"))
+            self.namespace["_exit_code"] = code
+            if code != 0:
+                raise shell.ShellError(f"The script ended with exit code {code}.")
+        except (OSError, shell.ShellError) as exc:
+            self._emit(run, self._error(exc))
+            return "error"
+        return "ok"
 
     @staticmethod
     def _sql_value(query: str) -> Any:
@@ -639,6 +664,40 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+def _fs_magic(fs: Any, line: str) -> Any:
+    """Databricks' ``%fs`` on notebookutils.fs: ``%fs ls Files/raw``, ``head``, ``cp [-r]``,
+    ``mv``, ``rm [-r]``, ``mkdirs``, ``put [-f] path "text"``. Same paths and safety rules as fs."""
+    import shlex
+    words = shlex.split(line, posix=True)
+    if not words:
+        raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
+    command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
+    args = [w for w in words[1:] if w not in ("-r", "-f")]
+    usage = {"ls": 1, "head": 1, "cp": 2, "mv": 2, "rm": 1, "mkdirs": 1, "put": 2}
+    if command not in usage:
+        raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
+    if len(args) < usage[command] - (command == "ls"):
+        raise ValueError(f"%fs {command} needs {usage[command]} path{'s' if usage[command] > 1 else ''}.")
+    if command == "ls":
+        import polars as pl
+        found = fs.ls(args[0] if args else "Files")
+        return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
+                             "size": [f.size for f in found], "isDir": [f.isDir for f in found]},
+                            schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})
+    if command == "head":
+        print(fs.head(args[0], int(args[1]) if len(args) > 1 else 65536))
+        return None
+    if command == "cp":
+        return fs.cp(args[0], args[1], recurse="-r" in flags)
+    if command == "mv":
+        return fs.mv(args[0], args[1])
+    if command == "rm":
+        return fs.rm(args[0], recurse="-r" in flags)
+    if command == "mkdirs":
+        return fs.mkdirs(args[0])
+    return fs.put(args[0], args[1], overwrite="-f" in flags)
 
 
 def _size(value: Any) -> str:

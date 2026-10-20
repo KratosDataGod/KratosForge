@@ -56,7 +56,7 @@ def _cell_python(source: str) -> str | None:
         return None
     head = cell.body
     # Line magics aren't Python; blank them out, keeping line numbers.
-    return magics.blank("\n".join("" if re.match(r"^\s*(!|%%)", ln) else ln for ln in head.split("\n")))
+    return magics.blank("\n".join("" if re.match(r"^\s*%%", ln) else ln for ln in head.split("\n")))
 
 
 def imports(source: str) -> dict[str, Any]:

@@ -186,3 +186,104 @@ def test_python_notebook_publish_turns_databricks_sql_into_lakehouse_sql():
              {"type": "code", "source": "%sql\nSELECT * FROM dbo.sales"}]
     nb = fabric_ipynb(cells, LH)
     assert "".join(nb["cells"][-1]["source"]) == 'lakehouse.sql("SELECT * FROM dbo.sales")'
+
+
+# ---- shell: !command, %sh / %%sh / %%bash cells, and %fs
+
+import os
+import sys
+import threading
+import time
+
+import pytest
+
+from fabric_desktop import shell
+
+PY = f'"{sys.executable}"'
+
+
+def test_bang_line_streams_output_and_assigned_keeps_lines():
+    k = Kernel()
+    out = k.run(f"!{PY} -c \"print('hello')\"")
+    assert out["status"] == "ok" and "hello" in out["outputs"][0]["text"]
+    out = k.run(f"lines = !{PY} -c \"print('a'); print('b')\"\nlines")
+    assert out["outputs"] == [{"type": "text", "text": "['a', 'b']"}]
+    assert k.run("_exit_code")["outputs"] == [{"type": "text", "text": "0"}]
+
+
+def test_bang_line_expands_notebook_values_like_ipython():
+    assert shell.expand("echo {n + 1} $name $$HOME $missing {}", {"n": 1, "name": "x"}) == "echo 2 x $HOME $missing {}"
+    k = Kernel()
+    k.run("word = 'forge'")
+    out = k.run(f"!{PY} -c \"print('$word')\"")
+    assert "forge" in out["outputs"][0]["text"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="sh scripts; Windows CI may not have bash")
+def test_sh_and_bash_cells_run_the_cell_as_a_script_and_fail_on_exit_code():
+    k = Kernel()
+    out = k.run("%sh echo one\necho two")
+    assert out["status"] == "ok" and out["outputs"][0]["text"].split() == ["one", "two"]
+    out = k.run("%%bash\nX=3\necho $((X + 1))")
+    assert "4" in out["outputs"][0]["text"]
+    out = k.run("%%sh\necho before\nexit 3")
+    assert out["status"] == "error" and "exit code 3" in out["outputs"][-1]["evalue"]
+
+
+def test_cmd_cell_explains_off_windows(monkeypatch):
+    if os.name == "nt":
+        pytest.skip("Windows has cmd")
+    out = Kernel().run("%%cmd\ndir")
+    assert out["status"] == "error" and "command prompt" in out["outputs"][-1]["evalue"]
+
+
+def test_missing_shell_says_what_to_install(monkeypatch):
+    monkeypatch.setattr(shell.shutil, "which", lambda _name: None)
+    with pytest.raises(FileNotFoundError, match="Git for Windows"):
+        shell.script("bash", "echo hi")
+
+
+def test_cancel_ends_a_running_command():
+    k = Kernel()
+    k.start(f"!{PY} -c \"import time; print('started', flush=True); time.sleep(30)\"")
+    deadline = time.monotonic() + 10
+    while "started" not in "".join(o.get("text", "") for o in k.poll(-1, wait=0.2)["outputs"]):
+        assert time.monotonic() < deadline
+    started = time.monotonic()
+    k.interrupt()
+    snap = k.poll(-1, wait=5)
+    assert snap["status"] == "cancelled" and time.monotonic() - started < 6
+
+
+def test_fs_magic_maps_onto_notebookutils_fs(tmp_path):
+    k = Kernel()
+    root = tmp_path.as_posix()
+    assert k.run(f"%fs put file:{root}/a.txt \"hi there\"")["status"] == "ok"
+    out = k.run(f"%fs ls file:{root}")
+    assert out["outputs"][0]["columns"] == ["name", "path", "size", "isDir"] and out["outputs"][0]["rows"][0][0] == "a.txt"
+    assert "hi there" in k.run(f"%fs head file:{root}/a.txt")["outputs"][0]["text"]
+    out = k.run(f"%fs put file:{root}/a.txt \"again\"")
+    assert out["status"] == "error" and "overwrite" in out["outputs"][-1]["evalue"]
+    assert k.run(f"%fs put -f file:{root}/a.txt \"again\"")["status"] == "ok"
+    assert k.run(f"%fs cp file:{root}/a.txt file:{root}/b.txt")["status"] == "ok"
+    assert k.run(f"%fs rm file:{root}/a.txt")["status"] == "ok"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["b.txt"]
+    assert "isn't a command" in k.run("%fs chmod x")["outputs"][-1]["evalue"]
+    assert "needs 2 paths" in k.run("%fs cp only-one")["outputs"][-1]["evalue"]
+
+
+def test_reading_tools_see_shell_commands_as_side_effects():
+    assert depgraph.analyze("x = !dir")["defines"] == ["x"]
+    assert depgraph.analyze("x = !dir")["effects"] == [{"line": 1, "text": "runs a shell command"}]
+    assert depgraph.analyze("!pip install rich")["effects"] == [{"line": 1, "text": "installs packages"}]
+    assert depgraph.analyze("%%bash\nrm -rf /tmp/x")["effects"] == [{"line": 1, "text": "runs shell commands"}]
+    assert depgraph.analyze("%fs rm Files/old.csv")["effects"] == [{"line": 1, "text": "changes files with %fs"}]
+    assert envprofile.imports("import polars\nfiles = !ls")["parsed"]
+    checked = proof.check([{"type": "code", "source": "from fabric_desktop import lakehouse\n!echo hi"}], LH)
+    assert any("shell commands" in w["text"] for w in checked["warnings"])
+
+
+def test_windows_shell_cells_are_listed_for_fabric_and_sh_publishes_as_sh():
+    cells = [{"type": "code", "source": "%%cmd\ndir"}, {"type": "code", "source": "%sh ls -la\npwd"}]
+    assert [r["cell"] for r in compute_check(cells, LH)["fabric"]["reasons"]] == [1]
+    assert "".join(fabric_ipynb(cells, None)["cells"][1]["source"]) == "%%sh\nls -la\npwd"

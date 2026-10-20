@@ -39,6 +39,9 @@ function cellLang(cell) {
 // A code cell that shows Markdown when run: Databricks' %md, or %%markdown.
 const mdMagic = (cell) => cell.type === "code" && /^\s*(%md|%%md|%%markdown)(\s|$)/.test(cell.source);
 
+// A code cell that runs as a shell script on this PC (shell.py): %sh, %%sh, %%bash, %%cmd, %%powershell.
+const shellMagic = (cell) => cell.type === "code" && /^\s*(%sh|%%sh|%%bash|%%cmd|%%powershell)(\s|$)/.test(cell.source);
+
 const isParams = (cell) => (cell.meta?.tags || []).includes("parameters");
 
 function disposeEditors() {
@@ -699,6 +702,7 @@ function readOnly(cell) {
 function languageFor(cell) {
   const lang = cellLang(cell);
   if (lang === "markdown" || mdMagic(cell)) return [CM.markdown(), CM.autocompletion()];
+  if (shellMagic(cell)) return [];  // plain text: no Python highlighting or completions in a script
   if (lang === "html") return [CM.html(), CM.autocompletion()];
   if (lang === "sql") {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
@@ -782,9 +786,9 @@ function editorFor(cell) {
           : "Write Python or PySpark. Press Shift+Enter to run, Ctrl+Space for suggestions."),
         CM.EditorView.updateListener.of((u) => {
           if (u.docChanged) {
-            const before = `${cellLang(cell)} ${mdMagic(cell)}`;
+            const before = `${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}`;
             cell.source = u.state.doc.toString();
-            if (`${cellLang(cell)} ${mdMagic(cell)}` !== before && cell.type === "code") {
+            if (`${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}` !== before && cell.type === "code") {
               u.view.dispatch({ effects: langComp.reconfigure(languageFor(cell)) });
               const select = document.querySelector(`[data-cell="${cell.id}"] select.lang`);
               if (select) select.value = cellLang(cell);

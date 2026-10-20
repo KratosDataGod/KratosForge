@@ -243,7 +243,7 @@ class MetaMixin:
         cfg = project.environments.get(env, {})
         if cfg.get("keys") in ("platform", "lakehouse"):
             return cfg["keys"] == "platform"
-        if not self._platform_config().get(env, {}).get("functions_id"):  # type: ignore[attr-defined]
+        if not self._keys_in_fabric(env):  # type: ignore[attr-defined]
             return False
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         has_lh_keys = (project.local_data / f"keys-{env}").exists() if local else bool(cfg.get("keys_workspace_id"))
@@ -726,14 +726,15 @@ class MetaMixin:
         central = None  # the platform's key tables, when this environment's keys are there
         if self._keys_in_platform(project, env):
             try:
-                central = self._platform(env).call("list_key_tables")  # type: ignore[attr-defined]
+                central = self._keys_platform(env).call("list_key_tables")  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
                 "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
-                "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
+                "platform_available": self._keys_in_fabric(env),  # type: ignore[attr-defined]
+                "shared": bool(self._keys_config().get("shared")),  # type: ignore[attr-defined]
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
@@ -800,7 +801,7 @@ class MetaMixin:
             raise ValueError(f"key table {name} already exists")
         if self._keys_in_platform(project, env):
             # One key system: the project uses a key table the platform has, it doesn't make its own.
-            central = {t["name"] for t in self._platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
                                          "Platform > Business keys, or pick one from the list."])

@@ -166,3 +166,93 @@ def test_replace_gives_up_after_bounded_retries(tmp_path, monkeypatch):
         jsonfile.write_json(tmp_path / "s.json", {"a": 1})
     assert waits == [0.05, 0.1, 0.2, 0.4, 0.8]  # about 1.5 s, as retrying.local_retry
     assert list(tmp_path.iterdir()) == []
+
+
+# ---- slice 2: lakehouse favorites, workspace marks and saved side-by-side comparisons
+
+@pytest.fixture
+def svc(tmp_path):
+    from fabric_desktop.service import Service
+    return Service(client_id="x", root=tmp_path / "app")
+
+
+def test_torn_favorites_are_set_aside_not_overwritten(svc):
+    half = torn(svc.favorites_file, ["lh1", "lh2", "lh3"])
+    assert svc.set_favorite("lh9", True) == ["lh9"]
+    aside = set_aside_files(svc.favorites_file)
+    assert len(aside) == 1 and aside[0].read_bytes() == half
+    assert json.loads(svc.favorites_file.read_text(encoding="utf-8")) == ["lh9"]
+
+
+def test_torn_workspace_marks_are_set_aside_not_overwritten(svc):
+    half = torn(svc.workspace_marks_file, {"favorites": ["w1"], "pins": ["w2", "w1"]})
+    assert svc.set_workspace_mark("w3", "pins", True) == {"favorites": [], "pins": ["w3"]}
+    aside = set_aside_files(svc.workspace_marks_file)
+    assert len(aside) == 1 and aside[0].read_bytes() == half
+
+
+def test_a_torn_comparison_line_keeps_the_others_and_the_original(svc):
+    good = [{"id": "a", "local": {}}, {"id": "b", "local": {}}]
+    text = "".join(json.dumps(r) + "\n" for r in good) + '{"id": "c", "loc'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+    svc._sbs_save({"id": "d", "local": {"cells": [1], "rows": 2}})
+    aside = set_aside_files(svc.side_by_side_file)
+    assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == text
+    assert [r["id"] for r in svc._sbs_saved()] == ["a", "b", "d"]
+    assert svc._sbs_saved()[-1]["local"] == {"rows": 2}
+
+
+def test_a_failed_comparison_save_leaves_the_old_file(svc, write_fails_midway):
+    original = json.dumps({"id": "a", "local": {}}) + "\n"
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_bytes(original.encode("utf-8"))
+    with pytest.raises(OSError):
+        svc._sbs_save({"id": "b", "name": "a longer comparison", "local": {}})
+    assert svc.side_by_side_file.read_text(encoding="utf-8") == original
+    assert [p.name for p in svc.side_by_side_file.parent.iterdir()] == [svc.side_by_side_file.name]
+
+
+def test_reading_a_torn_comparison_file_twice_keeps_the_good_rows(svc):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + json.dumps({"id": "b", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+    first, second = svc.side_by_side_list(), svc.side_by_side_list()
+    assert sorted(r["id"] for r in first) == sorted(r["id"] for r in second) == ["a", "b"]
+    aside = set_aside_files(svc.side_by_side_file)
+    assert len(aside) == 1 and aside[0].read_text(encoding="utf-8") == text
+
+
+def test_a_failed_repair_still_shows_the_good_rows_on_every_read(svc, monkeypatch):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + json.dumps({"id": "b", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+
+    calls = []
+
+    def disk_full(path, data):
+        calls.append(path)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(jsonfile, "write_text", disk_full)
+    first, second = svc.side_by_side_list(), svc.side_by_side_list()
+    assert sorted(r["id"] for r in first) == sorted(r["id"] for r in second) == ["a", "b"]
+    assert svc.side_by_side_file.read_text(encoding="utf-8") == text  # the original stays until a repair works
+    assert [p.read_text(encoding="utf-8") for p in set_aside_files(svc.side_by_side_file)] == [text]  # one copy, not one per read
+    assert calls == [svc.side_by_side_file]  # and one failed swap: later reads don't retry an unchanged file
+
+
+def test_after_a_failed_repair_the_next_save_still_rewrites_the_file(svc, monkeypatch):
+    text = json.dumps({"id": "a", "local": {}}) + "\n" + '{"id": "c'
+    svc.side_by_side_file.parent.mkdir(parents=True, exist_ok=True)
+    svc.side_by_side_file.write_text(text, encoding="utf-8")
+    real = jsonfile.write_text
+
+    def fail_once(path, data):
+        monkeypatch.setattr(jsonfile, "write_text", real)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(jsonfile, "write_text", fail_once)
+    assert [r["id"] for r in svc.side_by_side_list()] == ["a"]
+    svc._sbs_save({"id": "d", "local": {}})
+    assert [json.loads(line)["id"] for line in svc.side_by_side_file.read_text(encoding="utf-8").splitlines()] == ["a", "d"]

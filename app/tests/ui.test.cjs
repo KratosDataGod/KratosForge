@@ -1932,3 +1932,11 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
+
+// Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
+test("notebookutils.lakehouse and isValidToken are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `lakehouse` \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
+  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
+});

@@ -92,8 +92,9 @@ from pyspark.sql import functions as F
 | --- | --- |
 | `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths |
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
-| `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
-| `runtime.context` | Works; `isLocal` is true here |
+| `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission). `isValidToken` says whether a token hasn't expired yet (it reads only the expiry) |
+| `runtime.context` | Works; `isLocal` and `isForInteractive` are true here, and `currentNotebookId` is empty because a notebook on this PC isn't a Fabric item |
+| `lakehouse` | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.

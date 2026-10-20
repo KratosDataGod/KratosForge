@@ -194,7 +194,7 @@ _FABRIC_ONLY = [
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse|warehouse|"
+    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse\.(create|update|delete|loadTable)|warehouse|"
                 r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
 _SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)

@@ -7,6 +7,8 @@ The calls Fabric notebooks use most work the same here:
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``credentials``: getToken for storage and Fabric, getSecret from Azure Key Vault as you.
 - ``runtime.context``: the notebook, lakehouse and workspace, with ``isLocal`` set.
+- ``lakehouse``: get, getWithProperties, list and listTables, read as you. Creating, changing or
+  deleting a lakehouse is done in Fabric or the app, where it is confirmed first.
 - ``variableLibrary``: VL_Sources from the metadata project, with the values of the environment
   whose workspace the attached lakehouse is in (Dev's when it is in none).
 
@@ -15,6 +17,8 @@ What only Fabric has (mounting other storage, session settings) raises an error 
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import shutil
@@ -310,8 +314,19 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         resp.raise_for_status()
         return resp.json()["value"]
 
-    return types.SimpleNamespace(getToken=getToken, getSecret=getSecret,
-                                 help=lambda *_a: print("notebookutils.credentials on this PC: getToken, getSecret"))
+    def isValidToken(token: str) -> bool:  # noqa: N802
+        """Whether ``token`` is a token that hasn't expired. Only its expiry is read; the signature
+        is checked by the service it is sent to."""
+        try:
+            payload = str(token).split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            return float(claims["exp"]) > time.time()
+        except (IndexError, KeyError, TypeError, ValueError):
+            return False
+
+    return types.SimpleNamespace(getToken=getToken, getSecret=getSecret, isValidToken=isValidToken,
+                                 help=lambda *_a: print("notebookutils.credentials on this PC: getToken, getSecret, "
+                                                        "isValidToken"))
 
 
 _ACTIVITY_KEYS = {"name", "path", "args", "dependencies", "retry", "retryIntervalInSeconds", "timeoutPerCellInSeconds"}
@@ -423,14 +438,87 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
                 "defaultLakehouseWorkspaceId": lh.workspace_id if lh else None,
                 "currentWorkspaceId": lh.workspace_id if lh else None,
                 "currentWorkspaceName": lh.workspace_name if lh else None,
+                "currentNotebookId": None,  # a notebook on this PC isn't a Fabric item
+                "currentRunId": None,
                 "isForPipeline": False,
+                "isForInteractive": True,
                 "isReferenceRun": False,
+                "productType": "KratosForge",
                 "isLocal": True,
                 "runtimeVersion": "Fabric Desktop (this PC)",
                 "userName": os.environ.get("USERNAME") or os.environ.get("USER") or "",
             })
 
     return types.SimpleNamespace(context=_Context())
+
+
+class Item(dict):
+    """A Fabric item as notebookutils returns it: ``item.displayName`` or ``item["displayName"]``."""
+
+    def __getattr__(self, key: str) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+
+_ITEM_CHANGES = ("Creating, changing or deleting a lakehouse from a notebook runs in Fabric. On this PC, "
+                 "do it in Workspaces or Platform setup, where the change is confirmed first.")
+
+
+def _make_lakehouse(host: Host) -> types.SimpleNamespace:
+    def client() -> Any:
+        if host.token is None:
+            raise RuntimeError("Sign in first: lakehouse details come from Fabric as you.")
+        from .fabric_api import FabricClient
+        return FabricClient(lambda: host.token("pbi"))  # type: ignore[misc]
+
+    def workspace(workspaceId: str) -> str:  # noqa: N803
+        if workspaceId:
+            return workspaceId
+        lh = lakehouse._attached
+        if lh is None:
+            raise ValueError("Pass workspaceId, or attach a lakehouse: its workspace is the default, as in Fabric.")
+        return lh.workspace_id
+
+    def find(name: str, workspaceId: str) -> dict[str, Any]:  # noqa: N803
+        ws = workspace(workspaceId)
+        found = client().find_lakehouse(ws, name)
+        if found is None:
+            raise LookupError(f"No lakehouse named {name} in workspace {ws}.")
+        return found
+
+    def get(name: str = "", workspaceId: str = "") -> Item:  # noqa: N803
+        if not name:
+            lh = lakehouse._attached
+            if lh is None:
+                raise ValueError("Pass a lakehouse name, or attach one: the attached lakehouse is the default.")
+            name, workspaceId = lh.name, workspaceId or lh.workspace_id
+        found = find(name, workspaceId)
+        return Item({k: v for k, v in found.items() if k != "properties"})
+
+    def getWithProperties(name: str = "", workspaceId: str = "") -> Item:  # noqa: N802, N803
+        item = get(name, workspaceId)
+        return Item(client().get_lakehouse(item["workspaceId"], item["id"]))
+
+    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+        return [Item(x) for x in client().list_lakehouses(workspace(workspaceId))[:maxResults]]
+
+    def listTables(lakehouse: str = "", workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: N802, N803
+        item = get(lakehouse, workspaceId)
+        return [Item(t) for t in client().list_tables(item["workspaceId"], item["id"])[:maxResults]]
+
+    def refuse(*_a: Any, **_kw: Any) -> None:
+        raise NotImplementedError(_ITEM_CHANGES)
+
+    def loadTable(*_a: Any, **_kw: Any) -> None:  # noqa: N802
+        raise NotImplementedError("Loading files into a table runs in Fabric. On this PC, read the file and "
+                                  "write it with saveAsTable or lakehouse.write_table.")
+
+    return types.SimpleNamespace(get=get, getWithProperties=getWithProperties, list=list, listTables=listTables,
+                                 create=refuse, update=refuse, delete=refuse, loadTable=loadTable,
+                                 help=lambda *_a: print("notebookutils.lakehouse on this PC: get, getWithProperties, "
+                                                        "list, listTables (create, update, delete run in Fabric)"))
 
 
 class VariableLibrary:
@@ -479,7 +567,9 @@ def build(host: Host) -> types.ModuleType:
     mod.credentials = _make_credentials(host)
     mod.notebook = _make_notebook(host)
     mod.runtime = _make_runtime(host)
+    mod.lakehouse = _make_lakehouse(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary")
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, "
+                                 "variableLibrary")
     return mod

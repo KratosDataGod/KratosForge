@@ -80,9 +80,9 @@ For platform definitions, Git is the source of truth and each environment's plat
 | `admins.toml` | the platform admins |
 | `shortcut_rules.toml` | the shortcut request rules |
 
-Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, readers, shortcut health, source connections, webhook URLs, passwords or connection strings. A policy that was never published isn't exported. On a platform without policies yet, no policy files are written. When environments disagree about a key table, export keeps Prod's fields and lists the difference.
+Never in a file: times, who changed what, key values, requests, decisions, grants, audit rows, readers, shortcut health, source connections, webhook URLs, passwords or connection strings. A policy that was never published isn't exported. On a platform without policies yet, no policy files are written. Key tables come from the shared keys database that Dev, Test and Prod use. Until keys have moved there, export takes them from every environment, keeps Prod's fields when environments disagree and lists the difference.
 
-**Deploy** makes the platform match the committed files: the catalog (in Prod), and admins and key tables in every environment. It shows its plan first and runs only that plan, after one confirm.
+**Deploy** makes the platform match the committed files: the catalog (in Prod), admins in every environment, and key tables in the shared keys database (in every environment until keys have moved there). It shows its plan first and runs only that plan, after one confirm.
 
 - Only platform admins can deploy, and only committed files: commit first, so what is deployed is in Git's history. Each step is recorded in the platform's audit as you, with the commit in policy notes.
 - A changed policy is published as a new version; a published version never changes. A policy with a draft in progress in the platform is skipped, so a deploy never overwrites someone's draft.

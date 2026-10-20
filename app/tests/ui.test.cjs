@@ -1973,7 +1973,7 @@ this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64
   const bytes = new Uint8Array(70000).map((_, i) => i % 251);
   assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
   assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save", "save", saveNotebook\), nbfExportButton\(\),/);
-  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import notebook", "arrowUpload", nbfImportDialog, "tool outline"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
   assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
 });

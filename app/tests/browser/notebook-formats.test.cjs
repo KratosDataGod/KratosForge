@@ -50,7 +50,7 @@ const page = () => app.page;
 before(async () => {
   if (skip) return;
   app = await openApp({
-    engine: ["notebook_import_check", "notebook_import", "notebook_export", "open_notebook"],
+    engine: ["notebook_formats_import_check", "notebook_formats_import", "notebook_export", "open_notebook"],
     mocks: { save_notebook: () => ({ saved: true }), list_notebooks: () => [] },
   });
 });

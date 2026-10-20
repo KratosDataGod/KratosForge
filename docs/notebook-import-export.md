@@ -1,4 +1,4 @@
-# Import and export notebooks (Preview)
+# Fabric and Databricks notebook formats (Preview)
 
 KratosForge reads and writes notebooks in the formats Fabric, Databricks and Jupyter tools use, so you can bring work in from another tool and hand a notebook to someone who doesn't use KratosForge. This is in Preview: the Fabric and Databricks formats follow what those products write, but haven't yet been checked against every version of a live workspace.
 
@@ -20,9 +20,9 @@ Outputs are only what you see on screen: run the notebook first if you want them
 
 The file is saved in your **Downloads** folder, named after the notebook (for example `Daily sales.py`). A file that is already there is never replaced: the new one gets a number, such as `Daily sales (2).py`. The message after an export gives the full path. KratosForge doesn't ask where to save yet; move the file from Downloads to wherever you need it.
 
-## Import
+## Import Fabric and Databricks notebooks
 
-Select **Import notebook** under **Start something** on **Home**, or search for "Import a notebook file" in the command bar, and pick a file.
+Select **Import from Fabric or Databricks** under **Start something** on **Home**, or search for "Import Fabric or Databricks" in the command bar, and pick a file.
 
 | File | How it's read |
 | --- | --- |

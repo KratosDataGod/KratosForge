@@ -1,9 +1,9 @@
 """Notebook export and import (notebook_formats.py has the formats).
 
 ``notebook_export`` writes one new file in the Downloads folder and never replaces one: a name that
-is taken gets a number. ``notebook_import_check`` reads a file the person picked (its content is
+is taken gets a number. ``notebook_formats_import_check`` reads a file the person picked (its content is
 sent by the app; the file itself is never opened or changed here) and says what importing would
-create. ``notebook_import`` then writes one new notebook per notebook found, into the app's own
+create. ``notebook_formats_import`` then writes one new notebook per notebook found, into the app's own
 notebooks folder, each under a name no notebook has yet: the name is reserved by creating the
 file (open "xb"), so an existing notebook is never replaced.
 """
@@ -21,7 +21,7 @@ from . import notebook_formats as nbf
 from .filenames import file_stem
 from .notebook import to_ipynb
 
-METHODS = {"notebook_export", "notebook_import_check", "notebook_import"}
+METHODS = {"notebook_export", "notebook_formats_import_check", "notebook_formats_import"}
 
 
 def _read(file_name: str, content: str, encoding: str) -> dict[str, Any]:
@@ -66,7 +66,7 @@ class NotebookFormatsMixin:
                 raise ValueError(f"Couldn't find a free notebook name for {base}.")
         return out
 
-    def notebook_import_check(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
+    def notebook_formats_import_check(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
         """What importing the file would create; nothing is written."""
         read = _read(file_name, content, encoding)
         names = self._free_notebook_names([nb["name"] for nb in read["notebooks"]])
@@ -77,7 +77,7 @@ class NotebookFormatsMixin:
                                   for c in nb["cells"] if c["type"] == "code"})}
             for name, nb in zip(names, read["notebooks"])]}
 
-    def notebook_import(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
+    def notebook_formats_import(self, file_name: str, content: str, encoding: str = "text") -> dict[str, Any]:
         """Creates a new notebook for each one in the file, in the app's own notebooks folder.
         Returns {"format", "created": [names]}. A name taken between the check and now gets the
         next number; a notebook that is already there is never touched."""

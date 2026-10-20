@@ -179,38 +179,38 @@ def svc(tmp_path, monkeypatch):
 def test_import_never_replaces_a_notebook_and_reports_free_names(svc):
     svc.notebooks.save("Sales", [{"type": "code", "source": "keep me"}])
     text = nbf.to_fabric_py(CELLS)
-    check = svc.notebook_import_check("Sales.py", text)
+    check = svc.notebook_formats_import_check("Sales.py", text)
     assert check["format"] == "Fabric notebook source"
     assert check["notebooks"] == [{"name": "Sales (2)", "source_name": "Sales", "folder": "", "cells": 4, "markdown": 1,
                                    "languages": ["%%sql", "python"]}]
     assert not (svc.notebooks.folder / "Sales (2).ipynb").exists()  # the check writes nothing
-    out = svc.notebook_import("Sales.py", text)
+    out = svc.notebook_formats_import("Sales.py", text)
     assert out["created"] == ["Sales (2)"]
     assert svc.notebooks.load("Sales")["cells"][0]["source"] == "keep me"
     assert [c["source"] for c in svc.notebooks.load("Sales (2)")["cells"]] == [c["source"] for c in CELLS]
-    assert svc.notebook_import("Sales.py", text)["created"] == ["Sales (3)"]
+    assert svc.notebook_formats_import("Sales.py", text)["created"] == ["Sales (3)"]
 
 
 def test_import_dbc_creates_one_notebook_each(svc):
     data = _dbc([("a/Load.python", _dbc_doc("Load", "python", ["x = 1"])), ("b/Load.python", _dbc_doc("Load", "python", ["y = 2"]))])
     content = base64.b64encode(data).decode()
-    assert [n["name"] for n in svc.notebook_import_check("w.dbc", content, "base64")["notebooks"]] == ["Load", "Load (2)"]
-    assert svc.notebook_import("w.dbc", content, "base64")["created"] == ["Load", "Load (2)"]
+    assert [n["name"] for n in svc.notebook_formats_import_check("w.dbc", content, "base64")["notebooks"]] == ["Load", "Load (2)"]
+    assert svc.notebook_formats_import("w.dbc", content, "base64")["created"] == ["Load", "Load (2)"]
     assert svc.notebooks.load("Load (2)")["cells"][0]["source"] == "y = 2"
     with pytest.raises(ValueError, match="base64"):
-        svc.notebook_import("w.dbc", content, "text")
+        svc.notebook_formats_import("w.dbc", content, "text")
     with pytest.raises(ValueError, match="didn't arrive whole"):
-        svc.notebook_import("w.dbc", "@@@", "base64")
+        svc.notebook_formats_import("w.dbc", "@@@", "base64")
 
 
 def test_import_ipynb_and_unknown_types(svc):
     nb = {"cells": [{"cell_type": "markdown", "source": ["# T"]}, {"cell_type": "code", "source": "1", "outputs": []}]}
-    assert svc.notebook_import("Jup.ipynb", json.dumps(nb))["created"] == ["Jup"]
+    assert svc.notebook_formats_import("Jup.ipynb", json.dumps(nb))["created"] == ["Jup"]
     assert [c["type"] for c in svc.notebooks.load("Jup")["cells"]] == ["markdown", "code"]
     with pytest.raises(ValueError, match="isn't valid JSON"):
-        svc.notebook_import_check("x.ipynb", "{")
+        svc.notebook_formats_import_check("x.ipynb", "{")
     with pytest.raises(ValueError, match="imports .ipynb"):
-        svc.notebook_import_check("x.docx", "hi")
+        svc.notebook_formats_import_check("x.docx", "hi")
 
 
 def test_export_writes_a_new_file_in_downloads_each_time(svc, tmp_path):

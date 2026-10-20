@@ -69,7 +69,7 @@ function nbfImportDialog() {
   const input = h("input", { type: "file", accept: NBF_ACCEPT, "aria-label": "Notebook file" });
   const go = btn("Import", "arrowUpload", async () => {
     go.disabled = true;
-    const res = await attempt(() => rpc("notebook_import", { file_name: picked.name, content: picked.content, encoding: picked.encoding }), "Not imported");
+    const res = await attempt(() => rpc("notebook_formats_import", { file_name: picked.name, content: picked.content, encoding: picked.encoding }), "Not imported");
     if (!res) { go.disabled = false; return; }
     closeDialog();
     toast(res.created.length === 1 ? `Imported ${res.created[0]}` : `Imported ${res.created.length} notebooks: ${res.created.join(", ")}`);
@@ -84,22 +84,22 @@ function nbfImportDialog() {
     const dbc = /\.dbc$/i.test(f.name);
     Object.assign(picked, { name: f.name, encoding: dbc ? "base64" : "text", content: dbc ? nbfBase64(await f.arrayBuffer()) : await f.text() });
     fill(out, h("p", { class: "muted-text" }, "Reading the file..."));
-    const check = await attempt(() => rpc("notebook_import_check", { file_name: picked.name, content: picked.content, encoding: picked.encoding }), "Not read");
+    const check = await attempt(() => rpc("notebook_formats_import_check", { file_name: picked.name, content: picked.content, encoding: picked.encoding }), "Not read");
     if (!check) { fill(out); return; }
     fill(out, h("p", { class: "text" }, `${check.format}: ${nbfPlural(check.notebooks.length, "new notebook")} will be created.`),
       h("table", { class: "list" }, h("thead", {}, h("tr", {}, h("th", {}, "New notebook"), h("th", {}, "Folder in the file"),
         h("th", {}, "Cells"), h("th", {}, "Languages"))), h("tbody", {}, nbfCheckRows(check))));
     go.disabled = !check.notebooks.length;
   };
-  const overlay = showDialog("Import a notebook", h("div", { class: "scroll" },
-    h("p", { class: "text" }, "A Jupyter notebook (.ipynb), Fabric or Databricks notebook source (.py, .sql, .scala), a percent-format script (# %%), or a Databricks archive (.dbc) with any number of notebooks."),
+  const overlay = showDialog("Import Fabric or Databricks notebooks", h("div", { class: "scroll" },
+    h("p", { class: "text" }, "Fabric or Databricks notebook source (.py, .sql, .scala), a Databricks archive (.dbc) with any number of notebooks, a percent-format script (# %%), or a Jupyter notebook (.ipynb)."),
     h("label", { class: "field" }, "File", input),
     out,
     howItWorks("nbFormatsImport", {
       reads: "The file you pick, on this PC. It is only read, never changed.",
       changes: "Writes one new notebook file (.ipynb) for each notebook in the file, in the app's notebooks folder. A notebook that already has the name keeps it; the new one gets the next free name, such as Sales (2). Nothing is sent to Fabric.",
       results: "The first new notebook opens. All of them are listed under Recent notebooks.",
-      anchor: "import-and-export-notebooks-preview" })),
+      anchor: "fabric-and-databricks-notebook-formats-preview" })),
   [btn("Cancel", null, closeDialog, "tool outline"), go]);
   const head = overlay.querySelector(".dialog-head");
   head.insertBefore(previewTag(), head.lastChild);
@@ -109,7 +109,7 @@ function nbfImportDialog() {
 registerFeature({
   id: "nbFormats",
   commands: [
-    { label: "Import a notebook file", icon: "arrowUpload", keywords: "import ipynb jupyter fabric databricks dbc py source percent open file", run: nbfImportDialog },
+    { label: "Import Fabric or Databricks source, or a .dbc archive", icon: "arrowUpload", keywords: "import ipynb jupyter fabric databricks dbc py source percent open file", run: nbfImportDialog },
     ...NBF_EXPORTS.map((x) => ({ label: `Export notebook as ${x.label}`, icon: "arrowDownload", keywords: "export save download ipynb fabric databricks html",
       when: () => !!state.notebook && state.view === "notebook", run: () => nbfExport(x.format) })),
   ],

@@ -32,6 +32,8 @@ class FakeDist:
 
 @pytest.mark.parametrize("direct, commit, editable", [
     ({"url": f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip", "archive_info": {}}, SHA, False),
+    # Copies installed before the repository was renamed recorded the old address.
+    ({"url": f"https://github.com/KratosDataGod/fabric-desktop/archive/{SHA}.zip", "archive_info": {}}, SHA, False),
     ({"url": "https://github.com/KratosDataGod/KratosForge/archive/refs/heads/main.zip", "archive_info": {}}, None, False),
     ({"url": "https://github.com/KratosDataGod/KratosForge.git", "vcs_info": {"vcs": "git", "commit_id": SHA}}, SHA, False),
     ({"url": "file:///C:/src/fabric-desktop/sidecar", "dir_info": {"editable": True}}, None, True),

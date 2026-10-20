@@ -42,6 +42,7 @@ const PREVIEW_FEATURES = {
   prove: "Prove this notebook",
   validate: "Validate notebook",
   notebookRuns: "Notebook runs",
+  fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
   debug: "Variable history and watches",

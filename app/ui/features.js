@@ -75,6 +75,7 @@ const PREVIEW_FEATURES = {
   replay: "Quarantine replay",
   risk: "Risk check before a run",
   sessions: "Notebook sessions",
+  environments: "Notebook environments",
 };
 
 function previewShown() {

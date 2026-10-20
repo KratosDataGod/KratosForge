@@ -48,11 +48,13 @@ class KernelSessions:
 
     def __init__(self, make: Callable[[bool], Any], process: Callable[[], bool],
                  max_sessions: Callable[[], int] = lambda: DEFAULT_MAX_SESSIONS,
-                 idle_minutes: Callable[[], float] = lambda: 0):
+                 idle_minutes: Callable[[], float] = lambda: 0,
+                 prepare: Callable[[str, Any], None] = lambda _notebook, _kernel: None):
         self._make = make
         self._process = process
         self._max = max_sessions
         self._idle = idle_minutes
+        self._prepare = prepare  # a new notebook kernel gets its environment (environment_service)
         self._lock = threading.RLock()
         self._sessions: dict[str, Session] = {}
         self.active = SHARED  # the notebook the app has open; callers that name none get its kernel
@@ -73,6 +75,7 @@ class KernelSessions:
                 if self.in_process:
                     self._make_room()
                 found = self._sessions[key] = Session(key, self._make(self.in_process))
+                self._prepare(key, found.kernel)
             return found
 
     def kernel(self, notebook: str | None = None) -> Any:

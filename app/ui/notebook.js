@@ -128,7 +128,7 @@ function renderNotebook() {
       state.showVariables ? renderVariables() : null, provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
-      sessionsButton(),
+      sessionsButton(), environmentButton(nb),
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`

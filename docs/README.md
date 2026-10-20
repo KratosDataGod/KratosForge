@@ -124,6 +124,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Failure replay bundles (save, open and replay) | Under a cell that failed on this PC; Create > Open replay bundle |
 | Notebook cell time and memory limits | Settings > Preview features (with Run notebooks in their own process on) |
 | Notebook sessions (a session per notebook, several running at once) | Notebook status bar > Sessions; limits in Settings > Preview features |
+| Notebook environments (extra Python packages per notebook) | Notebook status bar > Environment |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |

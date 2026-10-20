@@ -38,6 +38,8 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_notebook_packages  IT only: false stops people installing packages into notebook
+                     environments (environments.py); the engine's own packages still work
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -95,7 +97,7 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
                             "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
-                            "allow_optimize_lakehouse": True}
+                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -104,7 +106,7 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
                                             "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
-                                            "allow_optimize_lakehouse": bool}
+                                            "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,

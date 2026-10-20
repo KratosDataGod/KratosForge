@@ -3,7 +3,7 @@
 Every finding from the [engineering quality baseline](README.md), reviewed at `main` **3bee0db** (2026-10-18). Line numbers refer to that commit.
 
 - **Evidence** is **Reproduced** (a script ran the real engine code and showed it), **Code** (read and traced, not run) or **Count** (from `git grep`, the syntax tree or coverage data).
-- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/fabric-desktop/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/fabric-desktop/pull/166) (UX-) and says what this one adds.
+- **Overlaps** names a finding from the [hardening audit](https://github.com/KratosDataGod/KratosForge/pull/137) (DI-, EP-, EN-, SH-, AR-, TS-, UI- ids; backlog HD-) or the [UX audit](https://github.com/KratosDataGod/KratosForge/pull/166) (UX-) and says what this one adds.
 - **Open PR** names a pull request open at review time that already fixes part of it.
 - **Fix** points at a [remediation spec](remediation.md).
 - Nothing here was run against a Fabric tenant.
@@ -168,7 +168,7 @@ The agent's requeue (`agent.py:212-215`) and the metadata engine (`meta/engine.p
 
 **Fix.** PR-QA-06. **Verify:** a test that a corrupt file is moved aside (not overwritten) and every listed site uses the helper.
 
-**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); `meta_service.py` waits for #293, and `app_settings.py`, favorites/pins and `_sbs_save` remain.
+**Status.** Partly fixed: the agent's `settings.json` (`runtime.py` `_save_settings`) and `schedules.json` (`local_schedules.py`) now go through `jsonfile.write_json` (same-folder temp file, fsync, `os.replace` with a bounded Windows retry) and `jsonfile.read_json`, which moves a torn file to `<name>.corrupt-<timestamp>` with a warning instead of letting the next save overwrite it (`tests/test_json_files.py`); lakehouse favorites, workspace favorites and pins (`service.py`) do the same, and the saved side-by-side comparisons (`side_by_side_service._sbs_save`, JSON lines) are swapped in with `jsonfile.write_text`; a torn line there copies the original aside and then swaps in the lines that still read, so later reads and saves keep them; if that swap fails, the original stays in place and the next read tries again. `meta_service.py` waits for #293, and `app_settings.py` remains.
 
 ### QA-012 Two audit-chain writers (Medium)
 

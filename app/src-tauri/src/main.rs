@@ -94,7 +94,7 @@ fn missing_release_file(err: &str) -> bool {
 }
 
 fn release_file(tag: &str, file: &str) -> String {
-    format!("https://github.com/KratosDataGod/fabric-desktop/releases/download/{tag}/{file}")
+    format!("https://github.com/KratosDataGod/KratosForge/releases/download/{tag}/{file}")
 }
 
 /// One of Windows' own tools (curl.exe, tar.exe, rundll32.exe) by its full path. By bare name,
@@ -973,7 +973,7 @@ fn open_doc(page: String) -> Result<(), String> {
     if !ok {
         return Err(format!("Not a docs page: {page}"));
     }
-    let url = Url::parse(&format!("https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/{page}")).map_err(|e| e.to_string())?;
+    let url = Url::parse(&format!("https://github.com/KratosDataGod/KratosForge/blob/main/docs/{page}")).map_err(|e| e.to_string())?;
     open_in_browser(&url)
 }
 

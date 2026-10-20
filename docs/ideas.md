@@ -1,19 +1,19 @@
 # Submitting ideas
 
-KratosForge is shaped by the people who use it. Ideas are collected in one public place, the **[Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas)** in this repository's GitHub Discussions. Everyone can see every idea, vote for the ones they want, and follow what happens to them.
+KratosForge is shaped by the people who use it. Ideas are collected in one public place, the **[Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas)** in this repository's GitHub Discussions. Everyone can see every idea, vote for the ones they want, and follow what happens to them.
 
 This page explains how to submit a good idea, how voting works, and how ideas are prioritized and turned into features.
 
 | You want to | Go to |
 | --- | --- |
-| Suggest a feature or a change | [Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas) (this page) |
-| Report something that's broken | **Report a problem** in the app (account menu), or a [bug report](https://github.com/KratosDataGod/fabric-desktop/issues/new/choose) |
-| Ask how to do something | [Q&A](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/q-a) |
-| Contribute code or docs | [CONTRIBUTING.md](https://github.com/KratosDataGod/fabric-desktop/blob/main/CONTRIBUTING.md) |
+| Suggest a feature or a change | [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas) (this page) |
+| Report something that's broken | **Report a problem** in the app (account menu), or a [bug report](https://github.com/KratosDataGod/KratosForge/issues/new/choose) |
+| Ask how to do something | [Q&A](https://github.com/KratosDataGod/KratosForge/discussions/categories/q-a) |
+| Contribute code or docs | [CONTRIBUTING.md](https://github.com/KratosDataGod/KratosForge/blob/main/CONTRIBUTING.md) |
 
 ## Before you post
 
-1. **Search first.** Use the search box on the [Ideas](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas) page with a few words about the problem. With thousands of users, your idea may already be there.
+1. **Search first.** Use the search box on the [Ideas](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas) page with a few words about the problem. With thousands of users, your idea may already be there.
 2. **If it's there, vote and add your case.** Click the **upvote arrow** on the idea, and comment only if you have something new: a different situation, a number ("we'd save 3 hours a week"), or a constraint nobody mentioned. A comment that just says "+1" doesn't count for more than the vote.
 3. **Keep it public-safe.** The forum is public. Don't post tenant names, workspace or item IDs, data, connection strings, or screenshots with data in them. Describe the shape of the problem instead.
 

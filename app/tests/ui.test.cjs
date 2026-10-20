@@ -330,7 +330,8 @@ function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
+    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
   return ctx;
 }
 
@@ -720,7 +721,7 @@ test("What's new lists the month's history and drops notes that only repeat its 
   assert.deepStrictEqual(plain(ctx.items("Old build", undefined)), { lines: ["Old build"], items: [] });
   const dialog = src.slice(src.indexOf("function showWhatsNew"), src.indexOf("function whatsNewItems"));
   assert.match(dialog, /items\.slice\(0, 10\)/);
-  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/fabric-desktop/);
+  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/KratosForge/);
 });
 
 // The pure helpers at the top of debugging.js.
@@ -1500,6 +1501,82 @@ test("the app is called KratosForge everywhere people read it, and identifiers s
   assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
 });
 
+test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
+  const { platformChangeLines, platformStepText, PLATFORM_STATES } = gitHelpers();
+  assert.strictEqual(PLATFORM_STATES.only_deployed, "removed in Git");
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "domains", changes: [
+    { field: "description", git: "Selling things", deployed: "Selling" }, { field: "owners", git: ["a", "b"], deployed: [] }] })),
+  JSON.stringify(['description: Git "Selling things", deployed "Selling"', "owners: Git a, b, deployed none"]));
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "admins", changes: [{ field: "admins", git: ["ana"], deployed: [] }] })),
+    JSON.stringify(["Git adds ana"]));
+  const labels = { domains: "Domain", policies: "Policy" };
+  assert.strictEqual(platformStepText({ kind: "domains", id: "sales", action: "create" }, labels), "Domain sales: create");
+  assert.strictEqual(platformStepText({ kind: "policies", id: "names", action: "update", what: "publish it as a new version" }, labels),
+    "Policy names: publish it as a new version");
+});
+
+// FINOPS-004 follow-up: Data mesh Run all reads the risk in one batch and starts only what can.
+test("Run all checks the risk once and starts only entities that aren't blocked or waiting on one", async () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const calls = [];
+  let dialog = null;
+  const ctx = { ENV_LABEL: { dev: "Dev" }, h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, icon, onclick) => ({ label, onclick }), riskAckBox: () => null, riskPanel: (r) => r.entity,
+    riskProceed: async () => true, closeDialog: () => {}, showDialog: (title, body, buttons) => { dialog = { title, body, buttons }; } };
+  vm.runInNewContext(`${src.match(/async function metaRiskGate\([\s\S]*?\n}\n/)[0]}; this.gate = metaRiskGate;`, ctx);
+  const p = { project: { name: "proj" } };
+  const check = (entity, result) => ({ entity, result, note: "Reports only" });
+  ctx.rpc = async (method, args) => { calls.push([method, args]); return ctx.answer; };
+  ctx.answer = { checks: [check("a", "pass"), check("b", "pass")], blocked: [], held: {}, run: ["a", "b"] };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all 2 entities"), true);
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([["meta_risk_gate", { names: null, env: "dev" }]]));
+  assert.strictEqual(dialog, null);
+  ctx.answer = { checks: [check("a", "blocked"), check("b", "pass"), check("c", "warning")], blocked: ["a"],
+    held: { b: ["a"] }, run: ["c"] };
+  const asked = ctx.gate(p, null, "dev", "all 3 entities");
+  await new Promise((r) => setImmediate(r));
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = JSON.stringify(flat(dialog.body.kids));
+  assert.match(text, /b \(reads a\)/);
+  assert.match(text, /2 of 3 won't start; the other 1 run/);
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Cancel|Run the other 1");
+  await dialog.buttons[1].onclick();
+  assert.strictEqual(JSON.stringify(await asked), '["c"]');
+  ctx.answer = { checks: [check("a", "blocked")], blocked: ["a"], held: {}, run: [] };
+  const none = ctx.gate(p, ["a"], "dev", "a");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Close");
+  dialog.buttons[0].onclick();
+  assert.strictEqual(await none, false);
+  ctx.rpc = async () => { throw new Error("engine busy"); };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all"), true);  // the check is advice
+  assert.match(src, /meta_run", \{ names: only, env/);
+  assert.match(src, /if \(only !== names\) label = only\.join\(", "\);/);  // the toast and tray name only those
+});
+
+// Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
+// first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
+test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const move = mesh.match(/async function moveKeysIn\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(move, /^async function moveKeysIn\(\) \{\n  const plan = await attempt\(\(\) => rpc\("platform_share_keys", \{\}\)/);
+  assert.strictEqual((move.match(/approve: true/g) || []).length, 1);
+  assert.ok(move.indexOf('btn("Move keys in"') < move.indexOf("approve: true"), "the write happens only from the dialog's button");
+  assert.match(move, /Re-run Dev and Test/);
+  const cancel = mesh.match(/async function cancelKeysMove\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(cancel, /confirmDialog\("Cancel the move\?", [^)]*\), "Cancel the move", \{ danger: true \}\)/);
+  assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
+  assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
+});
+
 // Validate notebook (validate.js): the headline, the count chips, what changed since a result,
 // and which tidy-ups Apply makes.
 function validateHelpers() {
@@ -1553,6 +1630,12 @@ test("Clean up's Undo is offered only while the cells are exactly what Apply mad
   assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
   assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
   assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  assert.match(s, /look in Task Scheduler under /);
 });
 
 test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
@@ -1828,4 +1911,24 @@ test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedu
   assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
   const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
   assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});
+
+// UX-018: every schedule Remove asks first, names what stops, and points at Off.
+test("removing a schedule asks first, in red, and says what stops", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
+  assert.strictEqual(removes.length, 3);
+  for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = (...args) => args;
+  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  assert.strictEqual(title, "Remove the schedule for nb_sales?");
+  assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
+  assert.strictEqual(ok, "Remove");
+  assert.strictEqual(opts.danger, true);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });

@@ -197,6 +197,19 @@ class LocalSchedules:
     def _save(self, data: dict[str, Any]) -> None:
         write_json(self.file, data, indent=1)
 
+    def set_aside(self) -> list[dict[str, Any]]:
+        """Schedules files that couldn't be read and were moved aside (jsonfile.set_aside), newest first:
+        their schedules aren't listed any more, but Task Scheduler may still have tasks for them."""
+        out = []
+        for path in self.root.glob(f"{SCHEDULES_FILE}.corrupt-*"):
+            stamp = path.name.rsplit(".corrupt-", 1)[1]
+            try:
+                at = dt.datetime.strptime(stamp, "%Y%m%dT%H%M%S%fZ").replace(tzinfo=dt.timezone.utc)
+            except ValueError:  # renamed by hand: when it was last changed will do
+                at = dt.datetime.fromtimestamp(path.stat().st_mtime, dt.timezone.utc)
+            out.append({"file": path.name, "path": str(path), "at": at.isoformat(timespec="seconds")})
+        return sorted(out, key=lambda x: x["at"], reverse=True)
+
     def get(self, schedule_id: str) -> dict[str, Any]:
         found = next((s for s in self._load()["schedules"] if s["id"] == schedule_id), None)
         if found is None:

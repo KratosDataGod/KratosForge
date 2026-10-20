@@ -385,9 +385,11 @@ class ProcessKernel:
 class _Tree:
     """The kernel process and every process its cells start, so Stop ends them all (HD-037).
 
-    On Linux and macOS the kernel leads its own process group. On Windows it is in a Job Object
-    that also ends the whole tree if the engine itself goes away; if the job can't be made (an
-    older Windows that doesn't allow nested jobs), only the kernel process is ended."""
+    On Linux and macOS the kernel leads its own process group, and Stop also ends every process
+    below it by parent links: a cell's process that starts its own session or group (a server,
+    ``start_new_session=True``) leaves the group and used to outlive Stop. On Windows it is in a
+    Job Object that also ends the whole tree if the engine itself goes away; if the job can't be
+    made (an older Windows that doesn't allow nested jobs), only the kernel process is ended."""
 
     def __init__(self, proc: subprocess.Popen[str]):
         self.proc = proc
@@ -406,11 +408,69 @@ class _Tree:
             self.release()
         else:
             import signal
+            # Freeze the tree first, so nothing in it starts a process while it is being found,
+            # then end it. Parent links are read before the kernel dies and its children move.
+            frozen = _signal_tree(self.proc.pid, signal.SIGSTOP)
+            for pid in frozen:
+                _signal(pid, signal.SIGKILL)
             try:
                 os.killpg(self.proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
         self.proc.kill()
+
+
+def _signal(pid: int, sig: int) -> None:
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _signal_tree(root: int, sig: int) -> list[int]:
+    """Send ``sig`` to ``root`` and every process below it, looking again until no new one
+    turns up (each is stopped as it is found, so it can't start more). Returns them all."""
+    sent: list[int] = []
+    todo = [root]
+    for _ in range(10):
+        for pid in todo:
+            _signal(pid, sig)
+        sent += todo
+        todo = [p for p in _descendants(root) if p not in sent]
+        if not todo:
+            break
+    return sent
+
+
+def _descendants(root: int) -> list[int]:
+    """Every process below ``root`` by parent links: /proc on Linux, ps on macOS."""
+    children: dict[int, list[int]] = {}
+    for pid, ppid in _parents():
+        children.setdefault(ppid, []).append(pid)
+    out, todo = [], [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            out.append(child)
+            todo.append(child)
+    return out
+
+
+def _parents() -> list[tuple[int, int]]:
+    proc = Path("/proc")
+    if proc.is_dir():
+        pairs = []
+        for entry in proc.iterdir():
+            if entry.name.isdigit():
+                try:  # "pid (name) state ppid ...": the name can hold spaces and parentheses
+                    pairs.append((int(entry.name), int((entry / "stat").read_text().rsplit(")", 1)[1].split()[1])))
+                except (OSError, IndexError, ValueError):
+                    continue  # it ended while being read
+        return pairs
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(int(a), int(b)) for a, b in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
 
 
 @functools.cache

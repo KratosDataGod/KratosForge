@@ -21,7 +21,8 @@ from .redact import describe
 from .telemetry import Telemetry
 from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
-from . import app_settings, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
+from .filenames import file_stem
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -50,6 +51,7 @@ from .risk_service import RiskMixin
 from .usage_service import UsageMixin
 from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
+from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookShelf, check_watches
@@ -67,7 +69,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, ValidateMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -349,17 +351,13 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         return self.root / "favorites.json"
 
     def _favorites(self) -> set[str]:
-        try:
-            return set(json.loads(self.favorites_file.read_text()))
-        except (OSError, ValueError):
-            return set()
+        return set(jsonfile.read_json(self.favorites_file, []))
 
     def set_favorite(self, lakehouse_id: str, favorite: bool) -> list[str]:
         """Stars are kept on this PC; Fabric has no public API for its own favorites."""
         favorites = self._favorites()
         (favorites.add if favorite else favorites.discard)(lakehouse_id)
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.favorites_file.write_text(json.dumps(sorted(favorites)))
+        jsonfile.write_json(self.favorites_file, sorted(favorites), indent=None)
         return sorted(favorites)
 
     def list_items(self, workspace_id: str) -> list[dict[str, Any]]:
@@ -373,10 +371,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         """Workspace ids starred as favorites and pinned to the top, kept on this PC.
 
         Pins keep the order they were pinned in."""
-        try:
-            marks = json.loads(self.workspace_marks_file.read_text())
-        except (OSError, ValueError):
-            marks = {}
+        marks = jsonfile.read_json(self.workspace_marks_file, {})
         return {"favorites": list(marks.get("favorites", [])), "pins": list(marks.get("pins", []))}
 
     def set_workspace_mark(self, workspace_id: str, mark: str, on: bool) -> dict[str, list[str]]:
@@ -385,8 +380,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         marks = self.workspace_marks()
         ids = [i for i in marks[mark] if i != workspace_id]
         marks[mark] = ids + [workspace_id] if on else ids
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.workspace_marks_file.write_text(json.dumps(marks))
+        jsonfile.write_json(self.workspace_marks_file, marks, indent=None)
         return marks
 
     def create_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any]:
@@ -731,11 +725,6 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         A notebook that uses fabric_desktop.lakehouse is published as a Fabric Python notebook
         with a setup cell, so it also runs there (Run in Fabric, schedules)."""
         return self._publish(name, cells, lakehouse_ref, compute, workspace, location_ref=location_ref)
-
-
-def file_stem(name: str, default: str = "SQL") -> str:
-    """A name safe to use in a file name: letters, digits, spaces, - and _ only (no separators or ..)."""
-    return "".join(ch for ch in (name or default) if ch.isalnum() or ch in " -_").strip()[:60] or default
 
 
 def _json_value(value: Any) -> Any:

@@ -262,6 +262,8 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         language = magics.cell(source).language
         if language in ("scala", "r", "csharp"):
             local.append({"cell": n, "text": "uses a Scala, R or .NET cell", "code": _snippet(source)})
+        elif language == "tsql":
+            local.append({"cell": n, "text": "runs T-SQL in a Fabric Warehouse or SQL endpoint (%%tsql)", "code": _snippet(source)})
         elif language == "sql":
             if _SQL_WRITE.search(source):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",

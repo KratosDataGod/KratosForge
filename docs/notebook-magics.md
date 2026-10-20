@@ -176,6 +176,18 @@ lakehouse...). This PC has no Spark session to size, so running the cell checks 
 - A setting Fabric doesn't know, such as a misspelled `driverMemroy`, is named, because names
   are case-sensitive and a typo is otherwise ignored until the Fabric run.
 
+## T-SQL cells (%%tsql)
+
+In a Fabric Python notebook, `%%tsql -artifact WH_Sales -type Warehouse` runs T-SQL in a Fabric
+Warehouse, SQL analytics endpoint (`-type Lakehouse`) or SQL database (`-type SQLDatabase`).
+Those engines are in Fabric, so on this PC the cell is checked instead of run:
+
+- The T-SQL is read against that engine's rules, the same check the SQL query page runs, and the
+  cell lists what Fabric wouldn't accept (an `nvarchar` column in a Warehouse table, say). Nothing
+  is sent to Fabric.
+- The cell then stops, and the **Runs on** check lists it as Fabric only. Switch **Runs on** to
+  Fabric to run it there, where reading the Warehouse uses capacity.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -192,5 +204,6 @@ lakehouse...). This PC has no Spark session to size, so running the cell checks 
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
 | `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |
+| `%%tsql` | Checked against the Warehouse, endpoint or SQL database rules; runs in Fabric |
 | `%%configure` | Checks the JSON as Fabric would and says what each setting does there; changes nothing here |
 | `%%spark`, `%%sparkr`, `%%csharp`, `%scala`, `%r` | Need Fabric's Spark; switch **Runs on** to Fabric |

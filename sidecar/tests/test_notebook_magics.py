@@ -422,3 +422,19 @@ def test_configure_cell_in_the_kernel_and_the_runs_on_check():
     assert k.run('%%configure\n{oops}')["status"] == "error"
     reasons = compute_check([{"type": "code", "source": '%%configure\n{oops}'}], LH)["fabric"]["reasons"]
     assert reasons and "can't read" in reasons[0]["text"]
+
+
+# ---- %%tsql: checked against the target's rules here, runs in Fabric
+
+def test_tsql_cell_is_checked_and_listed_as_fabric_only():
+    k = Kernel()
+    out = k.run("%%tsql -artifact WH_Sales -type Warehouse -bind df\nCREATE TABLE dbo.t (a NVARCHAR(10))")
+    assert out["status"] == "error" and out["outputs"][-1]["ename"] == "RunsInFabric"
+    assert "WH_Sales" in out["outputs"][-1]["evalue"]
+    assert "Fabric Warehouse" in out["outputs"][0]["text"] and "nvarchar" in out["outputs"][0]["text"]
+    out = k.run("%%tsql -artifact LH -type Lakehouse\nSELECT TOP 5 * FROM dbo.sales")
+    assert "SQL analytics endpoint" in out["outputs"][0]["text"]
+    reasons = compute_check([{"type": "code", "source": "%%tsql -artifact WH\nSELECT 1"}], LH)["local"]["reasons"]
+    assert reasons[0]["text"].startswith("runs T-SQL")
+    assert depgraph.analyze("%%tsql -artifact WH\nSELECT 1")["parsed"]
+    assert envprofile.imports("%%tsql\nSELECT 1")["modules"] == []

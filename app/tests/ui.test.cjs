@@ -2021,3 +2021,9 @@ test("notebooks page links %%configure to its section on the magics page", () =>
   assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
   assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
 });
+
+// %%tsql cells are highlighted as SQL in the notebook editor.
+test("notebook %%tsql cells get SQL highlighting", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(\/\^\\s\*%%tsql\(\\s\|\$\)\/\.test\(cell\.source\)\) return \[CM\.sql\(/);
+});

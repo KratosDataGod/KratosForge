@@ -1164,7 +1164,7 @@ test("with platform keys, no Keys button makes a project key table", () => {
 test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
   const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
   const features = read("features.js");
-  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["quarantineReplay", "dataops.js"]]) {
     assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
     assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
   }
@@ -1177,7 +1177,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1757,7 +1757,9 @@ function dialogHelpers() {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
-  const code = section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const keys = features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("));
+  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
   const node = (tag, attrs = {}, ...kids) => {
     const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
       addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
@@ -1889,7 +1891,7 @@ test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
   ctx.openPalette();
   assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
-  assert.match(app, /e\.key\.toLowerCase\(\) === "k"\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+  assert.match(app, /isShortcut\(e, "palette"\)\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
 });
 
 test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
@@ -2048,6 +2050,455 @@ test("Settings keeps App ID and engine limits in a folded Advanced section, read
   assert.match(sql, /fixedBy\(s, "sql_temp_dir"\)/);
   assert.match(src, /learnMore\("settings"\)/, "the page keeps its guide link");
   assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8"), /^### Advanced settings$/m);
+});
+
+// UX-019: the Preview list in the docs is the app's own list, once.
+test("the documentation's Preview list matches PREVIEW_FEATURES", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const block = features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1];
+  const entries = [...block.matchAll(/^ {2}(\w+): "([^"]+)",/gm)].map(([, id, name]) => [id, name]);
+  assert.ok(entries.length > 20, `only ${entries.length} preview features found`);
+  const ids = entries.map(([id]) => id);
+  assert.deepStrictEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], "an id listed twice keeps only its last name");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "README.md"), "utf8");
+  const table = readme.split("| Preview feature | Where |")[1];
+  assert.ok(table, "docs/README.md has the Preview feature table");
+  const rows = [];
+  for (const line of table.split("\n").slice(2)) {
+    if (!line.startsWith("|")) break;
+    rows.push(line.split("|")[1].trim());
+  }
+  assert.deepStrictEqual([...rows].sort(), entries.map(([, name]) => name).sort());
+  // The steps that stay visible are the ones the table says are always shown.
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1]);
+  const names = Object.fromEntries(entries);
+  const shownRows = table.split("\n").filter((l) => /always shown/.test(l)).map((l) => l.split("|")[1].trim());
+  assert.deepStrictEqual(shownRows.sort(), always.map((id) => names[id]).sort());
+  // The user guide points at that list instead of keeping a second one.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("## Preview features\n")[1].split("\n## ")[0];
+  assert.match(section, /README\.md#what-is-tested-and-what-isnt/);
+});
+
+// UX-019: one shortcut table, read by the global key handlers and drawn by the Keyboard shortcuts dialog.
+test("the global key handlers and the Keyboard shortcuts dialog read one table", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("))}
+    Object.assign(this, { shortcutRegistry, registerShortcuts, isShortcut, typingIn, shortcutGroups });`, ctx);
+  const appWide = [...ctx.shortcutRegistry];
+  const ids = appWide.map((s) => s.id);
+  assert.strictEqual(new Set(ids).size, ids.length);
+  // Every entry is a key app.js actually handles, through the table.
+  for (const id of ids) assert.ok(app.includes(`isShortcut(e, "${id}")`), `app.js handles ${id} through the table`);
+  assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"/, "Ctrl+K is read from the table");
+  const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
+  assert.ok(ctx.isShortcut(key("K", { ctrlKey: true }), "palette"));
+  assert.ok(ctx.isShortcut(key("k", { metaKey: true }), "palette"));
+  assert.ok(!ctx.isShortcut(key("k"), "palette"));
+  assert.ok(ctx.isShortcut(key("?"), "shortcuts"));
+  assert.ok(ctx.isShortcut(key("Escape"), "close"));
+  assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
+  assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
+  assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  // "?" typed in a box stays a character.
+  const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
+  assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
+  assert.ok(!ctx.typingIn(el("BUTTON")) && !ctx.typingIn(null));
+  // Another feature (the notebook) registers its keys once and they join the same list, shown only when it says.
+  let inNotebook = false;
+  ctx.registerShortcuts("Notebook", [{ keys: ["Shift+Enter"], label: "Run the cell", when: () => inNotebook },
+    { keys: ["Ctrl+Shift+Enter"], label: "Run the selected cells", when: () => { throw new Error("broken"); } }]);
+  assert.deepStrictEqual([...ctx.shortcutGroups().map(([g]) => g)], ["Anywhere", "Moving around", "Menus and tabs"]);
+  inNotebook = true;
+  const groups = ctx.shortcutGroups();
+  assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
+    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+  assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
+  // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
+  const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];
+  assert.match(dialog, /shortcutGroups\(\)/);
+  assert.match(dialog, /notebooks\.md#editing/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /btn\("Keyboard shortcuts", "help", shortcutsDialog/);
+  assert.match(settings, /\{ label: "Keyboard shortcuts", [^}]*run: shortcutsDialog \}/);
+  // The user guide's table has a row for every entry.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
+  const rows = section.split("\n").filter((l) => l.startsWith("| **"));
+  assert.strictEqual(rows.length, appWide.length);
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
+});
+
+// UX-019: every page has a help link into the user guide.
+test("every page links to its section of the user guide", () => {
+  const all = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
+  const body = (fn) => all.match(new RegExp(`\\n(?:async )?function ${fn}\\([\\s\\S]*?\\n}\\n`))?.[0] || "";
+  const views = new Map();
+  for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
+  assert.ok(views.size > 15, `only ${views.size} pages found`);
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
+  const elsewhere = { notebook: null, agent: "agAdvice" };
+  const missing = [...views].filter(([view, fn]) => {
+    if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
+    return !/learnMore\(|howItWorks\(/.test(body(fn));
+  }).map(([view]) => view);
+  assert.deepStrictEqual(missing, []);
+});
+
+// UX-008: Back, Forward and reopening the last page. The history block of app.js runs on features.js
+// with fake pages, a fake localStorage and a render() that counts.
+function navHarness({ stored = null, preview = true } = {}) {
+  const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    console, h: () => ({}), icon: () => ({}), renders: 0,
+    state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
+    monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
+    platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
+    agPage: { name: null }, sqlPage: { ref: null },
+    closeMenu() {},
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
+    document: { getElementById: (id) => (id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "features.js"), "utf8"), ctx);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const block = app.slice(app.indexOf("// ---------- navigation history (UX-008)"), app.indexOf("function renderChrome()"));
+  vm.runInContext(block + "\nthis.nav = nav; this.features = features;", ctx);
+  ctx.previewShown = () => preview;
+  ctx.render = () => { ctx.renders++; ctx.navSync(); };
+  const page = (id, views, extra = {}) => ctx.registerFeature({ id, views, ...extra });
+  page("home", { home() {} }, { rail: { label: "Home", icon: "home", order: 10 } });
+  page("workspaces", { workspaces() {}, workspace() {}, fabric() {} }, { rail: { label: "Workspaces", icon: "w", order: 30, also: ["workspace", "fabric"] } });
+  page("metadata", { metadata() {}, entity() {} }, { rail: { label: "Data mesh", icon: "m", order: 50, also: ["entity"] } });
+  page("monitor", { monitor() {} }, { rail: { label: "Monitor", icon: "monitor", order: 70 } });
+  page("platform", { platform() {} }, { rail: { label: "Platform", icon: "b", order: 55 }, preview: true });
+  page("notebook", { notebook() {} });
+  return { ctx, store, dialogRoot };
+}
+
+test("Back and Forward walk the pages you opened, with each page's tab (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.monitorPage.panel = "schedules";
+  ctx.go("monitor");
+  ctx.monitorPage.panel = "incidents"; ctx.render();  // a tab clicked on the page
+  ctx.state.meta.tab = "keys";
+  ctx.go("metadata");
+  assert.strictEqual(ctx.navCan(-1), true);
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.strictEqual(ctx.navBack(), true);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.monitorPage.panel, "incidents", "Back did not bring the tab back");
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.strictEqual(ctx.navBack(), false, "Back went past the first page");
+  ctx.navForward();
+  ctx.navForward();
+  assert.strictEqual(ctx.state.view, "metadata");
+  assert.strictEqual(ctx.state.meta.tab, "keys");
+  // Opening a page from the middle drops what was ahead.
+  ctx.navBack();
+  ctx.go("workspaces");
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "workspaces"]);
+});
+
+test("Back after Open in Fabric returns to the page before, and opening the same page twice adds one entry (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  ctx.go("monitor");
+  ctx.go("fabric");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "fabric"]);
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("Back brings back the workspace you had open and skips a notebook that was closed (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.state.openWorkspace = { id: "w1", displayName: "Sales" };
+  ctx.go("workspace");
+  ctx.state.notebook = { name: "nb" };
+  ctx.go("notebook");
+  ctx.state.openWorkspace = { id: "w2", displayName: "Finance" };
+  ctx.go("workspace");
+  ctx.state.notebook = null;  // closed from the rail
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "workspace", "Back opened a closed notebook");
+  assert.strictEqual(ctx.state.openWorkspace.id, "w1");
+});
+
+test("Back skips a preview page once preview features are hidden (UX-008)", () => {
+  const { ctx } = navHarness();
+  let shown = true;
+  ctx.previewShown = () => shown;
+  ctx.render();
+  ctx.go("platform");
+  ctx.go("monitor");
+  shown = false;
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+});
+
+test("the last page and its tab are saved and opened again on start, or Home if it's gone (UX-008)", () => {
+  const a = navHarness();
+  a.ctx.render();
+  assert.strictEqual(a.store.get("fd.nav.last"), undefined, "the last page was overwritten before it was read back");
+  a.ctx.navRestore();
+  a.ctx.state.meta.tab = "sources";
+  a.ctx.go("metadata");
+  assert.strictEqual(a.store.get("fd.nav.last"), JSON.stringify({ view: "metadata", tab: "sources" }));
+
+  const b = navHarness({ stored: { view: "metadata", tab: "sources" } });
+  assert.strictEqual(b.ctx.navRestore(), "metadata");
+  assert.strictEqual(b.ctx.state.meta.tab, "sources");
+  assert.strictEqual(b.ctx.navCan(-1), false);
+  assert.strictEqual(navHarness({ stored: { view: "removed-page" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "platform", tab: "keys" }, preview: false }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "workspace" } }).ctx.navRestore(), "workspaces", "an item page reopens on its rail page");
+  assert.strictEqual(navHarness({ stored: { view: "notebook" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness().ctx.navRestore(), "home");
+  // A broken or blocked store starts on Home.
+  const c = navHarness();
+  c.ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  c.ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  assert.strictEqual(c.ctx.navRestore(), "home");
+  assert.doesNotThrow(() => c.ctx.go("monitor"));
+});
+
+test("Alt+Left and Alt+Right go back and forward, but not while typing or in a dialog (UX-008)", () => {
+  const { ctx, dialogRoot } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  const key = (k, target = { closest: () => null }, mods = { altKey: true }) => ({ key: k, target, ...mods, prevented: false, preventDefault() { this.prevented = true; } });
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", { closest: (s) => (/textarea/.test(s) ? {} : null) })), false);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", undefined, { altKey: false })), false);
+  dialogRoot.childElementCount = 1;
+  assert.strictEqual(ctx.navKey(key("ArrowLeft")), false);
+  dialogRoot.childElementCount = 0;
+  const e = key("ArrowLeft");
+  assert.strictEqual(ctx.navKey(e), true);
+  assert.ok(e.prevented);
+  assert.strictEqual(ctx.state.view, "home");
+  ctx.navKey(key("ArrowRight"));
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("the command bar offers Go back and Go forward only when there is somewhere to go (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  const labels = () => ctx.features.commands.filter((c) => !c.when || c.when()).map((c) => c.label);
+  assert.ok(!labels().includes("Go back"));
+  ctx.go("monitor");
+  assert.ok(labels().includes("Go back"));
+  assert.ok(!labels().includes("Go forward"));
+  ctx.features.commands.find((c) => c.label === "Go back").run();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.ok(labels().includes("Go forward"));
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
+  assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+});
+
+// UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).
+function errorHelpers() {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: { ...(attrs || {}) }, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {},
+      disabled: false, hidden: false, isConnected: true, className: attrs?.class || "",
+      get textContent() { return this.kids.map((k) => (typeof k === "object" ? k.textContent : String(k))).join(""); },
+      set textContent(v) { this.kids = [String(v)]; },
+      append(...k) { this.kids.push(...k); },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type) { return Promise.all((this.on[type] || []).map((fn) => fn({ target: this }))); },
+      matches: () => false, contains: () => false };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) { n.addEventListener(k.slice(2), v); delete n.attrs[k]; }
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const timers = [];
+  const toastEl = node("div");
+  const ctx = {
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    copied: [], toasts: [], logged: [], state: { view: "home" },
+    navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
+    logActivity: (i) => ctx.logged.push(i),
+    document: { getElementById: () => toastEl, activeElement: null },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
+  };
+  const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+  vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
+  return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
+}
+
+test("friendlyError checks the engine first, then files on this PC, then Fabric's patterns", () => {
+  const { ctx } = errorHelpers();
+  const cases = [
+    ["The engine stopped answering, so KratosForge restarted it. (sql_page)", /stopped answering/],
+    ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
+    ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
+    ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
+    ["FileNotFoundError: The notebook nb_sales does not exist on this PC", /^The notebook nb_sales does not exist on this PC$/],
+    ["PermissionError: [Errno 13] Permission denied: '/home/me/out.csv'", /^This PC didn't allow access to \/home\/me\/out\.csv\./],
+    ["IsADirectoryError: [Errno 21] Is a directory: '/data'", /^\/data is a folder/],
+    ["FileExistsError: [Errno 17] File exists: 'out'", /^Something already exists at out/],
+    ["TimeoutError: The query ran longer than 30 seconds and was stopped.", /^The query ran longer than 30 seconds/],
+    ["TimeoutError: [Errno 110] Connection timed out", /Couldn't reach Fabric/],
+    ["RuntimeError: 404 Not Found: ItemNotFound", /Fabric couldn't find that item/],
+    ["RuntimeError: 403 Forbidden", /don't have permission/],
+    ["ConnectionError: Max retries exceeded", /Couldn't reach Fabric/],
+    ["ValueError: Pick a lakehouse first.", /^Pick a lakehouse first\.$/],
+    ["ZeroDivisionError: division by zero", /inside the app/],
+  ];
+  for (const [raw, want] of cases) {
+    const f = ctx.friendlyError(raw);
+    assert.match(f.text, want, raw);
+    assert.doesNotMatch(f.text, /^[A-Z][A-Za-z]*(Error|Exception):/, `${raw} starts with an exception name`);
+  }
+  assert.doesNotMatch(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").text, /Fabric/);
+  assert.strictEqual(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").details,
+    "FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'");
+});
+
+test("errorPanel says what happened, what to do, and keeps the raw text under Details with Copy", async () => {
+  const { ctx, find } = errorHelpers();
+  let tries = 0;
+  const panel = ctx.errorPanel("RuntimeError: 429 TooManyRequests", { label: "Couldn't read the history", retry: async () => { tries++; } });
+  assert.strictEqual(panel.attrs.role, "alert");
+  assert.strictEqual(panel.kids[0].textContent, "Couldn't read the history");
+  assert.match(panel.kids[1].textContent, /^Fabric is busy/);
+  assert.match(panel.kids[2].textContent, /^Try again/);
+  const retry = find(panel, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "a Retry button");
+  await retry.fire("click");
+  assert.strictEqual(tries, 1, "Retry calls the function it was given");
+  assert.strictEqual(retry.disabled, false, "Retry can be pressed again after a failure");
+  const details = find(panel, (n) => n.tag === "details");
+  assert.strictEqual(details.kids[0].textContent, "Details");
+  assert.strictEqual(details.kids[1].textContent, "RuntimeError: 429 TooManyRequests");
+  await find(details, (n) => n.tag === "button" && n.textContent === "Copy").fire("click");
+  assert.deepStrictEqual(ctx.copied, ["RuntimeError: 429 TooManyRequests"]);
+
+  const plain = ctx.errorPanel("Pick a lakehouse first.");
+  assert.ok(!find(plain, (n) => n.tag === "button"), "no Retry without retry, no Copy without details");
+  assert.ok(!find(plain, (n) => n.tag === "details"));
+  assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
+});
+
+test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+  const { ctx, find, toastEl, live } = errorHelpers();
+  let calls = 0;
+  const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
+  assert.strictEqual(await ctx.attempt(failing, "Couldn't load runs", { retry: true }), undefined);
+  assert.strictEqual(toastEl.attrs.role, "alert");
+  assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
+  const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "the toast has Retry");
+  assert.strictEqual(live().at(-1).ms, 8000);
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
+  await retry.fire("click");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(calls, 2, "Retry runs the same call again");
+
+  await ctx.attempt(failing, "No retry here");
+  assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  ctx.realToast("Saved");
+  assert.strictEqual(toastEl.attrs.role, "status");
+  assert.strictEqual(live().at(-1).ms, 4000);
+});
+
+test("the listed screens show a sentence or the error panel, never the raw exception (UX-011)", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const sc = read("shortcuts.js");
+  assert.doesNotMatch(sc, /class: "error-text" \}, String\(err\)/);
+  assert.strictEqual((sc.match(/errorPanel\(err, \{ label: "Couldn't read [^"]+", retry: \w+ \}\)/g) || []).length, 3);
+  assert.doesNotMatch(sc, /problems: \[String\(err\)\]/);
+  assert.doesNotMatch(read("deps.js"), /problem: String\(err\)/);
+  assert.match(read("query.js"), /errorPanel\(tab\.error, \{ retry: tab\.errorRetry \}\)/);
+  assert.doesNotMatch(read("app.js"), /could not open: \$\{err\}/);
+  assert.match(read("app.js"), /attempt\(\(\) => rpc\("list_workspaces"\), "Could not list workspaces", \{ retry: again \}\)/,
+    "listing workspaces, a read, offers Retry on its toast");
+});
+
+// UX-020: one look for "still loading" and "nothing here yet", built by shared helpers.
+function stateHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = app.match(/function loading\([\s\S]*?\n}\n/)[0] + app.match(/function emptyState\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false) });
+  const ctx = { h: node, icon: (name, size) => node("svg", { name, size }) };
+  vm.runInNewContext(`${code}; Object.assign(this, { loading, emptyState });`, ctx);
+  const text = (n) => typeof n === "string" ? n : n.kids.map(text).join("");
+  return { ...ctx, text };
+}
+
+test("loading() is a status line with a spinner and the label, plus any classes asked for (UX-020)", () => {
+  const { loading, text } = stateHelpers();
+  const plain = loading();
+  assert.strictEqual(plain.attrs.role, "status");
+  assert.deepStrictEqual(plain.attrs.class.split(" "), ["loading", "muted-text"]);
+  assert.strictEqual(plain.kids[0].attrs.class, "spinner");
+  assert.strictEqual(plain.kids[0].attrs["aria-hidden"], "true");
+  assert.strictEqual(text(plain), "Loading...");
+  const runs = loading("Loading runs...", "monitor-empty");
+  assert.deepStrictEqual(runs.attrs.class.split(" "), ["loading", "muted-text", "monitor-empty"]);
+  assert.strictEqual(text(runs), "Loading runs...");
+  const quiet = loading("Loading notebooks...", "", { live: false });
+  assert.strictEqual(quiet.attrs.role, null);
+  assert.strictEqual(quiet.kids[0].attrs["aria-hidden"], "true");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.loading > \.spinner \{[^}]*animation: spin/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ \.loading > \.spinner/);
+});
+
+test("emptyState() draws the .empty markup: icon, title, text and action, each optional (UX-020)", () => {
+  const { emptyState, text } = stateHelpers();
+  const action = { tag: "button", attrs: {}, kids: ["New entity"] };
+  const full = emptyState({ icon: "branch", title: "No entities yet", text: "Add one from a template.", action });
+  assert.strictEqual(full.attrs.class, "empty");
+  assert.deepStrictEqual(full.kids.map((k) => k.tag), ["svg", "span", "span", "button"]);
+  assert.deepStrictEqual(full.kids[0].attrs, { name: "branch", size: 32 });
+  assert.deepStrictEqual([full.kids[1].attrs.class, text(full.kids[1])], ["title", "No entities yet"]);
+  assert.deepStrictEqual([full.kids[2].attrs.class, text(full.kids[2])], ["text", "Add one from a template."]);
+  const bare = emptyState({ title: "No links yet" });
+  assert.deepStrictEqual(bare.kids.map((k) => k.attrs.class), ["title"]);
+  const two = emptyState({ title: "x", action: [action, action] });
+  assert.strictEqual(two.kids.filter((k) => k.tag === "button").length, 2);
+});
+
+test("hand-built empty states and the converted Loading lines use the shared helpers (UX-020)", () => {
+  for (const name of ["mesh.js", "meshflow.js", "meshmap.js", "meta.js", "platform.js", "git.js"]) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    assert.doesNotMatch(src, /h\("div", \{ class: "empty" \}/, `${name} builds .empty by hand`);
+    assert.match(src, /emptyState\(\{/, name);
+  }
+  for (const name of ["agents.js", "incidents.js", "workloads.js", "schedules.js", "integrations.js"]) {
+    assert.match(fs.readFileSync(path.join(ui, name), "utf8"), /loading\(/, name);
+  }
+});
+
+test("Home draws at once while the component check runs, and calls nothing until it returns (UX-020)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const starting = app.match(/function startingHome\([\s\S]*?\n}\n/)[0];
+  assert.doesNotMatch(starting, /rpc\(|invoke\(|homeCache/);
+  // Exactly one live region on the starting Home: one loading() call left live, the rest quiet.
+  assert.strictEqual((starting.match(/\bloading\(/g) || []).length, 2);
+  assert.strictEqual((starting.match(/\{ live: false \}/g) || []).length, 1);
+  assert.match(app, /async function renderHome\(\) \{\n  if \(state\.starting\) \{ setView\(startingHome\(\)\); return; \}/);
+  const boot = app.slice(app.lastIndexOf("hydrateIcons();"));
+  assert.ok(boot.indexOf("renderHome()") < boot.indexOf("checkComponents()"), "Home must draw before the check starts");
+  assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
 // Once keys come from the platform, the entity's keys card names the database instead of a MERGE.

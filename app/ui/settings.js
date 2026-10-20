@@ -406,6 +406,7 @@ async function renderSettings() {
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
     h("div", { class: "row wrap" },
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
+      btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
@@ -756,5 +757,6 @@ registerFeature({
     { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
     { label: "Show the update splash", icon: "rocket", keywords: "what's new release notes update forge splash", run: () => showUpdateSplash(true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
+    { label: "Keyboard shortcuts", icon: "help", keywords: "keys hotkeys help accessibility", run: shortcutsDialog },
   ],
 });

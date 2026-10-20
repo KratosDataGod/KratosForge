@@ -134,8 +134,8 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | --- | --- | --- | --- |
 | HD-036 | EP-8, EP-9: refuse one workspace in two environments; guard `run_job` | Staged roadmap | S |
 | HD-037 | EN-8: Stop ends the kernel's whole process tree | Prove | M |
-| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite | Hardening | S |
-| HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads | Hardening | S |
+| HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite; exists-then-write exports in Validate and replay made exclusive in a follow-up | Hardening | S |
+| HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads (done: `retrying.retry_after` reads seconds or an HTTP date, capped at 60 s; `retrying.send_with_retry` retries 5xx and dropped connections on reads only, used by the Fabric client and OneLake, lease, mailbox, Graph and Key Vault reads) | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
 | HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |

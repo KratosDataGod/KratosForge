@@ -188,9 +188,13 @@ class ValidateMixin:
         stem = re.sub(r"[^\w.-]+", "-", f"validate-{record['name']}-{record['id'][9:24]}").strip("-")
         ext = "md" if format == "markdown" else "json"
         path, n = folder / f"{stem}.{ext}", 2
-        while path.exists():
-            path, n = folder / f"{stem}-{n}.{ext}", n + 1
-        path.write_text(text, encoding="utf-8")
+        while True:
+            try:  # created exclusively: a file already there (even one made a moment ago) is never replaced
+                with path.open("x", encoding="utf-8") as f:
+                    f.write(text)
+                break
+            except FileExistsError:
+                path, n = folder / f"{stem}-{n}.{ext}", n + 1
         return {"path": str(path), "format": format}
 
     # ---- the clean run

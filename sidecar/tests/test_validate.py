@@ -248,6 +248,26 @@ def test_save_report_writes_a_new_file_in_downloads_each_time(svc, tmp_path):
     assert json.loads(Path(b["path"]).read_text(encoding="utf-8"))["id"] == st["id"]
 
 
+def test_save_report_never_replaces_a_file_with_its_name(svc):
+    st = done(svc, call(svc, "notebook_validate_start", name="Keep mine", cells=[code("x = 1")])["id"])
+    first = Path(call(svc, "notebook_validate_save", id=st["id"])["path"])
+    first.write_text("my notes", encoding="utf-8")  # hand-edited after the first export
+    second = Path(call(svc, "notebook_validate_save", id=st["id"])["path"])
+    assert second == first.with_name(f"{first.stem}-2.md") and first.read_text(encoding="utf-8") == "my notes"
+
+
+def test_save_report_is_created_exclusively_even_if_the_name_was_free_a_moment_ago(svc, monkeypatch):
+    # Another save makes the file between the free-name check and the write: Path.exists says
+    # every name is free, and the file already there must still not be replaced.
+    st = done(svc, call(svc, "notebook_validate_start", name="Race", cells=[code("x = 1")])["id"])
+    first = Path(call(svc, "notebook_validate_save", id=st["id"])["path"])
+    first.write_text("my notes", encoding="utf-8")
+    monkeypatch.setattr(Path, "exists", lambda self, *a, **k: False)
+    second = Path(call(svc, "notebook_validate_save", id=st["id"])["path"])
+    assert first.read_text(encoding="utf-8") == "my notes"
+    assert second == first.with_name(f"{first.stem}-2.md")
+
+
 def test_checks_and_status_are_not_audited_but_starting_and_saving_are():
     from fabric_desktop import audit, server
     assert {"notebook_validate_check", "notebook_validate_status", "notebook_validate_list"} <= audit.READ_ONLY

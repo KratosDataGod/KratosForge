@@ -168,8 +168,10 @@ class ProveMixin:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(1, 100):
             path = folder / f"replay-{stem}-{stamp}{'' if n == 1 else f'-{n}'}.zip"
-            if not path.exists():
-                return replay.write(path, bundle, samples) | {"ids_included": include_ids}
+            try:  # created exclusively, so a file already there is never replaced
+                return replay.write(path, bundle, samples, mode="x") | {"ids_included": include_ids}
+            except FileExistsError:
+                continue
         raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
 
     def _replay_sample(self, row: dict[str, Any]) -> Any:

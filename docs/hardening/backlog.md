@@ -139,7 +139,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
 | HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
 | HD-042 | UI-4: every dialog close settles its prompt | Hardening | S |
-| HD-043 | UI-5: parsed name-clash test; remove duplicate test | Hardening | S |
+| HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette | Hardening | S |
 | HD-051 | AR-3: one HTTP session with a shared retry policy (done: `http_session.session()` shared by the Fabric, OneLake, Power BI and platform clients) | Hardening | M |
 | HD-052 | UI-8: browser tests in CI; ban new raw HTML sinks | Hardening | S |

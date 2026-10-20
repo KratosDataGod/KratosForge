@@ -66,7 +66,7 @@ No Critical issue was confirmed. Twelve are High.
 | SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | HD-027 |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
 | UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise | HD-042 |
-| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated | HD-043 |
+| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
 | UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal | HD-044 |
 | AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |

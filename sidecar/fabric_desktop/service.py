@@ -468,6 +468,15 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
                 return {"frame": frame, "gone": True, "message": GONE}
             raise
 
+    def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
+        """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
+        try:
+            return self.kernel.frame_profile(frame=frame)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
         """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
         if format not in DOWNLOAD_FORMATS:

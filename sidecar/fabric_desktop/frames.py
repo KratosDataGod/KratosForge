@@ -1,4 +1,4 @@
-"""Whole results behind a notebook table output: paging, search, sort and downloads.
+"""Whole results behind a notebook table output: paging, search, sort, a profile and downloads.
 
 A cell's table output carries the first ``PREVIEW_ROWS`` rows. The value it came from is kept here
 under the output's ``frame`` id, so the result viewer can page through every row, search and sort
@@ -35,6 +35,8 @@ PAGE_ROWS = 100
 MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
+PROFILE_COLUMNS = 200
+HISTOGRAM_BINS = 12
 class FrameGone(LookupError):
     """The result an output points at isn't held any more."""
 
@@ -88,6 +90,27 @@ def type_name(t: pa.DataType) -> str:
     if pa.types.is_map(t):
         return "map"
     return str(t)
+
+
+def _kind(t: pa.DataType) -> str:
+    if pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t):
+        return "number"
+    if pa.types.is_temporal(t):
+        return "date"
+    if pa.types.is_boolean(t):
+        return "boolean"
+    if pa.types.is_string(t) or pa.types.is_large_string(t):
+        return "text"
+    return "other"
+
+
+def _num(v: Any) -> float | int | None:
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
+    f = float(v)
+    return round(f, 6) if f == f else None
 
 
 def _cell(value: Any) -> Any:
@@ -160,6 +183,54 @@ class Frames:
         return {"frame": fid, "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema],
                 "rows": [[_cell(v) for v in r] for r in rows], "offset": offset, "total": total,
                 "all_rows": table.num_rows}
+
+    # ---- the profile (Inspect, display(df, summary=True))
+
+    def profile(self, fid: str) -> dict[str, Any]:
+        """A profile of every row, per column: missing, distinct (approximate), and for numbers min,
+        max, mean, standard deviation, quartiles and a histogram; for dates their range; for
+        everything else the most common values. NaN counts as missing, as in Fabric's summary."""
+        import duckdb
+        table = self.table(fid)
+        fields = list(table.schema)[:PROFILE_COLUMNS]
+        cols = [f"c{i}" for i in range(table.num_columns)]
+        con = duckdb.connect()
+        out = []
+        try:
+            con.register("t", table.rename_columns(cols))
+            n = table.num_rows
+            for i, f in enumerate(fields):
+                c, t = cols[i], f.type
+                kind = _kind(t)
+                missing_sql = f"{c} IS NULL" + (f" OR isnan({c})" if pa.types.is_floating(t) else "")
+                present = f"NOT ({missing_sql})"
+                missing, distinct = con.execute(
+                    f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t").fetchone()
+                col: dict[str, Any] = {"name": f.name, "type": type_name(t), "kind": kind, "missing": missing,
+                                       "distinct": distinct or 0}
+                if kind == "number" and n - missing:
+                    lo, hi, mean, std, q1, med, q3 = con.execute(
+                        f"SELECT min({c}), max({c}), avg({c}), stddev_samp({c}), quantile_cont({c}, 0.25), "
+                        f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}").fetchone()
+                    col.update(min=_num(lo), max=_num(hi), mean=_num(mean), std=_num(std), q1=_num(q1), median=_num(med), q3=_num(q3))
+                    span = float(hi) - float(lo)
+                    bins = [0] * HISTOGRAM_BINS
+                    for b, count in con.execute(
+                            f"SELECT least({HISTOGRAM_BINS - 1}, floor((CAST({c} AS DOUBLE) - ?) / ? * {HISTOGRAM_BINS}))::INT AS b, "
+                            f"count(*) FROM t WHERE {present} GROUP BY b", [float(lo), span or 1.0]).fetchall():
+                        bins[int(b)] = count
+                    col["histogram"] = bins
+                elif kind == "date" and n - missing:
+                    lo, hi = con.execute(f"SELECT min({c}), max({c}) FROM t WHERE {present}").fetchone()
+                    col.update(min=str(lo), max=str(hi))
+                elif n - missing:
+                    col["top"] = [[_cell(v), k] for v, k in con.execute(
+                        f"SELECT {c}, count(*) AS k FROM t WHERE {present} GROUP BY {c} ORDER BY k DESC, {c} LIMIT 5").fetchall()]
+                out.append(col)
+        finally:
+            con.close()
+        return {"frame": fid, "rows": table.num_rows, "columns": out,
+                "more_columns": max(0, table.num_columns - PROFILE_COLUMNS)}
 
     # ---- downloads
 

@@ -276,6 +276,9 @@ class Kernel:
                    desc: bool = False, q: str = "") -> dict[str, Any]:
         return self.frames.page(frame, offset, limit, sort, desc, q)
 
+    def frame_profile(self, frame: str) -> dict[str, Any]:
+        return self.frames.profile(frame)
+
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
 

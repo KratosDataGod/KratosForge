@@ -145,3 +145,44 @@ def test_process_kernel_pages_and_downloads_in_its_own_process(tmp_path):
             k.frame_page(out["frame"])
     finally:
         k.close()
+
+
+# ---- the profile (Inspect over every row)
+
+def test_profile_covers_every_row():
+    store = Frames()
+    df = pl.DataFrame({"n": list(range(10_000)), "x": [float("nan"), None] + [1.5] * 9998,
+                       "s": ["a"] * 6000 + ["b"] * 3999 + [None], "d": [dt.date(2026, 1, 1 + i % 28) for i in range(10_000)]})
+    p = store.profile(store.keep(df))
+    n, x, s, d = p["columns"]
+    assert p["rows"] == 10_000
+    assert (n["kind"], n["min"], n["max"], n["median"], n["missing"]) == ("number", 0, 9999, 4999.5, 0)
+    assert sum(n["histogram"]) == 10_000 and len(n["histogram"]) == frames.HISTOGRAM_BINS
+    assert x["missing"] == 2 and x["min"] == x["max"] == 1.5 and x["histogram"][0] == 9998
+    assert s["kind"] == "text" and s["missing"] == 1 and s["top"] == [["a", 6000], ["b", 3999]]
+    assert d["kind"] == "date" and (d["min"], d["max"]) == ("2026-01-01", "2026-01-28")
+    assert 25 <= d["distinct"] <= 31  # approximate, like Databricks' profile
+
+
+def test_profile_of_an_empty_or_all_null_column():
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"a": pa.array([None, None], pa.int64()), "b": pa.array([None, None], pa.string())})))
+    a, b = p["columns"]
+    assert a["missing"] == 2 and "histogram" not in a and b["missing"] == 2 and "top" not in b
+
+
+def test_profile_caps_very_wide_results(monkeypatch):
+    monkeypatch.setattr(frames, "PROFILE_COLUMNS", 3)
+    store = Frames()
+    p = store.profile(store.keep(pa.table({f"c{i}": [i] for i in range(5)})))
+    assert len(p["columns"]) == 3 and p["more_columns"] == 2
+
+
+def test_service_profile_after_restart_asks_to_run_again():
+    from fabric_desktop.service import Service
+    svc = Service.__new__(Service)
+    svc.kernel = Kernel()
+    (out,) = _run(svc.kernel, "import polars as pl\npl.DataFrame({'a': [1, 2]})")
+    assert svc.notebook_frame_profile(out["frame"])["columns"][0]["max"] == 2
+    svc.kernel.restart()
+    assert svc.notebook_frame_profile(out["frame"])["gone"]

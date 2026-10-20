@@ -455,6 +455,15 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def kernel_complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
 
+    def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
+        return self.kernel.inspect(code, cursor, bool(call))
+
+    def notebook_syntax(self, source: str) -> list[dict[str, Any]]:
+        """The first Python syntax error in a cell, for the editor's red underline."""
+        from .intellisense import syntax_problems
+        return syntax_problems(source)
+
     def _token_for(self, audience: str) -> str:
         """notebookutils.credentials.getToken on this PC: a token for you, from your sign-in."""
         from .notebookutils_local import _AUDIENCES

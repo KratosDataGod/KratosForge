@@ -94,6 +94,9 @@ class Host:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
 
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        return self.kernel.inspect(code, cursor, call)
+
     def attach(self, context: dict[str, Any] | None, guard: bool = False) -> bool:
         """The engine's attached lakehouse, with tokens and the managed-table check asked of the engine."""
         lh = self.lakehouse
@@ -138,7 +141,7 @@ class Host:
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
-    OPS = ("start", "poll", "interrupt", "variables", "complete", "attach", "bind_proof", "unbind_proof",
+    OPS = ("start", "poll", "interrupt", "variables", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
            "finish_proof", "proof_log", "reads", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:

@@ -350,6 +350,12 @@ class ProcessKernel:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self._request("complete", code=code, cursor=cursor)
 
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        """Hover and signature help come from the running process; none is started just for them."""
+        if self._proc is None or self._proc.poll() is not None:
+            return None
+        return self._request("inspect", code=code, cursor=cursor, call=call)
+
     def reads(self) -> dict[str, Any]:
         """What the cells read since this process started; nothing once it has ended."""
         if self._proc is None or self._proc.poll() is not None:

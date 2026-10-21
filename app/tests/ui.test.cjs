@@ -3684,6 +3684,22 @@ test("a Data Wrangler step that can't run is marked with its reason and blocks a
   assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });
 
+// Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
+test("Databricks dbutils snippets and docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Databricks widget", 'dbutils\.widgets\.text\("run_date"/);
+  assert.match(nb, /\["Databricks secret \(Key Vault scope\)", 'secret = dbutils\.secrets\.get\("<vault-name>"/);
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
+  assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});
+
 // The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
 test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
   const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");

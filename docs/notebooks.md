@@ -108,8 +108,23 @@ from pyspark.sql import functions as F
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
+| `session` | `restartPython()` (and `stop()`) stop the cell and restart Python, clearing variables, as `dbutils.library.restartPython()` does |
 | `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
+
+**Databricks `dbutils`** is there too, so notebooks written for Databricks run here unchanged where the same thing exists on this PC. It is a global in every cell, and `from databricks.sdk.runtime import dbutils` works.
+
+| Area | What works here |
+| --- | --- |
+| `fs` | `ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`, the same as `notebookutils.fs`. `dbfs:/`, `/dbfs/` and `/Volumes/` paths are Databricks storage, which this PC can't reach: use `Files/...` or a `file:` path. A bare absolute path like `/mnt/raw` or `/tmp/x` is DBFS in Databricks, so it is refused here rather than read as this PC's disk; write `file:/mnt/raw` for a local folder |
+| `notebook` | `run` (returns the exit value as a string, as in Databricks) and `exit`. Arguments passed to `run` are what the child notebook's widgets return. `entry_point...getContext()` gives `notebookPath`, `userName` and `tags` |
+| `widgets` | `text`, `dropdown`, `combobox`, `multiselect`, `get`, `getAll`, `getArgument`, `remove`, `removeAll`. A widget's value is the argument the run passed, else its default |
+| `secrets` | `get`, `getBytes` and `list`, where the scope is an **Azure Key Vault name** (as with Key Vault backed scopes), read as you with the Key Vault Secrets User role. Databricks-backed scopes live in Databricks and can't be read here. Secret values are hidden in Variables |
+| `jobs.taskValues` | `set` and `get`. In `notebookutils.notebook.runMultiple`, an activity reads what its upstream activities set, by activity name. Run by hand, `get` returns `debugValue`, as in Databricks |
+| `library` | `restartPython()` stops the cell and restarts Python, clearing variables. Installing libraries isn't possible here, because the engine's packages are fixed |
+| `data` | `summarize(df)` shows a summary of the data frame |
+
+Fabric has no `dbutils`, so **Where a notebook runs** says a notebook that uses it runs on this PC only; in Fabric, use `notebookutils`.
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.
 

@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-REPO = "KratosDataGod/fabric-desktop"
+REPO = "KratosDataGod/KratosForge"
 MIN_PYTHON = (3, 11)
 # Each update channel is a GitHub release: "latest" is replaced by every green build of main,
 # "stable" only when someone promotes a build (the Promote to stable workflow).

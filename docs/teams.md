@@ -1,6 +1,6 @@
 # Working across teams
 
-Fabric Desktop by KratosBI runs on each person's PC, but the work it produces is shared: metadata projects in Git, workspaces and lakehouses in Fabric, keys in `LH_Keys`. This page is about setting that up so many people and several teams can work side by side without stepping on each other.
+KratosForge runs on each person's PC, but the work it produces is shared: metadata projects in Git, workspaces and lakehouses in Fabric, keys in `LH_Keys`. This page is about setting that up so many people and several teams can work side by side without stepping on each other.
 
 ## Who does what
 

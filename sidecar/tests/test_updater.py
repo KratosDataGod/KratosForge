@@ -31,9 +31,11 @@ class FakeDist:
 
 
 @pytest.mark.parametrize("direct, commit, editable", [
+    ({"url": f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip", "archive_info": {}}, SHA, False),
+    # Copies installed before the repository was renamed recorded the old address.
     ({"url": f"https://github.com/KratosDataGod/fabric-desktop/archive/{SHA}.zip", "archive_info": {}}, SHA, False),
-    ({"url": "https://github.com/KratosDataGod/fabric-desktop/archive/refs/heads/main.zip", "archive_info": {}}, None, False),
-    ({"url": "https://github.com/KratosDataGod/fabric-desktop.git", "vcs_info": {"vcs": "git", "commit_id": SHA}}, SHA, False),
+    ({"url": "https://github.com/KratosDataGod/KratosForge/archive/refs/heads/main.zip", "archive_info": {}}, None, False),
+    ({"url": "https://github.com/KratosDataGod/KratosForge.git", "vcs_info": {"vcs": "git", "commit_id": SHA}}, SHA, False),
     ({"url": "file:///C:/src/fabric-desktop/sidecar", "dir_info": {"editable": True}}, None, True),
     (None, None, False),
 ])
@@ -237,7 +239,7 @@ def test_install_sidecar_reinstalls_from_commit(monkeypatch):
     monkeypatch.setattr(updater, "load_error", lambda: None)
     monkeypatch.setattr(updater.subprocess, "call", lambda cmd, **kwargs: calls.append(cmd) or 0)
     assert updater.install_sidecar(SHA) == 0
-    url = f"https://github.com/KratosDataGod/fabric-desktop/archive/{SHA}.zip#subdirectory=sidecar"
+    url = f"https://github.com/KratosDataGod/KratosForge/archive/{SHA}.zip#subdirectory=sidecar"
     assert calls[0][-1] == url and "--force-reinstall" not in calls[0]
     assert calls[1][-3:] == ["--force-reinstall", "--no-deps", url]
 

@@ -3,7 +3,7 @@
 Three places, strongest first:
 
     policy    %ProgramData%\\FabricDesktop\\policy.json, pushed by IT (Intune, Group Policy files).
-              Anything set here wins and shows as "Set by your organization".
+              Anything set here wins and shows as "Set by your organization's policy".
     user      %LOCALAPPDATA%\\FabricDesktop\\app-settings.json, written by the Settings page (the
               sidecar's settings.json, beside it, holds other things).
     built in  engine.json next to the engine's python.exe (written by CI), or
@@ -20,12 +20,24 @@ Keys:
                      organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
+    forge_animations  the first motion switch, kept so older settings and policy files still work:
+                     false means motion_level 0 unless motion_level itself is set
+    motion_level     visual intensity (docs/forge-animations.md): 0 Off, 1 Minimal (functional
+                     transitions only), 2 Refined (default), 3 Expressive
+    motion_wolf, motion_sparks, motion_ambient  true (default) to show that family of effects at
+                     levels 2 and 3; motion_achievements the same, but false by default
+    motion_follow_system  true (default): Windows' reduced-motion setting turns decorative motion
+                     off whatever the level; false lets the chosen level apply anyway
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
                      it's ended; 0 (default) for no limit
+    kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
+                     opening one more stops the least recently used idle one (default 5)
+    kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle
+                     minutes; 0 (default) keeps it
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -34,6 +46,8 @@ Keys:
     allow_fabric_runs  IT only: false stops the app starting jobs on Fabric capacity (Run in Fabric,
                      Fabric schedules, table maintenance, the Fabric side of proofs); work stays on
                      the PC (default true)
+    allow_notebook_packages  IT only: false stops people installing packages into notebook
+                     environments (environments.py); the engine's own packages still work
     allow_optimize_lakehouse  IT only: false stops Optimize creating, connecting to or writing to a
                      shared optimization lakehouse (default true)
     allow_replay_samples  IT only: false removes "A sample of the input data" from replay bundles
@@ -90,7 +104,8 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
-                            "allow_optimize_lakehouse": True}
+                            "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
+                            "allow_optimize_lakehouse": True, "allow_notebook_packages": True, "forge_animations": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -98,11 +113,17 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
-                                            "allow_optimize_lakehouse": bool}
+                                            "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
+                                            "allow_optimize_lakehouse": bool, "allow_notebook_packages": bool,
+                                            "forge_animations": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
-             "cell_time_limit_minutes", "kernel_memory_limit_gb")
-LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
+             "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
+             "forge_animations")
+LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
+          "kernel_max_sessions": 20, "kernel_idle_minutes": 7 * 24 * 60}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+# Settings an environment variable can set, between policy and user (load() reads them).
+ENV_VARS = {"client_id": "FABRIC_DESKTOP_CLIENT_ID"}
 
 
 # The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
@@ -113,6 +134,14 @@ DEFAULTS.update({"sql_page_rows": 1000, "sql_time_limit_minutes": 10, "sql_memor
                  "sql_max_concurrent": 2, "sql_temp_dir": "", "sql_result_retention_hours": 24})
 TYPES.update({key: int for key in SQL_RANGES} | {"sql_temp_dir": str})
 USER_KEYS += (*SQL_RANGES, "sql_temp_dir")
+
+# Motion and effects (app/ui/motion.js): the visual intensity level and one switch per family.
+MOTION_LEVELS = (0, 3)
+MOTION_SWITCHES = ("motion_wolf", "motion_sparks", "motion_achievements", "motion_ambient", "motion_follow_system")
+# Achievement celebrations are something people turn on (UX review, #361); the rest start on.
+DEFAULTS.update({"motion_level": 2} | {key: key != "motion_achievements" for key in MOTION_SWITCHES})
+TYPES.update({"motion_level": int} | {key: bool for key in MOTION_SWITCHES})
+USER_KEYS += ("motion_level", *MOTION_SWITCHES)
 
 # Incident SLA targets (workloads/sla.py checks the shape and says what it ignored).
 DEFAULTS["incident_sla"] = {}
@@ -244,6 +273,9 @@ def policy_problems() -> list[str]:
     if reason and not from_copy:
         return [reason]
     problems = [reason] if reason else []
+    if not from_copy and user_can_change(policy_path()):
+        problems.append(f"{policy_path()} can be changed by the account you're signed in to this PC with, so "
+                        "anyone using it can change what it allows. Ask IT to push it so only administrators can change it")
     for key, value in data.items():
         if key not in POLICY_KEYS:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
@@ -256,6 +288,8 @@ def policy_problems() -> list[str]:
                             + (", so it takes its most restrictive value" if key in RESTRICTED else ""))
         elif key == "channel" and value not in CHANNELS:
             problems.append(f"channel must be one of {', '.join(CHANNELS)}")
+        elif key == "motion_level" and not MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]:
+            problems.append(f"motion_level must be between {MOTION_LEVELS[0]} and {MOTION_LEVELS[1]}")
         elif key in SQL_RANGES and not SQL_RANGES[key][0] <= value <= SQL_RANGES[key][1]:
             problems.append(f"{key} must be between {SQL_RANGES[key][0]} and {SQL_RANGES[key][1]}")
         elif key == "client_id" and value and not valid_client_id(value):
@@ -280,6 +314,55 @@ def policy_problems() -> list[str]:
     return problems
 
 
+def user_can_change(path: Path) -> bool:
+    """Whether the account running the app can change or replace ``path``: write it, delete it, or
+    take over its permissions or its folder's (the folder's owner can do all of these). An
+    administrator, who can change it anyway, isn't counted. Only a warning: the engine itself is in
+    the person's own profile, so the policy file stops mistakes, not someone set on getting round
+    it (security.md)."""
+    try:
+        if not path.is_file():
+            return False
+        if sys.platform == "win32":
+            return _windows_can_change(path)
+        if os.geteuid() == 0:
+            return False
+        folder = path.parent
+        return (os.access(path, os.W_OK) or os.stat(path).st_uid == os.geteuid()
+                or os.stat(folder).st_uid == os.geteuid()
+                or (os.access(folder, os.W_OK) and not os.stat(folder).st_mode & 0o1000))
+    except (OSError, AttributeError):
+        return False
+
+
+# Rights that let someone change or replace a file without writing to it first. Creating files in
+# the folder isn't one: everyone may create files under %ProgramData%, but not replace IT's file.
+_FILE_RIGHTS = (0x2, 0x10000, 0x40000, 0x80000)  # FILE_WRITE_DATA, DELETE, WRITE_DAC, WRITE_OWNER
+_FOLDER_RIGHTS = (0x40, 0x40000, 0x80000)  # FILE_DELETE_CHILD, WRITE_DAC, WRITE_OWNER
+
+
+def _windows_can_change(path: Path) -> bool:
+    import ctypes
+    from ctypes import wintypes
+    if ctypes.windll.shell32.IsUserAnAdmin():
+        return False
+    create = ctypes.windll.kernel32.CreateFileW
+    create.restype = wintypes.HANDLE
+    create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+                       wintypes.DWORD, wintypes.HANDLE)
+    invalid = wintypes.HANDLE(-1).value
+
+    def opens(target: Path, access: int) -> bool:
+        # Opening only asks for the right; nothing is written. Share everything so IT's push isn't blocked.
+        handle = create(str(target), access, 0x7, None, 3, 0x02000000, None)  # OPEN_EXISTING, BACKUP_SEMANTICS
+        if handle in (None, invalid):
+            return False
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return True
+    return (any(opens(path, right) for right in _FILE_RIGHTS)
+            or any(opens(path.parent, right) for right in _FOLDER_RIGHTS))
+
+
 def _typed(key: str, value: Any) -> bool:
     """``value`` has the type ``key`` needs (true and false don't count as numbers)."""
     if isinstance(value, bool) and TYPES[key] is not bool:
@@ -292,6 +375,8 @@ def _in_range(key: str, value: Any) -> bool:
         return value >= 0
     if key in LIMITS:
         return 0 <= value <= LIMITS[key]
+    if key == "motion_level":
+        return MOTION_LEVELS[0] <= value <= MOTION_LEVELS[1]
     return True
 
 
@@ -321,8 +406,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "client_id":
-            candidates.append(("environment", os.environ.get("FABRIC_DESKTOP_CLIENT_ID")))
+        if key in ENV_VARS:
+            candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:
             candidates.append(("user", user.get(key)))
         if key == "client_id":
@@ -335,6 +420,13 @@ def load() -> dict[str, Any]:
         if key == "channel" and value not in CHANNELS:
             value, source = default, "default"
         out[key] = {"value": value, "source": source}
+    # The first motion switch turned off means Off: from the organization's policy always (unless it
+    # sets motion_level itself), from the person's own choice unless they chose a level since.
+    legacy, level = out["forge_animations"], out["motion_level"]
+    if legacy["value"] is False and (
+            (legacy["source"] == "policy" and level["source"] != "policy")
+            or (legacy["source"] == "user" and level["source"] == "default")):
+        out["motion_level"] = {"value": 0, "source": legacy["source"]}
     return out
 
 
@@ -351,6 +443,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is not a setting you can change")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+        if current[key]["source"] == "environment":
+            # Saving would say Saved for a value that never applies: the variable wins over this file.
+            raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "
+                             f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in SQL_RANGES:
@@ -361,8 +457,11 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry"):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations", *MOTION_SWITCHES):
             new = bool(new)
+        if key == "motion_level" and new is not None and (
+                isinstance(new, bool) or not isinstance(new, int) or not MOTION_LEVELS[0] <= new <= MOTION_LEVELS[1]):
+            raise ValueError(f"motion_level must be a whole number from {MOTION_LEVELS[0]} to {MOTION_LEVELS[1]}")
         if key in LIMITS:
             new = _limit(key, new)
         if new in (None, ""):

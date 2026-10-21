@@ -5,11 +5,14 @@ the activity and an ``ActivityContext`` from the runner (runner.py) and returns 
 output, or raises ``ActivityFailed``. Adapters never touch data, files or the network: they set
 variables, choose branches, loop, wait, fail, filter, and run a child pipeline whose definition is
 on this PC. Behaviour follows Microsoft's Data Factory documentation and is not compared with
-Fabric yet.
+Fabric yet. The Notebook adapter only reads its parameters; the run's notebook runner
+(``NotebookRunner``, given by the engine) runs the notebook.
 """
 
 from __future__ import annotations
 
+import json
+import keyword
 from typing import Any, Callable, Protocol
 
 from .definition import Activity
@@ -43,6 +46,8 @@ class ActivityContext(Protocol):
     def set_return_value(self, key: str, value: Any) -> None: ...
 
     def run_child(self, activity: Activity, key: str, parameters: dict[str, Any]) -> dict[str, Any]: ...
+
+    def run_notebook(self, activity: Activity, parameters: dict[str, Any]) -> dict[str, Any]: ...
 
     def note(self, **fields: Any) -> None: ...
 
@@ -230,6 +235,55 @@ def child_key(activity: Activity) -> str:
     if isinstance(ref, dict) and isinstance(ref.get("referenceName"), str):
         return ref["referenceName"]
     return tp.get("pipelineId") if isinstance(tp.get("pipelineId"), str) else ""
+
+
+def notebook_key(activity: Activity) -> str:
+    """How a Notebook activity names its notebook: the notebookId it runs."""
+    value = activity.type_properties.get("notebookId")
+    return value if isinstance(value, str) else ""
+
+
+def notebook_value(name: str, value: Any, typ: Any) -> Any:
+    """A Notebook activity parameter as the notebook gets it: Fabric's string, int, float or bool."""
+    typ = str(typ or "string").lower()
+    try:
+        if typ == "string":
+            return value if isinstance(value, str) else json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+        if typ == "bool":
+            if isinstance(value, bool):
+                return value
+            if isinstance(value, str) and value.lower() in ("true", "false"):
+                return value.lower() == "true"
+            raise ValueError(value)
+        if typ == "int":
+            if isinstance(value, bool) or (isinstance(value, float) and not value.is_integer()):
+                raise ValueError(value)
+            return int(value)
+        if typ == "float":
+            if isinstance(value, bool):
+                raise ValueError(value)
+            return float(value)
+    except (TypeError, ValueError):
+        raise ActivityFailed(f"Parameter {name}: {value!r} isn't a valid {typ}.", "LocalExpressionError") from None
+    raise ActivityFailed(f"Parameter {name}: type {typ!r} isn't one of string, int, float or bool.",
+                         "LocalExpressionError")
+
+
+class Notebook(LocalAdapter):
+    """Runs a notebook on this PC through the run's notebook runner (the engine's clean kernel)."""
+
+    def execute(self, activity: Activity, ctx: ActivityContext) -> Any:
+        given = activity.type_properties.get("parameters") or {}
+        if not isinstance(given, dict):
+            raise ActivityFailed("parameters must be an object.", "LocalExpressionError")
+        params = {}
+        for name, spec in given.items():
+            spec = spec if isinstance(spec, dict) else {"value": spec}
+            if not name.isidentifier() or keyword.iskeyword(name):
+                raise ActivityFailed(f"Parameter {name!r} isn't a Python name, so a notebook can't use it.",
+                                     "LocalExpressionError")
+            params[name] = notebook_value(name, _eval(spec.get("value"), ctx.scope, f"parameter {name}"), spec.get("type"))
+        return ctx.run_notebook(activity, params)
 
 
 class ExecutePipeline(LocalAdapter):

@@ -216,7 +216,7 @@ def test_code_too_long_to_show_is_refused_before_asking(store):
         reg.invoke(None, "ext_run", {"code": "x" * 25_000}, ctx(client["id"]))
     assert err.value.code == "too_large" and err.value.message == (
         "This code is too long to show for approval (25,000 characters, limit 20,000). "
-        "Run it in Fabric Desktop by KratosBI instead.")
+        "Run it in KratosForge instead.")
     assert store.approvals("") == []
     assert code_of(reg, "ext_run", client["id"], {"code": "x" * 20_000}) == "approval_required"
 

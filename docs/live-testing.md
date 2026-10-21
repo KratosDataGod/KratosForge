@@ -1,6 +1,6 @@
 # Live testing on your tenant
 
-Every automated test of Fabric Desktop by KratosBI fakes Fabric. The live test is the one that calls it: it signs in, creates a throwaway lakehouse in a workspace you set aside for tests, writes and reads OneLake files and Delta tables, checks that errors are reported, deletes what it created, and writes a report. Use it to prove the app works with your tenant's settings before a pilot, after a tenant setting changes, and before moving a build to Stable.
+Every automated test of KratosForge fakes Fabric. The live test is the one that calls it: it signs in, creates a throwaway lakehouse in a workspace you set aside for tests, writes and reads OneLake files and Delta tables, checks that errors are reported, deletes what it created, and writes a report. Use it to prove the app works with your tenant's settings before a pilot, after a tenant setting changes, and before moving a build to Stable.
 
 It never touches production on purpose, and it refuses to start anywhere that might be production.
 
@@ -47,12 +47,33 @@ The exit code is 0 when every check passed, 1 when one failed, and 2 when the wo
 
 A check that depends on an earlier one that failed is marked Skipped, with the reason.
 
+## Opt-in checks
+
+These take longer, create items besides the lakehouse, and use capacity, so the default run leaves them out. Add `--all` to run the first three, or name one or more with `--check <id>`:
+
+```powershell
+fabric-desktop live-test --workspace <workspace id> --all --dry-run              # lists them, with what each writes
+fabric-desktop live-test --workspace <workspace id> --check delta.concurrent
+fabric-desktop live-test --workspace <workspace id> --all --run-in-fabric        # also runs a notebook in Fabric
+```
+
+| Check id | What it does and writes | What it proves |
+| --- | --- | --- |
+| `delta.concurrent` | Two writers append 50 rows each at the same moment to `dbo.livetest_concurrent` in the test lakehouse, through the same write path notebooks and jobs use. Writes to OneLake, which uses capacity. | Both commits land (version 2), the row count is the sum, no row is lost. The detail says which writer had to retry after losing the commit race, if either did. |
+| `notebook.publish` | Publishes a two-cell notebook item `fdlt_<run id>_nb` the way **Publish to Fabric** does, reads its definition back and compares the cells. Creating an item uses capacity. | Publishing and reading notebook definitions work with your tenant. |
+| `pipeline.definition` | Creates a DataPipeline item `fdlt_<run id>_pl` with one Wait activity, reads its definition back, parses it and exports it again. Creating an item uses capacity. | The app reads Fabric's pipeline definitions and round-trips them without loss. |
+| `notebook.run` | Runs `fdlt_<run id>_nb` in Fabric the way **Run in Fabric** does and waits up to 30 minutes (then cancels it). Spends Spark capacity. | Fabric's job scheduler runs a notebook the app published. |
+
+`notebook.run` only runs with `--run-in-fabric` (which also publishes the notebook). Without it the result says `skipped: needs --run-in-fabric`. Your organization's policy can block runs in Fabric; the check then fails with that reason.
+
+Every item these checks create is named `fdlt_<run id>_...`, goes into the ledger the moment it exists, and is deleted in cleanup before the lakehouse. If an item with that name already exists, the check fails rather than overwrite it. The same production refusals apply.
+
 ## Results
 
 Each run gets an id and a folder, `live-test-results/<run id>/`:
 
 - `summary.md`: a table of every check with its result, time and detail. Attach it to a bug report or a pilot sign-off.
-- `result.json`: the same as data (`"schema": "live-test-result@1"`), for comparing runs.
+- `result.json`: the same as data (`"schema": "live-test-result@1"`), for comparing runs. Each check has its `id`, `status` (`passed`, `failed` or `skipped`), `seconds` and `detail`; `opt_in` lists the opt-in checks the run included.
 - `ledger.json`: everything the run created that still exists. Normally empty at the end.
 
 Neither file holds a token: anything token-shaped in an error message is replaced with `[removed]`. They do hold the workspace's name and id and your tenant id, so share them as you would those.
@@ -65,14 +86,13 @@ If the run was stopped, or deleting failed, the summary lists what was **left be
 fabric-desktop live-test --cleanup live-test-results\<run id>\ledger.json
 ```
 
-It deletes only what that ledger lists, only in that workspace, and only things named `fdlt_<run id>`. You can also delete a `fdlt_...` lakehouse in Fabric by hand.
+It deletes only what that ledger lists, only in that workspace, and only things named `fdlt_<run id>` or `fdlt_<run id>_...`. Before each delete it reads the item from Fabric and skips it, leaving it in the ledger, unless its type and name still match. You can also delete a `fdlt_...` lakehouse, notebook or pipeline in Fabric by hand.
 
 If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse recoverable for a while; it still counts toward the workspace's item limit until it is purged.
 
 ## What it doesn't check yet
 
-- Running notebooks in Fabric (Run in Fabric, schedules) and pipelines.
-- Two writers committing to one table at once ([roadmap FD-2](enterprise-roadmap.md#work-items)).
+- Schedules, and running pipelines (the pipeline check reads and writes a definition; it doesn't run it).
 - Shortcuts, data access roles and the platform's SQL database.
 
-These need longer runs or capacity time; they will be added as separate, opt-in checks.
+These need longer runs or capacity time; they will be added as more opt-in checks.

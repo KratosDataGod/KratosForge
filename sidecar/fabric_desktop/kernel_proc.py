@@ -31,7 +31,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import lakehouse
+from .frames import GONE, FrameGone
 
+DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
@@ -58,6 +60,8 @@ class ProcessKernel:
         self._proof_options = proof_options
         self.command = command or [sys.executable, "-m", "fabric_desktop.kernel_host"]
         self.notebook_name = ""
+        self.widget_values: dict[str, str] = {}
+        self.resources_dir = ""  # passed with each cell (notebook.Kernel.resources_dir)
         self._lock = threading.Lock()  # one process at a time: starting, stopping
         self._proc: subprocess.Popen[str] | None = None
         self._tree: _Tree | None = None  # the process and everything its cells start
@@ -75,6 +79,7 @@ class ProcessKernel:
         self._started_at: float | None = None  # when the running cell started, if it has a time limit
         self._interrupted_at: float | None = None
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
+        self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
 
     # ---- the process
 
@@ -86,7 +91,8 @@ class ProcessKernel:
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
-                                    env=dict(os.environ, PYTHONUNBUFFERED="1"))
+                                    env=dict(os.environ, PYTHONUNBUFFERED="1",
+                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)
@@ -143,7 +149,7 @@ class ProcessKernel:
                 self.limit_hit = "time"
                 self._interrupted_at = now
                 try:
-                    self._request("interrupt", timeout=ANSWER_SECONDS)
+                    self._request("interrupt", timeout=ANSWER_SECONDS, spawn=False)
                 except (KernelGone, RuntimeError):
                     pass
             elif self._interrupted_at is not None and now - self._interrupted_at > TIME_GRACE_SECONDS:
@@ -202,8 +208,12 @@ class ProcessKernel:
             except (OSError, ValueError) as exc:
                 raise KernelGone("The notebook's Python process stopped.") from exc
 
-    def _request(self, op: str, timeout: float = ANSWER_SECONDS, **args: Any) -> Any:
-        proc = self._ensure()
+    def _request(self, op: str, timeout: float = ANSWER_SECONDS, spawn: bool = True, **args: Any) -> Any:
+        """Send ``op`` and wait for its answer. ``spawn`` False asks only a process that is running:
+        a poll or interrupt that starts a fresh one would report its idle state as the ended cell's."""
+        proc = self._ensure() if spawn else self._proc
+        if proc is None or proc.poll() is not None:
+            raise KernelGone("The notebook's Python process stopped.")
         rid = f"p{next(self._ids)}"
         slot: dict[str, Any] = {"done": threading.Event()}
         self._waiting[rid] = slot
@@ -236,9 +246,13 @@ class ProcessKernel:
 
     # ---- the Kernel interface
 
-    def start(self, code: str, time_limit: bool = True, watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, time_limit: bool = True, watches: list[str] | None = None,
+              breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         """Start ``code``. ``time_limit`` False runs this one cell without the cell time limit.
-        ``watches`` are evaluated after it (notebook.Kernel.start)."""
+        ``watches`` are evaluated after it, ``breakpoints`` and ``step`` run it under the debugger
+        (notebook.Kernel.start). A debugged cell has no time limit: time paused counts as running."""
+        if breakpoints or step:
+            time_limit = False
         if self._running and self._proc is not None:
             snap = self.poll()
             if snap["status"] == "running":
@@ -253,7 +267,9 @@ class ProcessKernel:
         if time_limit:
             self._started_at = time.monotonic()
         try:
-            snap = self._request("start", code=code, notebook_name=self.notebook_name, watches=list(watches or []))
+            snap = self._request("start", code=code, notebook_name=self.notebook_name,
+                                 widget_values=dict(self.widget_values), resources_dir=self.resources_dir, watches=list(watches or []),
+                                 breakpoints=list(breakpoints or []), step=step)
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
             deadline = time.monotonic() + 5
@@ -274,7 +290,8 @@ class ProcessKernel:
                 last["outputs"] = None
             return last
         try:
-            snap = self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, version=known_version, wait=wait)
+            snap = self._request("poll", timeout=min(wait, 2.0) + ANSWER_SECONDS, spawn=False, version=known_version,
+                                 wait=wait)
         except KernelGone:
             return self.poll(known_version, 0.0) if self._proc is None else self._stuck(known_version)
         if snap.get("outputs") is not None:
@@ -298,7 +315,7 @@ class ProcessKernel:
         if self._proc is None or self._proc.poll() is not None:
             return {"interrupted": False}
         try:
-            return self._request("interrupt", timeout=ANSWER_SECONDS)
+            return self._request("interrupt", timeout=ANSWER_SECONDS, spawn=False)
         except KernelGone:
             return {"interrupted": True, "stopped": False}
 
@@ -337,6 +354,11 @@ class ProcessKernel:
                 outputs = snap["outputs"]
         return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs}
 
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        from .debugger import EVAL_SECONDS
+        return self._request("debug", timeout=EVAL_SECONDS + ANSWER_SECONDS, spawn=False, action=action,
+                             expression=expression)
+
     def variables(self) -> list[dict[str, Any]]:
         if self._proc is None or self._proc.poll() is not None:
             return []
@@ -345,11 +367,51 @@ class ProcessKernel:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self._request("complete", code=code, cursor=cursor)
 
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        """Hover and signature help come from the running process; none is started just for them."""
+        if self._proc is None or self._proc.poll() is not None:
+            return None
+        return self._request("inspect", code=code, cursor=cursor, call=call)
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        if self._proc is None or self._proc.poll() is not None:
+            return {"name": name, "missing": True}
+        return self._request("variable_detail", name=name)
+
     def reads(self) -> dict[str, Any]:
         """What the cells read since this process started; nothing once it has ended."""
         if self._proc is None or self._proc.poll() is not None:
             return {"tables": {}, "files": {}}
         return self._request("reads")
+
+    # ---- the result viewer (frames.py): results live where the cells ran
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
+                             limit=limit, sort=sort, desc=desc, q=q)
+
+    def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_chart", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, **spec)
+
+    def frame_profile(self, frame: str) -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_profile", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame)
+
+    def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_wrangle", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, steps=steps, name=name)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 
@@ -380,9 +442,11 @@ class ProcessKernel:
 class _Tree:
     """The kernel process and every process its cells start, so Stop ends them all (HD-037).
 
-    On Linux and macOS the kernel leads its own process group. On Windows it is in a Job Object
-    that also ends the whole tree if the engine itself goes away; if the job can't be made (an
-    older Windows that doesn't allow nested jobs), only the kernel process is ended."""
+    On Linux and macOS the kernel leads its own process group, and Stop also ends every process
+    below it by parent links: a cell's process that starts its own session or group (a server,
+    ``start_new_session=True``) leaves the group and used to outlive Stop. On Windows it is in a
+    Job Object that also ends the whole tree if the engine itself goes away; if the job can't be
+    made (an older Windows that doesn't allow nested jobs), only the kernel process is ended."""
 
     def __init__(self, proc: subprocess.Popen[str]):
         self.proc = proc
@@ -401,11 +465,69 @@ class _Tree:
             self.release()
         else:
             import signal
+            # Freeze the tree first, so nothing in it starts a process while it is being found,
+            # then end it. Parent links are read before the kernel dies and its children move.
+            frozen = _signal_tree(self.proc.pid, signal.SIGSTOP)
+            for pid in frozen:
+                _signal(pid, signal.SIGKILL)
             try:
                 os.killpg(self.proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
         self.proc.kill()
+
+
+def _signal(pid: int, sig: int) -> None:
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _signal_tree(root: int, sig: int) -> list[int]:
+    """Send ``sig`` to ``root`` and every process below it, looking again until no new one
+    turns up (each is stopped as it is found, so it can't start more). Returns them all."""
+    sent: list[int] = []
+    todo = [root]
+    for _ in range(10):
+        for pid in todo:
+            _signal(pid, sig)
+        sent += todo
+        todo = [p for p in _descendants(root) if p not in sent]
+        if not todo:
+            break
+    return sent
+
+
+def _descendants(root: int) -> list[int]:
+    """Every process below ``root`` by parent links: /proc on Linux, ps on macOS."""
+    children: dict[int, list[int]] = {}
+    for pid, ppid in _parents():
+        children.setdefault(ppid, []).append(pid)
+    out, todo = [], [root]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            out.append(child)
+            todo.append(child)
+    return out
+
+
+def _parents() -> list[tuple[int, int]]:
+    proc = Path("/proc")
+    if proc.is_dir():
+        pairs = []
+        for entry in proc.iterdir():
+            if entry.name.isdigit():
+                try:  # "pid (name) state ppid ...": the name can hold spaces and parentheses
+                    pairs.append((int(entry.name), int((entry / "stat").read_text().rsplit(")", 1)[1].split()[1])))
+                except (OSError, IndexError, ValueError):
+                    continue  # it ended while being read
+        return pairs
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, timeout=10, check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(int(a), int(b)) for a, b in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
 
 
 @functools.cache

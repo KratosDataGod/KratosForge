@@ -13,16 +13,28 @@ const state = {
   lakehouseView: null,       // {workspace_id, workspace_name, lakehouse_id, name}
   notebook: null,            // {name, cells, lakehouse, dirty}
   selected: null,            // selected cell id
-  kernel: "idle",            // idle | busy | stopped
   ribbonTab: "home",
   explorerTab: "data",
   showExplorer: true,
   tree: {},                  // explorer cache: key -> {open, items, loading}
 };
 
+// Each notebook has a session of its own (kernel_sessions.py), so the kernel's state is the open
+// notebook's: idle | busy | stopped. Inside the engine every notebook shares one kernel, so a
+// cell running in any notebook makes them all busy.
+Object.defineProperty(state, "kernel", {
+  get() { return kernelBusy(state.notebook) ? "busy" : state.notebook?.kernelStatus || "idle"; },
+  set(status) { if (state.notebook) state.notebook.kernelStatus = status; },
+});
+
+// Notebooks opened since the app started, by name: a notebook still running in its session keeps
+// running when another is opened, and opening it again shows its live output. Others reopen
+// from disk with their last outputs.
+const openNotebooks = new Map();
+const KEPT_NOTEBOOKS = 10;
+
 let nextCellId = 1;
 let saveTimer = null;
-let stopRequested = false;
 
 // ---------- small DOM helpers ----------
 
@@ -55,10 +67,16 @@ function hydrateIcons(root = document) {
 }
 
 // A short message at the bottom of the window. Errors, and messages marked log, also go to the
-// activity tray, which keeps them; quiet ones (the tray already has them) don't.
+// activity tray, which keeps them; quiet ones (the tray already has them) don't. opts.action
+// ({label, run}) adds a button, such as Retry. Errors are announced at once (role=alert), and the
+// toast stays while the pointer or keyboard focus is on it (UX-011).
 function toast(text, isError = false, opts = {}) {
   const t = document.getElementById("toast");
   t.textContent = opts.details ? `${text}\nDetails are in Activity (the bell).` : text;
+  if (opts.action) {
+    t.append(" ", btn(opts.action.label, null, () => { clearTimeout(toast.timer); t.hidden = true; opts.action.run(); },
+      "tool small toast-action"));
+  }
   if ((isError || opts.log) && !opts.quiet) {
     const title = opts.title || (isError ? "Something didn't work" : text);
     const body = title === text ? "" : opts.title && text.startsWith(`${opts.title}: `) ? text.slice(opts.title.length + 2) : text;
@@ -66,21 +84,56 @@ function toast(text, isError = false, opts = {}) {
   }
   // On Monitor the bottom of the window is Fabric's native view, which would cover the toast.
   t.className = `toast${isError ? " error" : ""}${state.view === "monitor" ? " top" : ""}`;
+  t.setAttribute("role", isError ? "alert" : "status");
   t.hidden = false;
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, isError ? 8000 : 4000);
+  toast.wait = isError ? 8000 : 4000;
+  if (!toast.wired) {
+    toast.wired = true;
+    const hold = () => { toast.held = true; clearTimeout(toast.timer); };
+    const release = () => {
+      if (t.matches(":hover") || t.contains(document.activeElement)) return;
+      toast.held = false;
+      toast.later();
+    };
+    t.addEventListener("mouseenter", hold);
+    t.addEventListener("focusin", hold);
+    t.addEventListener("mouseleave", release);
+    t.addEventListener("focusout", () => setTimeout(release));
+  }
+  toast.later = () => { clearTimeout(toast.timer); toast.timer = setTimeout(() => { t.hidden = true; }, toast.wait); };
+  if (!toast.held) toast.later(); else clearTimeout(toast.timer);
 }
 
-async function attempt(fn, label) {
+// Runs fn and shows a failure as an error toast titled label. With retry (true, or another
+// function to run instead), the toast has a Retry button. Pass it only for a read or an action that
+// is safe to repeat; Retry runs it again with no further question. What the caller does with the
+// result doesn't run after a Retry, so pass a function that does both when that matters.
+async function attempt(fn, label, opts = {}) {
   try {
     return await fn();
   } catch (err) {
     const f = friendlyError(err);
     if (f.cancelled) return undefined;  // a cancelled sign-in isn't a failure; every other error is shown
-    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, { title: label, details: f.details });
+    const again = opts.retry === true ? fn : opts.retry;
+    toast(label && !f.text.startsWith(label) ? `${label}: ${f.text}` : f.text, true, {
+      title: label, details: f.details,
+      action: typeof again === "function" ? { label: "Retry", run: () => attempt(again, label, opts) } : null,
+    });
     return undefined;
   }
 }
+
+// A click whose handler throws (or whose promise fails) outside attempt() would otherwise do
+// nothing at all on screen: say so, with the error in Activity.
+function reportUncaught(err) {
+  const f = friendlyError(err);
+  if (f.cancelled) return;
+  toast(`Something didn't work: ${f.text}`, true, { details: f.details || (err?.stack ?? "") });
+}
+// Only thrown errors: an event without one is browser noise, such as WebView2's "ResizeObserver loop
+// completed with undelivered notifications", or a resource that didn't load.
+window.addEventListener("error", (e) => { if (e.error) reportUncaught(e.error); });
+window.addEventListener("unhandledrejection", (e) => reportUncaught(e.reason));
 
 function matches(text) {
   return !state.query || String(text).toLowerCase().includes(state.query.toLowerCase());
@@ -88,8 +141,14 @@ function matches(text) {
 
 // ---------- dialogs and menus ----------
 
+// The open dialog's onClose: closeDialog, or a new dialog replacing it, runs it once (UI-4).
+let dialogOnClose = null;
+
 function closeDialog() {
+  const onClose = dialogOnClose;
+  dialogOnClose = null;
   document.getElementById("dialog-root").replaceChildren();
+  onClose?.();
 }
 
 // Keyboard use of dialogs: focus starts inside, Tab stays inside, Escape closes one that a click
@@ -113,8 +172,8 @@ function trapFocus(e, root) {
 document.addEventListener("keydown", (e) => {
   const root = document.getElementById("dialog-root");
   if (!root?.childElementCount) return;
-  if (e.key === "Tab") trapFocus(e, root);
-  else if (e.key === "Escape" && root.querySelector(".overlay[data-dismiss]")) {
+  if (isShortcut(e, "focus")) trapFocus(e, root);
+  else if (isShortcut(e, "close") && root.querySelector(".overlay[data-dismiss]")) {
     closeDialog();
     e.stopImmediatePropagation();  // one Escape closes one thing, not the activity tray behind it too
   }
@@ -134,14 +193,18 @@ new MutationObserver(() => {
   }
 }).observe(document.getElementById("dialog-root"), { childList: true });
 
-function showDialog(title, body, actions = []) {
+// onClose runs once however the dialog goes: overlay click, the X, Escape, an action or a new dialog.
+function showDialog(title, body, actions = [], onClose = null) {
   const overlay = h("div", { class: "overlay", "data-dismiss": true, onmousedown: (e) => { if (e.target === overlay) closeDialog(); } },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": title },
       h("div", { class: "dialog-head" }, title,
         h("button", { class: "tool small", "aria-label": "Close", onclick: closeDialog }, icon("dismiss", 16))),
       body,
       actions.length ? h("div", { class: "dialog-actions" }, actions) : null));
+  const previous = dialogOnClose;
+  dialogOnClose = onClose;
   document.getElementById("dialog-root").replaceChildren(overlay);
+  previous?.();
   overlay.querySelector("input, select")?.focus();
   return overlay;
 }
@@ -151,7 +214,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
   return new Promise((resolve) => {
     const input = h("input", { value: initial });
     const problem = h("p", { class: "error-text", style: "font-size:13px;margin-top:8px", hidden: true });
-    const done = (value) => { closeDialog(); resolve(value); };
+    const done = (value) => { resolve(value); closeDialog(); };
     const submit = () => {
       const value = input.value.trim();
       if (!value) return;
@@ -167,7 +230,7 @@ function askText(title, label, initial = "", okLabel = "OK", check = null) {
     showDialog(title, h("div", {}, h("label", { class: "field" }, label, input), problem), [
       btn("Cancel", null, () => done(null), "tool outline"),
       btn(okLabel, null, submit, "tool primary"),
-    ]);
+    ], () => resolve(null));
     input.select();
   });
 }
@@ -210,9 +273,9 @@ document.addEventListener("keydown", (e) => {
   if (!menu) return;
   const items = [...menu.querySelectorAll("[role=menuitem]")];
   const at = items.indexOf(document.activeElement);
-  const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
-  if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
-  else if (e.key === "Tab") closeMenu(true);  // back on its button, so Tab goes on to the next control
+  const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
+  if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
+  else if (isShortcut(e, "focus")) closeMenu(true);  // back on its button, so Tab goes on to the next control
   else if (move !== undefined && items.length) {
     e.preventDefault();
     items[(move + items.length) % items.length].focus();
@@ -224,7 +287,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   const el = e.target;
   if (!(el instanceof Element) || e.altKey || e.ctrlKey || e.metaKey) return;
-  if ((e.key === "Enter" || e.key === " ") && el.classList.contains("click") && el === document.activeElement
+  if (isShortcut(e, "open") && el.classList.contains("click") && el === document.activeElement
       && !["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) {
     e.preventDefault();
     el.click();
@@ -233,7 +296,7 @@ document.addEventListener("keydown", (e) => {
   if (el.getAttribute("role") !== "tab") return;
   const tabs = [...(el.closest("[role=tablist]")?.querySelectorAll("[role=tab]") || [])];
   const at = tabs.indexOf(el);
-  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  const next = isShortcut(e, "tabs") ? { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key] : undefined;
   if (next === undefined || at < 0) return;
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
@@ -263,7 +326,9 @@ async function ensureSignedIn() {
 async function loadWorkspaces() {
   if (!(await ensureSignedIn())) return [];
   if (!state.workspaces) {
-    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces")) || null;
+    // Listing workspaces only reads, so the error toast offers Retry; it fills the list and redraws (UX-011).
+    const again = async () => { state.workspaces = await rpc("list_workspaces"); render(); };
+    state.workspaces = (await attempt(() => rpc("list_workspaces"), "Could not list workspaces", { retry: again })) || null;
   }
   return state.workspaces || [];
 }
@@ -274,13 +339,171 @@ function lakehouseRef(ws, lh) {
 
 // ---------- navigation and chrome ----------
 
+// ---------- navigation history (UX-008) ----------
+
+// Back and Forward walk a list of {view, values}: the page, plus the one field each page keeps its
+// tab in (or the item it shows). The entry you're on is kept up to date on every render, so a tab
+// clicked on a page comes back with it. The last page is remembered on this PC and opened on start.
+const NAV_LIMIT = 50;
+const NAV_KEY = "fd.nav.last";
+const nav = { stack: [], index: -1, restored: false };  // nothing is saved until the last page is read back
+// The fields that make up each page's place: [object, key] pairs, read when the entry is saved and
+// written back when you go Back or Forward to it. The first pair of a "tab" page is its tab.
+const NAV_FIELDS = {
+  metadata: () => [[state.meta, "tab"]],
+  monitor: () => [[monitorPage, "panel"]],
+  onelake: () => [[catalogPage, "tab"]],
+  optimize: () => [[optimizePage, "tab"]],
+  platform: () => [[platformPage, "tab"]],
+  source: () => [[gitPage, "tab"]],
+  settings: () => [[state, "settingsTab"]],
+  workspace: () => [[state, "openWorkspace"]],
+  lakehouse: () => [[state, "lakehouseView"], [state, "openWorkspace"]],
+  entity: () => [[state.meta, "entity"]],
+  workload: () => [[wlPage, "id"]],
+  incident: () => [[incPage, "id"], [incPage, "env_of"]],
+  agent: () => [[agPage, "name"]],
+};
+// Pages whose tab is remembered across a restart; the rest reopen on their rail page.
+const NAV_TAB_VIEWS = ["metadata", "monitor", "onelake", "optimize", "platform", "source", "settings"];
+
+function navFields(view) {
+  try { return (NAV_FIELDS[view] || (() => []))(); } catch { return []; }
+}
+
+function navEntry(view) {
+  return { view, values: navFields(view).map(([o, k]) => o?.[k]) };
+}
+
+function navSame(a, b) {
+  return !!a && !!b && a.view === b.view && JSON.stringify(a.values) === JSON.stringify(b.values);
+}
+
+// The feature a view belongs to, and whether it can be shown now (registered, and not a preview
+// feature while preview features are hidden).
+function navFeature(view) {
+  return features.list.find((f) => f.views && Object.prototype.hasOwnProperty.call(f.views, view));
+}
+function navShown(view) {
+  const f = navFeature(view);
+  return !!f && (!f.preview || previewShown());
+}
+
+// Whether an entry can be opened again: its page is shown, and what it showed is still there.
+function navAvailable(entry) {
+  if (!entry || !navShown(entry.view)) return false;
+  if (entry.view === "notebook") return !!state.notebook;
+  if (entry.view === "query") return !!sqlPage.ref;
+  if (NAV_FIELDS[entry.view] && !NAV_TAB_VIEWS.includes(entry.view)) return entry.values[0] != null;
+  return true;
+}
+
+// Keeps the entry you're on in step with the page as drawn, and remembers it on this PC.
+function navSync() {
+  const here = navEntry(state.view);
+  if (nav.index < 0) { nav.stack = [here]; nav.index = 0; } else nav.stack[nav.index] = here;
+  if (nav.restored) navSave(here);
+}
+
+function navSave(entry) {
+  const tab = NAV_TAB_VIEWS.includes(entry.view) && typeof entry.values[0] === "string" ? entry.values[0] : null;
+  try { localStorage.setItem(NAV_KEY, JSON.stringify({ view: entry.view, tab })); } catch { /* not remembered */ }
+}
+
+// Called by go() with the page about to open: the page being left is already saved by navSync.
+function navPush(view) {
+  if (nav.index < 0) navSync();
+  const next = navEntry(view);
+  if (navSame(nav.stack[nav.index], next)) return;
+  nav.stack = nav.stack.slice(0, nav.index + 1);
+  nav.stack.push(next);
+  if (nav.stack.length > NAV_LIMIT) nav.stack.shift();
+  nav.index = nav.stack.length - 1;
+}
+
+// The nearest entry Back (step -1) or Forward (step 1) opens, or -1.
+function navTarget(step) {
+  for (let i = nav.index + step; i >= 0 && i < nav.stack.length; i += step) {
+    if (navAvailable(nav.stack[i])) return i;
+  }
+  return -1;
+}
+function navCan(step) {
+  return navTarget(step) >= 0;
+}
+
+function navMove(step) {
+  const i = navTarget(step);
+  if (i < 0) return false;
+  if (nav.index >= 0) nav.stack[nav.index] = navEntry(state.view);
+  nav.index = i;
+  const entry = nav.stack[i];
+  navFields(entry.view).forEach(([o, k], n) => { if (o) o[k] = entry.values[n]; });
+  closeMenu();
+  state.view = entry.view;
+  render();
+  return true;
+}
+function navBack() { return navMove(-1); }
+function navForward() { return navMove(1); }
+
+// The page to open on start: the last one, its tab too, or its rail page when it showed an item
+// that isn't open any more; Home when that page no longer exists or is hidden.
+function navRestore() {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem(NAV_KEY) || "null"); } catch { /* start on Home */ }
+  const view = navStartView(last?.view);
+  if (view === last?.view && NAV_TAB_VIEWS.includes(view) && typeof last.tab === "string") {
+    const [pair] = navFields(view);
+    if (pair?.[0]) pair[0][pair[1]] = last.tab;
+  }
+  state.view = view;
+  nav.stack = [navEntry(view)];
+  nav.index = 0;
+  nav.restored = true;
+  return view;
+}
+function navStartView(view) {
+  if (typeof view !== "string" || !navShown(view)) return "home";
+  const f = navFeature(view);
+  const main = Object.keys(f.views)[0];
+  if (f.rail && main === view) return view;
+  // An item page (a workspace, a run, a notebook) reopens on the rail page it sits under.
+  const parent = features.list.find((x) => x.rail && (x.rail.also || []).includes(view));
+  if (parent) return Object.keys(parent.views)[0];
+  return f.rail ? main : "home";
+}
+
+// Alt+Left and Alt+Right, except while typing or with a dialog open. Keys pressed inside the embedded
+// Fabric portal never reach this page (it is a separate child webview, main.rs add_child); there they
+// move within Fabric's own history, so the top-bar buttons are the way out.
+function navKey(e) {
+  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+  const t = e.target;
+  if (t?.closest?.("input, textarea, select, [contenteditable], .cm-editor")) return false;
+  if (document.getElementById("dialog-root")?.childElementCount) return false;
+  e.preventDefault();
+  if (e.key === "ArrowLeft") navBack(); else navForward();
+  return true;
+}
+
+function renderNavButtons() {
+  const back = document.getElementById("nav-back");
+  const fwd = document.getElementById("nav-forward");
+  if (back) back.disabled = !navCan(-1);
+  if (fwd) fwd.disabled = !navCan(1);
+}
+
 function go(view) {
   closeMenu();
+  navPush(view);
   state.view = view;
   render();
 }
 
 function renderChrome() {
+  renderNavButtons();
   renderEnvBar();
   renderBell();
   if (typeof renderGitPill === "function") renderGitPill();  // git.js loads last
@@ -321,8 +544,8 @@ function renderChrome() {
 
   const crumbs = [];
   if (state.view === "notebook" && state.notebook) {
-    const lh = state.notebook.lakehouse;
-    crumbs.push(h("span", {}, lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
+    const lh = nbLakehouse(state.notebook);
+    crumbs.push(h("span", {}, state.notebook.place ? state.notebook.place.label : lh ? lh.workspace_name || "Workspace" : "My notebooks"), h("span", { "aria-hidden": "true" }, "/"));
     crumbs.push(h("button", { class: "current", title: "Rename notebook", onclick: renameNotebook },
       state.notebook.name + (state.notebook.dirty ? " •" : "")));
   } else if (state.view === "workspace" && state.openWorkspace) {
@@ -354,13 +577,32 @@ function renderChrome() {
 }
 
 function render() {
+  navSync();
   renderChrome();
   if (state.view !== fabricView.owner) placeFabricView();
   (features.views[state.view] || renderHome)();
 }
 
 function setView(...children) {
-  document.getElementById("view").replaceChildren(...children);
+  const view = document.getElementById("view");
+  view.replaceChildren(...children);
+  viewTransition(view);  // motion.js: only when the page itself changed
+}
+
+// The shared look for a part of a page that is still being read (UX-020): a small spinner and the
+// label, announced once to screen readers. cls adds classes a page already lays out with; live: false
+// leaves out role="status" where one line elsewhere already speaks for the whole page.
+function loading(label = "Loading...", cls = "", { live = true } = {}) {
+  return h("div", { class: `loading muted-text${cls ? ` ${cls}` : ""}`, role: live ? "status" : null },
+    h("span", { class: "spinner", "aria-hidden": "true" }), label);
+}
+
+// The shared look for a list with nothing in it yet (UX-020): an optional icon, a title, a line
+// saying what goes here, and an optional button (or several) to add the first one.
+function emptyState({ icon: name, title, text, action } = {}) {
+  return h("div", { class: "empty" }, name ? icon(name, 32) : null,
+    title ? h("span", { class: "title" }, title) : null,
+    text ? h("span", { class: "text" }, text) : null, action);
 }
 
 function signInCallout() {
@@ -373,9 +615,13 @@ function signInCallout() {
 // ---------- Home, Create, Monitor ----------
 
 // A section that folds to its header, remembered on this PC. head is what stays visible.
-function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
-  let folded = false;
-  try { folded = localStorage.getItem(`fd.fold.${id}`) === "1"; } catch { /* unfolded */ }
+// start: whether it opens folded the first time; after that it opens as it was left on this PC.
+function foldable(id, head, body, { cls = "card pad", always = null, start = false } = {}) {
+  let folded = start;
+  try {
+    const saved = localStorage.getItem(`fd.fold.${id}`);
+    if (saved === "1" || saved === "0") folded = saved === "1";
+  } catch { /* as it starts */ }
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {
@@ -401,10 +647,30 @@ function homeUpdatedText() {
   return min < 1 ? "Updated just now" : `Updated ${min} min ago`;
 }
 
+// Home while the component and update check runs (UX-020): drawn at once, with placeholders where
+// the engine's answers go. It calls nothing, since nothing may start the sidecar until the check is
+// done; the real Home replaces it when the check returns. Nothing here is kept in homeCache.
+function startingHome() {
+  // One line speaks for the page; the other placeholders only show, so a screen reader says it once.
+  const quiet = (label) => loading(label, "", { live: false });
+  const later = (label, iconName) => btn(label, iconName, null, "tool outline",
+    { disabled: true, title: "Ready once the local engine has started" });
+  return h("div", { class: "page home", "data-starting": "" },
+    h("div", { class: "row home-head" }, h("h1", { class: "grow" }, "Welcome to KratosForge")),
+    loading("Starting the local engine...", "sub"),
+    h("div", { class: "home-two" },
+      h("section", { class: "card pad" }, h("h2", {}, "Running now"), quiet()),
+      h("section", { class: "card pad" }, h("h2", {}, "Coming up"), quiet())),
+    h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
+      later("New notebook", "notebook"), later("New lakehouse", "lakehouse"), later("OneLake catalog", "onelake")),
+    h("section", { class: "card pad" }, h("h2", {}, "Recent notebooks"), quiet("Loading notebooks...")));
+}
+
 // Home answers "what happened since I was last here": problems first, then what is running, what
 // runs next and each environment's state, then ways to start something. Each part draws as soon as
 // its own data is in, quickest first; the Estate X-ray reads only after all of them.
 async function renderHome() {
+  if (state.starting) { setView(startingHome()); return; }
   if (homeCache.done && homeCache.key === homeKey() && Date.now() - homeCache.at < HOME_REUSE_MS) {
     homeCache.stamp.textContent = homeUpdatedText();
     setView(homeCache.page);
@@ -413,10 +679,10 @@ async function renderHome() {
   const name = state.user ? state.user.split("@")[0] : "";
   const summary = h("p", { class: "sub" }, "Checking what ran...");
   const attention = h("div", { class: "home-attention" });
-  const running = h("div", { class: "muted-text" }, "Loading...");
-  const upcoming = h("div", { class: "muted-text" }, "Loading...");
+  const running = loading();
+  const upcoming = loading();
   const envCards = h("div", { class: "home-envs" });
-  const list = h("div", { class: "muted-text" }, "Loading notebooks...");
+  const list = loading("Loading notebooks...");
   const xray = previewShown() ? xrayCard() : null;
   const yours = yourWorkloadsCard();
   const envSection = h("section", {}, h("h2", {}, "Environments"), envCards);
@@ -424,8 +690,8 @@ async function renderHome() {
   const stamp = h("span", { class: "muted-text small" }, "Updated just now");
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
-      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to Fabric Desktop by KratosBI"),
-      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
+      h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -439,9 +705,11 @@ async function renderHome() {
     envSection,
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       btn("New notebook", "notebook", newNotebook, "tool outline"),
+      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
-    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), list),
+    foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,
+      btn("All notebooks", "notebook", () => go("notebooks"), "tool link small"))),
     xray);
   Object.assign(homeCache, { page, key: homeKey(), at: Date.now(), stamp, done: false });
   setView(page);
@@ -461,9 +729,10 @@ async function renderHome() {
     notebookCount = (notebooks || []).length;
     const shown = (notebooks || []).filter((n) => matches(n.name)).slice(0, 8);
     list.replaceWith(shown.length ? h("table", { class: "list" },
-      h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Modified"))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Name"), shown.some((n) => n.place) ? h("th", {}, "Saved in") : null, h("th", {}, "Modified"))),
       h("tbody", {}, shown.map((n) => h("tr", { class: "click", onclick: () => openNotebook(n.name) },
         h("td", {}, h("span", { class: "item" }, icon("notebook", 18), n.name)),
+        shown.some((x) => x.place) ? h("td", {}, n.place ? n.place.label : "This PC") : null,
         h("td", {}, when(new Date(n.modified * 1000).toISOString())))))) : h("p", { class: "muted-text" },
       notebooks === null ? "Couldn't list notebooks." : state.query ? "No notebooks match your search." : "No notebooks yet. Create one to get started."));
   });
@@ -524,6 +793,7 @@ async function renderHome() {
     const problems = failing.length + cloudFailed.length;
     // What couldn't be read is unknown, not fine: say so instead of "Nothing needs your attention".
     const unread = meta.failed ? ["run history"] : Object.keys(meta.unavailable || {}).map((env) => ENV_LABEL[env]);
+    if (meta.project_error) unread.unshift("the metadata project");
     if (cloud === null) unread.push("Fabric jobs");
     // Late tables (dataops.js) count too; they may arrive after the runs, so the line is redrawn then.
     state.homeSummary = () => {
@@ -602,7 +872,7 @@ const MONITOR_OPS = [
   { panel: "queue", feature: "queue", label: "Queue", anchor: "queue-preview",
     text: "What is running and what runs next, on this PC, on agents and in Fabric, and who owns it" },
   { panel: "agents", feature: "agents", label: "Agents", anchor: "agents-preview",
-    text: "Fabric Desktop by KratosBI on your own servers, from the status they report" },
+    text: "KratosForge on your own servers, from the status they report" },
   { panel: "runas", feature: "runAs", label: "Run as", anchor: "run-as-preview",
     text: "Which identity runs your workloads in each place, and with what credential" },
   { panel: "incidents", feature: "incidents", label: "Incidents", anchor: "incidents-preview",
@@ -614,7 +884,7 @@ async function renderMonitor() {
   // Cost moved to Optimize > Cost and savings (testing item 36); an old link to it lands there.
   if (monitorPage.panel === "cost") { monitorPage.panel = "runs"; optimizePage.tab = "cost"; go("optimize"); return; }
   if (!previewShown()) monitorPage.panel = "runs";
-  const local = h("div", { class: "muted-text monitor-empty" }, "Loading runs...");
+  const local = loading("Loading runs...", "monitor-empty");
   const slot = h("div", { class: "fabric-slot" },
     h("p", { class: "muted-text" }, "Opening the Fabric Monitoring hub. Sign in once and the app remembers it."));
   const action = (name) => attempt(() => invoke("fabric_view_action", { action: name, page: "monitor" }), "Fabric view");
@@ -637,7 +907,7 @@ async function renderMonitor() {
   setView(h("div", { class: `page monitor${fabricShown ? "" : " no-fabric"}` },
     h("section", { class: "card monitor-local" },
       h("div", { class: "monitor-band" },
-        h("h2", {}, "From Fabric Desktop by KratosBI"),
+        h("h2", {}, "From KratosForge"),
         h("div", { class: "seg", role: "group", "aria-label": "Show" },
           segment(monitorPage.panel === "runs", "Runs", show("runs")),
           preview("schedules", segment(monitorPage.panel === "schedules", "Schedules", show("schedules"))),
@@ -689,7 +959,10 @@ async function renderMonitor() {
   ]);
   if (state.view !== "monitor") return;
   const unavailable = Object.entries(meta.unavailable || {});
-  note.textContent = unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`).join(" · ");
+  note.textContent = [
+    meta.project_error ? `Metadata runs not shown: the metadata project couldn't be read (${meta.project_error})` : "",
+    ...unavailable.map(([env, why]) => `${ENV_LABEL[env]}: ${why}`),
+  ].filter(Boolean).join(" · ");
   const rows = [
     ...(meta.runs || []).map((r) => ({
       at: r.started_at, status: r.status, activity: r.entity, kind: `Metadata run${r.backfill ? ` · backfill ${r.backfill}` : ""}`,
@@ -706,7 +979,8 @@ async function renderMonitor() {
     ...(scheduled || []).map((r) => ({
       at: r.started, status: r.status === "ok" ? "ok" : r.status === "skipped" ? "skipped" : "failed", activity: r.label,
       kind: r.trigger === "manual" ? "Schedule, run now" : "Scheduled run", env: "", where: "local", seconds: r.seconds,
-      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "", reason: r.status === "ok" ? "" : r.message,
+      rows: r.rows ?? "", note: r.status === "ok" ? r.message : "",
+      reason: r.status === "ok" ? "" : [r.message?.replace(/\.$/, ""), r.alert_error].filter(Boolean).join(". "),
       open: () => { monitorPage.panel = "schedules"; render(); },
     })),
     ...(writes || []).map((r) => ({
@@ -776,7 +1050,7 @@ function placeFabricView() {
     fabricView.force = false;
     invoke("fabric_view_show", { x: r.left, y: r.top, width: r.width, height: r.height, tenant: state.tenant || null,
       page: fabricView.page, force }).catch((err) => {
-      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${err}`));
+      slot.replaceChildren(h("p", { class: "muted-text" }, `The Fabric view could not open: ${friendlyError(err).text}`));
     });
   });
 }
@@ -791,7 +1065,7 @@ const workspacesPage = { marks: null, filter: "all", open: new Set(), items: {} 
 
 async function renderWorkspaces() {
   const wp = workspacesPage;
-  const body = h("div", {}, h("p", { class: "muted-text" }, state.user ? "Loading workspaces..." : ""));
+  const body = h("div", {}, state.user ? loading("Loading workspaces...") : "");
   const chips = h("div", { class: "ws-filters" });
   const previewing = itemPreviewOn();
   if (itemPreview.target?.kind !== "item" && !itemPreview.parent) itemPreview.target = null;
@@ -935,7 +1209,7 @@ function renderFabric() {
       slot),
     howItWorks("workspaces.fabric", {
       reads: "This is Fabric's own portal, app.fabric.microsoft.com, signed in as you. It shows what Fabric shows you; "
-        + "Fabric Desktop doesn't read anything from it.",
+        + "KratosForge doesn't read anything from it.",
       changes: "Nothing by itself. What you do in the portal writes to Fabric and OneLake exactly as it would in a browser, "
         + "with Fabric's own prompts; this app adds no confirmation of its own there.",
       results: "Everything you change stays in Fabric. Your portal sign-in is kept on this PC, encrypted for your Windows "
@@ -953,8 +1227,9 @@ function openWorkspace(ws) {
 
 async function renderWorkspace() {
   const ws = state.openWorkspace;
-  const body = h("div", { class: "muted-text" }, "Loading items...");
+  const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
+    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),
@@ -1081,8 +1356,8 @@ async function renderOneLake() {
   const cp = catalogPage;
   const nav = h("nav", { class: "catalog-nav" });
   const head = h("div", { class: "catalog-head" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" },
-    state.user ? "Loading items from all workspaces..." : ""));
+  const list = h("div", { class: "catalog-list" },
+    state.user ? loading("Loading items from all workspaces...") : "");
   const note = h("span", { class: "muted-text" });
   const search = h("input", { class: "catalog-search", placeholder: "Search by name, workspace or table", value: cp.query, "aria-label": "Search the catalog" });
   search.addEventListener("input", () => { cp.query = search.value; draw(); });
@@ -1350,529 +1625,12 @@ function renderLakehouse() {
   const box = h("div", { class: "lakehouse-tree" }, tree,
     pick ? h("p", { class: "muted-text tree-hint" }, "Click a table or file to preview it.") : null);
   setView(h("div", { class: "page" }, h("h1", {}, ref.name),
-    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}`),
+    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}. `, learnMore("a-lakehouse")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("Open in new notebook", "notebook", () => newNotebook(ref), "tool primary"),
       btn("New SQL query", "code", () => openSqlQuery(ref), "tool outline")),
     pick ? previewLayout(box, draw) : box));
   draw();
-}
-
-// ---------- SQL query page ----------
-
-// SQL over one lakehouse's tables, run on this PC by the sidecar (DuckDB). The editor is sqleditor.js.
-const QUERY_HINT = "-- Spark SQL runs on this PC. Press Ctrl+Enter to run.\n";
-const SQL_AUTO_CHECK_LIMIT = 100000;  // characters; a longer query is checked when the person asks
-const sqlPage = { ref: null, tabs: [], active: 0, tables: null, cols: {}, open: {}, pending: {}, editor: null };
-
-function openSqlQuery(ref) {
-  if (sqlPage.ref?.lakehouse_id !== ref.lakehouse_id) {
-    Object.assign(sqlPage, { ref, tabs: loadQueryTabs(ref), active: 0, tables: null, cols: {}, open: {}, pending: {} });
-  }
-  go("query");
-}
-
-function queryTabsKey(ref) {
-  return `fabric-desktop.sql.${ref.lakehouse_id}`;
-}
-
-function loadQueryTabs(ref) {
-  try {
-    const saved = JSON.parse(localStorage.getItem(queryTabsKey(ref)));
-    if (Array.isArray(saved) && saved.length) {
-      return saved.map((t) => ({ name: String(t.name), sql: String(t.sql), dialect: sqlDialect(t.dialect) }));
-    }
-  } catch { /* no saved tabs */ }
-  return [{ name: "Query 1", sql: QUERY_HINT, dialect: "spark" }];
-}
-
-function saveQueryTabs() {
-  try {
-    localStorage.setItem(queryTabsKey(sqlPage.ref),
-      JSON.stringify(sqlPage.tabs.map((t) => ({ name: t.name, sql: t.sql, dialect: t.dialect || "spark" }))));
-    return true;
-  } catch { return false; /* storage unavailable: tabs last for this session */ }
-}
-
-// The SQL editor's completion provider for one lakehouse (the shape is described in sqleditor.js).
-// Tables are the ones the page already listed; each table's columns are asked for once.
-function lakehouseSqlProvider(p, ref, changed) {
-  const key = (t) => sqlTableName(t.schema, t.name);
-  return {
-    id: `lakehouse:${ref.lakehouse_id}`,
-    label: ref.name,
-    tables: () => Object.entries(p.tables || {}).flatMap(([schema, names]) => names.map((name) => ({ schema, name }))),
-    cachedColumns: (t) => p.cols[key(t)] || undefined,
-    columns(t) {
-      const k = key(t);
-      if (p.cols[k]) return Promise.resolve(p.cols[k]);
-      if (!p.pending[k]) {
-        p.pending[k] = rpc("table_columns", { lakehouse_ref: ref, table: k })
-          .then((cols) => { p.cols[k] = cols || []; changed(); return p.cols[k]; })
-          .catch(() => { p.cols[k] = []; return []; });  // offline or no access: no column names, ask again after Refresh
-      }
-      return p.pending[k];
-    },
-  };
-}
-
-// A managed run's state on the Results band: [pill class, label].
-const SQL_STATE = { queued: ["busy", "Queued"], running: ["busy", "Running"], cancelling: ["busy", "Stopping"],
-  completed: ["ok", "Succeeded"], failed: ["bad", "Failed"], cancelled: ["", "Stopped"], timed_out: ["bad", "Timed out"] };
-
-// Follow a run until it finishes. Polls quickly at first, then once a second; stops following when
-// the tab starts another run.
-async function followRun(tab, status) {
-  let wait = 150;
-  while (["queued", "running", "cancelling"].includes(status.state)) {
-    await new Promise((r) => setTimeout(r, wait));
-    wait = Math.min(1000, wait * 1.5);
-    const next = await rpc("sql_status", { execution: status.id });
-    if (tab.exec?.id !== status.id) return null;
-    tab.exec = status = next;
-    sqlPage.redraw?.();
-  }
-  return status;
-}
-
-async function loadPage(tab, offset) {
-  try {
-    const page = await rpc("sql_page", { execution: tab.exec.id, offset });
-    if (page.rerun_needed) { tab.result = null; tab.error = page.message; return; }
-    tab.result = page;
-  } catch (err) {
-    tab.error = String(err);
-  }
-}
-
-function cellText(v) {
-  if (v === null || v === undefined) return "NULL";
-  return typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 6 }) : String(v);
-}
-
-function renderQuery() {
-  const p = sqlPage;
-  const ref = p.ref;
-  if (!ref) return go("onelake");
-  if (!p.tabs[p.active]) p.active = 0;
-  const tab = p.tabs[p.active];
-  tab.dialect = sqlDialect(tab.dialect);
-  const here = () => state.view === "query" && p.ref === ref && p.tabs[p.active] === tab;
-  const runsHere = () => SQL_DIALECTS[tab.dialect].runsHere;
-
-  const setSql = (text) => { tab.sql = text; saveQueryTabs(); };
-  p.editor?.destroy();
-  const editor = p.editor = createSqlEditor({
-    doc: tab.sql,
-    dialect: tab.dialect,
-    provider: lakehouseSqlProvider(p, ref, () => { if (here()) editor.refresh(); }),
-    on: {
-      change: setSql,
-      run: () => run(),
-      save: () => { const ok = saveQueryTabs(); toast(ok ? `Saved ${tab.name}` : "Could not save the query: this PC's app storage is unavailable", !ok); },
-      format: () => formatSql(),
-    },
-    check: (text, dialect) => checkSql(text, dialect),
-  });
-  const insertAtCursor = (text) => editor.insert(text);
-
-  // SQL-002: the compatibility check, run by the editor shortly after typing stops. It reads the SQL
-  // with the chosen engine's documented rules; nothing runs and nothing is sent to Fabric.
-  async function checkSql(text, dialect) {
-    tab.compatLong = text.length > SQL_AUTO_CHECK_LIMIT && !tab.checkLong;
-    if (!text.trim() || tab.running || tab.compatLong) {
-      if (!text.trim()) tab.compat = null;
-      if (here()) drawCompat();
-      return null;
-    }
-    tab.checkLong = false;
-    let report;
-    try {
-      report = await rpc("sql_analyze", { query: text, target: dialect });
-    } catch (err) {
-      report = { failed: String(err).replace(/^Error: /, "") };
-    }
-    if (!here() || editor.text() !== text) return null;
-    tab.compat = report;
-    tab.compatText = text;
-    drawCompat();
-    return report.failed ? null : report;
-  }
-
-  // SQL-003: each run is a managed query on this PC (sql_exec.py): queued, then running in a process
-  // of its own, with Stop and the time limit in Settings › SQL. Results come a page at a time from
-  // the run's snapshot, so a large result is never loaded whole.
-  async function run(query = editor.chosen(), allow = []) {
-    if (!query.trim() || tab.running) return;
-    if (!runsHere()) {
-      toast(`${SQL_DIALECTS[tab.dialect].label} can't run on this PC. Pick Spark SQL or DuckDB to run here.`, true);
-      return;
-    }
-    tab.running = true;
-    Object.assign(tab, { error: null, result: null, exec: null, ranNotice: "" });
-    drawResults();
-    let status;
-    try {
-      status = await rpc("sql_start", { query, lakehouse_ref: ref, dialect: tab.dialect, allow });
-      Object.assign(tab, { exec: status, ranSql: query, ranDialect: tab.dialect });
-      status = await followRun(tab, status);
-    } catch (err) {
-      tab.error = String(err);
-    }
-    if (status?.state === "completed") await loadPage(tab, 0);
-    tab.running = false;
-    if (status?.refused?.permission === "local_mutation" && !allow.length) {
-      sqlPage.redraw?.();
-      const ok = await confirmDialog("Let this query change its own session?",
-        `Statement ${status.refused.statement} ${status.refused.label}: a temp view, a table made in the query, a cache. ` +
-        "Only this run's own DuckDB session on this PC changes; no lakehouse table, file or Fabric item does. Nothing has run yet.", "Run");
-      if (ok) return run(query, ["local_mutation"]);
-    }
-    if (status?.state === "completed") {
-      tab.ranNotice = localNotice(query);
-      if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
-    } else if (status) {
-      tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
-    }
-    sqlPage.redraw?.();
-    if (here()) editor.recheck();
-  }
-
-  async function stop() {
-    if (!tab.exec) return;
-    const out = await attempt(() => rpc("sql_cancel", { execution: tab.exec.id }), "Could not stop the query");
-    if (out) { tab.exec = out; sqlPage.redraw?.(); }
-  }
-
-  async function goPage(offset) {
-    if (!tab.result || tab.paging) return;
-    tab.paging = true;
-    await loadPage(tab, Math.max(0, offset));
-    tab.paging = false;
-    sqlPage.redraw?.();
-  }
-
-  // Export ▾ CSV or Parquet: streamed from the run's snapshot to a new file in Downloads.
-  async function exportResult(format) {
-    if (!tab.exec || tab.exporting) return;
-    const out = await attempt(() => rpc("sql_export", { execution: tab.exec.id, format, name: tab.name }), "Could not export");
-    if (!out) return;
-    if (out.rerun_needed) {
-      const again = await confirmDialog("Run the query again?",
-        `${out.message} Running it again reads the tables as they are now, so the rows can differ.`, "Run again");
-      if (again && tab.ranSql) { tab.exportAfter = format; run(tab.ranSql); }
-      return;
-    }
-    tab.exporting = out;
-    sqlPage.redraw?.();
-    let st = out;
-    while (st.state === "running") {
-      await new Promise((r) => setTimeout(r, 300));
-      try { st = await rpc("sql_export_status", { export: out.id }); } catch (err) { st = { ...st, state: "failed", error: String(err) }; }
-      tab.exporting = st;
-      sqlPage.redraw?.();
-    }
-    tab.exporting = null;
-    sqlPage.redraw?.();
-    if (st.state === "completed") toast(`Saved ${st.rows.toLocaleString()} rows to ${st.path}`);
-    else if (st.state === "cancelled") toast("Export stopped. No file was left behind.");
-    else toast(`Could not export: ${st.error}`, true);
-  }
-
-  // After a run on this PC: say when the check found differences from Fabric, without blocking the run.
-  function localNotice(query) {
-    const r = tab.compat;
-    if (!r?.diagnostics || tab.compatText === undefined || !tab.compatText.includes(query.trim())) return "";
-    const local = r.diagnostics.filter((d) => d.category === "local" && d.rule !== "LOC-008").length;
-    const engine = tab.dialect === "duckdb" ? "No Fabric engine runs DuckDB SQL as written"
-      : `${local} finding${local === 1 ? "" : "s"} say Fabric Spark may give different results`;
-    if (tab.dialect !== "duckdb" && !local) return "";
-    return `Ran on this PC with DuckDB, not in Fabric. ${engine}; see Compatibility. A warning doesn't mean the query is wrong.`;
-  }
-
-  // Format the selection, or everything. The engine leaves the SQL alone and says why when it can't keep its meaning.
-  async function formatSql() {
-    const { from, to } = editor.selection();
-    const whole = to <= from;
-    const text = whole ? editor.text() : editor.text().slice(from, to);
-    if (!text.trim()) return;
-    const out = await attempt(() => rpc("sql_format", { query: text, dialect: tab.dialect }), "Could not format the SQL");
-    if (!out || !here()) return;
-    if (out.warning) toast(out.warning, true);
-    else if (out.changed && editor.text().slice(whole ? 0 : from, whole ? undefined : to) === text) {
-      editor.replace(out.sql, whole ? 0 : from, whole ? editor.text().length : to);
-    }
-  }
-
-  async function saveAsTable() {
-    const query = editor.chosen();
-    if (!query.trim()) return;
-    const name = await askText("Save as table", `Table name in ${ref.name}, written with the full query result`, "query_result", "Save");
-    if (!name) return;
-    toast(`Writing ${name}...`);
-    let out = await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, dialect: tab.dialect }), "Could not save the table");
-    if (out?.exists) {
-      const replace = await confirmDialog("Replace the table?",
-        `${ref.name} already has a table called ${name}. Saving replaces all of its rows with this query's result.`, "Replace", { danger: true, typeToConfirm: name });
-      out = replace && await attempt(() => rpc("save_sql", { query, lakehouse_ref: ref, table: name, mode: "overwrite", dialect: tab.dialect }),
-        "Could not save the table");
-    }
-    if (out) {
-      toast(out.message);
-      delete state.tree[treeKey(ref, "tables")];
-      p.tables = null;
-      if (here()) drawTables();
-    }
-  }
-
-  async function openInNotebook() {
-    const query = editor.chosen().trim();
-    await newNotebook(ref);
-    if (!state.notebook) return;
-    const cell = state.notebook.cells[0];
-    setSource(cell, cell.source + `\ndf = lakehouse.sql("""\n${query.replace(/"""/g, '\\"\\"\\"')}\n""")\ndf\n`);
-    markDirty();
-    renderNotebook();
-  }
-
-  async function copyRows() {
-    const r = tab.result;
-    if (!r) return;
-    const lines = [r.columns.map((c) => c.name), ...r.rows.map((row) => row.map((v) => (v === null ? "" : String(v))))];
-    const copied = await attempt(() => navigator.clipboard.writeText(lines.map((l) => l.join("\t")).join("\n")).then(() => true), "Could not copy");
-    if (copied) toast(`Copied the ${r.rows.length.toLocaleString()} rows on this page`);
-  }
-
-  // Explorer: click a table to query it, a column to type its name.
-  const tablesBox = h("div", { class: "explorer-content" });
-  function queryTable(name) {
-    const text = tab.dialect === "spark" || tab.dialect === "duckdb" ? `SELECT *\nFROM ${name}\nLIMIT 100;` : `SELECT TOP (100) *\nFROM ${name};`;
-    if (!tab.sql.trim() || tab.sql === QUERY_HINT) {
-      editor.replace(text);
-      run(text);
-    } else {
-      p.tabs.push({ name: nextTabName(), sql: text, dialect: tab.dialect, autorun: true });
-      p.active = p.tabs.length - 1;
-      saveQueryTabs();
-      renderQuery();
-    }
-  }
-  async function toggleColumns(t, name) {
-    p.open[name] = !p.open[name];
-    if (p.open[name] && !p.cols[name]) {
-      drawTables();
-      const cols = await lakehouseSqlProvider(p, ref, () => {}).columns(t);
-      if (!cols.length && !p.cols[name]?.length) { p.open[name] = false; delete p.cols[name]; delete p.pending[name]; }
-    }
-    if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); }
-  }
-  function drawTables() {
-    if (!p.tables) {
-      tablesBox.replaceChildren(h("div", { class: "tree-row muted" }, "Loading tables..."));
-      return;
-    }
-    const rows = [];
-    for (const [schema, names] of Object.entries(p.tables)) {
-      const qualify = Object.keys(p.tables).length > 1 || schema !== "dbo";
-      if (qualify) rows.push(h("div", { class: "tree-row muted", style: "padding-left:6px" }, schema));
-      if (!names.length) rows.push(h("div", { class: "tree-row muted", style: "padding-left:28px" }, "No tables"));
-      for (const t of names) {
-        const name = sqlTableName(schema, t);
-        const open = !!p.open[name];
-        rows.push(h("div", { class: "sql-table-row" },
-          h("button", { class: "tree-row chev", "aria-label": open ? `Hide columns of ${t}` : `Show columns of ${t}`,
-            style: `padding-left:${qualify ? 22 : 6}px`, onclick: () => toggleColumns({ schema, name: t }, name) }, chevron(open)),
-          h("button", { class: "tree-row", title: `Query ${name}`, onclick: () => queryTable(sqlTableName(schema, t, tab.dialect)) },
-            icon("table", 15), h("span", { class: "label" }, t))));
-        if (open) {
-          if (!p.cols[name]) rows.push(h("div", { class: "tree-row muted", style: "padding-left:52px" }, "Loading..."));
-          for (const c of p.cols[name] || []) {
-            rows.push(h("button", { class: "tree-row sql-col", title: `Insert ${c.name}`,
-              onclick: () => insertAtCursor(sqlQuoteIdent(c.name, tab.dialect)) },
-            h("span", { class: "label" }, c.name), h("span", { class: "hint" }, c.type)));
-          }
-        }
-      }
-    }
-    tablesBox.replaceChildren(...rows);
-  }
-
-  const band = h("div", { class: "sql-band" });
-  const grid = h("div", { class: "sql-grid" });
-  function drawResults() {
-    const r = tab.result;
-    const ex = tab.exec;
-    const busy = tab.running;
-    const st = busy && !ex ? "queued" : ex?.state;
-    const pill = st ? SQL_STATE[st] : ["", "Not run"];
-    let msg = "Press Run to see results";
-    if (st === "queued" && !ex) msg = "Starting on this PC...";
-    else if (st === "queued") msg = "Waiting for another query to finish (Settings › SQL sets how many run at once)";
-    else if (st === "completed" && !r && busy) msg = "Reading the first page...";
-    else if (st === "running" || st === "cancelling") {
-      msg = `${ex.seconds} s on this PC${ex.rows ? ` · ${ex.rows.toLocaleString()} rows so far` : ""}`;
-    } else if (r) {
-      const last = r.offset + r.rows.length;
-      msg = `${r.total.toLocaleString()} row${r.total === 1 ? "" : "s"} · ${ex.seconds} s on this PC`;
-      if (r.total > r.rows.length) msg += ` · rows ${(r.offset + 1).toLocaleString()} to ${last.toLocaleString()}`;
-    }
-    const x = tab.exporting;
-    const exportMenu = h("details", { class: "sql-export" },
-      h("summary", { class: `tool small${!r || x ? " disabled" : ""}`, "aria-disabled": String(!r || !!x),
-        onclick: (e) => { if (!r || x) e.preventDefault(); } }, "Export ▾"),
-      h("div", { class: "sql-export-menu", role: "menu" },
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("csv"); } }, "CSV"),
-        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; exportResult("parquet"); } }, "Parquet")));
-    band.replaceChildren(...[h("span", { style: "font-weight:600" }, "Results"),
-      h("span", { class: `sql-pill ${pill[0]}` }, pill[1]), h("span", { class: "muted-text sql-run-msg" }, tab.error ? "" : msg),
-      ex && (st === "running" || st === "queued") ? btn("Stop", "stop", stop, "tool small", { title: "Stop this query. Only its own process ends." }) : null,
-      tab.ranNotice && r && !busy ? h("span", { class: "sql-local-note", role: "note" }, tab.ranNotice) : null,
-      h("span", { class: "spacer" }),
-      x ? h("span", { class: "muted-text sql-export-progress", role: "status" },
-        `Exporting ${x.format.toUpperCase()}: ${x.rows.toLocaleString()} of ${x.total.toLocaleString()} rows`) : null,
-      x ? btn("Cancel", null, () => rpc("sql_export_cancel", { export: x.id }).catch(() => {}), "tool small") : null,
-      r && (r.has_previous || r.has_next) ? btn("‹ Previous", null, () => goPage(r.offset - r.limit), "tool small",
-        { disabled: !r.has_previous || tab.paging, "aria-label": "Previous page" }) : null,
-      r && (r.has_previous || r.has_next) ? btn("Next ›", null, () => goPage(r.offset + r.limit), "tool small",
-        { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
-      btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
-      exportMenu].filter(Boolean));
-    if (tab.error) {
-      grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
-    } else if (r && r.columns.length) {
-      grid.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, h("th", { class: "i" }), r.columns.map((c) => h("th", { title: c.type }, c.name)))),
-        h("tbody", {}, r.rows.map((row, i) => h("tr", {}, h("td", { class: "i" }, String(r.offset + i + 1)),
-          row.map((v) => h("td", { class: `${typeof v === "number" ? "n" : ""}${v === null ? " null" : ""}` }, cellText(v))))))));
-    } else {
-      grid.replaceChildren(h("p", { class: "muted-text", style: "padding:12px 16px" },
-        r ? "The query ran and returned no columns." : "Tables are named as in Fabric, so SELECT * FROM sales works here too."));
-    }
-  }
-  sqlPage.redraw = () => { if (here()) drawResults(); };
-
-  const nextTabName = () => {
-    let n = p.tabs.length + 1;
-    while (p.tabs.some((t) => t.name === `Query ${n}`)) n++;
-    return `Query ${n}`;
-  };
-  const addTab = () => { p.tabs.push({ name: nextTabName(), sql: QUERY_HINT, dialect: tab.dialect }); p.active = p.tabs.length - 1; saveQueryTabs(); renderQuery(); };
-  const tabs = h("div", { class: "sql-tabs", role: "tablist", "aria-label": "Queries" },
-    p.tabs.map((t, i) => h("div", { class: `sql-tab${i === p.active ? " on" : ""}` },
-      h("button", { class: "name", role: "tab", "aria-selected": String(i === p.active),
-        onclick: () => { p.active = i; renderQuery(); },
-        ondblclick: async () => {
-          const name = await askText("Rename query", "Name", t.name, "Rename");
-          if (name) { t.name = name; saveQueryTabs(); renderQuery(); }
-        } }, icon("code", 14), t.name),
-      p.tabs.length > 1 ? h("button", { class: "close", "aria-label": `Close ${t.name}`,
-        onclick: () => { p.tabs.splice(i, 1); p.active = Math.min(p.active, p.tabs.length - 1); saveQueryTabs(); renderQuery(); } }, "×") : null)),
-    h("button", { class: "sql-tab add", "aria-label": "New query", onclick: addTab }, "+"));
-
-  const dialectPick = h("select", { class: "sql-dialect", "aria-label": "SQL dialect",
-    title: "The SQL you are writing and the engine it's checked against. It sets highlighting, suggestions, formatting and the compatibility check; only Spark SQL and DuckDB run on this PC.",
-    onchange: (e) => { tab.dialect = sqlDialect(e.target.value); saveQueryTabs(); editor.setDialect(tab.dialect); drawActions(); } },
-  Object.entries(SQL_DIALECTS).map(([id, d]) => h("option", { value: id, selected: id === tab.dialect }, d.label)));
-  const actions = h("div", { class: "sql-actions" });
-  function drawActions() {
-    const local = runsHere();
-    actions.replaceChildren(btn("Run", "play", () => run(), "tool primary", { disabled: !local }),
-      h("span", { class: "muted-text" }, local ? "Ctrl+Enter, or select text to run just that"
-        : `${SQL_DIALECTS[tab.dialect].short} is formatted here, not run`),
-      h("span", { class: "sql-sep", "aria-hidden": "true" }),
-      dialectPick,
-      btn("Format SQL", null, formatSql, "tool outline", { title: "Format the selection, or the whole query (Shift+Alt+F)" }),
-      h("span", { class: "spacer" }),
-      btn("Save as table", "save", saveAsTable, "tool outline", { disabled: !local }),
-      btn("Open in notebook", "notebook", openInNotebook, "tool outline", { disabled: tab.dialect !== "spark" }));
-  }
-  drawActions();
-
-  // The Compatibility panel beside the editor: the last check's outcome and findings, newest SQL first.
-  const compat = h("aside", { class: "sql-compat", "aria-label": "Compatibility" });
-  const compatBody = h("div", { class: "sql-compat-body" });
-  compat.append(compatBody);
-  async function exportCompat() {
-    const out = await attempt(() => rpc("sql_compat_export", { query: editor.text(), target: tab.dialect, name: tab.name }),
-      "Could not export the report");
-    if (out) toast(`Saved the compatibility report to ${out.path}`);
-  }
-  function drawCompat() {
-    const r = tab.compat;
-    const label = SQL_DIALECTS[tab.dialect].label;
-    const head = h("div", { class: "sql-compat-head" }, h("b", {}, "Compatibility"), previewShown() ? previewTag() : null,
-      btn("Export JSON", null, exportCompat, "tool outline small", { disabled: !r || !!r.failed || !editor.text().trim(),
-        title: "Save this report, with the SQL it checked, as a JSON file in Downloads" }));
-    if (tab.compatLong) {
-      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
-        `This query is long (${editor.text().length.toLocaleString()} characters), so it's checked when you ask.`),
-      btn("Check now", null, () => { tab.checkLong = true; editor.recheck(); }, "tool outline small"));
-      return;
-    }
-    if (!r) {
-      compatBody.replaceChildren(head, h("p", { class: "muted-text" },
-        `Write SQL to check it against ${label}. Nothing runs and nothing is sent to Fabric.`));
-      return;
-    }
-    if (r.failed) {
-      compatBody.replaceChildren(head, h("p", { class: "output error" }, `Could not check the SQL: ${r.failed}`));
-      return;
-    }
-    const c = r.counts;
-    const chip = (n, one, many, cls) => h("span", { class: `sql-chip ${cls}` }, `${n.toLocaleString()} ${n === 1 ? one : many}`);
-    const list = r.diagnostics.map((d) => h("button", { class: `sql-finding ${d.severity}`,
-      title: `${d.message} ${d.action}`,
-      onclick: () => {
-        const text = editor.text();
-        if (text === tab.compatText) editor.reveal(sqlUtf16Offset(text, d.from), sqlUtf16Offset(text, d.to));
-        tab.compatPicked = d;
-        drawCompat();
-      } },
-    h("b", {}, SQL_SEVERITY_LABEL[d.severity]), ` · Ln ${d.line} · ${d.title}`));
-    const picked = tab.compatPicked && r.diagnostics.includes(tab.compatPicked) ? tab.compatPicked : null;
-    compatBody.replaceChildren(...[head,
-      h("div", { class: "muted-text" }, `${label} · rules ${r.rule_version} · ${r.statements.toLocaleString()} statement${r.statements === 1 ? "" : "s"}`),
-      h("div", { class: "sql-chips" }, chip(c.error, "error", "errors", "error"), chip(c.warning, "warning", "warnings", "warning"),
-        chip(c.information, "note", "notes", "information"), chip(c.unverified, "unverified", "unverified", "unverified")),
-      h("div", { class: `sql-outcome ${r.outcome.status}`, role: "status" }, r.outcome.text),
-      picked ? h("div", { class: "sql-finding-detail" },
-        h("b", {}, `${picked.rule} · ${picked.title}`), h("div", {}, picked.message), h("div", {}, picked.action),
-        h("div", { class: "muted-text" }, `Confidence: ${picked.confidence} · `,
-          h("a", { href: "#", onclick: (e) => { e.preventDefault(); attempt(() => invoke("open_link", { url: picked.doc }), "Could not open the link"); } },
-            "Source"))) : null,
-      list.length ? h("div", { class: "sql-findings" }, list) : null,
-      r.truncated ? h("p", { class: "muted-text" }, `Showing the first ${r.diagnostics.length.toLocaleString()} findings; the counts include all of them.`) : null,
-      h("p", { class: "muted-text sql-compat-note" }, "Static check: the SQL was read, not run. No findings isn't proof it runs in Fabric.")]
-      .filter(Boolean));
-  }
-  drawCompat();
-
-  const edit = h("div", { class: "sql-edit" });
-  edit.append(editor.view.dom);
-  setView(h("div", { class: "sql-page" },
-    h("div", { class: "ribbon" }, h("div", { class: "toolbar" },
-      btn("New SQL query", "add", addTab),
-      btn("New notebook", "notebook", () => newNotebook(ref)),
-      btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
-      h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
-    h("div", { class: "nb-body" },
-      h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
-        h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),
-          h("span", { class: "label" }, ref.name)),
-        tablesBox),
-      h("section", { class: "sql-main" }, tabs,
-        h("div", { class: "sql-card" }, actions, h("div", { class: "sql-editor-row" }, edit, compat), band, grid)))));
-  drawResults();
-  drawTables();
-  if (tab.autorun) { delete tab.autorun; run(tab.sql); }
-  if (!p.tables) {
-    rpc("list_tables", { workspace_id: ref.workspace_id, lakehouse_id: ref.lakehouse_id })
-      .then((t) => { p.tables = t; })
-      .catch((err) => { p.tables = {}; toast(`Could not list tables: ${err}`, true); })
-      .then(() => { if (state.view === "query" && p.ref === ref) { drawTables(); if (here()) editor.refresh(); } });
-  }
-  editor.focus();
 }
 
 // Fabric's rule for lakehouse names (the engine checks the same): letters, numbers and
@@ -1908,9 +1666,9 @@ function pickWorkspace(workspaces, { title = "Choose a workspace", selected = nu
   return new Promise((resolve) => {
     const select = h("select", {}, workspaces.map((w) => h("option", { value: w.id, selected: w.id === selected }, w.displayName)));
     showDialog(title, h("div", {}, note ? h("p", { class: "text" }, note) : null, h("label", { class: "field" }, "Workspace", select)), [
-      btn("Cancel", null, () => { closeDialog(); resolve(null); }, "tool outline"),
-      btn(okLabel, null, () => { closeDialog(); resolve(workspaces.find((w) => w.id === select.value)); }, "tool primary"),
-    ]);
+      btn("Cancel", null, () => { resolve(null); closeDialog(); }, "tool outline"),
+      btn(okLabel, null, () => { resolve(workspaces.find((w) => w.id === select.value)); closeDialog(); }, "tool primary"),
+    ], () => resolve(null));
   });
 }
 
@@ -1960,8 +1718,9 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
-            title: onInsert ? "Insert code that loads this table" : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
-            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table("${schema}.${t}")\ndf`) : onPick && onPick(pick),
+            title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
+            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
+            ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
           }, icon("table", 15), h("span", { class: "label" }, t)));
         });
       }
@@ -1987,8 +1746,9 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
-        title: onInsert ? "Insert code that reads this file" : onPick ? `Preview ${item.path}` : item.path,
-        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick) },
+        title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
+        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
+        ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
       icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
     }
   }
@@ -1998,7 +1758,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
 function readSnippet(path) {
   const ext = path.split(".").pop().toLowerCase();
   const reader = { parquet: "read_parquet", json: "read_json" }[ext] || "read_csv";
-  return `df = lakehouse.${reader}("${path}")\ndf`;
+  return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
 function formatSize(bytes) {
@@ -2024,12 +1784,45 @@ function cellFrom(c) {
 function loadIntoState(nb) {
   disposeEditors();
   state.variables = null;
-  state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, dirty: false,
-    compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
-  if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
-  state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+  const kept = openNotebooks.get(nb.name);
+  if (kept && nbRunning(kept)) {  // still running in its session: show it as it is
+    state.notebook = kept;
+  } else {
+    state.notebook = { name: nb.name, cells: nb.cells.map(cellFrom), lakehouse: nb.lakehouse || null, place: nb.place || null, locations: nb.locations || null, dirty: false,
+      compute: nb.compute || "default", workspace: nb.workspace || null, check: nb.check || null, replay: nb.replay || null };
+    if (!state.notebook.cells.length) state.notebook.cells.push(cellFrom({ type: "code" }));
+    state.notebook.cells.forEach((c) => { if (c.type === "markdown" && c.source) c.editing = false; });
+    if (kept) keepOutputs(kept, state.notebook);
+  }
+  rememberNotebook(state.notebook);
   state.selected = state.notebook.cells[0].id;
   state.ribbonTab = "home";
+}
+
+function nbRunning(nb) {
+  return nb.kernelStatus === "busy" || nb.cells.some((c) => c.status === "running" || c.status === "queued");
+}
+
+// Reopened from disk: cells whose source is unchanged keep the outputs they had, as the session
+// that made them (and its variables) is still there.
+function keepOutputs(from, to) {
+  const before = new Map(from.cells.filter((c) => c.cell_id).map((c) => [c.cell_id, c]));
+  for (const c of to.cells) {
+    const old = before.get(c.cell_id);
+    if (!old || old.source !== c.source) continue;
+    Object.assign(c, { outputs: old.outputs, count: old.count, status: old.status, seconds: old.seconds, finishedAt: old.finishedAt });
+  }
+  to.kernelStatus = from.kernelStatus;
+  if (from.debug) to.debug = from.debug;
+}
+
+function rememberNotebook(nb) {
+  openNotebooks.delete(nb.name);
+  openNotebooks.set(nb.name, nb);
+  for (const [name, other] of openNotebooks) {
+    if (openNotebooks.size <= KEPT_NOTEBOOKS) break;
+    if (other !== state.notebook && !nbRunning(other)) openNotebooks.delete(name);
+  }
 }
 
 async function openNotebook(name) {
@@ -2042,7 +1835,9 @@ async function openNotebook(name) {
 
 async function newNotebook(lakehouse) {
   if (state.notebook?.dirty && !(await saveNotebook())) return;
-  const nb = await attempt(() => rpc("new_notebook"), "Could not create a notebook");
+  const place = await nbChoosePlace();  // only asks when there are notebooks repositories
+  if (place === undefined) return;
+  const nb = await attempt(() => rpc("new_notebook", { place }), "Could not create a notebook");
   if (!nb) return;
   closeDialog();
   loadIntoState(nb);
@@ -2059,6 +1854,13 @@ async function newNotebook(lakehouse) {
 function notebookPayload() {
   return { name: state.notebook.name, cells: state.notebook.cells.map((c) => ({ type: c.type, source: c.source, meta: c.meta, cell_id: c.cell_id })),
     lakehouse_ref: state.notebook.lakehouse, compute: state.notebook.compute, workspace: state.notebook.workspace };
+}
+
+// For publishing and Fabric runs: also the repository location's lakehouse, which Fabric gets
+// when the notebook has none of its own. It isn't saved into the notebook.
+function publishPayload() {
+  const data = nbData(state.notebook);
+  return { ...notebookPayload(), location_ref: data.from === "locations" ? data.ref : null };
 }
 
 // True when the notebook is saved (or there is none). On a failure the error toast stays, the
@@ -2092,7 +1894,12 @@ async function renameNotebook() {
   if (!name || name === nb.name) return;
   if (!(await saveNotebook())) return;
   const ok = await attempt(() => rpc("rename_notebook", { name: nb.name, new_name: name }), "Could not rename");
-  if (ok) { nb.name = name; renderChrome(); }
+  if (ok) {
+    openNotebooks.delete(nb.name);
+    nb.name = name;
+    openNotebooks.set(name, nb);
+    renderChrome();
+  }
 }
 
 // ---------- Publish to OneLake ----------
@@ -2102,7 +1909,8 @@ async function renameNotebook() {
 // Run in Fabric and schedules use the same workspace.
 function publishWorkspace(nb) {
   if (nb?.workspace?.workspace_id) return nb.workspace;
-  if (nb?.lakehouse) return { workspace_id: nb.lakehouse.workspace_id, workspace_name: nb.lakehouse.workspace_name };
+  const lh = nbLakehouse(nb);
+  if (lh) return { workspace_id: lh.workspace_id, workspace_name: lh.workspace_name };
   return null;
 }
 
@@ -2114,7 +1922,8 @@ async function chooseNotebookWorkspace(nb, okLabel = "Save") {
   const workspaces = await loadWorkspaces();
   if (!workspaces.length) return null;
   const current = publishWorkspace(nb);
-  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` : "";
+  const lh = nb.lakehouse ? ` Its lakehouse, ${nb.lakehouse.name}, stays attached wherever it is published.` :
+    nbLakehouse(nb) ? ` It uses ${nbLakehouse(nb).name}, its ${nbData(nb).envLabel} location.` : "";
   const ws = await pickWorkspace(workspaces, { title: `Publish ${nb.name} to`, selected: current?.workspace_id, okLabel,
     note: `The notebook is created or updated as a Fabric notebook item in this workspace. Publish, Run in Fabric and schedules keep using it until you change it here.${lh}` });
   if (!ws || state.notebook !== nb) return null;
@@ -2138,8 +1947,10 @@ async function publishNotebook() {
   if (!(await ensureSignedIn())) return;
   if (!nb.workspace?.workspace_id && !(await chooseNotebookWorkspace(nb, "Publish"))) return;
   const ws = nb.workspace.workspace_name;
+  const gate = await nbFabricChangeGate(nb);  // someone changed it in Fabric: they decide first
+  if (!gate) return;
   toast(`Publishing ${nb.name} to ${ws}...`);
-  const result = await attempt(() => rpc("publish_notebook", notebookPayload()), "Publish failed");
+  const result = await attempt(() => rpc("publish_notebook", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Publish failed");
   if (result) {
     nb.dirty = false;
     renderChrome();
@@ -2154,7 +1965,7 @@ async function publishNotebook() {
 // runs the whole published notebook, so single cells only run on this PC.
 function nbWhere(nb) {
   const choice = nb?.compute || "default";
-  const ws = nb?.lakehouse ? publishWorkspace(nb).workspace_name : null;
+  const ws = nbLakehouse(nb) ? publishWorkspace(nb).workspace_name : null;
   const envFabric = envWhere(state.meta?.project, state.meta?.env).fabric;
   const fabric = choice === "fabric" || (choice === "default" && envFabric);
   const short = fabric ? (ws ? `Fabric · ${ws}` : "Fabric") : "This PC";
@@ -2170,7 +1981,7 @@ function computeMenu(nb) {
     { info: "Where Run all runs this notebook." },
     option("local", "This PC (no Fabric job)", "desktop"),
     previewShown() || where.choice === "fabric"
-      ? option("fabric", `Fabric${nb.lakehouse ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
+      ? option("fabric", `Fabric${nbLakehouse(nb) ? ` (${publishWorkspaceName(nb)})` : " (attach a lakehouse first)"} · Preview`, "cloud") : null,
     option("default", `Same as ${env} (${where.envFabric ? "Fabric" : "this PC"})`, "sync"),
     { info: `Python ${state.python || "3"} on this PC. Fabric runs publish the notebook first.` },
     { label: "Restart kernel", icon: "restart", action: restartKernel },
@@ -2239,7 +2050,7 @@ const FABRIC_DONE = new Set(["Completed", "Failed", "Cancelled", "Deduped"]);
 
 async function runInFabric() {
   const nb = state.notebook;
-  if (!nb.lakehouse) {
+  if (!nbLakehouse(nb)) {
     toast("Attach a lakehouse first. The notebook runs in that lakehouse's workspace.", true);
     return;
   }
@@ -2248,8 +2059,10 @@ async function runInFabric() {
   // not yet linked to its Fabric item can't be checked and runs as before.
   if (!(await riskGate({ id: `notebook:${nb.name}`, action: "run_in_fabric", title: `Run in Fabric ${nb.name}?`,
     runLabel: "Run in Fabric", alt: { label: "Run on this PC", run: () => runCells(nb.cells) } }))) return;
+  const gate = await nbFabricChangeGate(nb);
+  if (!gate) return;
   toast(`Publishing ${nb.name} and starting it in ${publishWorkspaceName(nb)}...`);
-  const run = await attempt(() => rpc("run_notebook_in_fabric", notebookPayload()), "Could not start the run in Fabric");
+  const run = await attempt(() => rpc("run_notebook_in_fabric", { ...publishPayload(), replace_fabric_changes: gate.replace }), "Could not start the run in Fabric");
   if (!run) return;
   nb.dirty = false;
   nb.fabricRun = run;
@@ -2317,22 +2130,22 @@ async function scheduleNotebook() {
   // Where it runs by default: the notebook's own choice, else the environment's compute.
   const fabricDefault = nb.compute === "fabric" || (nb.compute !== "local" && state.meta?.project?.environments?.[state.meta?.env]?.compute === "fabric");
   openScheduleDialog({
-    title: `Schedule ${nb.name}`,
-    mode: fabricDefault && nb.lakehouse ? "fabric" : "pc",
+    title: `Schedule ${nb.name}`, what: nb.name,
+    mode: fabricDefault && nbLakehouse(nb) ? "fabric" : "pc",
     pc: { target: { kind: "notebook", name: nb.name }, query: { kind: "notebook", name: nb.name },
-          intro: "This PC runs the saved notebook, every cell in order, with its attached lakehouse. Save your changes first." },
+          intro: "This PC runs the saved notebook in a fresh kernel, every code cell in order except frozen ones, with its attached lakehouse. Save your changes first." },
     fabric: {
-      unavailable: nb.lakehouse ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
+      unavailable: nbLakehouse(nb) ? "" : "Attach a lakehouse first. Fabric runs the notebook in that lakehouse's workspace.",
       intro: `Fabric runs the published notebook in ${publishWorkspaceName(nb)} on its own capacity, even when this PC is off. Adding a schedule publishes what is on screen first.`,
       adding: `Publishing ${nb.name} and adding the schedule...`,
       added: "Scheduled. Fabric runs the published notebook on its own capacity.",
-      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace }),
+      list: () => rpc("notebook_schedules", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace }),
       add: async (schedule) => {
-        const res = await rpc("add_notebook_schedule", { ...notebookPayload(), schedule });
+        const res = await rpc("add_notebook_schedule", { ...publishPayload(), schedule });
         nb.dirty = false; renderChrome();
         return res;
       },
-      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nb.lakehouse, workspace: nb.workspace, schedule_id: id }),
+      remove: (id) => rpc("delete_notebook_schedule", { name: nb.name, lakehouse_ref: nbLakehouse(nb), workspace: nb.workspace, schedule_id: id }),
     },
   });
 }
@@ -2346,7 +2159,7 @@ async function openDataItems() {
   if (!(await ensureSignedIn())) return;
   const pick = { scope: "all", query: "", selected: null, catalog: null, layers: {} };
   const nav = h("nav", { class: "catalog-nav" });
-  const list = h("div", { class: "catalog-list" }, h("p", { class: "muted-text", style: "padding:16px" }, "Loading lakehouses from all workspaces..."));
+  const list = h("div", { class: "catalog-list" }, loading("Loading lakehouses from all workspaces..."));
   const head = h("div", { class: "catalog-head" });
   const detail = h("aside", { class: "catalog-detail" });
   const note = h("span", { class: "muted-text" });
@@ -2524,11 +2337,13 @@ function markdown(src) {
 
 // The core pages, in rail order. Pages from other files register themselves the same way
 // (meta.js, settings.js); features.js has the rules.
-registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10 }, views: { home: renderHome } });
+registerFeature({ id: "home", rail: { label: "Home", icon: "home", order: 10, also: ["notebooks"] }, views: { home: renderHome } });
 registerFeature({
   id: "create", rail: { label: "Create", icon: "create", order: 20 }, views: { create: renderCreate },
   commands: [
     { label: "New notebook", icon: "notebook", keywords: "create python", run: () => newNotebook() },
+    { label: "Move this notebook to another place", icon: "folder", keywords: "repository git save in",
+      run: () => state.notebook ? moveNotebookDialog(state.notebook) : toast("Open a notebook first.") },
     { label: "New lakehouse", icon: "lakehouse", keywords: "create", run: () => newLakehouse() },
   ],
 });
@@ -2564,7 +2379,7 @@ registerFeature({
 // ---------- startup ----------
 
 document.getElementById("bell").addEventListener("click", () => toggleTray());
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
+document.addEventListener("keydown", (e) => { if (isShortcut(e, "close") && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
 document.getElementById("account").addEventListener("click", (e) => accountMenu(e.currentTarget));
 // The top bar's box opens the command bar; clearing it removes the page filter.
 const searchBox = document.getElementById("search");
@@ -2576,8 +2391,21 @@ searchBox.addEventListener("input", () => {
   if (!searchBox.value && state.query) { state.query = ""; render(); }
 });
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+  if (isShortcut(e, "palette")) { e.preventDefault(); openPalette(); }
+  // "?" lists the shortcuts, unless it's a character typed in a box or a dialog or the command bar is open.
+  else if (isShortcut(e, "shortcuts") && !e.ctrlKey && !e.metaKey && !e.altKey && !typingIn(e.target)
+      && !document.getElementById("dialog-root")?.childElementCount && !document.getElementById("palette")) {
+    e.preventDefault();
+    shortcutsDialog();
+  }
 });
+document.addEventListener("keydown", navKey);
+document.getElementById("nav-back").addEventListener("click", navBack);
+document.getElementById("nav-forward").addEventListener("click", navForward);
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
+registerShortcuts("Notebook", [
+  { keys: ["Ctrl+S"], label: "Save the notebook", when: () => state.view === "notebook" },
+]);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();
@@ -2638,7 +2466,7 @@ async function checkComponents(afterInstall = false) {
   const dialog = h("div", { class: "overlay" },
     h("div", { class: "dialog", role: "dialog", "aria-modal": "true", "aria-label": "Checking components" },
       h("div", { class: "dialog-head" }, "Checking components"),
-      h("div", { class: "startup-rows" }, row("app", "Fabric Desktop by KratosBI"), row("python", "Python"), row("sidecar", "Local engine")),
+      h("div", { class: "startup-rows" }, row("app", "KratosForge"), row("python", "Python"), row("sidecar", "Local engine")),
       help, log, actions));
   let dialogShown = false;
   function show() {
@@ -2668,7 +2496,7 @@ async function checkComponents(afterInstall = false) {
     set("python", report.python ? "ok" : "skip", report.python ? `${report.python}, part of the engine` : "Comes with the engine");
   } else {
     set("python", report.python_ok ? "ok" : "error",
-      report.python_ok ? report.python : `${report.python} is too old. Fabric Desktop by KratosBI needs Python 3.11 or later.`);
+      report.python_ok ? report.python : `${report.python} is too old. KratosForge needs Python 3.11 or later.`);
   }
 
   state.build = app.commit ? short(app.commit) : `${app.version} (local build)`;
@@ -2730,7 +2558,7 @@ async function checkComponents(afterInstall = false) {
       set("sidecar", "error", `The latest engine is build ${sidecar.commit ? short(sidecar.commit) : "unknown"}, ` +
         `but this app is ${short(app.commit)}. ` + (report.auto_update === false
         ? "Your organization rolls out updates: ask IT for the current build of fabric-desktop.exe."
-        : "Restart Fabric Desktop by KratosBI to update it."));
+        : "Restart KratosForge to update it."));
       if (await choose("Retry", "Continue anyway") === 0) return checkComponents();
       return closeDialog();
     }
@@ -2776,7 +2604,12 @@ async function checkComponents(afterInstall = false) {
 hydrateIcons();
 renderChrome();
 // Nothing may start the sidecar until the check is done: pip cannot replace files it has open.
+// Home draws at once with placeholders while the check runs (UX-020), then fills in when it returns.
+state.starting = true;
+if (state.view === "home") renderHome();
 checkComponents().finally(() => {
+  state.starting = false;
+  navRestore();  // the page you were on last time, or Home
   render();
   attempt(async () => {
     const env = await rpc("environment");
@@ -2784,7 +2617,8 @@ checkComponents().finally(() => {
     state.user = env.user;
     state.tenant = env.tenant;
     await loadSettings();
-    showWhatsNew();
+    if (!navShown(state.view)) state.view = "home";  // a preview page reopened while preview features are now hidden
+    showRenameSplash(() => showWhatsNew()) || showUpdateSplash();
     // The environment pill needs the metadata project; there may not be one yet.
     state.meta.project = await rpc("meta_project").catch(() => state.meta.project);
     render();

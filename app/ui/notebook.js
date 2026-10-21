@@ -142,7 +142,7 @@ function renderNotebook() {
       state.showVariables ? renderVariables() : null, commentsPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
-      sessionsButton(),
+      sessionsButton(), environmentButton(nb),
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
       h("span", { class: "last-run" }, nbLastRunText(nb.lastRun)),

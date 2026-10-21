@@ -257,6 +257,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dot.idle { background: #13a10e; } .dot.busy { background: #ca5010; }
 .status-link { border: 0; background: none; padding: 0; font: inherit; color: var(--accent, inherit); text-decoration: underline; cursor: pointer; }
 .sessions-body { max-width: 760px; }
+.env-body { max-width: 640px; display: flex; flex-direction: column; gap: 12px; }
+.env-row { display: flex; gap: 8px; align-items: center; }
+.env-row input, .env-row select { flex: 1; }
+.env-log { max-height: 200px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
 .session-actions { display: flex; gap: 4px; justify-content: flex-end; }
 
 /* List pages */

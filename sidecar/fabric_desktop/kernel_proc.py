@@ -79,6 +79,7 @@ class ProcessKernel:
         self._started_at: float | None = None  # when the running cell started, if it has a time limit
         self._interrupted_at: float | None = None
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
+        self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
 
     # ---- the process
 
@@ -90,7 +91,8 @@ class ProcessKernel:
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
-                                    env=dict(os.environ, PYTHONUNBUFFERED="1"))
+                                    env=dict(os.environ, PYTHONUNBUFFERED="1",
+                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)

@@ -174,6 +174,18 @@ With the setting off, cells run inside the app's engine, which has one attached 
 - **Notebooks with a session** (default 5). Running one more notebook stops the least recently used idle session and says so. A running session is never stopped to make room.
 - **Stop idle sessions after** (default never). A session you haven't used for this long, in a notebook you don't have open, is stopped to give back memory, like Fabric's session timeout.
 
+### Notebook environments (Preview)
+
+An environment adds Python packages to a notebook, like a Fabric Environment item or Databricks notebook-scoped libraries. It needs **Run notebooks in their own process**. **Environment** in the notebook's status bar picks the notebook's environment or makes a new one, lists its packages, and installs or removes them. Several notebooks can share one environment.
+
+- **Installing** runs pip on this PC after you confirm. It downloads from PyPI, or from the package index this PC's pip is set up for (`pip.ini` or `PIP_INDEX_URL`), and nothing from your Fabric sign-in is sent. Give package names and versions (`scikit-learn==1.5.2`); pip options, URLs and file paths aren't accepted. Packages run with your permissions, so install only ones you trust.
+- **The app's own packages always win.** An environment's packages come after them, and pip resolves against the exact versions the app ships, so a package that needs a different numpy, pyarrow or Polars is refused instead of installed and broken.
+- **Spark packages aren't added.** `pyspark`, `delta-spark` and `databricks-connect` are refused: `spark` here is the app's own, and Databricks Connect needs a process of its own.
+- **Changing** a running notebook's environment takes effect when you restart its kernel. Packages installed into the environment it already uses can be imported straight away.
+- Your organization can turn installs off (`allow_notebook_packages` in the policy file, [azure-setup.md](azure-setup.md)); notebooks then use the app's packages only.
+
+Environments are kept on this PC under the app's data folder, in `environments\`. They aren't published with the notebook: in Fabric, attach a Fabric Environment with the same packages.
+
 Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 
 ### Cell dependencies and stale outputs (Preview)

@@ -184,6 +184,11 @@ class Host:
 
 
 def main() -> None:
+    # A notebook environment's packages come after the engine's, so they add to it and never
+    # replace what the engine ships (environments.py).
+    for folder in filter(None, os.environ.get("FABRIC_DESKTOP_LIBRARY_PATHS", "").split(os.pathsep)):
+        if folder not in sys.path:
+            sys.path.append(folder)
     # Keep the protocol's pipes for ourselves; give everything else stderr and an empty stdin.
     proto_in = os.fdopen(os.dup(0), "r", encoding="utf-8")
     proto_out = os.fdopen(os.dup(1), "w", encoding="utf-8")

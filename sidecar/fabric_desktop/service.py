@@ -54,6 +54,7 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .environment_service import EnvironmentMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
 from .notebook_formats_service import NotebookFormatsMixin
@@ -79,7 +80,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, CommentsMixin):
+class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -87,7 +88,8 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         self._auth: Authenticator | None = None
         self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
                                        max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
-                                       idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0))
+                                       idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0),
+                                       prepare=lambda notebook, kernel: self._prepare_kernel(notebook, kernel))
         self.notebooks = NotebookShelf(self.root / "notebooks", self._notebook_places)
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
@@ -863,6 +865,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
         self.sessions.rename(name, new_name)  # its session (and variables) go with it
+        self.environments.rename_notebook(name, new_name)
         self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
         try:
             notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it

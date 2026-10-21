@@ -2280,6 +2280,22 @@ test("each notebook has its own kernel state, and in-engine notebooks share one 
   assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>/);
 });
 
+// Notebook environments: packages are added through a confirm that says where they come from,
+// and the dialog never opens a confirm on top of itself (showDialog would settle it twice).
+test("notebook environments confirm installs and close their dialog before asking", () => {
+  const e = fs.readFileSync(path.join(ui, "nbenv.js"), "utf8");
+  const install = /async function install\(\) \{[\s\S]*?\n  \}\n/.exec(e)[0];
+  assert.ok(install.indexOf("closeDialog();") < install.indexOf("confirmDialog("));
+  assert.match(install, /from PyPI, or from the package index this PC's pip is set up for/);
+  assert.match(install, /install only ones you trust/);
+  const del = /async function del\(\) \{[\s\S]*?\n  \}\n/.exec(e)[0];
+  assert.ok(del.indexOf("closeDialog();") < del.indexOf("confirmDialog("));
+  assert.match(del, /\{ danger: true \}/);
+  assert.match(e, /return preview\("environments",/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /sessionsButton\(\), environmentButton\(nb\),/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>\s*<script src="nbenv\.js"><\/script>/);
+});
+
 test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
   const { dbgBpMap, dbgStackText, dbgKeyAction } = dbgHelpers();
   // Two lines inserted above line 3; line 5 deleted onto line 4; line 9 is past the end now.

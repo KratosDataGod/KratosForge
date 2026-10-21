@@ -81,6 +81,7 @@ const PREVIEW_FEATURES = {
   quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
   sessions: "Notebook sessions",
+  environments: "Notebook environments",
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
 };

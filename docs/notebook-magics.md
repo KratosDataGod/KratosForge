@@ -140,7 +140,9 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 | `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden. `FABRIC_DESKTOP_*` and the proxy and certificate settings (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` and similar) can't be set here, because the engine's signed-in Fabric calls use them |
 | `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
 | `%pwd` | The kernel's working folder |
-| `%reset -f` | Clears every variable; `spark`, `notebookutils` and `display` stay |
+| `%reset -f` | Clears every variable and `Out`; `spark`, `notebookutils` and `display` stay |
+| `In`, `Out`, `_`, `__`, `___`, `_3`, `_i`, `_i3` | The notebook's history, as in IPython: `In[3]` and `_i3` are cell 3's code, `Out[3]` and `_3` its result, `_` the last result. `_i` is the cell before this one. A notebook run with `%run` isn't recorded, `Out` keeps the last 100 results, and Restart starts again from 1 |
+| `%history`, `%history -n 4-6`, `%history -l 3 -o` | Prints earlier cells' code, oldest first. `-n` numbers them, `-o` adds each result, `-l N` keeps the last N; ranges are cell numbers |
 | `%matplotlib inline` | Accepted: charts always show in the cell |
 | `%load_ext autoreload`, `%autoreload 2`, `%aimport name` | Reloads your own modules when you edit their files, before the next cell runs; see below |
 | `%load_ext` (other extensions), `%config` | Skipped with a note: they change IPython's own shell, and this kernel isn't IPython |
@@ -248,7 +250,7 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 | `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
 | `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |
 | `%time`, `%%time`, `%timeit`, `%%timeit` | Times a statement or the cell |
-| `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic` | As in IPython; see above |
+| `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic`, `%history`, `In`/`Out` | As in IPython; see above |
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
 | `%pip install`, `%pip list`/`freeze`/`show` | Installs into the notebook's own environment (needs Run notebooks in their own process); see [Installing packages](#installing-packages-with-pip) |

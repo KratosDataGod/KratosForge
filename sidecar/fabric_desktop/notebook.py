@@ -41,6 +41,7 @@ import pyarrow as pa
 from . import chart_output
 from . import notebook_resources
 from . import magics
+from . import history
 from .frames import Frames, type_name
 from .redact import describe
 
@@ -400,7 +401,7 @@ class Kernel:
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display,
-                              "displayHTML": self._display_html}
+                              "displayHTML": self._display_html, "In": [""], "Out": {}}
         from . import ipython_display
         ipython_display.install(ipython_display.build(self._display, self._clear_output))
         from . import widgets as ipywidgets_local
@@ -664,6 +665,7 @@ class Kernel:
         self._local.run = run
         status = "error"
         restart = False
+        history.record_input(self.namespace, run.count, code)
         try:
             try:
                 if run.debugger is not None:
@@ -782,8 +784,11 @@ class Kernel:
                 if tail is not None:
                     value = eval(tail, namespace)
                 if value is not None:
-                    namespace["_"] = value
-                    self._emit(run, self._show(value))
+                    self._emit(run, self._show(value))  # shown first, as IPython does, so Out isn't in itself
+                    if namespace is self.namespace and not getattr(self._local, "depth", 0):
+                        history.record_output(namespace, self.count, value)
+                    else:
+                        namespace["_"] = value
         except NotebookExit as done:
             if not isinstance(done, RestartPython):
                 print(f"Notebook exited with value: {done.value}")
@@ -904,6 +909,7 @@ class Kernel:
 
     def _line_magic_help(self) -> str:
         return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%history (with In, Out, _N and _iN), "
                 "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
                 "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
@@ -1017,6 +1023,12 @@ class Kernel:
             keep = set(self._base_namespace_keys())
             for key in [k for k in self.namespace if not k.startswith("__") and k not in keep]:
                 del self.namespace[key]
+            history.clear_output(self.namespace)
+            return None
+        if name in ("history", "hist"):
+            text = history.command(self.namespace, line)
+            if text:
+                print(text)
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell

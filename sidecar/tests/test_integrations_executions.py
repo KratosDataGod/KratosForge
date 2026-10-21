@@ -193,6 +193,10 @@ def test_the_external_environment_is_the_allowlist_and_nothing_else():
     ("socks5h://me@proxy:1080", "socks5h://proxy:1080"),
     ("http://proxy:8080", "http://proxy:8080"),
     ("http://proxy:8080/path@x", "http://proxy:8080/path@x"),  # an "@" after the host isn't a password
+    ("http://u:pa/ss@proxy:8080", "http://proxy:8080"),  # an unencoded "/" in the password
+    ("  http://u:p@h:1 ", "http://h:1"),  # spaces around the value
+    ("http://u:p@[::1]:3128", "http://[::1]:3128"),
+    ("socks5h://u:p@@h:1080", "socks5h://h:1080"),
 ])
 def test_a_proxy_password_doesnt_reach_the_tool(proxy, sent):
     from fabric_desktop.kernel_proc import external_environment

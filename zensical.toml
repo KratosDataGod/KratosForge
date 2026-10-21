@@ -42,6 +42,7 @@ nav = [
     { "Notebook magics" = "notebook-magics.md" },
     { "Validate a notebook" = "validate-notebook.md" },
     { "Motion and effects" = "forge-animations.md" },
+    { "Organise notebook cells" = "notebook-editor/organise-cells.md" },
     { "Notebook files" = "notebook-files.md" },
     { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
     { "Notebook version history" = "notebook-versions.md" },

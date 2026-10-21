@@ -1180,7 +1180,8 @@ COMPUTE = ("default", "local", "fabric")
 
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
-    output, and frozen (can't be edited or run)."""
+    output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
+    and a cell title where Databricks keeps it, so both read them back."""
     md: dict[str, Any] = {}
     tags = [t for t in meta.get("tags", []) if isinstance(t, str)]
     if tags:
@@ -1190,10 +1191,19 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
         md["jupyter"] = hidden
     if meta.get("frozen"):
         md.update(editable=False, deletable=False, run_control={"frozen": True})
+    if meta.get("heading_collapsed"):
+        md[_HEADING_COLLAPSED] = True
+    title = meta.get("title")
+    if isinstance(title, str) and title.strip():
+        md[_DATABRICKS_CELL] = {"title": title.strip()[:200]}
     chart = _chart_meta(meta.get("chart"))
     if chart:
         md["fabric_desktop"] = {"chart": chart}
     return md
+
+
+_HEADING_COLLAPSED = "jp-MarkdownHeadingCollapsed"
+_DATABRICKS_CELL = "application/vnd.databricks.v1+cell"
 
 
 _CHART_KEYS = ("kind", "x", "y", "agg", "series", "title")
@@ -1216,6 +1226,11 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
             meta[k] = True
     if (md.get("run_control") or {}).get("frozen"):
         meta["frozen"] = True
+    if md.get(_HEADING_COLLAPSED) is True:
+        meta["heading_collapsed"] = True
+    title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
+    if isinstance(title, str) and title.strip():
+        meta["title"] = title.strip()
     chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
     if chart:
         meta["chart"] = chart
@@ -1262,7 +1277,9 @@ _OWN_FD_KEYS = ("compute", "workspace", "lakehouse")
 
 
 def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
-    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable")}
+    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable", _HEADING_COLLAPSED)}
+    if isinstance(keep.get(_DATABRICKS_CELL), dict):  # the title is ours; Databricks' other keys aren't
+        keep[_DATABRICKS_CELL] = {k: v for k, v in keep[_DATABRICKS_CELL].items() if k != "title"}
     if isinstance(keep.get("jupyter"), dict):
         rest = {k: v for k, v in keep["jupyter"].items() if k not in ("source_hidden", "outputs_hidden")}
         keep["jupyter"] = rest
@@ -1270,7 +1287,7 @@ def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[s
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
     if isinstance(keep.get("fabric_desktop"), dict):
         keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
-    for k in ("jupyter", "run_control", "fabric_desktop"):
+    for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]
     for k, v in ours.items():

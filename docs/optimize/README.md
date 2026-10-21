@@ -142,6 +142,9 @@ A read of the capacities you can see (`GET /v1/capacities`, `Capacity.Read.All`,
 | `fdcap_read` | Capacity read, or one row for a read that failed (`unreadable` without `Capacity.Read.All`, otherwise `failed`) |
 
 - **Only what you can see.** People see different capacities, so a capacity missing from your read isn't recorded as changed or deleted. It just isn't compared, and its last read shows how old its history is.
+- **A missing field isn't a change.** If Fabric leaves a field out of one response, that setting isn't compared in that read, so a hiccup doesn't show as the setting being removed and added back.
+- **Overrides, for Fabric administrators.** With `admin=True`, a Fabric administrator's read also records the tenant settings each capacity overrides (`GET /v1/admin/capacities/delegatedTenantSettingOverrides`, `Tenant.Read.All`), as settings named `override:<settingName>` with `source` ending in `(admin)`. That read covers every capacity, so an override that disappears is recorded as removed. It's only asked for when chosen, so nobody else is prompted for `Tenant.Read.All`; anyone else's attempt is recorded as `unreadable`, and their capacities are still read.
+- **How big it gets.** `fdcap_read` adds one row per capacity per read, and `fdcap_snapshot` and `fdcap_change` grow only when something changes. Nothing is deleted: tables are insert-only, like every central family, so read on a schedule that matches how closely you need to follow changes (daily is plenty for most).
 - **When and by whom.** As for tenant settings, a change is only ever "between these two reads", and `read_by` is an Entra object id.
 - **Only reads.** It never resizes, pauses or changes a capacity.
 - **What's built.** The engine call `capacity_settings_read`, untested on a live tenant; `tenant_settings_history` returns its changes and gaps beside the tenant's.

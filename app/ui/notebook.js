@@ -968,6 +968,8 @@ function renderTableOutput(o) {
     draw();
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
+  } else if (o.frame && !o.profileGone) {
+    wrap.append(renderFrameProfile(o, numeric, count));
   } else {
     wrap.append(renderInspect(o, numeric), h("div", { class: "more" }, `Summary of ${count.toLowerCase()}`));
   }
@@ -1155,6 +1157,49 @@ function svgChart(points, cfg) {
     });
   }
   return svg;
+}
+
+// Inspect over every row (frames.py profile), as display(df, summary=True) and Databricks' data
+// profile show it. Until the profile arrives, the preview's summary shows; after a kernel restart
+// the preview's summary stays, with a note.
+function renderFrameProfile(o, numeric, count) {
+  const box = h("div", { class: "profile" });
+  const show = (p) => {
+    const fmt = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString() : +v.toPrecision(6)) : String(v));
+    box.replaceChildren(h("div", { class: "inspect" }, p.columns.map((c) => {
+      if (c.error) return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)), h("div", { class: "muted-text" }, c.error));
+      const stats = [["Missing", fmt(c.missing)], ["Distinct", `≈ ${fmt(c.distinct)}`]];
+      if (c.infinite) stats.push(["Infinite", fmt(c.infinite)]);
+      let picture = null;
+      if (c.histogram) {
+        stats.push(["Min", fmt(c.min)], ["Max", fmt(c.max)], ["Mean", fmt(c.mean)], ["Std dev", fmt(c.std)],
+          ["Q1", fmt(c.q1)], ["Median", fmt(c.median)], ["Q3", fmt(c.q3)]);
+        const top = Math.max(...c.histogram, 1);
+        picture = h("div", { class: "hist", role: "img", "aria-label": `Distribution of ${c.name} from ${fmt(c.min)} to ${fmt(c.max)}` },
+          c.histogram.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%`, title: b.toLocaleString() })));
+      } else if (c.kind === "date" && c.min !== undefined) {
+        stats.push(["Earliest", c.min], ["Latest", c.max]);
+      } else if (c.top) {
+        picture = h("ul", { class: "top-values" }, c.top.map(([v, n]) => {
+          const t = v === null ? "null" : String(v);
+          return h("li", {}, h("span", { title: t }, t.length > 24 ? `${t.slice(0, 23)}…` : t), h("b", {}, n.toLocaleString()));
+        }));
+      }
+      return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)),
+        picture, h("dl", {}, stats.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
+    })), h("div", { class: "more" }, (p.sampled ? `Profile of a random sample of ${p.profiled_rows.toLocaleString()} of ${p.rows.toLocaleString()} rows`
+      : `Profile of all ${p.rows.toLocaleString()} row${p.rows === 1 ? "" : "s"}`) +
+      (p.more_columns ? `. ${p.more_columns} more column${p.more_columns === 1 ? " isn't" : "s aren't"} profiled; select fewer columns to see them.` : "")));
+  };
+  if (o.profile) { show(o.profile); return box; }
+  box.append(renderInspect(o, numeric), h("div", { class: "more", role: "status" }, `Summary of ${count.toLowerCase()}. Profiling every row...`));
+  rpc("notebook_frame_profile", { frame: o.frame }).then((p) => {
+    if (p.gone) {
+      o.profileGone = true;
+      box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;
+    } else { o.profile = p; show(p); }
+  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err)}`; });
+  return box;
 }
 
 function renderInspect(o, numeric) {

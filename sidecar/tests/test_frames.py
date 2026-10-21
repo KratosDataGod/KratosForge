@@ -149,6 +149,46 @@ def test_process_kernel_pages_and_downloads_in_its_own_process(tmp_path):
         k.close()
 
 
+# ---- the profile (Inspect over every row)
+
+def test_profile_covers_every_row():
+    store = Frames()
+    df = pl.DataFrame({"n": list(range(10_000)), "x": [float("nan"), None] + [1.5] * 9998,
+                       "s": ["a"] * 6000 + ["b"] * 3999 + [None], "d": [dt.date(2026, 1, 1 + i % 28) for i in range(10_000)]})
+    p = store.profile(store.keep(df))
+    n, x, s, d = p["columns"]
+    assert p["rows"] == 10_000
+    assert (n["kind"], n["min"], n["max"], n["median"], n["missing"]) == ("number", 0, 9999, 4999.5, 0)
+    assert sum(n["histogram"]) == 10_000 and len(n["histogram"]) == frames.HISTOGRAM_BINS
+    assert x["missing"] == 2 and x["min"] == x["max"] == 1.5 and x["histogram"][0] == 9998
+    assert s["kind"] == "text" and s["missing"] == 1 and s["top"] == [["a", 6000], ["b", 3999]]
+    assert d["kind"] == "date" and (d["min"], d["max"]) == ("2026-01-01", "2026-01-28")
+    assert 25 <= d["distinct"] <= 31  # approximate, like Databricks' profile
+
+
+def test_profile_of_an_empty_or_all_null_column():
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"a": pa.array([None, None], pa.int64()), "b": pa.array([None, None], pa.string())})))
+    a, b = p["columns"]
+    assert a["missing"] == 2 and "histogram" not in a and b["missing"] == 2 and "top" not in b
+
+
+def test_profile_caps_very_wide_results(monkeypatch):
+    monkeypatch.setattr(frames, "PROFILE_COLUMNS", 3)
+    store = Frames()
+    p = store.profile(store.keep(pa.table({f"c{i}": [i] for i in range(5)})))
+    assert len(p["columns"]) == 3 and p["more_columns"] == 2
+
+
+def test_service_profile_after_restart_asks_to_run_again():
+    from fabric_desktop.service import Service
+    svc = Service.__new__(Service)
+    svc.kernel = Kernel()
+    (out,) = _run(svc.kernel, "import polars as pl\npl.DataFrame({'a': [1, 2]})")
+    assert svc.notebook_frame_profile(out["frame"])["columns"][0]["max"] == 2
+    svc.kernel.restart()
+    assert svc.notebook_frame_profile(out["frame"])["gone"]
+
 def test_time_zone_timestamps_page_sort_and_search_without_pytz(monkeypatch):
     # Delta's default timestamp has a time zone; DuckDB's fetchall() would need pytz for it.
     monkeypatch.setitem(sys.modules, "pytz", None)
@@ -158,3 +198,45 @@ def test_time_zone_timestamps_page_sort_and_search_without_pytz(monkeypatch):
     page = store.page(fid, sort=0, desc=True)
     assert page["types"][0] == "timestamp" and page["rows"][0][1] == 3 and "2026-10-20 02:00:00" in page["rows"][0][0]
     assert store.page(fid, q="01:00")["total"] == 1
+
+
+def test_profile_counts_infinite_values_and_leaves_them_out_of_the_statistics():
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"v": [1.0, 3.0, float("inf"), float("-inf"), None]})))
+    (v,) = p["columns"]
+    assert (v["infinite"], v["missing"], v["min"], v["max"], v["mean"]) == (2, 1, 1.0, 3.0, 2.0)
+    assert sum(v["histogram"]) == 2
+
+
+def test_profile_of_time_zone_timestamps_without_pytz(monkeypatch):
+    monkeypatch.setitem(sys.modules, "pytz", None)
+    store = Frames()
+    ts = pa.array([dt.datetime(2026, 1, d, tzinfo=dt.timezone.utc) for d in (1, 9)], pa.timestamp("us", tz="UTC"))
+    (c,) = store.profile(store.keep(pa.table({"at": ts})))["columns"]
+    assert c["kind"] == "date" and c["min"].startswith("2026-01-01") and c["max"].startswith("2026-01-09")
+
+
+def test_one_column_that_cant_be_profiled_doesnt_hide_the_others(monkeypatch):
+    store = Frames()
+    real = Frames._profile_column
+
+    def flaky(con, c, f, n):
+        if f.name == "bad":
+            raise ValueError("Out of Range Error")
+        return real(con, c, f, n)
+    monkeypatch.setattr(Frames, "_profile_column", staticmethod(flaky))
+    p = store.profile(store.keep(pa.table({"bad": [1], "good": [2]})))
+    assert "Out of Range" in p["columns"][0]["error"] and p["columns"][1]["max"] == 2
+
+
+def test_a_large_result_is_profiled_from_a_random_sample(monkeypatch):
+    monkeypatch.setattr(frames, "PROFILE_ROWS", 100)
+    store = Frames()
+    p = store.profile(store.keep(pa.table({"n": list(range(1000))})))
+    assert p["sampled"] and (p["rows"], p["profiled_rows"]) == (1000, 100)
+    (n,) = p["columns"]
+    assert n["min"] < 50 and n["max"] > 950
+    # Data that repeats every 4 rows: an every-10th-row sample would only ever see 0 and 2.
+    p = store.profile(store.keep(pa.table({"k": ["abcd"[i % 4] for i in range(1000)]})))
+    assert p["columns"][0]["distinct"] == 4
+    assert store.profile(store.keep(pa.table({"n": list(range(1000))})))["columns"][0]["min"] == n["min"], "the same sample each time"

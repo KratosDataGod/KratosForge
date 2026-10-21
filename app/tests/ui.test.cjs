@@ -3126,3 +3126,42 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
+
+// Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
+test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined), textContent: "",
+    append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); }, replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); },
+    querySelector(sel) { return findAll(this, (n) => n.attrs?.class === sel.slice(1))[0]; } });
+  const answers = [{ frame: "f", rows: 10000, more_columns: 0, columns: [
+    { name: "n", type: "integer", kind: "number", missing: 0, distinct: 9990, min: 0, max: 9999, mean: 4999.5, std: 2886.9, q1: 2499.75, median: 4999.5, q3: 7499.25, histogram: [5, 10] },
+    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] },
+    { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
+    { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
+    { frame: "f", gone: true }];
+  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  vm.createContext(ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
+  const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
+  const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
+  assert.match(texts(box), /Profiling every row\.\.\.$/);
+  await new Promise((r) => setImmediate(r));
+  const t = texts(box);
+  assert.match(t, /Profile of all 10,000 rows$/);
+  assert.match(t, /Distinct≈ 9,990/);
+  assert.match(t, /Median4999\.5/);
+  assert.match(t, /null3/);
+  assert.match(t, /baddoubleCouldn't profile this column: Out of Range/);
+  const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
+  await new Promise((r) => setImmediate(r));
+  assert.match(texts(big), /Infinite3/);
+  assert.match(texts(big), /Profile of a random sample of 1,000,000 of 5,000,000 rows$/);
+  assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
+  const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
+  const box2 = ctx.p(o2, [true], "1 row");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o2.profileGone, true);
+  assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
+});

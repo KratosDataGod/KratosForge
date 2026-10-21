@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from fabric_desktop import chart_output
 from fabric_desktop.notebook import Kernel
 from fabric_desktop.notebook_formats import to_ipynb_text
@@ -43,7 +45,15 @@ def test_show_from_a_thread_says_so_instead_of_opening_a_browser():
     assert "from the cell's own code" in out["outputs"][-1]["text"]
 
 
-def test_plotly_fig_show_draws_in_the_cell():
+def test_plotly_fig_show_draws_in_the_cell(monkeypatch):
+    import sys
+    import webbrowser
+    # plotly picks its "browser" renderer wherever webbrowser finds a browser, as on every Windows PC.
+    browser = type("Browser", (), {"open": lambda *a, **k: pytest.fail("fig.show() opened a browser")})()
+    monkeypatch.setattr(webbrowser, "get", lambda *a: browser)
+    monkeypatch.delenv("PLOTLY_RENDERER", raising=False)
+    for name in [m for m in sys.modules if m == "plotly" or m.startswith("plotly.")]:
+        monkeypatch.delitem(sys.modules, name)
     out = Kernel().run("import plotly.express as px\npx.bar(x=[1, 2], y=[3, 4]).show()\nprint('after')")
     assert out["status"] == "ok", out
     html, after = out["outputs"]

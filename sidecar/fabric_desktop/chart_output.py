@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.abc
 import json
+import os
 import sys
 from typing import Any, Callable
 
@@ -107,7 +108,9 @@ def _patch_altair(altair: Any) -> None:
 
 
 def _patch_plotly(module: Any) -> None:
-    """Adds a renderer that draws in the cell, and makes it the default unless one is already set."""
+    """Adds a renderer that draws in the cell and makes it the default. plotly picks "browser" where it
+    finds one (always on Windows), which opens a browser tab from the engine; only PLOTLY_RENDERER, set
+    on purpose, is kept. A renderer the notebook sets afterwards is used as usual."""
     if "kratosforge" in module.renderers:
         return
     from plotly.io.base_renderers import ExternalRenderer
@@ -119,7 +122,7 @@ def _patch_plotly(module: Any) -> None:
                                                                 validate=False)}, "plotly's fig.show()")
 
     module.renderers["kratosforge"] = CellRenderer()
-    if not module.renderers.default:
+    if not os.environ.get("PLOTLY_RENDERER"):
         module.renderers.default = "kratosforge"
 
 

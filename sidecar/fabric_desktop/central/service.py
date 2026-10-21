@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import app_settings
+from .. import governance_notices as notices
 from ..auth import EXECUTE_SCOPES, TENANT_READ_SCOPES
 from ..fabric_api import FabricClient, FabricError
 from ..meta import keys as keys_mod
@@ -536,8 +537,21 @@ class PlatformMixin:
                 project = mesh.project_name(self._project())  # type: ignore[attr-defined]
             except LookupError:
                 project = ""
-        return self._catalog().call("request", kind=kind, target=target, project=project, reason=reason,
-                                    detail=detail or {})
+        out = self._catalog().call("request", kind=kind, target=target, project=project, reason=reason,
+                                   detail=detail or {})
+        self._notify_request(out, notices.request_waiting)
+        return out
+
+    def _notify_request(self, req: dict[str, Any], build: Any) -> None:
+        """Tell the request's routes about it (platform_notify_service.py). Products are read only
+        for the kinds that name one, so the others cost no extra catalog call."""
+        if not req or not req.get("id"):
+            return
+        products = (self._catalog().call("list_products") if req.get("kind") in ("access", "shortcut") else [])
+        event = build(req, products)
+        problem = self._governance_notify([event] if event else [])  # type: ignore[attr-defined]
+        if problem:
+            req.setdefault("problems", []).append(problem)
 
     def platform_decide(self, id: str, approve: bool, note: str = "") -> dict[str, Any]:
         out = self._catalog().call("decide_request", id=id, approve=approve, note=note)
@@ -552,10 +566,13 @@ class PlatformMixin:
                                 description=d.get("description", "") or out.get("reason", ""))
                 except Exception as exc:  # noqa: BLE001
                     out.setdefault("problems", []).append(f"{env.title()}: {exc}")
+        self._notify_request(out, notices.request_closed)
         return out
 
     def platform_withdraw(self, id: str) -> dict[str, Any]:
-        return self._catalog().call("withdraw_request", id=id)
+        out = self._catalog().call("withdraw_request", id=id)
+        self._notify_request(out, notices.request_closed)
+        return out
 
     def platform_revoke(self, product_id: str, project: str) -> list[dict[str, Any]]:
         return self._catalog().call("revoke_grant", product_id=product_id, project=project)

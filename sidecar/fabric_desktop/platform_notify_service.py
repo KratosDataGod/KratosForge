@@ -8,15 +8,18 @@ never returned to the UI, recorded in the audit log, or written to a backup.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from urllib.parse import urlparse
 
 from .dataops_service import post_teams
+from .redact import secrets
 from .workloads.notify import Outbox
 from .workloads.platform_notify import Ledger, PlatformRouting, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"}
 SETTING = "platform_notify"
+_log = logging.getLogger(__name__)
 
 
 class PlatformNotifyMixin:
@@ -47,6 +50,20 @@ class PlatformNotifyMixin:
                                for e in checked]}
         outbox, ledger = self._pn_paths()
         return send(checked, routing, outbox, ledger, post_teams)
+
+    def _governance_notify(self, events: list[dict[str, Any]]) -> str | None:
+        """Send governance's events (governance_notices.py) after the change they report is made.
+        A notice never undoes or fails that change: a problem is logged, without any webhook
+        address, and returned as one line; messages Teams didn't take wait in the outbox."""
+        if not events:
+            return None
+        try:
+            self.platform_notify(events)
+        except Exception as exc:  # noqa: BLE001 - the change is already made; say the notice wasn't sent
+            problem = secrets(f"The Teams notice wasn't sent: {exc}")
+            _log.warning(problem)
+            return problem
+        return None
 
     def platform_notify_settings(self) -> dict[str, Any]:
         """The routes without their webhook addresses: whether one is set, and its host."""

@@ -157,6 +157,11 @@ class FabricClient:
         harness calls this, for lakehouses it created itself."""
         self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
 
+    def delete_item(self, workspace_id: str, item_id: str) -> None:
+        """Delete an item (a notebook or pipeline). Only the live test harness calls this, for
+        items it created itself and recorded in its ledger."""
+        self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 
@@ -310,6 +315,11 @@ class FabricClient:
         Fabric administrators only (Tenant.Read.All); anyone else gets 401/403."""
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
+
+    def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
+        """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
+        type}, role}]. Fabric admin API, Tenant.Read.All."""
+        return self._paged(f"/admin/domains/{domain_id}/roleAssignments")
 
     def list_tenant_settings(self) -> list[dict[str, Any]]:
         """Fabric's tenant settings: [{settingName, title, enabled, tenantSettingGroup, ...}]. Fabric

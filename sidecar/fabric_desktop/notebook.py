@@ -289,7 +289,8 @@ class _Run:
     def __init__(self, count: int):
         self.count = count
         self.lock = threading.Lock()
-        self.outputs: list[dict[str, Any]] = []
+        self._outputs: list[dict[str, Any]] = []
+        self._tail: list[str] = []  # text printed since, joined onto the last stream output when read
         self.version = 0
         self.status = "running"
         self.started = time.monotonic()
@@ -309,14 +310,30 @@ class _Run:
     def _reset(self) -> None:
         if getattr(self, "spill", None) is not None:
             _drop_spill(self.spill, self.spill_file)
-        self.outputs, self.clear_pending = [], False
+        self._outputs, self._tail, self.clear_pending = [], [], False
         self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
         self.spill_file: Any = None
         self.overflowed = self.rich_dropped = False
 
+    @property
+    def outputs(self) -> list[dict[str, Any]]:
+        with self.lock:
+            self._join()
+            return self._outputs
+
+    def _join(self) -> None:
+        """Join the printed text kept in pieces; one join instead of copying the text on every print."""
+        if self._tail:
+            self._outputs[-1] = {"type": "stream", "text": self._outputs[-1]["text"] + "".join(self._tail)}
+            self._tail = []
+
+    def _append(self, output: dict[str, Any]) -> None:
+        self._join()
+        self._outputs.append(output)
+
     def _note(self, text: str) -> None:
-        self.outputs.append({"type": "text", "text": text})
+        self._append({"type": "text", "text": text})
 
     def write(self, text: str) -> None:
         if not text:
@@ -336,19 +353,23 @@ class _Run:
             self.version += 1
 
     def _stream(self, text: str) -> None:
-        if self.outputs and self.outputs[-1]["type"] == "stream":
-            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
+        if self._outputs and self._outputs[-1]["type"] == "stream":
+            self._tail.append(text)
         else:
-            self.outputs.append({"type": "stream", "text": text})
+            self._outputs.append({"type": "stream", "text": text})
 
     def _overflow(self, text: str, room: int) -> None:
         """The first write past STREAM_CHARS: keep what fits, put all printed text in a file."""
         if room:
             self._stream(text[:room])
         self.stream_chars, self.overflowed = STREAM_CHARS, True
-        shown = "".join(o["text"] for o in self.outputs if o["type"] == "stream")
+        self._join()
+        shown = "".join(o["text"] for o in self._outputs if o["type"] == "stream")
         try:
-            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt", dir=os.environ.get(SPILL_DIR_ENV) or None)
+            folder = os.environ.get(SPILL_DIR_ENV) or None
+            if folder:  # another engine's start-up sweep may have removed it while it was empty
+                os.makedirs(folder, exist_ok=True)
+            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt", dir=folder)
             self.spill, self.spill_file = Path(name), os.fdopen(fd, "w", encoding="utf-8", errors="replace")
             with _spills_lock:
                 _spills.add(self.spill)
@@ -381,7 +402,7 @@ class _Run:
             if self.clear_pending:
                 self._reset()
             if output.get("type") == "error":  # an error always shows, whatever came before it
-                self.outputs.append(output)
+                self._append(output)
             elif self.rich_chars + size > RICH_CHARS:
                 if self.rich_dropped:
                     return
@@ -390,7 +411,7 @@ class _Run:
                            "so later ones aren't shown.")
             else:
                 self.rich_chars += size
-                self.outputs.append(output)
+                self._append(output)
             self.version += 1
 
     def clear(self, wait: bool = False) -> None:
@@ -420,7 +441,10 @@ class _Run:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
                     "seconds": self.seconds if self.seconds is not None else round(time.monotonic() - self.started, 2),
-                    "outputs": list(self.outputs) if changed else None}
+                    "outputs": None}
+            if changed:
+                self._join()
+                snap["outputs"] = list(self._outputs)
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
             if progress is not None:

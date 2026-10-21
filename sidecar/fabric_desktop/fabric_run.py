@@ -238,17 +238,19 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # Code that needs Fabric's Spark runtime or its notebook services. On this PC, ``spark`` is
-# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials and
-# runtime, so most PySpark notebooks run here; these parts don't.
+# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
+# runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     # Streams run here as trigger(availableNow=True) (spark_stream.py); these kinds don't.
     (re.compile(r"\.trigger\(\s*continuous\s*="), "runs a continuous stream"),
     (re.compile(r"""\.format\(\s*["'](kafka|eventhubs|socket|rate)["']"""), "streams from Kafka, Event Hubs or a socket"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse|warehouse|"
-                r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
+    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
+                r"udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
+# Databricks' utilities: this PC has them, Fabric has notebookutils instead.
+_DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 _SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
@@ -288,6 +290,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             elif m := next((m for m in magics.find(source) if m.name == "sql" and _SQL_WRITE.search(m.rest)), None):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
+        if m := _DBUTILS.search(source):
+            fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "
+                                               "use notebookutils in Fabric", "code": _snippet(source, m)})
         if magics.cell(source).language == "configure":
             try:
                 configure_report(magics.cell(source).body)

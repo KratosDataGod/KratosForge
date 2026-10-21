@@ -69,7 +69,11 @@ class KernelSessions:
         with self._lock:
             key = self._key(notebook)
             found = self._sessions.get(key)
-            if found is None and create:
+            if found is not None:
+                # Looking it up is using it: reap_idle, under the same lock, won't close a kernel a
+                # caller has just been handed (a proof or replay about to start a cell in it).
+                found.touch()
+            elif create:
                 if self.in_process:
                     self._make_room()
                 found = self._sessions[key] = Session(key, self._make(self.in_process))
@@ -158,6 +162,10 @@ class KernelSessions:
             for s in stale:
                 del self._sessions[s.notebook]
         for s in stale:
+            if s.running():  # a cell started in it from a kernel a caller already held: keep it
+                with self._lock:
+                    self._sessions.setdefault(s.notebook, s)
+                continue
             s.kernel.close()
             self.notes.append(f"Stopped the session for {s.notebook}: idle for more than {minutes:g} minutes. "
                               "Its variables were cleared.")

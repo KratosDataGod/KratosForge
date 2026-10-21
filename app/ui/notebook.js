@@ -584,7 +584,7 @@ function pasteCell(cell, offset) {
 }
 
 function splitCell(cell) {
-  if (cell.meta?.frozen) return;
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
   const view = editors.get(cell.id);
   const pos = view ? view.state.selection.main.head : cell.source.length;
   const before = cell.source.slice(0, pos).replace(/\n$/, "");
@@ -609,6 +609,8 @@ function mergeBelow(cell) {
 }
 
 function setLanguage(cell, lang) {
+  // The picker is disabled on a frozen cell; M and Y in command mode come here too.
+  if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
   const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python)[^\n]*|%(sql|python)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {

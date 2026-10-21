@@ -176,6 +176,7 @@ async function followValidation(nb, id) {
   const ok = r.verdict === "ready" || r.verdict === "ready_with_warnings";
   logActivity({ id: `validate:${id}`, status: ok ? "ok" : "error", title: `${nb.name} · Validate`, text: r.summary || r.state });
   toast(`${nb.name}: ${r.summary || r.state}`, r.state === "failed");
+  profileEarned(r.earned);
 }
 
 async function cancelCleanRun(nb) {

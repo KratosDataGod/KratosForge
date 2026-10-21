@@ -1712,3 +1712,12 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .profile-report p, .profile-report ul { margin: 0; }
 .profile-report em { color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) { .profile-grid, .profile-report-layout, .profile-skills { grid-template-columns: minmax(0, 1fr); } }
+
+/* Optimize > Settings history */
+.sh-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
+.sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
+.sh-gap { background: #fdf0dc; border-color: #e8c48a; color: #5c3200; }
+.sh-gap p { margin: 0; }
+.sh-scroll { overflow-x: auto; }
+.sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font: inherit; }

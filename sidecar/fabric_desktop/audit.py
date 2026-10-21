@@ -42,7 +42,7 @@ READ_ONLY = frozenset("""
 access_find_person access_lakehouse access_review access_who_can_read agents_list all_schedules all_shortcuts app_settings
 audit_log telemetry_status benchmark_notebooks capacity_health catalog catalog_tables cost_report endorsements environment fabric_runs
 governance_applicability governance_overview governance_policy governance_resolve governance_version history
-incidents_list incidents_summary kernel_complete kernel_info kernel_variables mesh_about mesh_map mesh_overview
+incidents_list incidents_summary kernel_complete kernel_info kernel_variables notebook_frame_page mesh_about mesh_map mesh_overview
 mesh_workspace_domains meta_alerts meta_compare meta_drift meta_entity meta_entity_shortcuts meta_fabric_result
 meta_freshness meta_git_status meta_health meta_last_release meta_releases meta_rollback_preview meta_key_lookup meta_key_notebook meta_keys meta_model_plan
 meta_preflight meta_preview meta_profile_preview meta_project meta_promote_check meta_promote_impact
@@ -69,11 +69,13 @@ platform_notify_settings platform_notify_open
 pipeline_run_check pipeline_run_status pipeline_runs
 notebook_validate_check notebook_validate_list notebook_validate_status notebook_cleanup_plan notebook_cleanup_apply
 notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_publish_check
+profile_get profile_report
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.
 _CONTENT = frozenset({"code", "source", "sql", "query", "statement", "text", "cells", "content", "ipynb", "body", "value", "values",
-                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes"})
+                      "rows", "data", "parts", "definition", "notes", "description", "spec", "toml", "changes", "events", "routes",
+                      "report_summary", "identity"})
 _MAX = 200
 
 

@@ -318,3 +318,15 @@ def test_a_new_template_runs_and_proves_the_same_in_both_engines(svc):  # noqa: 
     assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
     assert out["verdict"]["verdict"] == "same", out
     assert out["tables"][0]["table"] == "dbo.dim_date" and out["tables"][0]["keys"] == ["date"]
+
+
+def test_incremental_runs_in_fabric_too_where_the_target_doesnt_exist_yet(svc):  # noqa: F811
+    # Fabric's lakehouse module had no table_exists, so this template failed there on its first cell that used it.
+    svc.fake = FakeFabric(svc)
+    nb = call(svc, "wizard_create", template="incremental", lakehouse_ref=LAKEHOUSE,
+              values={"source": "dbo.orders", "watermark": "order_id", "keys": "order_id", "output": "dbo.orders_copy"})
+    rules = call(svc, "prove_rules_get", name=nb["name"])
+    out = wait(svc, call(svc, "prove_start", name=nb["name"], cells=nb["cells"], lakehouse_ref=LAKEHOUSE, rules=rules)["id"])
+    assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["tables"][0]["pc"]["rows"] == 3

@@ -25,7 +25,7 @@ _MCP = "MCP/HTTP tool calls the same Service method in-process (integrations/ser
 _CLI = "CLI or headless agent calls the same Service method in-process (cli.py, agent.py); no screen"
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
-_NOTIFY = "governance Teams notices: engine only, no settings screen yet (platform_notify_service.py)"
+_NOTIFY = "governance Teams notices: governance sends the events; the UI only reads and sets routes (platform_notify_service.py)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
@@ -84,9 +84,6 @@ NO_UI_CALLER: dict[str, str] = {
     "incidents_history": _INCIDENTS,
     "incidents_history_sync": _INCIDENTS,
     "platform_notify": _NOTIFY,
-    "platform_notify_open": _NOTIFY,
-    "platform_notify_save": _NOTIFY,
-    "platform_notify_settings": _NOTIFY,
     "governance_version": _NO_SCREEN,
     "kernel_info": _NO_SCREEN,
     "meta_git_status": _NO_SCREEN,

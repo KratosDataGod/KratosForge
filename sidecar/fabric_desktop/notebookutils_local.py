@@ -33,6 +33,7 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote
 
 import requests
 
@@ -124,7 +125,8 @@ def _same_or_inside(src: str, dest: str) -> bool:
         # realpath follows symlinks and Windows junctions, so a link to the source counts as the source.
         sp, dp = (os.path.normcase(os.path.realpath(p)) for p in (sp, dp))
         return dp == sp or dp.startswith(sp.rstrip(os.sep) + os.sep)
-    sp, dp = posixpath.normpath(sp), posixpath.normpath(dp)
+    # OneLake decodes %XX in the path it gets, and the HTTP client sends a backslash as a slash.
+    sp, dp = (posixpath.normpath(unquote(p).replace("\\", "/")) for p in (sp, dp))
     return dp == sp or dp.startswith(sp + "/")
 
 

@@ -34,6 +34,10 @@ Keys:
                      0 (default) for no limit
     kernel_memory_limit_gb   with kernel_process: gigabytes the notebook's process may use before
                      it's ended; 0 (default) for no limit
+    kernel_max_sessions      with kernel_process: how many notebooks keep a process of their own;
+                     opening one more stops the least recently used idle one (default 5)
+    kernel_idle_minutes      with kernel_process: stop a notebook's process after this many idle
+                     minutes; 0 (default) keeps it
     support_url      where "Report a problem" goes: an https link or a mailto: address
     platform         IT only: the organization's Platform workspaces, {"prod": {"workspace_id": ...}, ...},
                      so every PC joins the same platform without anyone picking it
@@ -98,6 +102,7 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
+                            "kernel_max_sessions": 5, "kernel_idle_minutes": 0,
                             "allow_optimize_lakehouse": True, "forge_animations": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
@@ -106,10 +111,13 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
+                                            "kernel_max_sessions": (int, float), "kernel_idle_minutes": (int, float),
                                             "allow_optimize_lakehouse": bool, "forge_animations": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
-             "cell_time_limit_minutes", "kernel_memory_limit_gb", "forge_animations")
-LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
+             "cell_time_limit_minutes", "kernel_memory_limit_gb", "kernel_max_sessions", "kernel_idle_minutes",
+             "forge_animations")
+LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024,
+          "kernel_max_sessions": 20, "kernel_idle_minutes": 7 * 24 * 60}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 # Settings an environment variable can set, between policy and user (load() reads them).
 ENV_VARS = {"client_id": "FABRIC_DESKTOP_CLIENT_ID"}

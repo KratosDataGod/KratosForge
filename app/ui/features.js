@@ -80,6 +80,7 @@ const PREVIEW_FEATURES = {
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
+  sessions: "Notebook sessions",
   nbFormats: "Notebook import and export formats",
   profile: "Profile",
 };

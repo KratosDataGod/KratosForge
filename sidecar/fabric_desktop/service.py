@@ -62,6 +62,7 @@ from . import notebook_versions
 from .progress_service import ProgressMixin
 from .comments_service import CommentsMixin
 from .kernel_proc import ProcessKernel
+from .kernel_sessions import KernelSessions
 from .debugger import check_breakpoints
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
@@ -84,7 +85,9 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         self._client_id = client_id  # given by the agent; otherwise from app settings
         self.root = root or data_dir()
         self._auth: Authenticator | None = None
-        self.kernel = self._new_kernel()
+        self.sessions = KernelSessions(self._new_kernel, lambda: bool(app_settings.value("kernel_process")),
+                                       max_sessions=lambda: int(app_settings.value("kernel_max_sessions") or 0),
+                                       idle_minutes=lambda: float(app_settings.value("kernel_idle_minutes") or 0))
         self.notebooks = NotebookShelf(self.root / "notebooks", self._notebook_places)
         self._schema_cache: dict[str, bool] = {}
         self._tables: dict[str, Any] | None = None
@@ -197,21 +200,36 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             return kernel
         return Kernel(token=self._token_for, load_notebook=load, variable_libraries=self._notebook_variables)
 
+    @property
+    def kernel(self) -> Any:
+        """The open notebook's kernel (kernel_sessions): proofs, side by side and replays use it."""
+        return self.sessions.kernel()
+
+    @kernel.setter
+    def kernel(self, kernel: Any) -> None:
+        self.sessions.put(None, kernel)
+
     def _kernel_busy(self) -> bool:
-        snap = self.kernel.poll()
-        return snap.get("status") == "running" or self.proof_busy()
+        return self.sessions.any_running() or self.proof_busy()
 
-    def kernel_info(self) -> dict[str, Any]:
+    def kernel_info(self, notebook: str | None = None) -> dict[str, Any]:
         """Where notebook cells run: in the engine, or in a process of their own (and its id)."""
-        process = isinstance(self.kernel, ProcessKernel)
-        return {"process": process, "pid": self.kernel.pid if process else os.getpid()}
+        kernel = self.sessions.kernel(notebook)
+        process = isinstance(kernel, ProcessKernel)
+        return {"process": process, "pid": kernel.pid if process else os.getpid()}
 
-    def stop_kernel_process(self) -> dict[str, Any]:
-        """Stop: end the kernel's own process (variables are cleared). With the kernel inside the
+    def kernel_sessions(self) -> dict[str, Any]:
+        """The Sessions list: each notebook's session, and sessions stopped since the last look."""
+        return {"process": self.sessions.in_process, "sessions": self.sessions.describe(),
+                "notes": self.sessions.take_notes(), "max_sessions": int(app_settings.value("kernel_max_sessions") or 0),
+                "idle_minutes": float(app_settings.value("kernel_idle_minutes") or 0)}
+
+    def stop_kernel_process(self, notebook: str | None = None) -> dict[str, Any]:
+        """Stop: end the notebook's own process (variables are cleared). With the kernel inside the
         engine this does nothing, and the app ends the engine instead."""
-        if self.proof_busy():
+        if self.proof_busy() and (notebook is None or notebook == self.sessions.active):
             raise RuntimeError("A proof is using the kernel. Cancel the proof first.")
-        return self.kernel.stop()
+        return self.sessions.stop(self.sessions.active if notebook is None else notebook)
 
     def app_settings(self) -> dict[str, Any]:
         return {**app_settings.load(), "policy_file": str(app_settings.policy_path()),
@@ -222,13 +240,14 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             if self._kernel_busy():
                 raise RuntimeError("A cell or proof is running. Change this when it has finished.")
             app_settings.save(changes)
-            old, self.kernel = self.kernel, self._new_kernel(bool(changes["kernel_process"]))
-            if isinstance(old, ProcessKernel):
-                old.close()
+            for old in self.sessions.switch(bool(changes["kernel_process"])):
+                if isinstance(old, ProcessKernel):
+                    old.close()
         else:
             app_settings.save(changes)
-        if isinstance(self.kernel, ProcessKernel):
-            _apply_limits(self.kernel)
+        for kernel in self.sessions.kernels():
+            if isinstance(kernel, ProcessKernel):
+                _apply_limits(kernel)
         if "telemetry" in changes and not changes["telemetry"]:
             self.telemetry.discard()
         return self.app_settings()
@@ -422,10 +441,11 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     # Notebook kernel. ``lakehouse`` is the notebook's attached lakehouse, sent with
     # every cell so a restarted sidecar picks it up again.
 
-    def run_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None) -> dict[str, Any]:
+    def run_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None,
+                 notebook: str | None = None) -> dict[str, Any]:
         self._replay_guard(None)
         self._attach(lakehouse_ref)
-        return self.kernel.run(code)
+        return self.sessions.kernel(notebook).run(code)
 
     # The app runs cells with start_cell, then polls: output shows while the cell runs, and
     # interrupt_cell stops it without clearing variables.
@@ -446,35 +466,44 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
             raise RuntimeError("An external tool is running against a lakehouse. Try again when it has finished.")
         try:
-            if self.kernel.poll().get("status") == "running":
-                raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
-            self._attach(lakehouse_ref)
-            self.kernel.notebook_name = notebook or ""
+            self.sessions.reap_idle()
+            session = self.sessions.session(notebook)
+            kernel = session.kernel
+            if kernel.poll().get("status") == "running":
+                if self.sessions.in_process or not notebook or notebook == kernel.notebook_name:
+                    raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+                raise RuntimeError(f"A cell is already running in {kernel.notebook_name}. Notebooks share one kernel "
+                                   "inside the engine; turn on Run notebooks in their own process in Settings "
+                                   "to run them at the same time.")
+            self._attach(lakehouse_ref, notebook)
+            session.touch()
+            kernel.notebook_name = notebook or ""
             # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
-            self.kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
-            self.kernel.resources_dir = self._resources_dir(notebook)
-            if isinstance(self.kernel, ProcessKernel):
-                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
-                                         breakpoints=breakpoints, step=bool(step))
-            return self.kernel.start(code, check_watches(watches), breakpoints, bool(step))
+            kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
+            kernel.resources_dir = self._resources_dir(notebook)
+            if isinstance(kernel, ProcessKernel):
+                return kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
+                                    breakpoints=breakpoints, step=bool(step))
+            return kernel.start(code, check_watches(watches), breakpoints, bool(step))
         finally:
             self.attach_lock.release()
 
-    def poll_cell(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
-        return self.kernel.poll(version, wait)
+    # ``notebook`` names whose kernel to ask; without it, the open notebook's.
+    def poll_cell(self, version: int = -1, wait: float = 0.0, notebook: str | None = None) -> dict[str, Any]:
+        return self.sessions.kernel(notebook).poll(version, wait)
 
-    def interrupt_cell(self) -> dict[str, Any]:
-        return self.kernel.interrupt()
+    def interrupt_cell(self, notebook: str | None = None) -> dict[str, Any]:
+        return self.sessions.kernel(notebook).interrupt()
 
-    def debug_cell(self, action: str, expression: str | None = None) -> dict[str, Any]:
+    def debug_cell(self, action: str, expression: str | None = None, notebook: str | None = None) -> dict[str, Any]:
         """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
-        return self.kernel.debug(action, expression)
+        return self.sessions.kernel(notebook).debug(action, expression)
 
-    def kernel_variables(self) -> list[dict[str, Any]]:
-        return self.kernel.variables()
+    def kernel_variables(self, notebook: str | None = None) -> list[dict[str, Any]]:
+        return self.sessions.kernel(notebook).variables()
 
-    def kernel_complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
-        return self.kernel.complete(code, cursor)
+    def kernel_complete(self, code: str, cursor: int | None = None, notebook: str | None = None) -> dict[str, Any]:
+        return self.sessions.kernel(notebook).complete(code, cursor)
 
     def kernel_inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
         """Hover docs or signature help for the notebook editor (intellisense.py); runs no code."""
@@ -563,7 +592,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self._attach_lock = threading.RLock()
         return self._attach_lock
 
-    def _attach(self, lakehouse_ref: dict[str, str] | None) -> None:
+    def _attach(self, lakehouse_ref: dict[str, str] | None, notebook: str | None = None) -> None:
         # Bounded like start_cell: an external tool's query holds the lock while it runs, and the
         # engine's one pipe must not freeze behind it.
         if not self.attach_lock.acquire(timeout=ATTACH_WAIT_SECONDS):
@@ -571,12 +600,12 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         try:
             # A cell running in the engine reads the attached lakehouse as it goes; a process
             # kernel has its own copy from when the cell started.
-            kernel = getattr(self, "kernel", None)
+            sessions = getattr(self, "sessions", None)
             current = lakehouse._attached
             attached = (current.workspace_id, current.lakehouse_id) if current else None
             wanted = (lakehouse_ref["workspace_id"], lakehouse_ref["lakehouse_id"]) if lakehouse_ref else None
-            if (wanted != attached and kernel is not None and not isinstance(kernel, ProcessKernel)
-                    and kernel.poll().get("status") == "running"):
+            if (wanted != attached and sessions is not None and not sessions.in_process
+                    and sessions.any_running()):
                 raise RuntimeError(f"A cell is running against {current.name if current else 'no lakehouse'}. "
                                    "Wait for it, or Cancel it, before using another lakehouse.")
             lakehouse.attach(None if not lakehouse_ref else lakehouse.Attached(
@@ -749,8 +778,8 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self._schema_cache[lakehouse_id] = bool(props.get("defaultSchema"))
         return self._schema_cache[lakehouse_id]
 
-    def restart_kernel(self) -> dict[str, Any]:
-        self.kernel.restart()
+    def restart_kernel(self, notebook: str | None = None) -> dict[str, Any]:
+        self.sessions.kernel(notebook).restart()
         return {"restarted": True}
 
     # Notebook files, stored as .ipynb under the app data folder.
@@ -760,10 +789,14 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def new_notebook(self, place: str | None = None) -> dict[str, Any]:
         """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
-        return self._with_place(self.notebooks.new(place=place))
+        nb = self.notebooks.new(place=place)
+        self.sessions.active = nb["name"]
+        return self._with_place(nb)
 
     def open_notebook(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)
+        self.sessions.active = name  # its session, if it has one, is the one Run, Stop and proofs use
+        self.sessions.reap_idle()
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
                                        "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
 
@@ -829,6 +862,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
+        self.sessions.rename(name, new_name)  # its session (and variables) go with it
         self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
         try:
             notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it

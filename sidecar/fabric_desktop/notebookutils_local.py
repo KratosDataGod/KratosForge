@@ -33,7 +33,7 @@ import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote
+from urllib.parse import unquote, urlsplit
 
 import requests
 
@@ -125,7 +125,8 @@ def _same_or_inside(src: str, dest: str) -> bool:
         # realpath follows symlinks and Windows junctions, so a link to the source counts as the source.
         sp, dp = (os.path.normcase(os.path.realpath(p)) for p in (sp, dp))
         return dp == sp or dp.startswith(sp.rstrip(os.sep) + os.sep)
-    # OneLake decodes %XX in the path it gets, and the HTTP client sends a backslash as a slash.
+    # OneLake decodes %XX in the path it gets. requests sends a backslash as %5C, and whether OneLake
+    # reads that as a separator is unverified, so it is compared as one: that can only refuse more.
     sp, dp = (posixpath.normpath(unquote(p).replace("\\", "/")) for p in (sp, dp))
     return dp == sp or dp.startswith(sp + "/")
 
@@ -349,6 +350,25 @@ _AUDIENCES = {
 }
 
 
+_VAULT_NAME = re.compile(r"^[A-Za-z0-9-]{1,24}$")
+_SECRET_NAME = re.compile(r"^[A-Za-z0-9-]{1,127}$")
+
+
+def vault_url(akv: str) -> str:
+    """``https://<name>.vault.azure.net`` for a Key Vault name or URL. Anything else is refused:
+    the request carries your Key Vault token, which must not reach another host."""
+    akv = str(akv).strip()
+    if _VAULT_NAME.match(akv):
+        return f"https://{akv}.vault.azure.net"
+    url = urlsplit(akv)
+    host = (url.hostname or "").lower()
+    if url.scheme == "https" and host.endswith(".vault.azure.net") and _VAULT_NAME.match(host[:-len(".vault.azure.net")]) \
+            and url.port is None and not url.username and url.path.strip("/") == "" and not url.query and not url.fragment:
+        return f"https://{host}"
+    raise ValueError(f"{akv!r} isn't a Key Vault: give its name or its https://<name>.vault.azure.net URL. "
+                     "Your Key Vault token is only sent there.")
+
+
 def _make_credentials(host: Host) -> types.SimpleNamespace:
     def getToken(audience: str) -> str:  # noqa: N802
         if host.token is None:
@@ -359,7 +379,9 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         return host.token(key)
 
     def getSecret(akvName: str, secret: str, linkedService: str | None = None) -> str:  # noqa: N802, N803, ARG001
-        vault = akvName if akvName.startswith("https://") else f"https://{akvName}.vault.azure.net"
+        vault = vault_url(akvName)
+        if not _SECRET_NAME.match(str(secret)):
+            raise ValueError(f"{secret!r} isn't a Key Vault secret name (letters, digits and dashes, up to 127).")
         headers = {"Authorization": f"Bearer {getToken('keyvault')}"}
         resp = send_with_retry(lambda: http_session.session().get(f"{vault.rstrip('/')}/secrets/{secret}",
                                                     params={"api-version": "7.4"}, headers=headers, timeout=30),

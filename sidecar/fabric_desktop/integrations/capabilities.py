@@ -158,7 +158,7 @@ def register_core(reg: Registry) -> None:
                     "env": {"type": "string", "maxLength": 10, "default": ""}}, ["workload_id", "action"]),
             schema({"result": STR, "summary": STR, "findings": {"type": "array"}, "can_proceed": {"type": "boolean"}},
                    ["result", "findings"], extra=True),
-            "READ_METADATA", services.check_run_risk, workspaces=scope.UNKNOWN, status="preview", limitations=FABRIC_LIMIT + (
+            "READ_METADATA", services.check_run_risk, workspaces=scope.workload, status="preview", limitations=FABRIC_LIMIT + (
                 "Reads the capacity's state; how busy a capacity is isn't available to developers.",), timeout=60),
         Capability(
             "fabric_desktop_placement_advice", "Advise where to run a notebook",

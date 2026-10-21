@@ -786,7 +786,7 @@ class Kernel:
         return None
 
     def _line_magic_help(self) -> str:
-        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+        return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
                 "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
                 "%load_ext, %autoreload and %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
@@ -844,6 +844,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
+            if m := _RUN_SCRIPT.match(line):
+                return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
@@ -936,6 +938,37 @@ class Kernel:
         ns[magics.CALL] = self._magic
         with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
             return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
+
+    def _run_builtin(self, flags: str, rest: str) -> Any:
+        """Fabric's ``%run -b script.py`` (or ``.sql``): runs a file from the notebook's Built-in
+        resources in this session. A ``.py`` file runs in the notebook's variables, after any
+        ``{"name": value}`` arguments are set; a ``.sql`` file runs as a %%sql cell would."""
+        from . import notebook_resources
+        if "-c" in flags.split() or "--current" in flags.split():
+            if getattr(self._local, "depth", 0):
+                raise NotImplementedError("%run -c inside a notebook that another one runs isn't supported on "
+                                          "this PC yet: it would need that notebook's own resources. Use -b, "
+                                          "which reads the resources of the notebook you run.")
+        file, args = _run_target(rest, keep_path=True)
+        if not self.resources_dir:
+            raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
+                                    "under Resources (Built-in) first.")
+        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        if path is None or not os.path.isfile(path):
+            raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
+        text = Path(path).read_text(encoding="utf-8")
+        kind = Path(path).suffix.lower()
+        if kind == ".sql":
+            if args:
+                raise ValueError("%run -b with a .sql file takes no arguments.")
+            if self._run_sql(text, getattr(self._local, "run", None), self.namespace) != "ok":
+                raise RuntimeError(f"{file} failed; its error is shown above.")
+            return None
+        if kind != ".py":
+            raise ValueError(f"%run -b runs .py and .sql files; {file} is neither.")
+        self.namespace.update(args)
+        exec(compile(text, f"builtin/{file}", "exec"), self.namespace)  # noqa: S102 - the notebook's own file
+        return None
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
@@ -1317,7 +1350,10 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
 
-def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+_RUN_SCRIPT = re.compile(r"^\s*(?P<flags>(?:(?:-b|--builtin|-c|--current)\s+)+)(?P<rest>.*)$", re.S)
+
+
+def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]]:
     """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
     ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
     ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
@@ -1330,7 +1366,9 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
     if not name:
         raise ValueError("%run needs a notebook name, like: %run Load sales")
-    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    name = name.replace("\\", "/").rstrip("/")
+    if not keep_path:  # a notebook is found by its name; a resources file keeps its folder
+        name = name.rsplit("/", 1)[-1].removesuffix(".ipynb")
     rest = rest.strip()
     if not rest:
         return name, {}

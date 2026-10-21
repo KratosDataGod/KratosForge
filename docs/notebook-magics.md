@@ -167,6 +167,25 @@ Both products' ways of passing values work:
 - A name can have spaces, and can be quoted. A folder path in front (`./`, `../shared/`) and an
   `.ipynb` ending are dropped: notebooks are found by name.
 
+### Running a file from the notebook's resources: %run -b
+
+`%run -b file.py` (or `--builtin`) runs a Python file from the notebook's
+[Built-in resources](notebook-resources.md) in this session, as in Fabric, so its functions and
+variables are yours afterwards. `%run -b file.sql` runs a SQL file as a `%%sql` cell would, and
+leaves a query's result in `_sqldf`.
+
+```python
+%run -b helpers.py
+%run -b helpers.py {"factor": 2}     # set as variables before the file runs
+%run -b checks/row_counts.sql
+```
+
+- The file must be in this notebook's resources; a path that climbs out of them (`../`) is not
+  followed.
+- `-c` (`--current`) works the same in the notebook you run. Inside a notebook that another one
+  runs with `%run`, `-c` stops with a message, because this PC doesn't yet track that notebook's
+  own resources; use `-b`, which reads the resources of the notebook you run, as Fabric does.
+
 ## %%configure
 
 `%%configure` sets Fabric's Spark session (driver and executor sizes, Spark `conf`, the default
@@ -200,6 +219,7 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 | `%sql` | One Spark SQL query inside Python; returns a DataFrame |
 | `%%html` | Shows the HTML in a sandboxed frame |
 | `%run Other notebook {"x": 1}`, `%run ./Other $x="1"` | Runs another notebook in this one's namespace, with parameters |
+| `%run -b file.py`, `%run -b file.sql` | Runs a file from the notebook's Built-in resources in this session |
 | `!command`, `x = !command` | Runs in this PC's shell; the assigned form keeps the output lines |
 | `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
 | `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |

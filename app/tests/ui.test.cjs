@@ -3816,3 +3816,11 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+});

@@ -38,12 +38,16 @@ REFUSED = {"pyspark": "spark here is the app's own local Spark API",
            "databricks-connect": "Databricks Connect runs in a process of its own, not in a notebook environment",
            "delta-spark": "Delta tables are read and written through the app's own Delta support"}
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$")
+# Windows device names: a folder can't be called these, with or without an extension.
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
 
 
 def check_name(name: str) -> str:
     name = str(name or "").strip()
     if not _NAME.match(name) or name.endswith((".", " ")):
         raise ValueError("An environment name is letters, numbers, spaces, dots, dashes and underscores (64 at most).")
+    if _RESERVED.match(name.strip()):
+        raise ValueError(f"{name} is a name Windows keeps for a device. Choose another name.")
     return name
 
 
@@ -139,9 +143,10 @@ class Environments:
             data = self._read()
             if any(n.lower() == name.lower() for n in data["environments"]):
                 raise ValueError(f"There's already an environment called {name}.")
+            # The folder first: an environment is never listed without somewhere to install into.
+            self.site_packages(name).mkdir(parents=True, exist_ok=True)
             data["environments"][name] = {"packages": [], "updated": time.time()}
             self._write(data)
-        self.site_packages(name).mkdir(parents=True, exist_ok=True)
         return {"name": name}
 
     def delete(self, name: str) -> dict[str, Any]:
@@ -165,7 +170,9 @@ class Environments:
             data["environments"].pop(name)
             data["notebooks"] = {nb: env for nb, env in data["notebooks"].items() if env != name}
             self._write(data)
-        shutil.rmtree(gone, ignore_errors=True)
+        # This one, and any an earlier delete couldn't finish (a file Windows still had open).
+        for leftover in self.folder.glob(".deleting-*"):
+            shutil.rmtree(leftover, ignore_errors=True)
         return {"deleted": name, "detached": detached}
 
     def attach(self, notebook: str, name: str | None) -> dict[str, Any]:

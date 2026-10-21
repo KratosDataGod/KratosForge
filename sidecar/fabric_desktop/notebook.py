@@ -27,6 +27,7 @@ import logging
 import os
 import re
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -51,6 +52,10 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 _log = logging.getLogger(__name__)
 
 PREVIEW_ROWS = 1000
+# What one cell run keeps and polls: printed text past STREAM_CHARS goes to a file the user can open,
+# and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
+STREAM_CHARS = 1_000_000
+RICH_CHARS = 16_000_000
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
@@ -243,7 +248,7 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
-        self.clear_pending = False
+        self._reset()
         self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
         self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
 
@@ -252,23 +257,79 @@ class _Run:
             self.paused = json.loads(json.dumps(paused, default=str)) if paused is not None else None
             self.version += 1
 
+    def _reset(self) -> None:
+        self.outputs, self.clear_pending = [], False
+        self.stream_chars = self.rich_chars = 0
+        self.spill: Path | None = None
+        self.spill_failed = self.rich_dropped = False
+
+    def _note(self, text: str) -> None:
+        self.outputs.append({"type": "text", "text": text})
+
     def write(self, text: str) -> None:
         if not text:
             return
         with self.lock:
             if self.clear_pending:
-                self.outputs, self.clear_pending = [], False
-            if self.outputs and self.outputs[-1]["type"] == "stream":
-                self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
+                self._reset()
+            if self.spill is not None or self.spill_failed:
+                self._spill(text)
+                return
+            room = STREAM_CHARS - self.stream_chars
+            if len(text) > room:
+                self._overflow(text, room)
             else:
-                self.outputs.append({"type": "stream", "text": text})
+                self._stream(text)
+                self.stream_chars += len(text)
             self.version += 1
 
+    def _stream(self, text: str) -> None:
+        if self.outputs and self.outputs[-1]["type"] == "stream":
+            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
+        else:
+            self.outputs.append({"type": "stream", "text": text})
+
+    def _overflow(self, text: str, room: int) -> None:
+        """The first write past STREAM_CHARS: keep what fits, put all printed text in a file."""
+        if room:
+            self._stream(text[:room])
+        self.stream_chars = STREAM_CHARS
+        shown = "".join(o["text"] for o in self.outputs if o["type"] == "stream")
+        try:
+            fd, name = tempfile.mkstemp(prefix="kratosforge-output-", suffix=".txt")
+            with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
+                f.write(shown[:len(shown) - min(room, len(text))] + text)
+            self.spill = Path(name)
+            where = f" All of it is in {name}."
+        except OSError:
+            self.spill_failed = True
+            where = " The rest wasn't kept."
+        self._note(f"Output truncated: this cell printed more than {STREAM_CHARS:,} characters.{where}")
+
+    def _spill(self, text: str) -> None:
+        if self.spill is None:
+            return
+        try:
+            with self.spill.open("a", encoding="utf-8", errors="replace") as f:
+                f.write(text)
+        except OSError:
+            self.spill = None
+            self.spill_failed = True
+
     def add(self, output: dict[str, Any]) -> None:
+        size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
-                self.outputs, self.clear_pending = [], False
-            self.outputs.append(output)
+                self._reset()
+            if self.rich_chars + size > RICH_CHARS:
+                if self.rich_dropped:
+                    return
+                self.rich_dropped = True
+                self._note(f"Output truncated: this cell's tables, charts and HTML passed {RICH_CHARS // 1_000_000} MB, "
+                           "so later ones aren't shown.")
+            else:
+                self.rich_chars += size
+                self.outputs.append(output)
             self.version += 1
 
     def clear(self, wait: bool = False) -> None:
@@ -278,7 +339,7 @@ class _Run:
             if wait:
                 self.clear_pending = True
             else:
-                self.outputs, self.clear_pending = [], False
+                self._reset()
                 self.version += 1
 
     def finish(self, status: str) -> None:

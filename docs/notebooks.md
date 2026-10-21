@@ -28,11 +28,15 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 | Load data | Load a file into a table | Reads one CSV, Parquet or JSON file under Files/, checks its keys and writes a table |
 | Load data | Load a folder of files | Reads every file of one type directly in a folder, adds `source_file` and `loaded_at` to each row and writes one table. A proof ignores `loaded_at` |
 | Load data | Incremental load with a watermark | Appends only the rows whose watermark column (a date, time or ID that only grows) is higher than the highest already in the target, reading only that column of the target. A row that arrives late with a lower value isn't picked up |
+| Load data | Flatten a nested JSON file | Reads a JSON file under Files/ and turns each nested object into columns named after its path (`customer.name` becomes `customer_name`); a name that would clash, even only by case, stops the run. Lists stay as list columns |
 | Clean and check | Clean a table | Keeps columns, drops rows with no key and duplicate keys |
+| Clean and check | Keep the latest row per key | Keeps each key's row with the highest value in a column you name (an empty value counts as oldest). Two newest rows with the same value, or a key whose rows all have no value, stop the run, because either could be kept |
+| Clean and check | Profile a table | One row per column: type, rows, empty values and their share, distinct values, and the lowest and highest value as text. Replaces the last profile, and can't write to the table it profiles |
 | Clean and check | Standardize names and types | Renames columns to snake_case, trims text, and turns the columns you name into dates or numbers. A value that can't be read stops the run, so nothing is quietly lost |
 | Clean and check | Data quality checks | Checks required columns, unique keys, allowed values (`status: open\|closed`) and ranges (`amount: 0..1000000`). Rows that pass go to one table; rows that fail go to a rejects table with a `reason` |
 | Model | Join and aggregate | Joins two tables on a column and groups by columns |
 | Model | Date dimension | One row per day between two dates, with year, quarter, month, ISO week, weekday, weekend, and a fiscal year named by the calendar year it ends in |
+| Model | Daily snapshot | Appends today's rows of a table to a history table with a `snapshot_date` (UTC). A second run on the same day writes nothing, so a retry can't double a day. It can't write to the table it reads |
 | Compare | Reconcile two tables | Compares row counts, keys on one side only and column totals; the run fails when they differ, so a schedule stops. Writes nothing |
 | Orchestrate | Run notebooks in order | Runs other notebooks one after another with `notebookutils.notebook.runMultiple`, each only after the one before succeeds, with retries. Writes nothing itself |
 
@@ -102,6 +106,7 @@ from pyspark.sql import functions as F
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
+| `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
 | `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
 
 **Paths** can be written the Fabric way: `Files/...`, `/lakehouse/default/Files/...`, or the attached lakehouse's `abfss://` path.
@@ -176,15 +181,21 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 **What output looks like:**
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.
-- Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views: **Table** (search, click a heading to sort), **Chart** (bar, line or scatter, with the X axis, values and aggregate you pick) and **Inspect** (missing, distinct, min, max, mean and a histogram per column). `display(df, summary=True)` opens Inspect.
+- Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views over the whole result: **Table**, **Chart** and **Inspect**, described below. `display(df, summary=True)` opens Inspect.
 - **Table** works on the whole result, not only the first 1,000 rows. Pages hold 100 rows (**Previous**, **Next**); **Search all rows** and clicking a heading search and sort every row, and each heading shows its column type. The kernel keeps the last 20 results; a lakehouse query is read once, the first time you page, search or sort it, and that copy is reused. After a restart, or once 20 newer results have replaced it, the table asks you to run the cell again.
+- **Inspect** (and `display(df, summary=True)`) profiles every row of the result, like Databricks' data profile: missing values (NaN counts as missing), an approximate distinct count, and for numbers min, max, mean, standard deviation, quartiles and a histogram; for dates the earliest and latest; for text the five most common values. Infinite values are counted and left out of the number statistics. The first 200 columns are profiled; a result of more than 250,000 rows is profiled from a random sample of 250,000 rows, so Inspect stays quick, and it says so. A column that can't be profiled says why, and the others still show. Until the profile is ready, and after a restart, Inspect shows the summary of the rows shown first and says so.
+- **Chart** (Preview) charts every row of the result: the engine adds them up, so the chart isn't limited to the rows shown. Pick **Bar**, **Stacked bar**, **Line**, **Area**, **Scatter**, **Pie**, **Histogram** or **Box**, the X axis, the values (or a row count) and how to add them up (sum, average, count, max, min), and optionally a **Series** column to split them by colour. Seven series show, the rest are added up as **Other**; bar and pie charts keep the 60 largest X values and line charts the first 60; a scatter plot shows up to 5,000 points, sampled evenly. Give it a title if you like. The chart is saved in the cell (by column name), so it's back after you reopen the notebook or run the cell again; **Reset** goes back to the default.
+- **Clean** (Preview) is Data Wrangler: add steps (drop, keep or rename columns, change a type, fill or drop missing values, filter rows, remove duplicates, trim spaces, change case, find and replace, split text, sort) and the preview shows what they do to every row of the result, with the changed columns marked and the row count before and after (above 1,000,000 rows the preview uses the first million). Each step is written as a line of Polars code. **Add code to notebook** puts it in a new cell under this one; nothing changes until you run that cell, which makes a new `<name>_clean` data frame and leaves the original as it is. The code reads the data frame the cell displayed (`display(orders)` gives `orders`; change the name above the steps), and it runs in Fabric and Databricks notebooks that have Polars too. A step that can't run (say, a number fill on a text column) is marked with the reason, and the code stops before it. Values that can't change type become empty.
 - **Copy** puts the rows on the page on the clipboard, tab-separated, ready to paste into Excel.
 - **Download** (Preview) saves the whole result to your Downloads folder as **CSV**, **Excel** (.xlsx, up to 1,048,575 rows) or **Parquet**. The file is always new (`<notebook> result <date time>.csv`, then `(2)` and so on); a file already there is never replaced, and a download that fails leaves nothing behind. In Excel, values that look like formulas (`=...`) are saved as text, so opening the file never runs them. CSV and Parquet keep every value exactly as it is, for loading into other tools; open a CSV from someone else's data in Excel with care, or download Excel instead. Downloading writes only to your PC; it reads nothing new from OneLake once the result is held.
 - Matplotlib charts show as images. Objects with an HTML view (Plotly, `%%html` cells) render in a sandboxed frame.
 
 ## Editing
 
-- Cells have line numbers, bracket matching, folding, find and replace (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).
+- Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark or SQL. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
+- **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).
 - Each cell has a language picker (Python, Spark SQL, HTML, Markdown) and **...** for more actions.
 - **Command mode** (press **Esc**): **A** and **B** add a cell above or below, **DD** deletes, **Z** undoes a delete, **M** and **Y** switch between Markdown and code, **C**, **X** and **V** copy, cut and paste cells, **O** hides output, **Shift+L** toggles line numbers, and **Enter** goes back to editing.
 
@@ -192,9 +203,9 @@ The ribbon has four tabs:
 
 | Tab | What's on it |
 | --- | --- |
-| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), **Publish to OneLake** |
-| **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace, Clear all outputs |
-| **Run** | Run all, Run cell, Run all above, Run cell and below, Cancel, Runs on, Restart kernel, Restart and run all, Schedule |
+| **Home** | Run all, Cancel, **Runs on**, Add data items, Save, Schedule (Preview), Recent runs (Preview), **Publish to OneLake** |
+| **Edit** | Add Code or Markdown cells, Move up or down, Split cell, Merge with below, Delete cell, Undo delete, **Parameter cell**, **Freeze**, Find and replace (every cell), Clear all outputs |
+| **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
 
 A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric. A **frozen** cell can't be edited, run or deleted until you unfreeze it.
@@ -240,6 +251,17 @@ The note has a button to switch when the other place would work.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
 For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > Schedules**.
+
+### Recent runs (Preview)
+
+**Recent runs** (Home or Run tab, or **Show this notebook's runs** in the command bar) opens a panel beside the cells with this notebook's last 50 runs, newest first, like Fabric's Recent runs. It lists:
+
+- **This PC:** runs of the notebook's schedules on this PC, both on schedule and from **Run now**, including runs of a schedule you've since removed. **Details** shows when the run started and ended, how many cells ran, the result (for a failed run, which cell failed and why), and whether a failure's Teams alert couldn't be sent.
+- **Fabric:** runs this app started in Fabric for the notebook: **Run in Fabric**, **Prove this notebook**, **Side by side**, and **Run now** on its Fabric schedule in Monitor > Schedules. Once the app has published the notebook, its runs are matched by the Fabric item it was published to, so they stay listed after a rename and a same-named notebook in another workspace isn't mixed in; before that, by name in the notebook's publish workspace. Each says which workspace it ran in. **Open in Fabric** opens the notebook's page in Fabric, where its run history is.
+
+Each row says when it ran, where, what started it, its status and how long it took. Opening the panel and **Refresh** read only the two run logs on this PC that Monitor > Runs reads (`schedule_runs.jsonl` and `fabric_runs.jsonl` in the app's folder) and ask Fabric nothing, so a Fabric run's status is as last checked. While a Fabric run is still going, **Refresh status** asks Fabric for the status of this notebook's runs still going (no others), as Monitor does, and saves the answer in `fabric_runs.jsonl`. It starts no job. Nothing else is written.
+
+Not listed: cells you run in the notebook window, and runs a Fabric schedule starts on its own. Those are in Fabric's Monitoring hub, under **Monitor**. With no runs yet, the panel says how to add a schedule or run the notebook in Fabric.
 
 ## Side by side (Preview)
 

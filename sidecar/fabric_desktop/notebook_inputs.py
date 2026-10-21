@@ -11,6 +11,7 @@ so ``dbutils.widgets.get`` returns them, even in the cell that creates the widge
 from __future__ import annotations
 
 import ast
+import math
 from typing import Any
 
 # The types a parameter cell value can have for the bar to show and set it.
@@ -97,9 +98,11 @@ def _python_value(kind: str, text: str) -> str:
         except ValueError:
             raise ValueError("Type a whole number.") from None
     try:
-        return repr(float(text.strip()))
+        number = float(text.strip())
     except ValueError:
         raise ValueError("Type a number.") from None
+    # repr gives nan and inf, which aren't Python literals.
+    return repr(number) if math.isfinite(number) else f"float({str(number)!r})"
 
 
 def check_values(values: Any) -> dict[str, dict[str, str]]:

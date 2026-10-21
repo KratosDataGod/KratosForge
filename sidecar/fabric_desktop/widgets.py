@@ -197,6 +197,8 @@ class _Number(ValueWidget):
 
     def __init__(self, value: Any = None, min: Any = 0, max: Any = 100, step: Any = 1, **kw: Any):  # noqa: A002
         object.__setattr__(self, "_state", {"min": self._cast(min), "max": self._cast(max), "step": self._cast(step)})
+        if self._bounded:
+            _check_bounds(self._state["min"], self._state["max"])
         kw.setdefault("readout", True)
         kw.setdefault("continuous_update", True)
         kw.setdefault("orientation", "horizontal")
@@ -212,6 +214,15 @@ class _Number(ValueWidget):
             value = min(max(value, self._state.get("min", value)), self._state.get("max", value))
         return value
 
+    def _set(self, name: str, value: Any) -> None:
+        bound = self._bounded and name in ("min", "max")
+        if bound:
+            value = self._cast(value)
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")))
+        super()._set(name, value)
+        if bound:
+            self.value = self._state["value"]  # clamps into the new bounds, as ipywidgets does
+
     def _from_app(self, value: Any) -> Any:
         return self._cast(float(value)) if self._cast is int else float(value)
 
@@ -221,6 +232,11 @@ class _Number(ValueWidget):
             out.update(min=self.min, max=self.max)
         out["step"] = self.step
         return out
+
+
+def _check_bounds(lo: Any, hi: Any) -> None:
+    if lo > hi:
+        raise TraitError(f"setting min > max ({lo} > {hi})")
 
 
 class IntSlider(_Number):
@@ -269,6 +285,7 @@ class _Range(ValueWidget):
     def __init__(self, value: Any = None, min: Any = 0, max: Any = 100, step: Any = 1, **kw: Any):  # noqa: A002
         object.__setattr__(self, "_state", {"min": self._cast(min), "max": self._cast(max), "step": self._cast(step)})
         lo, hi = self._state["min"], self._state["max"]
+        _check_bounds(lo, hi)
         super().__init__(value=value if value is not None else (lo + (hi - lo) // 4 if self._cast is int else lo + (hi - lo) / 4,
                                                                lo + 3 * (hi - lo) // 4 if self._cast is int else lo + 3 * (hi - lo) / 4), **kw)
 
@@ -278,6 +295,15 @@ class _Range(ValueWidget):
             lo, hi = self._state.get("min", a), self._state.get("max", b)
             return (min(max(a, lo), hi), min(max(b, lo), hi))
         return self._cast(value) if name in ("min", "max", "step") else value
+
+    def _set(self, name: str, value: Any) -> None:
+        bound = name in ("min", "max")
+        if bound:
+            value = self._cast(value)
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")))
+        super()._set(name, value)
+        if bound:
+            self.value = self._state["value"]
 
     def _from_app(self, value: Any) -> Any:
         return tuple(float(v) for v in value)
@@ -395,8 +421,10 @@ class _Selection(ValueWidget):
         pairs = self._state.get("options", [])
         if name == "options":
             pairs = _pairs(value)
-            self._state["options"] = pairs
-            return super()._set("index", 0 if pairs else None)
+            super()._set("options", pairs)
+            # New options select the first one, as ipywidgets does, so value and label follow.
+            self._state["index"] = None
+            return self._set("index", 0 if pairs else None)
         if name == "index":
             i = None if value is None else int(value)
             if i is not None and not 0 <= i < len(pairs):
@@ -455,12 +483,35 @@ class SelectionSlider(_Selection):
 
 class SelectMultiple(ValueWidget):
     _kind = "multiselect"
-    _traits = ValueWidget._traits + ("options", "index")
+    _traits = ValueWidget._traits + ("options", "index", "label")
 
-    def __init__(self, options: Any = (), value: Any = (), **kw: Any):
-        object.__setattr__(self, "_state", {"options": _pairs(options), "index": ()})
+    def __init__(self, options: Any = (), value: Any = (), index: Any = None, label: Any = None, **kw: Any):
+        object.__setattr__(self, "_state", {"options": _pairs(options), "index": (), "label": ()})
         super().__init__(**kw)
-        self.value = tuple(value)
+        if label is not None:
+            self.label = label
+        elif index is not None:
+            self.index = index
+        else:
+            self.value = tuple(value)
+
+    def _set(self, name: str, value: Any) -> None:
+        pairs = self._state["options"]
+        if name == "index":
+            idx = [int(i) for i in value]
+            bad = [i for i in idx if not 0 <= i < len(pairs)]
+            if bad:
+                raise ValueError(f"index {bad[0]} is out of range")
+            return self._set("value", tuple(pairs[i][1] for i in idx))
+        if name == "label":
+            labels = [lab for lab, _ in pairs]
+            missing = [lab for lab in value if lab not in labels]
+            if missing:
+                raise ValueError(f"{missing[0]!r} isn't one of the options")
+            return self._set("value", tuple(pairs[labels.index(lab)][1] for lab in value))
+        super()._set(name, value)
+        if name == "options":
+            self.value = ()  # new options clear the selection, as ipywidgets does
 
     def _default(self) -> Any:
         return ()
@@ -474,6 +525,7 @@ class SelectMultiple(ValueWidget):
                     raise ValueError(f"{item!r} isn't one of the options")
                 idx.append(values.index(item))
             self._state["index"] = tuple(idx)
+            self._state["label"] = tuple(self._state["options"][i][0] for i in idx)
             return tuple(value)
         if name == "options":
             return _pairs(value)
@@ -608,11 +660,28 @@ class GridBox(Box):
     pass
 
 
-class Accordion(Box):
+class _Titled(Box):
+    """Accordion and Tab keep titles and the selected index, as ipywidgets does. The app draws the children stacked."""
+    _traits = Box._traits + ("titles", "selected_index")
+
+    def __init__(self, children: Any = (), titles: Any = (), selected_index: Any = None, **kw: Any):
+        super().__init__(children=children, titles=tuple(titles), selected_index=selected_index, **kw)
+
+    def set_title(self, index: int, title: Any) -> None:
+        titles = list(self.titles) + [""] * (len(self.children) - len(self.titles))
+        titles[int(index)] = "" if title is None else str(title)
+        self.titles = tuple(titles)
+
+    def get_title(self, index: int) -> str:
+        titles = self.titles
+        return titles[int(index)] if 0 <= int(index) < len(titles) else ""
+
+
+class Accordion(_Titled):
     pass
 
 
-class Tab(Box):
+class Tab(_Titled):
     pass
 
 
@@ -759,21 +828,46 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
 
 
 
+class TraitError(Exception):
+    """As traitlets' TraitError: bounds where min > max, or a link whose two transforms don't undo each other."""
+
+
 class _Link:
-    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it."""
+    """What ``link`` and ``dlink`` return, as traitlets does: ``unlink()`` stops it. While one side is
+    being set, a change coming back from the other is ignored; if that leaves the two sides out of
+    step (transforms that aren't each other's inverse), it's a broken link, as in traitlets."""
 
     def __init__(self, source: tuple[Widget, str], target: tuple[Widget, str],
                  forward: Callable[[Any], Any] | None, backward: Callable[[Any], Any] | None, both: bool):
         self.source, self.target = source, target
         (sw, sn), (tw, tn) = source, target
         to = forward or (lambda v: v)
+        back = backward or (lambda v: v)
+        self._updating = False
+
+        def update(src: Widget, sname: str, dst: Widget, dname: str, fn: Callable[[Any], Any]) -> Callable[[Any], None]:
+            def handler(change: Any) -> None:
+                if self._updating:
+                    return
+                self._updating = True
+                try:
+                    setattr(dst, dname, fn(change["new"]))
+                    if both and getattr(src, sname) != change["new"]:
+                        raise TraitError(f"Broken link {self}: the source value changed while updating the target.")
+                finally:
+                    self._updating = False
+            return handler
+
         setattr(tw, tn, to(getattr(sw, sn)))
-        self._handlers = [(sw, lambda c: setattr(tw, tn, to(c["new"])), sn)]
+        self._handlers = [(sw, update(sw, sn, tw, tn, to), sn)]
         if both:
-            back = backward or (lambda v: v)
-            self._handlers.append((tw, lambda c: setattr(sw, sn, back(c["new"])), tn))
+            self._handlers.append((tw, update(tw, tn, sw, sn, back), tn))
         for w, handler, name in self._handlers:
             w.observe(handler, names=name)
+
+    def __repr__(self) -> str:
+        (sw, sn), (tw, tn) = self.source, self.target
+        return f"<link {type(sw).__name__}.{sn} -> {type(tw).__name__}.{tn}>"
 
     def unlink(self) -> None:
         for w, handler, name in self._handlers:
@@ -841,7 +935,7 @@ def build() -> types.ModuleType:
     mod = types.ModuleType("ipywidgets", "ipywidgets isn't drawn by Jupyter here; KratosForge provides these widgets.")
     for name, value in list(globals().items()):
         if isinstance(value, type) and issubclass(value, (Widget, Layout)) or name in (
-                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "Layout",
+                "interact", "interactive", "interact_manual", "interactive_output", "fixed", "link", "dlink", "jslink", "jsdlink", "TraitError", "Layout",
                 "Style", "Change"):
             setattr(mod, name, value)
     mod.__version__ = __version__  # type: ignore[attr-defined]

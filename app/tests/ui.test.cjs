@@ -3355,6 +3355,8 @@ test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with t
   const sql = { lang: "sql" };
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
   assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1;\nSELECT 2", 15, 23), "%sql\nSELECT 2");  // Databricks' %sql stays %sql
+  assert.strictEqual(ctx.f(sql, "%sql\nSELECT 1", 2, 2), null);
 });
 
 test("several selected cells: the notebook hooks are in place", () => {
@@ -4199,4 +4201,11 @@ test("the magics page documents In, Out and %history", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
   assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
   assert.match(doc, /\| `%history`, `%history -n 4-6`/);
+});
+
+// Magics hardening: the magics page says how to write Windows paths with spaces.
+test("the magics page says to quote paths with spaces and keeps backslashes", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Put a path with spaces in quotes/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
 });

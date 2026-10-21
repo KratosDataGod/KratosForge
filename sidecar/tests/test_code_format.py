@@ -37,6 +37,22 @@ def test_sql_the_formatter_cant_read_is_left_as_written_with_its_reason():
     assert r["source"] == "%%sql\nselect from where (((" and not r["changed"] and r["error"]
 
 
+def test_python_cells_that_name_their_language_are_formatted_and_keep_the_magic():
+    a, b, c = format_cells(["%%pyspark\nx=1\n%time y = x", "%python\nx=1", "%%pyspark"])
+    assert a == {"source": "%%pyspark\nx = 1\n%time y = x", "changed": True, "error": ""}
+    assert b["source"] == "%python\nx = 1"
+    assert c == {"source": "%%pyspark", "changed": False, "error": ""}
+    [bad] = format_cells(["%%pyspark\nx = 1\ndef f( :"])
+    assert bad["source"] == "%%pyspark\nx = 1\ndef f( :" and bad["error"].startswith("Not formatted, because Python can't read it (line 3:")
+
+
+def test_windows_line_ends_leave_no_stray_carriage_return():
+    py, sql, same = format_cells(["x=1\r\nprint( x )", "%%sql\r\nselect 1", "x = 1\r\nprint(x)"])
+    assert py["source"] == "x = 1\nprint(x)"
+    assert sql["source"] == "%%sql\nSELECT\n  1"
+    assert not same["changed"]
+
+
 def test_other_languages_and_empty_cells_are_left_alone():
     cells = ["%md\n# Title", "%%html\n<b>x</b>", "%sh\nls  -l", "%%bash\necho  1", "", "   \n"]
     assert [r["source"] for r in format_cells(cells)] == cells

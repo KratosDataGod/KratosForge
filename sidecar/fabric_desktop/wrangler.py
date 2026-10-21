@@ -112,6 +112,8 @@ def _literal(dtype: Any, text: Any) -> str:
             raise ValueError(f"{text!r} isn't a number.") from None
         if not math.isfinite(number):
             raise ValueError(f"Type a number such as 3 or 2.5, not {text!r}.")
+        if dtype.is_decimal():  # a float literal would turn the column into Float64 and lose its exact digits
+            return f"pl.lit({str(text).strip()!r}).cast(pl.Decimal({dtype.precision!r}, {dtype.scale!r}))"
         if dtype.is_integer():
             if not number.is_integer():
                 raise ValueError(f"{text!r} isn't a whole number.")
@@ -123,8 +125,16 @@ def _literal(dtype: Any, text: Any) -> str:
             raise ValueError("Type true or false.")
         return repr(word == "true")
     if kind == "date":
-        cast = "to_date" if dtype == _pl().Date else "to_datetime"
-        return f"pl.lit({str(text)!r}).str.{cast}()"
+        pl = _pl()
+        if dtype == pl.Date:
+            return f"pl.lit({str(text)!r}).str.to_date()"
+        if dtype == pl.Time:
+            return f"pl.lit({str(text)!r}).str.to_time()"
+        if isinstance(dtype, pl.Duration):
+            raise ValueError("A duration can't be typed in here; change the column's type to integer first.")
+        # The column's own unit and time zone: a typed time is read in that zone, and Polars won't mix zones.
+        zone = f", time_zone={dtype.time_zone!r}" if dtype.time_zone else ""
+        return f"pl.lit({str(text)!r}).str.to_datetime(time_unit={dtype.time_unit!r}{zone})"
     return repr(str(text))
 
 

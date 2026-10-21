@@ -332,7 +332,7 @@ def test_notebook_too_long_to_show_is_refused_before_asking(svc, store):
         r.invoke(svc, "fabric_desktop_run_notebook", {"name": "long", "workspace_id": "ws1"}, ctx(client["id"]))
     assert e.value.code == "too_large"
     assert e.value.message.startswith("This notebook is too long to show for approval (")
-    assert e.value.message.endswith("characters, limit 20,000). Run it in Fabric Desktop by KratosBI instead.")
+    assert e.value.message.endswith("characters, limit 20,000). Run it in KratosForge instead.")
     assert store.approvals("") == [] and svc._integration_executions.list() == []
 
 

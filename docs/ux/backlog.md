@@ -141,7 +141,7 @@ Smaller findings kept for later (P2-P3): policy check calls valid integration ke
 ### UX-012 Keyboard access (P1)
 
 - **Now:** clickable table rows and cards can't be reached by keyboard (11 places); `showMenu` (account, Publish options, Git) has no keyboard support and Esc doesn't close it (seen in the running UI); 13 tab implementations, 4 with ARIA, none with arrow keys; the command bar doesn't announce the selected item.
-- **Proposed:** shared `clickRow()`, `menu()`, `tabs()` components with roles, focus and arrow keys; `aria-current` on the rail.
+- **Proposed:** shared `clickRow()`, `menu()`, `tabs()` components with roles, focus and arrow keys; `aria-current` on the rail (done in HD-044, with the command bar now a modal dialog).
 - **Dependencies:** enterprise readiness owns accessibility.
 - **Acceptance:** every W1-W10 path can be done with the keyboard alone.
 - **Tests:** browser tests driven by keyboard only.

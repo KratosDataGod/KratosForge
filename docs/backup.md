@@ -1,6 +1,6 @@
 # Back up and restore
 
-Fabric Desktop by KratosBI keeps some things only on your PC: notebooks you haven't published, Settings, schedules on this PC, run history, proof receipts and the workloads and incidents database. If the PC is lost or replaced, those go with it. A backup is one zip you can keep somewhere safe and restore on any PC.
+KratosForge keeps some things only on your PC: notebooks you haven't published, Settings, schedules on this PC, run history, proof receipts and the workloads and incidents database. If the PC is lost or replaced, those go with it. A backup is one zip you can keep somewhere safe and restore on any PC.
 
 Your tables in OneLake, and anything you published to Fabric, aren't part of it. They stay in Fabric. A metadata project folder is also not included; keep it in Git.
 
@@ -33,7 +33,7 @@ For a [headless agent](agent.md), add `--agent-home <its FABRIC_DESKTOP_HOME>` t
 
 ## Restore
 
-1. Close Fabric Desktop by KratosBI, and stop the [headless agent](agent.md) if you restore its files. A restore replaces database files, so it refuses, and changes nothing, while the app, the agent or anything else has one of them open.
+1. Close KratosForge, and stop the [headless agent](agent.md) if you restore its files. A restore replaces database files, so it refuses, and changes nothing, while the app, the agent or anything else has one of them open.
 2. Check the backup and see what it would do. This changes nothing:
 
    ```powershell

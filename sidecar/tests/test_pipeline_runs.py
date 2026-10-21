@@ -374,7 +374,7 @@ def test_secure_parameters_are_hidden():
 
 @pytest.mark.parametrize("activity,code", [
     (act("C", "Copy", source={}, sink={}), "not_local"),
-    (act("N", "TridentNotebook", notebookId="x"), "not_local"),
+    (act("N", "TridentNotebook", notebookId="x"), "notebook_needs_engine"),
     (act("D", "RefreshDataflow", dataflowId="d"), "not_local"),
     (act("X", "ContosoPagerNotify"), "not_local"),
     (act("E", "ExecutePipeline", pipeline={"referenceName": "child"}), "child_definition_missing"),
@@ -391,7 +391,7 @@ def test_refused_before_anything_runs(activity, code):
 
 def test_nested_activity_needing_fabric_refuses_the_run():
     text = pipeline(act("L", "ForEach", items="@createArray(1)", activities=[act("N", "TridentNotebook", notebookId="x")]))
-    with pytest.raises(RunRefused, match="N \\(TridentNotebook\\)"):
+    with pytest.raises(RunRefused, match="N runs notebook x"):
         run(text)
     assert run(text, mocks={"N": {}}).state == "succeeded"
 
@@ -502,6 +502,22 @@ def finish(svc, run_id, limit=30.0):
     raise AssertionError("run didn't finish")
 
 
+def saved(folder, run_id, limit=30.0):
+    """The run's record on disk once it's final. Status reads the live run, which turns final
+    just before the background thread's last save, so the file can still say running."""
+    path = folder / "pipeline_runs" / f"{run_id}.json"
+    end = time.monotonic() + limit
+    while time.monotonic() < end:
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            record = {}
+        if record.get("state") not in (None, "pending", "running"):
+            return record
+        time.sleep(0.02)
+    raise AssertionError("run record wasn't saved as finished")
+
+
 def test_service_start_status_runs_and_record_on_disk(tmp_path):
     svc = Svc(tmp_path)
     assert svc.pipeline_run_check(path=str(REFERENCE))["ok"] is False
@@ -510,7 +526,7 @@ def test_service_start_status_runs_and_record_on_disk(tmp_path):
     assert started["ok"] is True
     record = finish(svc, started["run_id"])
     assert record["state"] == "succeeded"
-    on_disk = json.loads((tmp_path / "pipeline_runs" / f"{started['run_id']}.json").read_text(encoding="utf-8"))
+    on_disk = saved(tmp_path, started["run_id"])
     assert on_disk["state"] == "succeeded" and on_disk["return_value"]["rows"] == 120
     lean = svc.pipeline_run_status(started["run_id"], values=False)
     assert "variables" not in lean and all("output" not in a for a in lean["activities"])
@@ -522,7 +538,7 @@ def test_service_start_status_runs_and_record_on_disk(tmp_path):
 def test_service_refuses_and_limits_concurrent_runs(tmp_path):
     svc = Svc(tmp_path)
     refused = svc.pipeline_run_start(path=str(REFERENCE))
-    assert refused["ok"] is False and {p["code"] for p in refused["problems"]} == {"not_local"}
+    assert refused["ok"] is False and {p["code"] for p in refused["problems"]} == {"not_local", "notebook_needs_engine"}
     slow = pipeline(wait("W", 30))
     ids = [svc.pipeline_run_start(text=slow)["run_id"] for _ in range(2)]
     busy = svc.pipeline_run_start(text=slow)
@@ -571,7 +587,7 @@ def test_registry_marks_control_flow_local():
                   "Filter", "ExecutePipeline", "InvokePipeline"):
         entry = reg.get(type_)
         assert entry.classification == "local" and entry.adapter.can_execute and entry.evidence == "unit_tests"
-    assert reg.get("Copy").classification == "static" and reg.get("TridentNotebook").classification == "static"
+    assert reg.get("Copy").classification == "static" and reg.get("TridentNotebook").classification == "local"
 
 
 def test_cli_run(capsys, tmp_path):
@@ -586,3 +602,25 @@ def test_cli_run(capsys, tmp_path):
     with pytest.raises(SystemExit) as done:
         cli_main(["pipeline", "run", str(REFERENCE)])
     assert done.value.code == 2 and "refused: not_local [Ingest orders]" in capsys.readouterr().out
+
+
+def test_notebook_cleanup_runs_before_the_run_reports_its_end():
+    # The flaky cancel test after #319: the run said "cancelled" while its folder was still being deleted.
+    seen = []
+
+    class Notebooks:
+        def check(self, a):
+            return []
+
+        def run(self, a, parameters, cancelled, deadline):
+            return {"result": {"runStatus": "Succeeded", "exitValue": None}}
+
+        def notes(self):
+            return []
+
+        def finish(self):
+            seen.append(r.state)
+
+    r = PipelineRun(loads(pipeline(act("N", "TridentNotebook", notebookId="x"))), wait_scale=0, notebooks=Notebooks())
+    r.run()
+    assert seen == ["running"] and r.state == "succeeded"

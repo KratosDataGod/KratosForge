@@ -1,4 +1,4 @@
-"""Backing up and restoring what this PC keeps for Fabric Desktop by KratosBI (FD-126).
+"""Backing up and restoring what this PC keeps for KratosForge (FD-126).
 
 A backup is a zip of the app's folder (``%LOCALAPPDATA%\\FabricDesktop``): settings, notebooks,
 schedules on this PC, run history, receipts and the local databases. With ``agent_home`` it also
@@ -176,7 +176,7 @@ def validate(zip_path: Path) -> tuple[dict[str, Any], list[str]]:
         try:
             manifest = json.loads(z.read(MANIFEST))
         except (KeyError, ValueError):
-            return {}, ["It has no readable manifest.json, so it isn't a Fabric Desktop by KratosBI backup."]
+            return {}, ["It has no readable manifest.json, so it isn't a KratosForge backup."]
         if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
             return {}, [f"It isn't a {SCHEMA} backup."]
         problems = []
@@ -270,7 +270,7 @@ def restore(zip_path: Path, data_dir: Path, agent_home: Path | None = None, appl
         busy = [item["to"] for item in plan if item["path"] in databases and _in_use(Path(item["to"]))]
         if busy:  # checked for every database before any file changes
             raise BackupError("Nothing was changed: another program has these databases open:\n- "
-                              + "\n- ".join(busy) + "\nClose Fabric Desktop by KratosBI and stop the agent, "
+                              + "\n- ".join(busy) + "\nClose KratosForge and stop the agent, "
                               "then run the restore again.")
         moved = False
         for item in plan:
@@ -312,5 +312,5 @@ def describe(result: dict[str, Any]) -> str:
     if result.get("safety"):
         out.write(f"The files it replaced are in {result['safety']}.\n")
     if not result["applied"]:
-        out.write("Nothing was changed. Close Fabric Desktop by KratosBI, then run again with --yes to restore.\n")
+        out.write("Nothing was changed. Close KratosForge, then run again with --yes to restore.\n")
     return out.getvalue()

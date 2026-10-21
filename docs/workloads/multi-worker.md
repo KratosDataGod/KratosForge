@@ -2,7 +2,7 @@
 
 Status: part 1 (shared schedules and `claim = "when_free"`) is built, off by default, in the PR after #145. Part 2, takeover (point 3, `[pipeline] take_over = true`), is built, off by default, in the PR after that. Step 4 of the proposal (app labels) is still to come. The staged roadmap thread owns the pipeline mailbox (`mailbox.py`, roadmap 7.1) and the status records (7.2). It agreed to this design on 2026-10-17, within mailbox contract 1, and will review the engine PR. This program owns FD-124 and that PR, and roadmap 7.3 (FD-12) points here. The PR still needs Chris's go. None of this has run on a tenant: conditional requests on OneLake (FD-2) are unproven there. Until roadmap 7.1 has run on a tenant, the docs and the PR say so.
 
-Part of the [workload operations plan](plan.md). Fabric Desktop by KratosBI identifiers are unchanged.
+Part of the [workload operations plan](plan.md). KratosForge identifiers are unchanged.
 
 ## Problem
 

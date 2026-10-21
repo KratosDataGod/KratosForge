@@ -1,6 +1,6 @@
 # Enterprise hardening audit
 
-An evidence-based review of Fabric Desktop by KratosBI's code, done to make it demonstrably enterprise-ready rather than look it. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120").
+An evidence-based review of KratosForge's code, done to make it demonstrably enterprise-ready rather than look it. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120").
 
 | Document | What it holds |
 | --- | --- |
@@ -48,7 +48,7 @@ Weighted overall: 0.10×7.0 + 0.05×6.5 + 0.10×7.0 + 0.20×6.0 + 0.20×5.0 + 0.
 5. **Tokens on disk.** The token cache is plaintext and any code run through an AI tool can read it, while the docs say tools never receive a token (EN-2, EN-10).
 6. **Recovery that doesn't recover.** Restore can bring back post-backup data (EP-2), and there's no way to roll back a bad build (gate 6).
 
-**Enterprise readiness today.** Fabric Desktop is a capable, well-tested local development tool, and the right building blocks for enterprise use exist. It is not ready for an enterprise pilot: five High data and approval defects need fixing (HD-001 to HD-006, all small and unblocked), signing and a live harness run need Chris (gates 3 and 4), and the release path needs rollback and authenticity checks. None of this needs a rewrite. The preliminary 7.0 overall was optimistic mainly on reliability and documentation; the 9.0 target is reachable through the P0 and P1 backlog plus live verification, not through more features.
+**Enterprise readiness today.** KratosForge is a capable, well-tested local development tool, and the right building blocks for enterprise use exist. It is not ready for an enterprise pilot: five High data and approval defects need fixing (HD-001 to HD-006, all small and unblocked), signing and a live harness run need Chris (gates 3 and 4), and the release path needs rollback and authenticity checks. None of this needs a rewrite. The preliminary 7.0 overall was optimistic mainly on reliability and documentation; the 9.0 target is reachable through the P0 and P1 backlog plus live verification, not through more features.
 
 **The ten highest-impact issues**, and whether existing work covers them:
 

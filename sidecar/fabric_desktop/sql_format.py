@@ -21,6 +21,7 @@ from collections import Counter
 from typing import Any
 
 import sqlglot
+from sqlglot.dialects.tsql import TSQL
 from sqlglot.errors import ParseError, SqlglotError
 from sqlglot.tokens import Token, TokenType
 
@@ -33,11 +34,38 @@ second ss s millisecond ms microsecond mcs nanosecond ns iso_week isowk isoww ep
 millennium
 """.split())
 _IDENTS = (TokenType.VAR, TokenType.IDENTIFIER)
+# Row-limit keywords: sqlglot's T-SQL output turns LIMIT into TOP, which isn't layout.
+_ROW_LIMITS = (TokenType.LIMIT, TokenType.TOP, TokenType.FETCH)
+
+
+class _TSQLLayout(TSQL):
+    """T-SQL for formatting: DATENAME stays DATENAME (sqlglot reads it as FORMAT(..., 'MMMM'))."""
+
+    class Parser(TSQL.Parser):
+        FUNCTIONS = {k: v for k, v in TSQL.Parser.FUNCTIONS.items() if k != "DATENAME"}
+
+
+class _TSQLLayoutLimit(_TSQLLayout):
+    """For SQL that says LIMIT and never TOP: print LIMIT back rather than TOP."""
+
+    class Generator(_TSQLLayout.Generator):
+        LIMIT_IS_TOP = False
+        LIMIT_FETCH = "LIMIT"
+
+
+def _layout_dialect(query: str, name: str) -> Any:
+    if name != "tsql":
+        return name
+    try:
+        kinds = {t.token_type for t in TSQL().tokenize(query)}
+    except SqlglotError:
+        return _TSQLLayout
+    return _TSQLLayoutLimit if TokenType.LIMIT in kinds and TokenType.TOP not in kinds else _TSQLLayout
 
 
 def format_sql(query: str, dialect: str | None = None) -> dict[str, Any]:
     """``{"sql", "changed", "warning"}``: the formatted SQL, or the original and why it was left alone."""
-    name = sql_dialects.sqlglot_name(dialect)
+    name = _layout_dialect(query, sql_dialects.sqlglot_name(dialect))
     unchanged = lambda why: {"sql": query, "changed": False, "warning": why}  # noqa: E731
     if not query.strip():
         return {"sql": query, "changed": False, "warning": ""}
@@ -73,7 +101,7 @@ def _first_line(exc: Exception) -> str:
     return str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__
 
 
-def _difference(before: str, after: str, dialect: str) -> str:
+def _difference(before: str, after: str, dialect: Any) -> str:
     """What formatting changed besides layout and case, in words; empty when nothing did."""
     try:
         old = [s for s in sqlglot.parse(before, read=dialect) if s is not None]
@@ -83,22 +111,25 @@ def _difference(before: str, after: str, dialect: str) -> str:
     if old != new:  # sqlglot compares trees by meaning, ignoring layout and comments
         return "change the query's structure"
     a, b = _parts(before, dialect), _parts(after, dialect)
-    for kind in ("identifier", "literal", "function", "comment"):
+    for kind in ("identifier", "literal", "function", "comment", "row limit"):
         lost = a[kind] - b[kind]
         added = b[kind] - a[kind]
         if lost or added:
             sample = next(iter(lost or added))
+            sample = sample[1] if isinstance(sample, tuple) else sample  # identifiers: (quoted, text)
             verb = "remove" if lost else "add"
             return f"{verb} the {kind} {sample.strip()!r}" if kind != "comment" else f"{verb} a comment ({sample.strip()[:40]!r})"
     return ""
 
 
-def _parts(query: str, dialect: str) -> dict[str, Counter]:
-    """The identifiers, literals, function names and comments of ``query``, as multisets."""
+def _parts(query: str, dialect: Any) -> dict[str, Counter]:
+    """The identifiers, literals, function names, comments and row-limit keywords of ``query``, as multisets."""
     tokens: list[Token] = sqlglot.Dialect.get_or_raise(dialect).tokenize(query)
-    parts = {k: Counter() for k in ("identifier", "literal", "function", "comment")}
+    parts = {k: Counter() for k in ("identifier", "literal", "function", "comment", "row limit")}
     for i, tok in enumerate(tokens):
         parts["comment"].update(c.strip() for c in tok.comments)
+        if tok.token_type in _ROW_LIMITS:
+            parts["row limit"][tok.text.upper()] += 1
         follows_paren = i + 1 < len(tokens) and tokens[i + 1].token_type == TokenType.L_PAREN
         if tok.token_type in _IDENTS and follows_paren:
             parts["function"][tok.text.upper()] += 1

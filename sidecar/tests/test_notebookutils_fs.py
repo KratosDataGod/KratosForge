@@ -110,6 +110,27 @@ def test_rm_maps_onelakes_refusal_of_a_folder_that_isnt_empty(store, fs, monkeyp
         fs.rm("Files/unknown")
 
 
+def test_exists_is_false_only_when_the_path_is_really_missing(store, fs):
+    assert fs.exists("Files/one.txt") and fs.exists("Files/empty")
+    assert not fs.exists("Files/nope.txt")
+    assert not fs.exists("Files/no_folder/a.csv")  # the folder above it is missing: 404
+
+
+@pytest.mark.parametrize("status", [401, 403, 429, 500, 503])
+def test_exists_raises_when_onelake_refuses_or_fails(store, fs, monkeypatch, status):
+    def fail(*a, **k):
+        resp = requests.Response()
+        resp.status_code = status
+        raise requests.HTTPError(str(status), response=resp)
+    monkeypatch.setattr(store, "list", fail)
+    with pytest.raises(requests.HTTPError):
+        fs.exists("Files/one.txt")
+    # put() without overwrite asks exists() first, so a refusal can't let it replace the file.
+    with pytest.raises(requests.HTTPError):
+        fs.put("Files/one.txt", "new")
+    assert store.mutations() == [] and store.files["Files/one.txt"] == b"hello"
+
+
 @pytest.mark.parametrize("call", [
     lambda fs: fs.rm("Tables/dbo/orders", recurse=True),
     lambda fs: fs.rm("abfss://ws1@onelake.dfs.fabric.microsoft.com/lh1/Tables/dbo/orders"),
@@ -230,3 +251,14 @@ def test_filestore_list_with_max_results_reads_one_page():
     http = _Session()
     assert len(FileStore(lambda: "tok", session=http).list("ws", "lh", "Files", max_results=1)) == 1
     assert len(http.requests) == 1 and http.requests[0][2]["maxResults"] == "1"
+
+
+def test_ls_gives_modify_time_in_milliseconds(tmp_path):
+    import os
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    os.utime(f, (1_700_000_000, 1_700_000_000))
+    info = notebookutils_local._make_fs().ls(f"file:{tmp_path.as_posix()}")[0]
+    assert info.modifyTime == 1_700_000_000_000 and info.modificationTime == info.modifyTime
+    assert notebookutils_local._millis("2026-10-20T12:00:00+00:00") == 1_792_497_600_000
+    assert notebookutils_local._millis("") == 0 and notebookutils_local._millis("junk") == 0

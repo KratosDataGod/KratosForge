@@ -2940,6 +2940,13 @@ test("notebook magics page shows both %run parameter forms", () => {
   assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
 });
 
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

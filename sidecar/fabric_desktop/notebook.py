@@ -414,8 +414,7 @@ class Kernel:
                              "Use %%html for markup, or display() a chart."})
             return "error"
         if cell.language == "configure":
-            print("Note: %%configure sets Spark session options in Fabric. On this PC it has nothing to set.")
-            return "ok"
+            return self._guarded(run, lambda: print(configure_report(cell.body)))
         if cell.language != "python":
             self._emit(run, {"type": "error", "ename": "RunsInFabric", "evalue":
                              "Scala, R and .NET cells need Fabric's Spark. Switch Runs on to Fabric to run them.",
@@ -869,6 +868,56 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
     if not pairs:
         raise ValueError(f"%run couldn't read the arguments {rest!r}. Use {{\"name\": value}} or $name=\"value\".")
     return name, {k: a or b or c for k, a, b, c in pairs}
+
+
+# What Fabric's %%configure takes (Livy session settings), and what each means on this PC.
+_CONFIGURE_KEYS = {
+    "driverMemory": "memory", "driverCores": "cores", "executorMemory": "memory", "executorCores": "cores",
+    "numExecutors": "cores", "conf": "conf", "defaultLakehouse": "lakehouse", "mountPoints": "mounts",
+    "sessionTimeoutInSeconds": "timeout", "useStarterPool": "pool", "useWorkspacePool": "pool",
+    "environment": "environment", "jars": "packages", "pyFiles": "packages", "files": "packages", "archives": "packages",
+    "name": "pool", "kind": "pool", "proxyUser": "pool", "heartbeatTimeoutInSecond": "timeout",
+}
+
+
+def configure_report(body: str) -> str:
+    """A %%configure cell on this PC: its JSON is checked as Fabric would, and the report says what
+    each setting does in Fabric and why nothing changes here. Nothing on this PC is changed."""
+    text = body.strip()
+    flags = re.match(r"^(-f|--force)?\s*", text)
+    text = text[flags.end():] if flags else text
+    if not text:
+        raise ValueError("%%configure needs a JSON object, like: %%configure\n{\"driverMemory\": \"28g\"}")
+    try:
+        settings = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"%%configure isn't valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg}). "
+                         "Fabric would stop the session start on it too.") from exc
+    if not isinstance(settings, dict):
+        raise ValueError("%%configure takes a JSON object of settings.")
+    lines = ["%%configure checked: the JSON is valid. These settings take effect when the notebook runs in Fabric:"]
+    unknown = []
+    for key, value in settings.items():
+        kind = _CONFIGURE_KEYS.get(key)
+        if kind is None:
+            unknown.append(key)
+        elif kind == "conf" and isinstance(value, dict):
+            lines.append(f"- conf: {', '.join(sorted(value)) or 'none'} (Spark settings for Fabric's session; "
+                         "this PC's spark is DuckDB and doesn't read them)")
+        elif kind == "lakehouse" and isinstance(value, dict):
+            from . import lakehouse
+            wanted = value.get("name") or value.get("id") or "?"
+            here = lakehouse.name()
+            same = "the same one is attached here" if here and here == value.get("name") else \
+                f"this PC uses {'the attached lakehouse, ' + here if here else 'no attached lakehouse'}; attach {wanted} with Add data items to match"
+            lines.append(f"- defaultLakehouse: {wanted} ({same})")
+        elif kind in ("memory", "cores"):
+            lines.append(f"- {key}: {value} (Fabric's Spark nodes; on this PC the limits in Settings apply)")
+        else:
+            lines.append(f"- {key}: {json.dumps(value)[:80]}")
+    if unknown:
+        lines.append(f"Fabric doesn't know {', '.join(unknown)}; check the spelling (names are case-sensitive).")
+    return "\n".join(lines)
 
 
 def _duration(seconds: float) -> str:

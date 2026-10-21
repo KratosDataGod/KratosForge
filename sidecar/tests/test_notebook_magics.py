@@ -436,3 +436,29 @@ def test_run_passes_json_parameters_into_the_parameter_cell(tmp_path):
     assert out["outputs"][-1] == {"type": "text", "text": "'2026-01-01 True'"}
     out = k.run('%run Load sales $day="2026-02-02"\nsummary')
     assert out["outputs"][-1] == {"type": "text", "text": "'2026-02-02 False'"}
+
+
+# ---- %%configure: checked as Fabric would, explained, nothing changed here
+
+from fabric_desktop.notebook import configure_report
+
+
+def test_configure_checks_the_json_and_says_what_applies_where():
+    report = configure_report('-f\n{"driverMemory": "28g", "conf": {"spark.sql.shuffle.partitions": "8"},'
+                              ' "defaultLakehouse": {"name": "LH_Silver"}, "driverMemroy": "1g"}')
+    assert "JSON is valid" in report and "driverMemory: 28g" in report
+    assert "spark.sql.shuffle.partitions" in report and "attach LH_Silver" in report
+    assert "Fabric doesn't know driverMemroy" in report
+    with pytest.raises(ValueError, match="isn't valid JSON"):
+        configure_report('{"driverMemory": 28g}')
+    with pytest.raises(ValueError, match="needs a JSON object"):
+        configure_report("  ")
+
+
+def test_configure_cell_in_the_kernel_and_the_runs_on_check():
+    k = Kernel()
+    out = k.run('%%configure\n{"executorCores": 4}')
+    assert out["status"] == "ok" and "executorCores: 4" in out["outputs"][0]["text"]
+    assert k.run('%%configure\n{oops}')["status"] == "error"
+    reasons = compute_check([{"type": "code", "source": '%%configure\n{oops}'}], LH)["fabric"]["reasons"]
+    assert reasons and "can't read" in reasons[0]["text"]

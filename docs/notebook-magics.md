@@ -167,6 +167,19 @@ Both products' ways of passing values work:
 - A name can have spaces, and can be quoted. A folder path in front (`./`, `../shared/`) and an
   `.ipynb` ending are dropped: notebooks are found by name.
 
+## %%configure
+
+`%%configure` sets Fabric's Spark session (driver and executor sizes, Spark `conf`, the default
+lakehouse...). This PC has no Spark session to size, so running the cell checks it instead:
+
+- The JSON must be valid, as Fabric requires; a mistake fails the cell with the line and column,
+  and the **Runs on** check lists the cell as one Fabric can't read.
+- The report lists each setting and what it does in Fabric: sizes apply to Fabric's nodes (the
+  limits in **Settings** apply here), `conf` keys go to Fabric's Spark, and `defaultLakehouse` says
+  whether the same lakehouse is attached here.
+- A setting Fabric doesn't know, such as a misspelled `driverMemroy`, is named, because names
+  are case-sensitive and a typo is otherwise ignored until the Fabric run.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -183,5 +196,5 @@ Both products' ways of passing values work:
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
 | `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |
-| `%%configure` | Does nothing here; it sets Spark session options in Fabric |
+| `%%configure` | Checks the JSON as Fabric would and says what each setting does there; changes nothing here |
 | `%%spark`, `%%sparkr`, `%%csharp`, `%scala`, `%r` | Need Fabric's Spark; switch **Runs on** to Fabric |

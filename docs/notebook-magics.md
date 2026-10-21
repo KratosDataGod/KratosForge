@@ -46,6 +46,33 @@ Dependencies, stale cells, Validate and Prove read `%sql` lines too: a cell that
 depends on the `%%sql` cell before it, the tables a `%sql` line reads count as reads, and a `%sql`
 line that writes a table is refused in a proof, like a `%%sql` cell.
 
+## Cell languages
+
+A cell's first line can say what language the rest of it is in. Fabric writes `%%name`;
+Databricks writes `%name`. Both work, so a notebook brought over from Databricks runs without
+editing its headers.
+
+| First line | Fabric | Databricks | On this PC |
+| --- | --- | --- | --- |
+| Spark SQL | `%%sql` | `%sql` (alone on the line) | Runs through the notebook's `spark`; the result is kept in `_sqldf` |
+| Python | `%%pyspark`, `%%python` | `%python` | Runs as Python; line numbers in errors match the cell |
+| Markdown | `%%markdown` | `%md` | Shows the text as Markdown under the cell |
+| HTML | `%%html` | | Shows the HTML in a sandboxed frame |
+| Scala | `%%spark` | `%scala` | Needs Fabric's Spark: switch **Runs on** to Fabric |
+| R | `%%sparkr` | `%r` | Needs Fabric's Spark: switch **Runs on** to Fabric |
+| .NET | `%%csharp` | | Needs Fabric's Spark: switch **Runs on** to Fabric |
+
+`%sql` followed by a query on the same line is the one-line `%sql` above, not a header.
+
+The editor highlights a `%sql` cell as SQL and a `%md` cell as Markdown, and the cell's language
+picker shows Spark SQL for both `%%sql` and `%sql`. Dependencies, Validate, Prove and the
+**Runs on** check read the header too, so a `%sql` cell's tables count as reads and a `%scala`
+cell is listed as Fabric only.
+
+**In Fabric.** Publishing writes Databricks headers the way Fabric reads them: `%sql` becomes
+`%%sql`, `%scala` becomes `%%spark`, `%r` becomes `%%sparkr`, `%python` is dropped, and a `%md` or
+`%%markdown` cell becomes a Markdown cell. Your notebook on this PC keeps what you wrote.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -55,7 +82,8 @@ line that writes a table is refused in a proof, like a `%%sql` cell.
 | `%%html` | Shows the HTML in a sandboxed frame |
 | `%run Other notebook` | Runs another notebook in this one's namespace |
 | `%time expression` | Runs the expression and prints the wall time |
-| `%%pyspark`, `%%python` | A Python cell |
+| `%%pyspark`, `%%python`, `%python` | A Python cell |
+| `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
 | `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |
 | `%%configure` | Does nothing here; it sets Spark session options in Fabric |
-| `%%spark`, `%%sparkr`, `%%csharp` | Need Fabric's Spark; switch **Runs on** to Fabric |
+| `%%spark`, `%%sparkr`, `%%csharp`, `%scala`, `%r` | Need Fabric's Spark; switch **Runs on** to Fabric |

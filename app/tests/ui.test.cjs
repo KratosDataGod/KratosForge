@@ -2894,6 +2894,25 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
   }
 });
 
+// Notebook cell languages: Databricks' %sql alone on the first line is a SQL cell, %md shows Markdown.
+test("notebook cells read Databricks %sql and %md headers", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function cellLang\([\s\S]*?\n}\n/.exec(nb)[0] + /const mdMagic = [^\n]*\n/.exec(nb)[0]
+    + "\nthis.lang = cellLang; this.md = mdMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  assert.strictEqual(ctx.lang(code("%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("  %%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("%sql SELECT 1")), "python");
+  assert.strictEqual(ctx.lang(code("%python\nx = 1")), "python");
+  assert.strictEqual(ctx.md(code("%md # Title")), true);
+  assert.strictEqual(ctx.md(code("%%markdown\n# Title")), true);
+  assert.strictEqual(ctx.md(code("%mdx")), false);
+  assert.strictEqual(ctx.md({ type: "markdown", source: "%md" }), false);
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

@@ -43,7 +43,7 @@ With Microsoft's sign-in, KratosForge asks each Microsoft API for its default ac
 
 "Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from KratosForge on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in KratosForge's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in KratosForge's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names and each domain's admins, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 
@@ -64,7 +64,7 @@ With your own app, KratosForge signs in with the browser (not Windows sign-in) a
 | Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments), and reading capacities for the capacity settings history (`capacity_settings_read`, Preview: Optimize > Settings history; it only reads) | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
-| Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)) | At first sign-in |
+| Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, pipelines, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)) | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
 | Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), and reading tenant settings for the tenant settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains or reads tenant settings |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |

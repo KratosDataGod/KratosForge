@@ -79,11 +79,22 @@ Optimize relies on Fabric's own security. It adds no access layer of its own.
 
 Every installation adds what its analysis finds to the shared lakehouse, and everyone connected sees the combined picture.
 
+Today the analysis is the [Estate X-ray](../user-guide.md#estate-x-ray-preview): every finished scan on a PC connected with write access adds its lakehouse and table findings as one run (rule ids `xray.small_files`, `xray.unidentified`, `xray.stale`, `xray.vacuum`, `xray.empty`; the target is `schema.table`), with an `optimize` or `vacuum` recommendation where X-ray has that fix. Access findings name people and cost findings are estimates for one PC, so neither is added. The rows name the workspaces, lakehouses and tables the scan reached, and anyone who can read the central lakehouse can read them all, whatever they can open in Fabric ([Who can see what](#who-can-see-what)). Give the central lakehouse's readers no more than they may know about those workspaces, or use separate optimization lakehouses. A scan that can't write keeps its results on the PC and says why.
+
 - **One finding per problem.** A problem is identified by the rule that found it, the Fabric item (by workspace and item id) and what in it the rule looked at, such as a table. When several PCs find the same problem it shows once, with when it was first and last seen, in how many analysis runs and by how many installations.
 - **A run counts once it's complete.** An analysis run's own row is written after its findings. If a PC loses its connection part way, nothing from that run shows until it's recorded again, and recording it again adds only the rows that are missing.
 - **One recommendation per problem and kind of fix**, opened by whichever installation sees it first. Accepting, applying, dismissing or reopening it is recorded as a change with who made it, when and why, and everyone sees the latest. A dismissed recommendation stays dismissed when the problem is seen again; someone has to reopen it.
 - **Allowed changes.** Open can become accepted, applied, dismissed or superseded. Accepted can become applied, dismissed or open again. Applied can become verified or open again. Dismissed and verified can only be reopened. Superseded is final.
 - **Only items you can open.** Findings and recommendations about items in workspaces you can't open in Fabric aren't shown to you. This is a courtesy, not security: anyone who can read the lakehouse can read every row ([Who can see what](#who-can-see-what)).
+
+## Runs on this PC
+
+Optimize can count the notebook work that ran on a PC instead of in Fabric. Sharing it adds one row per run to `fdopt_local_execution`:
+
+- **Notebook writes to OneLake tables**, from this PC's write history. Each row names the lakehouse (by workspace and item id) and the table, and records when the write finished, how long it took and how many rows it wrote.
+- **Scheduled notebook runs on this PC**, from **Schedules**. Each row names the notebook and records when the run started and ended, how long it took and whether it succeeded. Metadata schedules aren't included.
+
+Code and table contents are never written. A run is added once: sharing again adds only the runs that are new since the last time, and two PCs never share each other's runs. The engine call is `optimize_share_local_runs`. Without `approve=True` it writes nothing and says how many runs it would add and what they contain. The button that calls it, in **Optimize > Cost and savings**, comes after a mockup. A run on a PC starts no Fabric job, but its OneLake reads and writes still use capacity, so these rows count work, not savings.
 
 ## The tables
 

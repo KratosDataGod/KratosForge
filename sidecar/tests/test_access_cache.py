@@ -106,25 +106,7 @@ def test_cache_tables_sit_in_their_own_schema(svc):
     assert (tables / "access" / "fdacc_scans").is_dir() and not (tables / "dbo" / "fdacc_scans").exists()
 
 
-def with_change_list(monkeypatch):
-    """central_restrict as Optimize's follow-up has it: the asking error carries ``changes``, and
-    ``shown`` is checked against them (here a token stands for the list)."""
-    real = Service.central_restrict
-
-    def restrict(self, family, role, members, approve=False, shown=None):
-        if approve:
-            assert shown == ["the list"], "approving must pass the confirmed list"
-            return real(self, family, role, members, approve=True)
-        try:
-            return real(self, family, role, members)
-        except PermissionError as exc:
-            exc.changes = ["the list"]
-            raise
-    monkeypatch.setattr(Service, "central_restrict", restrict)
-
-
-def test_protect_asks_then_keeps_the_cache_from_default_reader(svc, monkeypatch):
-    with_change_list(monkeypatch)
+def test_protect_asks_then_keeps_the_cache_from_default_reader(svc):
     svc.access_cache_refresh(approve=True)
     with pytest.raises(ValueError, match="at least one"):
         svc.access_cache_protect([" "])
@@ -143,12 +125,18 @@ def test_protect_asks_then_keeps_the_cache_from_default_reader(svc, monkeypatch)
     assert svc.access_cache_protect(["obj-admins"])["changed"] is False
 
 
-def test_protect_never_writes_when_the_engine_cant_check_the_list(svc):
+def test_protect_never_writes_when_the_engine_cant_check_the_list(svc, monkeypatch):
+    real = Service.central_restrict
+
+    def without_list(self, *args, **kwargs):  # an engine whose asking error carries no change list
+        try:
+            return real(self, *args, **kwargs)
+        except PermissionError as exc:
+            raise PermissionError(str(exc)) from None
+    monkeypatch.setattr(Service, "central_restrict", without_list)
     svc.access_cache_refresh(approve=True)
     with pytest.raises(PermissionError) as asked:
         svc.access_cache_protect(["obj-admins"])
-    if getattr(asked.value, "changes", None) is not None:
-        pytest.skip("central_restrict carries the change list")
     with pytest.raises(PermissionError, match="isn.t available yet"):
         svc.access_cache_protect(["obj-admins"], approve=True, shown=str(asked.value))
     assert svc.onelake.puts == []

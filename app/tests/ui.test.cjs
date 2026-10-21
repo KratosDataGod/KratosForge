@@ -2883,6 +2883,17 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
+test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
+  const root = path.join(__dirname, "..", "..");
+  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+    ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
+    assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
+  }
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

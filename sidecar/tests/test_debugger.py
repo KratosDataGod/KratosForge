@@ -125,9 +125,18 @@ def test_a_cell_without_breakpoints_is_not_traced(kernel):
         kernel.debug("continue")
 
 
-def test_pyspark_cells_keep_their_line_numbers(kernel):
-    kernel.start("%%pyspark\na = 1\nb = 2\n", breakpoints=[3])
-    assert paused(kernel)["paused"]["line"] == 3
+@pytest.mark.parametrize("code, line", [
+    ("%%pyspark\na = 1\nb = 2\n", 3),
+    ("\n%%pyspark\na = 1\nb = 2\n", 4),  # a blank line above the header
+    ("%%time\na = 1\nb = 2\n", 3),
+    ("%%capture out\na = 1\nb = 2\n", 3),
+    ("a = 1\n%env FD_DEBUG_TEST=1\nb = 2\n", 3),  # a line magic on the line above
+])
+def test_magic_cells_keep_their_line_numbers(kernel, code, line):
+    kernel.start(code, breakpoints=[line])
+    snap = paused(kernel)
+    assert snap["paused"]["line"] == line, snap
+    assert {v["name"] for v in snap["paused"]["variables"]} >= {"a"}
     kernel.debug("continue")
     assert paused(kernel)["status"] == "ok"
 

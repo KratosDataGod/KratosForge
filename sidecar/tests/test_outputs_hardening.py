@@ -88,3 +88,23 @@ def test_jslink_keeps_two_controls_in_step_in_the_kernel():
     assert [x["value"] for x in ev["view"]["children"]] == [7, 7, 7]
     ev = k.ipywidget_event(c, {"value": 2}, out["outputs"][0]["model"])
     assert [x["value"] for x in ev["view"]["children"]] == [7, 7, 2]
+
+
+def test_links_stop_instead_of_recursing_and_a_broken_one_says_so():
+    k = Kernel()
+    # Transforms that aren't each other's inverse: one update each way, as traitlets does, no recursion.
+    out = k.run("import ipywidgets as w\na, b = w.IntSlider(), w.IntSlider(max=1000)\n"
+                "w.link((a, 'value'), (b, 'value'), transform=(lambda v: v * 2, lambda v: v * 3))\n"
+                "a.value = 5\nprint(a.value, b.value)")
+    assert out["status"] == "ok", out
+    assert out["outputs"][0]["text"] == "5 10\n"
+    # Transforms that undo each other keep both sides in step.
+    out = k.run("c, d = w.IntSlider(), w.IntSlider(max=1000)\n"
+                "w.link((c, 'value'), (d, 'value'), transform=(lambda v: v * 10, lambda v: v // 10))\n"
+                "c.value = 4\nprint(d.value)\nd.value = 70\nprint(c.value)")
+    assert out["outputs"][0]["text"] == "40\n7\n"
+    # Something that changes the source while the link updates the target breaks the link.
+    out = k.run("e, f = w.IntSlider(), w.IntSlider()\nw.link((e, 'value'), (f, 'value'))\n"
+                "f.observe(lambda ch: setattr(e, 'value', 99), names='value')\ne.value = 3")
+    assert out["status"] == "error" and out["outputs"][-1]["ename"] == "TraitError"
+    assert out["outputs"][-1]["evalue"].startswith("Broken link")

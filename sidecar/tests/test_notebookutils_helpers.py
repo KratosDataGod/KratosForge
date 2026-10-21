@@ -90,6 +90,43 @@ def test_where_it_runs_knows_reads_from_changes():
     assert reads["local"]["ok"] and not changes["local"]["ok"]
 
 
+class FakeNotebooks(FakeClient):
+    def list_notebooks(self, ws):
+        return [{"id": "nb1", "displayName": "Load sales", "type": "Notebook", "workspaceId": ws},
+                {"id": "nb2", "displayName": "Report", "type": "Notebook", "workspaceId": ws}]
+
+    def get_item_definition(self, ws, item, fmt=None):
+        FakeClient.calls.append(("definition", ws, item, fmt))
+        payload = base64.b64encode(b'{"cells": [], "nbformat": 4}').decode()
+        return {"definition": {"parts": [{"path": "notebook-content.ipynb", "payload": payload}, {"path": ".platform"}]}}
+
+
+def test_notebook_items_read_as_you(k, monkeypatch):
+    monkeypatch.setattr(fabric_api, "FabricClient", FakeNotebooks)
+    out = k.run("(notebookutils.notebook.get('Report', 'ws1').id, "
+                "[n.displayName for n in notebookutils.notebook.list('ws1', maxResults=1)], "
+                "notebookutils.notebook.getDefinition('Load sales', 'ws1'))")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1]["text"] == """('nb2', ['Load sales'], '{"cells": [], "nbformat": 4}')"""
+    assert ("definition", "ws1", "nb1", "ipynb") in FakeClient.calls
+    assert k.run("notebookutils.notebook.get('Nope', 'ws1')")["outputs"][-1]["ename"] == "LookupError"
+
+
+@pytest.mark.parametrize("call", ["create('x')", "update('x', 'y')", "updateDefinition('x', '{}')", "delete('x')"])
+def test_notebook_item_changes_run_in_fabric(k, call):
+    out = k.run(f"notebookutils.notebook.{call}")
+    assert out["outputs"][-1]["ename"] == "NotImplementedError"
+    assert "Publish to OneLake" in out["outputs"][-1]["evalue"]
+
+
+def test_where_it_runs_knows_notebook_item_changes():
+    from fabric_desktop.fabric_run import compute_check
+    reads = compute_check([{"type": "code", "source": "notebookutils.notebook.getDefinition('x')"}], {"id": "lh"})
+    changes = compute_check([{"type": "code", "source": "notebookutils.notebook.updateDefinition('x', d)"}], {"id": "lh"})
+    runs = compute_check([{"type": "code", "source": "notebookutils.notebook.run('x')"}], {"id": "lh"})
+    assert reads["local"]["ok"] and runs["local"]["ok"] and not changes["local"]["ok"]
+
+
 def test_negative_max_results_lists_everything():
     from fabric_desktop.notebookutils_local import _limit
     assert _limit([1, 2, 3], -1) == [1, 2, 3]

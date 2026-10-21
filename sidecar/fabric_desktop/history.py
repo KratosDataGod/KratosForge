@@ -97,7 +97,7 @@ def command(ns: dict[str, Any], line: str) -> str:
     for n in wanted:
         if not 0 < n < len(inputs):
             continue
-        source = inputs[n].rstrip("\n")
+        source = inputs[n].replace("\r\n", "\n").rstrip("\n")  # a cell saved on Windows has \r\n
         if numbered:
             first, *rest = source.split("\n")
             lines.append(f"{n:>3}: {first}")

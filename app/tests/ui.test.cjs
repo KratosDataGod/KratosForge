@@ -4200,3 +4200,10 @@ test("the magics page documents In, Out and %history", () => {
   assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
   assert.match(doc, /\| `%history`, `%history -n 4-6`/);
 });
+
+// Magics hardening: the magics page says how to write Windows paths with spaces.
+test("the magics page says to quote paths with spaces and keeps backslashes", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Put a path with spaces in quotes/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
+});

@@ -34,9 +34,20 @@ TEMPLATES: list[dict[str, Any]] = [
     {"id": "incremental", "group": "load", "title": "Incremental load with a watermark",
      "text": "Copy only the rows newer than the highest value already in the target, by a date or ID column.",
      "fields": ["source", "watermark", "keys", "output"]},
+    {"id": "flatten_json", "group": "load", "title": "Flatten a nested JSON file",
+     "text": "Read a JSON file under Files/, turn each nested object into its own columns (customer.name becomes "
+             "customer_name), check the keys and write a table.",
+     "fields": ["json_file", "keys", "output", "mode"]},
     {"id": "clean", "group": "clean", "title": "Clean a table",
      "text": "Read one table, keep and rename columns, drop rows with no key and duplicates, write a new table.",
      "fields": ["source", "columns", "keys", "output", "mode"]},
+    {"id": "latest_row", "group": "clean", "title": "Keep the latest row per key",
+     "text": "Read a table where a key can appear many times and keep only its newest row, by a date, time or version column.",
+     "fields": ["source", "keys", "order_by", "output", "mode"]},
+    {"id": "profile", "group": "clean", "title": "Profile a table",
+     "text": "One row per column of a table: its type, how many values are empty, how many are distinct, and the "
+             "lowest and highest value. Writes the profile as a table.",
+     "fields": ["source", "output"]},
     {"id": "standardize", "group": "clean", "title": "Standardize names and types",
      "text": "Rename columns to snake_case, trim text, and turn the columns you name into dates or numbers.",
      "fields": ["source", "dates", "numbers", "keys", "output", "mode"]},
@@ -58,6 +69,10 @@ TEMPLATES: list[dict[str, Any]] = [
     {"id": "date_dimension", "group": "model", "title": "Date dimension",
      "text": "A calendar table with one row per day between two dates: year, quarter, month, week, weekday and fiscal year.",
      "fields": ["start", "end", "fiscal_start", "output"]},
+    {"id": "snapshot", "group": "model", "title": "Daily snapshot",
+     "text": "Append today's copy of a table to a history table with a snapshot_date column, once a day, "
+             "so you can see what it looked like on any earlier day.",
+     "fields": ["source", "keys", "output"]},
     {"id": "reconcile", "group": "compare", "title": "Reconcile two tables",
      "text": "Compare row counts, keys found on one side only and column totals. The run fails when they differ.",
      "fields": ["source", "other", "keys", "sums"]},
@@ -74,6 +89,8 @@ FIELDS = {
     "group_by": "Columns to group by",
     "columns": "Columns to keep (all when empty)",
     "file": "File under Files/",
+    "json_file": "JSON file under Files/",
+    "order_by": "Column whose highest value is the newest row",
     "folder": "Folder under Files/",
     "file_type": "File type",
     "watermark": "Column that only grows (a date, time or ID)",
@@ -120,6 +137,12 @@ def _table(value: Any, label: str) -> str:
     if not _TABLE.match(text):
         raise ValueError(f"{label} must be a table name like dbo.orders.")
     return text
+
+
+def _same_table(a: str, b: str) -> bool:
+    # Names ignore case, and a name without a schema is dbo's table on a schema-enabled lakehouse.
+    full = lambda t: (t if "." in t else f"dbo.{t}").lower()  # noqa: E731
+    return full(a) == full(b)
 
 
 def _check_cell(df: str, keys: list[str]) -> str:
@@ -241,6 +264,99 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
              f"out = joined.group_by({group!r}).agg(pl.len().alias(\"rows\")).sort({group!r})\nout.head()")
         code(_check_cell("out", keys))
         code(f"lakehouse.write_table(out, {output!r}, mode={mode!r})")
+    elif template == "latest_row":
+        source = _table(v.get("source"), "The table to read")
+        by = _names(v.get("order_by"))
+        if len(by) != 1:
+            raise ValueError("Name one column whose highest value is the newest row, like modified_at.")
+        need_keys()
+        if by[0] in keys:
+            raise ValueError("The column that orders rows can't also identify a row.")
+        md(f"# Latest row of each key in {source}\n\nKeeps, for each {', '.join(f'`{k}`' for k in keys)}, the row of "
+           f"`{source}` with the highest `{by[0]}` (an empty `{by[0]}` counts as oldest) and writes `{output}`. "
+           f"When two rows of a key have the same `{by[0]}`, the run stops, because either could be kept. "
+           "Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_table({source!r})\nkeys = {keys!r}\nnewest = {by[0]!r}\ndf.head()")
+        # eq_missing: a key whose rows all have an empty order_by has two "newest" rows too.
+        code("top = pl.col(newest).max().over(keys)\n"
+             "tied = df.filter(pl.col(newest).eq_missing(top)).group_by(keys).len().filter(pl.col(\"len\") > 1)\n"
+             "assert tied.height == 0, f\"{tied.height} keys have two newest rows with the same {newest}\"\n"
+             "latest = df.sort(newest, descending=True, nulls_last=True, maintain_order=True)"
+             ".unique(subset=keys, keep=\"first\", maintain_order=True)\n"
+             "print(f\"{df.height:,} rows, {latest.height:,} keys\")\nlatest.head()")
+        code(_check_cell("latest", keys))
+        code(f"lakehouse.write_table(latest, {output!r}, mode={mode!r})")
+    elif template == "flatten_json":
+        path = str(v.get("json_file") or "").strip()
+        if not re.match(r"^Files/[^\\\x00]+\.json$", path, re.IGNORECASE) or ".." in path.split("/"):
+            raise ValueError("The file must be a .json file under Files/, like Files/raw/orders.json.")
+        need_keys()
+        md(f"# Flatten {path}\n\nReads `{path}`, turns each nested object into columns named after its path "
+           "(`customer.name` becomes `customer_name`), checks the key columns and writes "
+           f"`{output}`. Lists stay as list columns; explode one in a new cell if you need a row per item. "
+           "Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_json({path!r})\ndf.head()")
+        code("while structs := [c for c, t in df.schema.items() if isinstance(t, pl.Struct)]:\n"
+             "    names = {c: [f\"{c}_{f.name}\" for f in df.schema[c].fields] for c in structs}\n"
+             "    new = [n for c in structs for n in names[c]]\n"
+             "    # Delta column names ignore case, so Name and name clash.\n"
+             "    seen = [n.lower() for n in df.columns if n not in structs] + [n.lower() for n in new]\n"
+             "    clashes = sorted({n for n in new if seen.count(n.lower()) > 1})\n"
+             "    assert not clashes, f\"These nested names clash with existing columns: {clashes}\"\n"
+             "    df = df.with_columns([pl.col(c).struct.rename_fields(names[c]) for c in structs]).unnest(structs)\n"
+             "print(f\"{df.height:,} rows, {df.width} columns\")\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
+    elif template == "profile":
+        source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
+        keys, mode = ["column"], "overwrite"
+        md(f"# Profile {source}\n\nOne row per column of `{source}`: its type, how many rows have no value, how many "
+           "distinct values it has, and its lowest and highest value (as text, so every type fits one table). "
+           f"Writes `{output}`, replacing the last profile. Made by the new notebook wizard.")
+        code(head)
+        code(f"df = lakehouse.read_table({source!r})\nprint(f\"{{df.height:,}} rows, {{df.width}} columns\")")
+        code("def bound(s, pick):\n"
+             "    try:\n"
+             "        value = pick(s.drop_nulls())\n"
+             "    except Exception:  # lists and nested values have no order\n"
+             "        return None\n"
+             "    return None if value is None else str(value)\n\n"
+             "rows = []\n"
+             "for name in df.columns:\n"
+             "    s = df[name]\n"
+             "    nulls = s.null_count()\n"
+             "    rows.append({\"column\": name, \"type\": str(s.dtype), \"rows\": s.len(), \"empty\": nulls,\n"
+             "                 \"empty_pct\": round(100 * nulls / s.len(), 2) if s.len() else 0.0,\n"
+             "                 \"distinct\": s.drop_nulls().n_unique() if s.len() > nulls else 0,\n"
+             "                 \"lowest\": bound(s, lambda x: x.min()), \"highest\": bound(s, lambda x: x.max())})\n"
+             "profile = pl.DataFrame(rows, schema={\"column\": pl.Utf8, \"type\": pl.Utf8, \"rows\": pl.Int64,\n"
+             "                                     \"empty\": pl.Int64, \"empty_pct\": pl.Float64, \"distinct\": pl.Int64,\n"
+             "                                     \"lowest\": pl.Utf8, \"highest\": pl.Utf8})\nprofile")
+        code(f"lakehouse.write_table(profile, {output!r}, mode=\"overwrite\")")
+    elif template == "snapshot":
+        source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
+        need_keys()
+        mode = "append"
+        md(f"# Daily snapshot of {source}\n\nAppends today's rows of `{source}` to `{output}` with a "
+           f"`snapshot_date` column (today's date in UTC). A second run on the same day writes nothing, so a "
+           f"retry can't double the day. Schedule it once a day. Made by the new notebook wizard.")
+        code(head + "\nfrom datetime import datetime, timezone")
+        code("today = datetime.now(timezone.utc).date()\ndone = False\n"
+             f"if lakehouse.table_exists({output!r}):\n"
+             "    # Read only the snapshot_date column of the history, not the whole table.\n"
+             f"    dates = pl.from_arrow(lakehouse.open_table({output!r}).to_pyarrow_table(columns=[\"snapshot_date\"]))\n"
+             "    done = dates.filter(pl.col(\"snapshot_date\") == today).height > 0\n"
+             "print(\"Already taken today\" if done else f\"Taking the snapshot for {today}\")")
+        code(f"df = lakehouse.read_table({source!r}).with_columns(pl.lit(today).alias(\"snapshot_date\"))\ndf.head()")
+        code(_check_cell("df", keys))
+        code(f"if not done:\n    lakehouse.write_table(df, {output!r}, mode=\"append\")")
+        keys = keys + ["snapshot_date"]
     elif template == "load_file":
         path = str(v.get("file") or "").strip()
         if not _FILE.match(path) or ".." in path.split("/"):

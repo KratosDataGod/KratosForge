@@ -59,7 +59,7 @@ def _refuse_dynamic_overwrite(session: Any) -> None:
     whole table: refuse it, as the writer option is refused."""
     try:
         mode = session.conf.get(_OVERWRITE_MODE, "static")
-    except Exception:  # noqa: BLE001 - a conf that can't answer has nothing set
+    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
         return
     if str(mode).strip().lower() == "dynamic":
         raise NotImplementedError(_REFUSED["partitionoverwritemode"] + " Unset it first: "

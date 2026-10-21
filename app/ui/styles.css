@@ -1503,6 +1503,12 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
 
+/* Notebook result viewer (frames.py): column types, pager, Download menu */
+.th-type { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }
+.result-pager { gap: 8px; align-items: center; margin-top: 6px; }
+.result-pager .more { margin: 0; }
+.result-download .sql-export-menu { min-width: 110px; }
+
 /* Forge animations (motion.js): one aria-hidden element per effect, transform and opacity only */
 .fx-anchor { position: relative; }
 .fx { position: absolute; pointer-events: none; }

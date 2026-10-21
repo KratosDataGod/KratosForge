@@ -239,3 +239,20 @@ def test_multi_level_columns_show_flat_and_wrangler_code_matches():
     w = k.frame_wrangle(out["frame"], [{"op": "drop", "columns": ["v_max"]}], "a")
     again = k.run(w["code"])["outputs"][0]
     assert again["columns"] == ["k", "v_sum"] and again["rows"] == [["a", 4], ["b", 2]]
+
+
+def test_repeated_column_names_show_with_a_suffix_and_wrangler_code_matches():
+    k = Kernel()
+    k.run("import pandas as pd")
+    dup = k.run("d = pd.DataFrame([[1, 2, 3]], columns=['x', 'x', 'x_2'])\nd")
+    assert dup["status"] == "ok"
+    out = dup["outputs"][0]
+    assert out["columns"] == ["x", "x_2", "x_2_2"] and out["rows"] == [[1, 2, 3]]
+    w = k.frame_wrangle(out["frame"], [{"op": "drop", "columns": ["x"]}], "d")
+    again = k.run(w["code"])["outputs"][0]
+    assert again["columns"] == ["x_2", "x_2_2"] and again["rows"] == [[2, 3]]
+    # Joined levels that meet: ('a_b', '') and ('a', 'b') both join to a_b.
+    met = k.run("m = pd.DataFrame([[1, 2]], columns=pd.MultiIndex.from_tuples([('a_b', ''), ('a', 'b')]))\nm")
+    assert met["status"] == "ok" and met["outputs"][0]["columns"] == ["a_b", "a_b_2"]
+    w = k.frame_wrangle(met["outputs"][0]["frame"], [{"op": "sort", "column": "a_b_2"}], "m")
+    assert k.run(w["code"])["outputs"][0]["columns"] == ["a_b", "a_b_2"]

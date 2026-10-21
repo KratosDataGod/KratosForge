@@ -29,6 +29,7 @@ _NOTIFY = "governance Teams notices: engine only, no settings screen yet (platfo
 _TENANT = "tenant settings history: Preview, engine only so far (docs/optimize/README.md, docs/permissions.md)"
 _CAPACITY = "capacity settings history: Preview, engine only so far; the page waits on a mockup (docs/optimize/README.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
+_LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
@@ -91,6 +92,7 @@ NO_UI_CALLER: dict[str, str] = {
     "kernel_info": _NO_SCREEN,
     "meta_git_status": _NO_SCREEN,
     "optimize_inspect": _NO_SCREEN,
+    "optimize_share_local_runs": _LOCAL_RUNS,
     "risk_acknowledgements": _NO_SCREEN,
     "sql_compat_profiles": _NO_SCREEN,
     "sql_dialects": _NO_SCREEN,

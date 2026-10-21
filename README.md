@@ -41,15 +41,21 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
+| [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
+| [docs/notebook-import-export.md](docs/notebook-import-export.md) | Fabric and Databricks notebook formats: import Fabric or Databricks source and .dbc archives, export as .ipynb, Fabric or Databricks source or HTML (Preview) |
+| [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
 | [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
 | [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
 | [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |
+| [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |
+| [docs/notebook-comments.md](docs/notebook-comments.md) | Comments on notebook cells: threads on a cell or lines of its code, replies, resolve, and the Comments panel, kept in the notebook file |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |

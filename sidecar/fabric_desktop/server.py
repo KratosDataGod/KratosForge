@@ -21,7 +21,7 @@ from .service import Service
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "notebook_frame_page", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
            "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
@@ -57,7 +57,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
-           "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "all_schedules",
+           "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
            "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
@@ -115,10 +115,17 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# A notebook's resources folder (notebook_resources_service.py).
+from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_RESOURCE_METHODS
+
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
+from .notebook_versions_service import METHODS as NOTEBOOK_VERSIONS_METHODS  # noqa: E402
+METHODS |= NOTEBOOK_VERSIONS_METHODS
 
 # Notebook files (notebook_files_service.py): search, open a file, save a copy, delete and restore,
 # and copy a Fabric notebook to this PC.
@@ -126,10 +133,19 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
+from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FORMATS_METHODS
 # Profile (progress_service.py): the person's private record of verified work and its report.
 from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 
 METHODS |= PROFILE_METHODS
+
+# Comments on notebook cells (comments_service.py), kept in the notebook file.
+from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
+
+METHODS |= COMMENT_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

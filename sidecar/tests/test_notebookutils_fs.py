@@ -262,3 +262,33 @@ def test_ls_gives_modify_time_in_milliseconds(tmp_path):
     assert info.modifyTime == 1_700_000_000_000 and info.modificationTime == info.modifyTime
     assert notebookutils_local._millis("2026-10-20T12:00:00+00:00") == 1_792_497_600_000
     assert notebookutils_local._millis("") == 0 and notebookutils_local._millis("junk") == 0
+
+
+@pytest.mark.parametrize("dest", ["Files/one.txt", "/lakehouse/default/Files/one.txt", "Files/raw/sub", "Files/raw/"])
+def test_mv_and_cp_refuse_a_path_onto_or_into_itself(store, fs, dest):
+    src = "Files/raw" if dest.startswith("Files/raw") else "Files/one.txt"
+    before = dict(store.files)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.cp(src, dest, recurse=True)
+    assert store.files == before and store.mutations() == []
+
+
+def test_local_mv_into_itself_keeps_the_folder(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("hi")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/data/../data/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "hi"
+    fs.cp(f"file:{tmp_path}/data", f"file:{tmp_path}/data2", recurse=True)  # a sibling with the same prefix is fine
+    assert (tmp_path / "data2" / "a.txt").read_text() == "hi"
+
+
+def test_a_windows_file_uri_names_the_drive(monkeypatch):
+    monkeypatch.setattr(notebookutils_local.os, "name", "nt")
+    assert notebookutils_local._split("file:///C:/data/a.csv") == ("local", "C:/data/a.csv")
+    assert notebookutils_local._split("file:/D:\\x") == ("local", "D:\\x")
+    assert notebookutils_local._split("file:C:/data") == ("local", "C:/data")
+    monkeypatch.setattr(notebookutils_local.os, "name", "posix")
+    assert notebookutils_local._split("file:///C:/data") == ("local", "/C:/data")

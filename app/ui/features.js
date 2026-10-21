@@ -45,7 +45,7 @@ const PREVIEW_FEATURES = {
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
-  debug: "Variable history and watches",
+  debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
   cost: "Cost",
   capacity: "Capacity status",

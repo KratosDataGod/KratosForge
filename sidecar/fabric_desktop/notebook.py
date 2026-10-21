@@ -150,6 +150,13 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
+        self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
+        self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
+
+    def set_paused(self, paused: dict[str, Any] | None) -> None:
+        with self.lock:
+            self.paused = json.loads(json.dumps(paused, default=str)) if paused is not None else None
+            self.version += 1
 
     def write(self, text: str) -> None:
         if not text:
@@ -181,6 +188,8 @@ class _Run:
                     "outputs": list(self.outputs) if changed else None}
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if self.debugger is not None:
+                snap["paused"] = self.paused
             return snap
 
 
@@ -308,15 +317,25 @@ class Kernel:
 
     # ---- running a cell
 
-    def start(self, code: str, watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, watches: list[str] | None = None, breakpoints: list[int] | None = None,
+              step: bool = False) -> dict[str, Any]:
         """Start ``code`` on its own thread; ``poll`` reports its output as it comes.
 
         ``watches`` are expressions evaluated after the cell, in its namespace and on its thread
-        (so Cancel and the cell time limit cover them); their values come back in ``watches``."""
+        (so Cancel and the cell time limit cover them); their values come back in ``watches``.
+        ``breakpoints`` (line numbers in the cell) or ``step`` (pause at the first line) run the
+        cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        from .debugger import Debugger, check_breakpoints
+        lines = check_breakpoints(breakpoints)
         self.count += 1
         run = _Run(self.count)
+        if lines or step:
+            from .redact import secrets
+            run.debugger = Debugger(lines, step, self._describe, redact=secrets, watches=watches,
+                                    on_change=run.set_paused)
+            run.debugger.skip = set(self._base_namespace_keys())
         self._current = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
@@ -340,12 +359,23 @@ class Kernel:
         run = self._current
         if run is None or run.done.is_set() or run.thread is None:
             return {"interrupted": False}
+        # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
+        # interrupt it the usual way.
+        if run.debugger is not None and run.debugger.stop() and run.done.wait(0.5):
+            return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        """Resume a paused cell (continue, step, next, out) or evaluate ``expression`` where it is paused."""
+        run = self._current
+        if run is None or run.done.is_set() or run.debugger is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return run.debugger.command(action, expression)
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
@@ -365,7 +395,13 @@ class Kernel:
         status = "error"
         try:
             try:
-                status = self._exec(code, self.namespace, run)
+                if run.debugger is not None:
+                    sys.settrace(run.debugger.trace)
+                try:
+                    status = self._exec(code, self.namespace, run, run.debugger)
+                finally:
+                    if run.debugger is not None:
+                        sys.settrace(None)
                 self._flush_figures(run)
             except NotebookExit:
                 status = "ok"
@@ -403,8 +439,9 @@ class Kernel:
         with run.lock:
             run.watches = results
 
-    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
-        """Run one cell's code in ``namespace``; returns "ok" or "error"."""
+    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
+        """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
+        code compiled here (not %run notebooks), so its line numbers are the cell's own."""
         from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
@@ -438,16 +475,16 @@ class Kernel:
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
-            status = self._exec_python(code, namespace, run)
+            status = self._exec_python(code, namespace, run, debugger)
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return status
         if cell.header == "%%timeit":
             return self._guarded(run, lambda: self._timeit(cell.args, code, namespace))
         if cell.header == "%%capture":
-            return self._capture(cell.args, code, namespace, run)
-        return self._exec_python(code, namespace, run)
+            return self._capture(cell.args, code, namespace, run, debugger)
+        return self._exec_python(code, namespace, run, debugger)
 
-    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         from .notebookutils_local import NotebookExit
         try:
             with warnings.catch_warnings():
@@ -456,10 +493,16 @@ class Kernel:
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-                exec(compile(tree, _CELL_FILE, "exec"), namespace)
+                body = compile(tree, _CELL_FILE, "exec")
+                tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
+                if debugger is not None:
+                    debugger.add(body)
+                    if tail is not None:
+                        debugger.add(tail)
+                exec(body, namespace)
                 value = None
-                if last is not None:
-                    value = eval(compile(ast.Expression(last.value), _CELL_FILE, "eval"), namespace)
+                if tail is not None:
+                    value = eval(tail, namespace)
                 if value is not None:
                     namespace["_"] = value
                     self._emit(run, self._show(value))
@@ -493,7 +536,7 @@ class Kernel:
         print(f"{_duration(statistics.mean(times))} ± {_duration(spread)} per loop (mean ± std. dev. of "
               f"{len(times)} run{'s' * (len(times) != 1)}, {number} loop{'s' * (number != 1)} each)")
 
-    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """``%%capture [name]``: the cell's output is kept instead of shown; ``name.show()`` shows it.
         An error still shows, so a failing cell isn't silent."""
         captured = _Run(0)
@@ -502,7 +545,7 @@ class Kernel:
         before = out.targets.get(ident), err.targets.get(ident), getattr(self._local, "run", None)
         out.targets[ident] = err.targets[ident] = self._local.run = captured
         try:
-            status = self._exec_python(code, namespace, captured)
+            status = self._exec_python(code, namespace, captured, debugger)
             self._flush_figures(captured)
         finally:
             for router, target in ((out, before[0]), (err, before[1])):
@@ -788,9 +831,13 @@ class Kernel:
             if (name.startswith("_") and name != "_sqldf") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
                     or inspect.isroutine(value):
                 continue
-            rows.append({"name": name, "type": type(value).__name__, "size": _size(value),
-                         "value": "hidden" if self._hidden(name, value) else _preview(value)})
+            rows.append(self._describe(name, value))
         return sorted(rows, key=lambda r: r["name"].lower())
+
+    def _describe(self, name: str, value: Any) -> dict[str, Any]:
+        """A Variables pane row: name, type, size and a short preview, or "hidden" for a secret."""
+        return {"name": name, "type": type(value).__name__, "size": _size(value),
+                "value": "hidden" if self._hidden(name, value) else _preview(value)}
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:

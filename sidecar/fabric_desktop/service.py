@@ -62,6 +62,7 @@ from . import notebook_versions
 from .progress_service import ProgressMixin
 from .comments_service import CommentsMixin
 from .kernel_proc import ProcessKernel
+from .debugger import check_breakpoints
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
@@ -430,9 +431,13 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     # interrupt_cell stops it without clearing variables.
     def start_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None,
                    notebook: str | None = None, time_limit: bool = True,
-                   watches: list[str] | None = None) -> dict[str, Any]:
+                   watches: list[str] | None = None, breakpoints: list[int] | None = None,
+                   step: bool = False) -> dict[str, Any]:
         """``time_limit`` False runs this cell without the cell time limit (Run again without the limit).
-        ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
+        ``watches`` are expressions shown in the Variables pane, evaluated after the cell.
+        ``breakpoints`` (line numbers) or ``step`` (pause at the first line) run it under the
+        debugger; ``debug_cell`` resumes it."""
+        breakpoints = check_breakpoints(breakpoints)
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
@@ -447,8 +452,9 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self.kernel.notebook_name = notebook or ""
             self.kernel.resources_dir = self._resources_dir(notebook)
             if isinstance(self.kernel, ProcessKernel):
-                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
-            return self.kernel.start(code, check_watches(watches))
+                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
+                                         breakpoints=breakpoints, step=bool(step))
+            return self.kernel.start(code, check_watches(watches), breakpoints, bool(step))
         finally:
             self.attach_lock.release()
 
@@ -457,6 +463,10 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def interrupt_cell(self) -> dict[str, Any]:
         return self.kernel.interrupt()
+
+    def debug_cell(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
+        return self.kernel.debug(action, expression)
 
     def kernel_variables(self) -> list[dict[str, Any]]:
         return self.kernel.variables()

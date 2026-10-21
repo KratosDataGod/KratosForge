@@ -1,6 +1,6 @@
 # Hardening findings register
 
-Confirmed issues from the enterprise hardening audit of Fabric Desktop by KratosBI. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
+Confirmed issues from the enterprise hardening audit of KratosForge. Reviewed at `main` **1248ccd** (2026-10-17, "Merge pull request #120"); line numbers refer to that commit. Re-checked at **9715e28** after the SQL-003 stack merged: every finding still applies (notes on DI-5 and SH-11 below).
 
 How to read this register:
 
@@ -55,23 +55,24 @@ No Critical issue was confirmed. Twelve are High.
 | DI-5 | Medium | Memory | Entity previews and SQL results load the whole table or result before slicing | HD-033 |
 | DI-6 | Medium | OneLake writes | Long writes use one bearer token for their whole duration (inferred) | HD-034 |
 | UI-2 | Medium | UI | Prove and side-by-side status polling never stops on errors | HD-035 |
+| EN-12 | Medium | Security | The Fabric client sends the bearer token to whatever host a `continuationUri` or an operation's `Location` names | HD-058 (done) |
 | EP-8 | Low | Environments | Nothing stops Dev and Prod naming the same workspace | HD-036 |
 | EP-9 | Low | Publishing | `run_job` bypasses the write guard and overwrites with `schema_mode="overwrite"` | HD-036 |
 | EN-8 | Low | Notebooks | Stopping a kernel leaves the processes its cells started | HD-037 |
-| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites | HD-038 |
+| EN-11 | Low | Engine | `export_sql_csv` builds a path from an unsanitized lakehouse name; `receipt_save` overwrites. Done in HD-038: the CSV name goes through `service.file_stem`, the cleaning `sql_compat_export` already used (letters, digits, spaces, `-` and `_`), so a lakehouse name with separators or `..` stays in Downloads; the CSV and receipt files are opened with mode `"x"` and a name that is taken gets a number, so an existing file is never replaced. `file_stem` now lives in `filenames.py`, and the managed SQL export (`sql_exec.export`) uses it too instead of its own copy | HD-038 |
 | DI-7 | Low | Fabric API | `Retry-After` in HTTP-date form crashes the client; 5xx and connection errors aren't retried on reads | HD-039 |
 | DI-8 | Low | Notebooks | Local `saveAsTable` overwrite silently replaces the schema where Fabric would refuse | HD-040 |
 | SH-10 | Low | Shell | A release build with no engine falls back to a bare `python` command | HD-026 |
 | SH-11 | Low | Shell | RPC replies aren't matched to request ids; the pipe runs one call at a time with no limit for long calls | HD-041 |
 | SH-12 | Low | Shell | The Fabric view filters new windows but not navigation, and turns SmartScreen off | HD-027 |
 | UI-1 | Low | UI | (part of SH-1) Notebook HTML output frames can make network requests | HD-020 |
-| UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise | HD-042 |
-| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated | HD-043 |
-| UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal | HD-044 |
-| AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 |
+| UI-4 | Low | UI | Closing a text prompt by its overlay or X never settles its promise. Done in HD-042: `showDialog` takes an `onClose` that runs once however the dialog goes (overlay, X, Escape, an action, or another dialog replacing it); `askText` and `pickWorkspace` answer null and `confirmDialog` false through it | HD-042 |
+| UI-5 | Low | UI tests | The name-clash test is a column-0 regex; one test is duplicated. Done in HD-043: the test now asks V8 which names each script declares at its top level (function, class, `var`, `let`, `const`, however indented, including destructured names) by compiling the script with `let <name>;` appended; nothing is run and no dependency is added. It covers the 37 non-vendor scripts in `index.html`. A temporary script with an indented `function esc` and `const inlineMd` failed the new test and passed the old one. Today both find the same 1,005 names and no clash. The duplicate Report a problem test is removed | HD-043 |
+| UI-6 | Low | Accessibility | No `aria-current` on the rail; the command palette isn't modal. Done in HD-044: the rail already marked the page you're on with `aria-current="page"` (now tested); the command bar is a modal dialog (`aria-modal`), focus moves into it, Tab stays inside, Escape closes it without also closing the activity tray, focus goes back to where it was, and Ctrl+K does nothing while another dialog is open | HD-044 |
+| AR-2 | Medium | Maintainability | `Service` combines 18 mixins with 335 public methods (332 callable over RPC) and 348 `type: ignore` | HD-050 (first slice: METHODS guard test with listed exceptions, no behaviour change) |
 | AR-3 | Medium | Maintainability | Seven HTTP call sites with separate retry and error handling | HD-051 |
 | UI-8 | Medium | Maintainability | `app.js` is 2,521 lines; UI tests check 13 of 27 scripts; browser tests aren't in CI | HD-052 |
-| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59% | HD-053 |
+| TS-1 | Medium | Testing | Low coverage where data is written: `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%. Done in HD-053: contract tests for OneLake files and the Fabric client. They found that a OneLake file path with a `..` segment (plain, URL-encoded or with backslashes) reached outside the lakehouse folder it named, and that an empty path named the whole lakehouse (so `delete("")` would delete its root); `onelake.item_path` now refuses both. The workspace and lakehouse ids and lease keys aren't checked the same way; they come from Fabric or the app, not from notebook code | HD-053 |
 | TS-2 | Medium | Testing | No live-tenant or T-SQL dialect test runs anywhere automatically | HD-054 |
 | DOC-1 | Medium | Docs | `release-readiness.md` lists gates as "open PR" that merged hours ago; three security claims in docs are false | HD-009 |
 
@@ -226,27 +227,28 @@ No Critical issue was confirmed. Twelve are High.
 | SH-8 | `.github/workflows/codex-review.yml:353-397`, `docs.yml:419-436` | Pin by SHA; move `pages`/`id-token` to the deploy job; pin zensical |
 | SH-9 | `deploy/windows/install-agent.ps1:78`, `src/updater.py:268-275` | Install with `-c constraints.txt`; set an explicit ACL on `%ProgramData%\FabricDesktop` (unverified on Windows) |
 | DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count for entity previews. The desktop SQL page has paged, memory-limited execution since SQL-003 (#134, merged); `export_sql_csv` and external-tool SQL still materialize |
-| DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake) |
+| DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake). Done in HD-034: `Authenticator.storage_token()` refreshes a token with less than `STORAGE_MIN_SECONDS` (30 minutes) left, so every OneLake read and write starts with at least that long. A write that runs longer than the token can still fail at commit. With Windows sign-in, the broker decides whether a refresh returns a new token. Tested with a fake MSAL, not against OneLake |
 | UI-2 | `app/ui/prove.js:155-165`, `sidebyside.js:54-58` | Cap attempts, stop on "not found", guard against two loops for one run |
+| EN-12 | `fabric_api.py` `_paged`, `_wait` | A spoofed response or a proxy could get the Fabric token sent to any host. Done in HD-058: `followable_url` only follows https URLs on the request's own host or under `fabric.microsoft.com`, `powerbi.com` or `analysis.windows.net` (Power BI's regional hosts); relative URLs resolve against the request. The host checked is the one requests will connect to (the prepared URL as urllib3 parses it), and addresses with a backslash or control character are refused, so `https://evil.example\.fabric.microsoft.com/` can't pass as a Fabric host. Anything else raises a plain error and sends nothing. Tested with a recording fake session, not against Fabric |
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
 | EP-9 | `publish.py:44-81` | Apply `write_guard` and an environment check to `run_job` |
 | EN-8 | `kernel_proc.py:152`, `:305` | New process group (POSIX) or Job Object (Windows) so Stop ends the whole tree (reproduced: an orphaned `sleep` survived) |
-| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"` |
-| DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only |
+| EN-11 | `service.py:524`, `prove_service.py:127` | Sanitize the CSV name like `sql_compat_export`; open receipts with mode `"x"`. Exists-then-write exports in Validate and replay made exclusive in a follow-up (the report and the bundle zip are created with mode `"x"` and take the next numbered name) |
+| DI-7 | `fabric_api.py:74-78`, `:91-107` | Parse and cap `Retry-After` (seconds or HTTP date); retry 5xx and connection errors on GETs only. Done in HD-039: `retrying.retry_after` reads delta-seconds or an HTTP date (a past date means retry now; unreadable values use the default), never less than 0.5 s or more than 60 s. `retrying.send_with_retry` repeats 429 for any method and 5xx, timeouts and dropped connections only for GET, HEAD and OPTIONS; `FabricClient._request` and its long-running-operation polling, OneLake `TableCatalog` and `FileStore` reads, the lease and mailbox reads, the Graph user lookups in `estate_service.py` and Key Vault `getSecret` use it. Writes are sent once, except Fabric writes on 429 as before. Tested in `test_retry_after.py` with a fake transport, not against Fabric |
 | DI-8 | `spark_local.py:67-86` | Refuse a schema change on overwrite unless `overwriteSchema` is set, as Fabric does |
 | SH-10 | `main.rs:161-166` | No bare `python` fallback in release builds |
 | SH-11 | `main.rs:267-325` | Check reply ids; reset the engine on a mismatch; move long calls off the shared pipe (SQL-003, merged, moved SQL page queries off it; notebooks already use `start_cell`) |
 | SH-12 | `main.rs:540`, `:623-630`, `:876` | Add a navigation filter with the same host check; keep SmartScreen on |
-| UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt |
+| UI-4 | `app/ui/app.js:135-170` | `showDialog` takes an `onClose` so every way of closing settles the prompt. Done in HD-042: closing by overlay, X or Escape answers null (`askText`, `pickWorkspace`) or false (`confirmDialog`), tested in `app/tests/ui.test.cjs` |
 | UI-5 | `app/tests/ui.test.cjs:18-32`, `:229-235`, `:296-302` | Parse instead of regex; remove the duplicate test |
-| UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open |
+| UI-6 | `app/ui/features.js:31`, `:149`; `app/ui/app.js:2298` | `aria-current="page"`; mount the palette as a modal dialog; ignore Ctrl+K while a dialog is open. Done in HD-044: `openPalette` in `features.js` |
 
 ### Maintainability and testing
 
 | Id | Evidence | Direction |
 | --- | --- | --- |
-| AR-2 | `service.py:55`: 18 mixins, 335 public methods, 332 callable over RPC, 348 `type: ignore[attr-defined]` | Small injected services (auth, Fabric client, store) with Protocols; narrow `server.METHODS` to what the UI calls |
-| AR-3 | `fabric_api.FabricClient` retries only 429; `onelake`, `central/client`, `leases` don't retry; `requests` called directly in `estate_service.py:355`, `:389`, `telemetry.py:212`, `dataops_service.py:345`, `notebookutils_local.py:226`; 8 hand-written retry loops | One session factory with a retry policy that never blindly retries non-idempotent writes |
+| AR-2 | `service.py:55`: 18 mixins, 335 public methods, 332 callable over RPC, 348 `type: ignore[attr-defined]` | Small injected services (auth, Fabric client, store) with Protocols; narrow `server.METHODS` to what the UI calls. First slice: METHODS guard test with listed exceptions (no behaviour change; `sidecar/tests/test_rpc_surface.py`). |
+| AR-3 | `fabric_api.FabricClient` retries only 429; `onelake`, `central/client`, `leases` don't retry; `requests` called directly in `estate_service.py:355`, `:389`, `telemetry.py:212`, `dataops_service.py:345`, `notebookutils_local.py:226`; 8 hand-written retry loops | One session factory with a retry policy that never blindly retries non-idempotent writes. Done in HD-051: `http_session.session()` is one pooled `requests.Session` (16 connections per host, a 60-second default timeout, no cookies, no urllib3 retries). `FabricClient`, `TableCatalog`, `FileStore`, the lease and control files, `FabricPlatform`, the Power BI and Graph calls in `estate_service.py` and Key Vault `getSecret` use it unless given their own session. Reads go through `retrying.send_with_retry`; OneLake writes and platform function calls are sent once, and Fabric writes are repeated only on 429 as before. Left out: telemetry and the Teams webhook (not Fabric; sent once to another host), the managed identity token client (auth), the agent and the integrations server. Tested with a fake transport, not against Fabric |
 | AR-4 | 218 `except Exception`, about 53 that swallow (`leases.py:264`, `xray_service.py:149-236`) | Log or re-raise; ban new silent ones with a lint rule |
 | UI-8 | `app.js` 2,521 lines, one shared `state`; tests cover 13 of 27 scripts; no tests for `meta.js`, which starts writes; 24 Playwright tests in `app/tests/browser` not run by CI | Run the browser suite in CI; a test that bans new raw HTML sinks; split `app.js` along `registerFeature` boundaries |
 | TS-1 | Line coverage 87% overall, but `onelake.py` 53%, `publish.py` 58%, `notebookutils_local.py` 59%, `server.py` 63%, `fabric_api.py` 72%, `central/setup.py` 20%, `kernel_host.py` 0% (subprocess) | Contract tests with a fake `requests.Session` for OneLake writes and deletes and Fabric 429/5xx/LRO paths |

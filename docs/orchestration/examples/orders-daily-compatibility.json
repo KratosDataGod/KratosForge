@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "registry_version": "2",
+  "registry_version": "4",
   "pipeline": "pl_orders_daily",
   "schema": {
     "parser_version": 1,
@@ -130,9 +130,9 @@
   "summary": {
     "activities": 18,
     "by_classification": {
-      "local": 11,
+      "local": 12,
       "simulated": 0,
-      "static": 6,
+      "static": 5,
       "cloud": 0,
       "unsupported": 1
     },
@@ -142,7 +142,6 @@
       "Get watermark",
       "List new files",
       "Copy file to bronze",
-      "Bronze to silver",
       "Run AMER script",
       "Check silver",
       "Alert on failure"
@@ -165,11 +164,6 @@
       {
         "name": "Copy file to bronze",
         "classification": "simulated",
-        "stage": "later (not scheduled)"
-      },
-      {
-        "name": "Bronze to silver",
-        "classification": "local",
         "stage": "later (not scheduled)"
       },
       {
@@ -421,18 +415,13 @@
       "container": null,
       "known": true,
       "title": "Notebook",
-      "classification": "static",
+      "classification": "local",
       "evidence": "unit_tests",
       "verified": false,
-      "planned": {
-        "classification": "local",
-        "stage": "later (not scheduled)",
-        "note": "Runs a local copy through Prove's notebook execution path, once it can be called with parameters."
-      },
+      "planned": null,
       "fabric_capacity": "metered_in_fabric",
       "auth": [
-        "fabric",
-        "workspace_role"
+        "fabric"
       ],
       "side_effects": [
         "runs_code",
@@ -440,7 +429,7 @@
         "writes_onelake"
       ],
       "external_dependencies": [
-        "the notebook item",
+        "a copy of the notebook on this PC",
         "its default lakehouse"
       ],
       "inactive": false,
@@ -452,10 +441,13 @@
         }
       ],
       "checked_properties": [
-        "notebookId"
+        "notebookId",
+        "parameters"
       ],
       "limitations": [
-        "Running on this PC uses a local Python kernel, not Fabric Spark; results can differ."
+        "Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can differ. Spark notebooks still need a mock.",
+        "Tables are read at the version they had when the step started and written to the run's own folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. Reading and writing OneLake uses some capacity; no Fabric job is started.",
+        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text."
       ],
       "problems": []
     },
@@ -757,7 +749,7 @@
       ],
       "checked_properties": [],
       "limitations": [
-        "Kept exactly as it is in the definition, but not checked or run. A newer Fabric Desktop by KratosBI may know it; otherwise it has to run in Fabric."
+        "Kept exactly as it is in the definition, but not checked or run. A newer KratosForge may know it; otherwise it has to run in Fabric."
       ],
       "problems": [
         "unknown_activity_type"

@@ -126,7 +126,8 @@ async function depsRefresh(nb = state.notebook) {
       const graph = await rpc("notebook_dependencies", { cells: payload });
       nb.deps = { key, graph, byId: new Map(graph.cells.map((g) => [g.cell_id, g])) };
     } catch (err) {
-      nb.deps = { key, graph: null, byId: new Map(), problem: String(err) };
+      const f = friendlyError(err);  // a sentence, not the raw exception (UX-011)
+      nb.deps = { key, graph: null, byId: new Map(), problem: f.text, details: f.details };
     }
   }
   if (state.notebook === nb) depsPaint(nb);
@@ -166,7 +167,7 @@ function depsHead(cell) {
 function depsStrip(cell) {
   const nb = state.notebook;
   if (!depsOn() || cell.type !== "code" || !nb) return h("div", { class: "deps-strip", hidden: true });
-  if (nb.deps?.problem) return h("div", { class: "deps-strip" }, h("span", { class: "warn" }, `Couldn't read dependencies: ${nb.deps.problem}`));
+  if (nb.deps?.problem) return h("div", { class: "deps-strip" }, h("span", { class: "warn", title: nb.deps.details || null }, `Couldn't read dependencies: ${nb.deps.problem}`));
   const g = nb.deps?.byId.get(cell.cell_id);
   if (!g) return h("div", { class: "deps-strip" }, h("span", {}, nb.deps ? "Nothing to show for this cell." : "Reading dependencies..."));
   const ref = (n) => h("button", { class: "deps-ref", title: `Go to cell ${n}`, onclick: () => depsGo(nb, n) }, String(n));
@@ -203,7 +204,8 @@ async function runStale(nb) {
   if (state.kernel === "busy") return;
   const deps = await depsRefresh(nb);
   if (!deps?.graph) {
-    toast(`Couldn't read the notebook's dependencies${deps?.problem ? `: ${deps.problem}` : ""}.`, true);
+    toast(deps?.problem ? `Couldn't read the notebook's dependencies: ${deps.problem}` : "Couldn't read the notebook's dependencies.", true,
+      { title: "Couldn't read the notebook's dependencies", details: deps?.details || "" });
     return;
   }
   const plan = depsPlan(depsStaleNow(nb), deps.graph);

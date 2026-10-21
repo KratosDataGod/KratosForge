@@ -1,8 +1,8 @@
 # Release readiness
 
-What must be true before Fabric Desktop by KratosBI goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
+What must be true before KratosForge goes to an enterprise pilot, and where each piece stands. Updated as items in the [enterprise backlog](enterprise-backlog.md) land.
 
-Last updated 2026-10-18. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
+Last updated 2026-10-18 at `main` a346145. The current gate status, with acceptance criteria and evidence, is the [readiness checklist](../hardening/readiness-checklist.md) from the hardening audit.
 
 ## Verdict today
 
@@ -10,7 +10,7 @@ Last updated 2026-10-18. The current gate status, with acceptance criteria and e
 
 ## What's missing for an enterprise-approved app
 
-An enterprise security or IT team approving Fabric Desktop by KratosBI would ask for each of these. Asked by Chris in unit testing on 2026-10-18 (item 38).
+An enterprise security or IT team approving KratosForge would ask for each of these. Asked by Chris in unit testing on 2026-10-18 (item 38).
 
 | # | Missing | Why an enterprise needs it | Waits on |
 | --- | --- | --- | --- |
@@ -20,7 +20,7 @@ An enterprise security or IT team approving Fabric Desktop by KratosBI would ask
 | 4 | Pin a build and roll back | Each channel keeps only its newest build, so IT can't hold a known build or go back one | Release management: keep every build as its own release asset |
 | 5 | Managed install package | Intune and Configuration Manager deploy MSI or MSIX; today it's one exe plus a policy file copied by script | A packaging PR, which needs signing (1) first |
 | 6 | Security evidence pack | Reviewers want one place with the security model, data flows, permissions, SBOM and provenance, plus a privacy statement and support terms. The pieces exist ([security](../security.md), [permissions](../permissions.md), [telemetry](../telemetry.md); SBOMs and build provenance attestations are made for each Preview build, but the Stable release carries only the exe, engine and version.json) but aren't collected, and there is no privacy statement or support terms | Enterprise readiness can assemble the pack; privacy statement and support terms need Chris as publisher |
-| 7 | Open High security findings | A security review will find them: an external tool's run-notebook approval isn't bound to the code it approves ([EN-1](../hardening/findings.md#en-1-high-external-run-notebook-approval-isnt-bound-to-the-code)), no Content Security Policy ([SH-1](../hardening/findings.md#sh-1-high-no-content-security-policy-tauri-api-on-the-page)), and updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)) | Hardening: HD-006 and HD-020; HD-021 also needs signing (1) |
+| 7 | Open High security findings | A security review will find them: no Content Security Policy ([SH-1](../hardening/findings.md#sh-1-high-no-content-security-policy-tauri-api-on-the-page)), and updates prove integrity but not who published them ([SH-2](../hardening/findings.md#sh-2-high-updates-prove-integrity-not-authenticity)). The third, run-notebook approvals not bound to the code (EN-1), was fixed in #156 | Hardening: HD-020; HD-021 also needs signing (1) |
 | 8 | Tested features | Run in Fabric, schedules, Prove, the metadata framework against OneLake and the agent are Preview: built to documented APIs, untested on a tenant | Live tenant runs (2), feature by feature |
 
 Settings could show the parts of this a person can see on their own PC (signed build, policy applied, token cache protected, updates managed by IT). That is a UI change, so it starts with a mockup.
@@ -73,11 +73,11 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | Requirement | Detail |
 | --- | --- |
 | PCs | Windows 10 or 11, 64-bit, with WebView2. Several hundred MB per user for the engine |
-| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/enterprise-install.md#network-access) |
+| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/KratosForge/blob/main/docs/enterprise-install.md#network-access) |
 | Fabric | A capacity for lakehouses and anything run in Fabric. Tenant settings as in [Configure Azure and Fabric](../azure-setup.md) |
 | Releases | A maintainer promotes a Preview build to Stable with release notes. Under managed updates, IT deploys each Stable exe |
 | Support | A `support_url` in policy, and support bundles for diagnosis |
-| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/backup.md) |
+| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/KratosForge/blob/main/docs/backup.md) |
 
 ## Validated scenarios
 

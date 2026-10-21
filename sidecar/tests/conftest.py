@@ -24,6 +24,8 @@ def saved_policy_in_tmp(monkeypatch, tmp_path):
     real profile, so one test's copy can't stand in for another test's broken file."""
     from fabric_desktop import app_settings
     monkeypatch.setattr(app_settings, "saved_policy_path", lambda: tmp_path / "saved-policy" / "policy-last-good.json")
+    # Test policy files are the test account's own; the check for that has tests of its own.
+    monkeypatch.setattr(app_settings, "user_can_change", lambda path: False)
 
 
 # A test that hangs would otherwise hold CI until the job's 6-hour limit, with no output (logs only

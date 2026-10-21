@@ -122,7 +122,7 @@ async function renderMeshDomainsTab(body) {
       d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "From Fabric") : null,
       h("div", { class: "muted-text small mono" }, d.id)),
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
-    h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+    h("td", {}, domainOwnersCell(d)),
     h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
   // Domains are edited in one place, Platform > Domains (UX-009); this list is for reading.
   const domainsCard = h("div", { class: "card pad" },
@@ -135,9 +135,33 @@ async function renderMeshDomainsTab(body) {
     o.domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
       h("tbody", {}, domainRows))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-        h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains.")));
+      : emptyState({ title: "No domains yet",
+        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains." }));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
+}
+
+// A domain's Fabric domain admins, read during Import from Fabric: names only, never used to grant anything.
+function fabricOwners(d) {
+  try { return (JSON.parse(d?.fabric_owners || "[]") || []).map((p) => p.name).filter(Boolean); } catch { return []; }
+}
+
+// The owners cell: the platform's owners, else Fabric's domain admins marked "From Fabric".
+function domainOwnersCell(d) {
+  const fabric = fabricOwners(d);
+  const tag = h("span", { class: "badge", title: "This domain's admins in Fabric (Admin portal > Domains), read by Import from Fabric" }, "From Fabric");
+  if (d.owners) {
+    return h("span", {}, d.owners, fabric.length ? h("div", { class: "muted-text small" }, "In Fabric: ", fabric.join(", ")) : null);
+  }
+  return fabric.length ? h("span", {}, fabric.join(", "), " ", tag) : h("span", { class: "muted-text" }, "not set");
+}
+
+// One line for Home's map: the first owner, and how many more.
+function domainOwnerLine(d) {
+  const own = String(d.owners || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const people = own.length ? own : fabricOwners(d);
+  if (!people.length) return null;
+  const more = people.length > 1 ? ` +${people.length - 1}` : "";
+  return h("div", { class: "muted-text small", title: people.join(", ") }, `Owner: ${people[0]}${more}${own.length ? "" : " (from Fabric)"}`);
 }
 
 function domainDialog(o, d, done) {
@@ -169,10 +193,11 @@ async function importFabricDomains(done) {
   if (!out) return;
   const r = out.result;
   const parts = [r.added.length && `${r.added.length} added`, r.linked.length && `${r.linked.length} matched by name`,
-    r.updated.length && `${r.updated.length} renamed or moved`].filter(Boolean);
+    r.updated.length && `${r.updated.length} renamed, moved or with new admins`].filter(Boolean);
   toast(`Imported ${out.fabric} Fabric domains${parts.length ? `: ${parts.join(", ")}` : ", nothing changed"}`);
   if (r.skipped.length) toast(`Skipped (deeper than one subdomain): ${r.skipped.join(", ")}`);
   if (r.gone.length) toast(`No longer in Fabric, kept here: ${r.gone.join(", ")}`);
+  if (out.owners_unread?.length) toast(`Domain admins couldn't be read for: ${out.owners_unread.join(", ")}. Their owners from Fabric stay as they were.`);
   done();
 }
 
@@ -236,9 +261,9 @@ async function renderMeshProductsTab(body, p) {
       mine.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Ports", "Open to", "Status", "In the catalog", "Teams reading it", "Owner"].map((c) => h("th", {}, c)))),
         h("tbody", {}, mine))
-        : h("div", { class: "empty" }, h("span", { class: "title" }, "No data products yet"),
-          h("span", { class: "text" }, "Make one from your Gold tables so other teams can link to them instead of copying."),
-          btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary"))),
+        : emptyState({ title: "No data products yet",
+          text: "Make one from your Gold tables so other teams can link to them instead of copying.",
+          action: btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary") })),
     h("div", { class: "card pad" },
       h("b", {}, "Other teams' products"),
       platformNote(o),
@@ -319,8 +344,8 @@ async function renderMeshLinksTab(body) {
         "The catalog checks the product is open to you."),
       rows.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Link", "Product · port", "Reads", "Used by", `Table in ${ENV_LABEL[env]}`, ""].map((c) => h("th", {}, c)))),
-        h("tbody", {}, rows.map((r) => r.row))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No links yet"),
-        h("span", { class: "text" }, "Find a product on the Data products tab and choose Link, or add one here.")),
+        h("tbody", {}, rows.map((r) => r.row))) : emptyState({ title: "No links yet",
+        text: "Find a product on the Data products tab and choose Link, or add one here." }),
       rows.length ? status : null)].filter(Boolean));
   if (!rows.length) return;
   const resolved = await attempt(() => rpc("mesh_resolve_links", { env })) || [];
@@ -417,7 +442,7 @@ function fillAbout(card, e, a) {
 // ---------- Platform > Settings ----------
 
 async function platformSection() {
-  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "Loading..."));
+  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), loading());
   const s = await attempt(() => rpc("platform_status"));
   if (!s) { section.replaceChildren(h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return section; }
   const policy = s.source === "policy";
@@ -425,9 +450,9 @@ async function platformSection() {
     const c = s.environments[env];
     const fabric = c.kind === "fabric";
     return settingRow(`${ENV_LABEL[env]}: ${fabric ? c.workspace_name || c.workspace_id : "on this PC"}`,
-      fabric ? "Surrogate keys, catalog and run history for every team, in SQL_Platform and LH_Meta."
+      fabric ? "Catalog and run history for every team, in SQL_Platform and LH_Meta; keys too, until they move to the Keys workspace."
         : env === "prod" ? "Domains, products and catalog text are kept in a file on this PC until the Prod platform exists."
-          : "Keys stay in each project's LH_Keys until this environment has a platform.",
+          : "Keys stay in each project's LH_Keys until this environment has a platform or they move to the Keys workspace.",
       policy ? null : h("div", { class: "row" },
         btn(fabric ? "Finish or repair" : "Create", fabric ? "sync" : "add", () => platformSetupDialog(env, s), fabric ? "tool outline" : "tool primary"),
         fabric ? btn("Forget", null, async () => {
@@ -437,9 +462,110 @@ async function platformSection() {
       policy ? "policy" : null);
   };
   section.replaceChildren(h("h2", {}, "Platform ", previewTag()),
-    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), one key system for every team (SQL_Platform, which also holds the catalog), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
-    ...MESH_ENVS.map(row));
+    h("p", { class: "muted-text small" }, "The central team's workspace in each environment: one landing zone for every source (LH_Landing), the catalog (SQL_Platform, which also holds each environment's keys until they move to the Keys workspace below), the functions every app and notebook calls (UDF_Platform), run history (LH_Meta) and their ids (VL_Platform). Create it once; every other PC joins it. ", learnMore("platform")),
+    ...MESH_ENVS.map(row), keysRow(s, policy));
   return section;
+}
+
+// ---------- one keys database for Dev, Test and Prod (Preview) ----------
+
+function keysRow(s, policy) {
+  const k = s.keys || {};
+  const where = k.kind === "fabric" ? k.workspace_name || k.workspace_id : "on this PC";
+  const title = `Keys: ${k.workspace_id ? where : "one keys database for every environment"}`;
+  if (k.shared) {
+    return settingRow(h("span", {}, title, " ", h("span", { class: "pill-s pass" }, "Dev, Test and Prod use it")),
+      `One key per business key in every environment${k.kind === "fabric" ? ", in SQL_Keys and UDF_Keys" : ", in a file on this PC"}${k.moved_at ? `. Moved ${when(k.moved_at)}` : ""}.`,
+      null, policy ? "policy" : null);
+  }
+  const fabric = k.kind === "fabric";
+  return settingRow(h("span", {}, title, " ", previewTag()),
+    "A dedicated Keys workspace (SQL_Keys and UDF_Keys) so customer ABC has the same key in Dev, Test and Prod. Move keys in shows what would move first; Prod's keys keep their numbers.",
+    policy ? null : h("div", { class: "row" },
+      btn("Move keys in", "databaseArrowRight", moveKeysIn, "tool primary"),
+      btn(fabric ? "Finish or repair" : "Create", fabric ? "sync" : "add", () => keysSetupDialog(s), "tool outline"),
+      btn("Join existing", "workspace", keysJoin, "tool outline")),
+    policy ? "policy" : null);
+}
+
+async function keysJoin() {
+  if (!state.user && !(await signIn())) return;
+  const ws = await pickWorkspace(await loadWorkspaces(), { title: "Join the Keys workspace", okLabel: "Join",
+    note: "Pick the Keys workspace your central team made. SQL_Keys and UDF_Keys are found by name." });
+  if (!ws) return;
+  const res = await attempt(() => rpc("platform_keys_join", { workspace_id: ws.id }), "Could not join");
+  if (res) { toast(res.keys?.shared ? `Every environment now uses ${ws.displayName}` : `Joined ${ws.displayName}; keys haven't moved in yet`); render(); }
+}
+
+async function keysSetupDialog(s) {
+  if (!state.user && !(await signIn())) return;
+  const k = s.keys || {};
+  const name = h("input", { value: k.workspace_name || k.default_name, disabled: k.workspace_id ? true : null });
+  const capacity = h("select", {}, h("option", { value: "" }, "Loading capacities..."));
+  const steps = h("div", {});
+  const run = async () => {
+    steps.replaceChildren(h("p", { class: "muted-text" }, "Creating the Keys workspace. This takes a minute..."));
+    const res = await attempt(() => rpc("platform_keys_setup", { name: name.value.trim(), capacity_id: capacity.value }), "Keys workspace not created");
+    if (!res) { steps.replaceChildren(); return; }
+    steps.replaceChildren(h("ul", { class: "steps-list" }, res.steps.map((st) => h("li", {},
+      icon(st.status === "done" ? "ok" : "error", 14), h("b", {}, ` ${st.step}: `), st.detail))),
+    h("p", { class: res.ready ? "muted-text" : "fail-text" }, res.ready ? "The Keys workspace is ready. Nothing has moved yet: choose Move keys in." : "Some steps didn't finish. Fix what they say, then choose Finish or repair."));
+  };
+  showDialog(`${k.workspace_id ? "Finish" : "Create"} the Keys workspace`, h("div", {},
+    h("p", { class: "text" }, "Creates (or finishes) a workspace with SQL_Keys, a SQL database for every environment's keys, and UDF_Keys, the functions that issue them. Nothing moves until you choose Move keys in."),
+    h("label", { class: "field" }, "Workspace", name), h("label", { class: "field" }, "Capacity", capacity), steps), [
+    btn("Close", null, () => { closeDialog(); render(); }, "tool outline"),
+    btn(k.workspace_id ? "Finish setup" : "Create workspace", "add", run, "tool primary")]);
+  const caps = (await attempt(() => rpc("list_capacities"), "Could not list capacities")) || [];
+  capacity.replaceChildren(...caps.map((x) => h("option", { value: x.id }, `${x.displayName}${x.sku ? ` (${x.sku})` : ""}`)),
+    h("option", { value: "" }, "No capacity (SQL database and functions need one)"));
+}
+
+function keysMoveTable(tables) {
+  return tables.length ? h("table", { class: "list" },
+    h("thead", {}, h("tr", {}, ["From", "Key table", "Keys", "New numbers"].map((x) => h("th", {}, x)))),
+    h("tbody", {}, tables.map((t) => h("tr", {}, h("td", {}, ENV_LABEL[t.env] || t.env), h("td", { class: "mono" }, `sk.${t.table}`),
+      h("td", { class: "n" }, (t.keys ?? t.copied ?? 0).toLocaleString()),
+      h("td", { class: "n" }, t.env === "prod" ? "0 (kept)" : (t.renumbered || 0).toLocaleString())))))
+    : h("p", { class: "muted-text" }, "No key tables yet, so nothing is copied.");
+}
+
+async function moveKeysIn() {
+  const plan = await attempt(() => rpc("platform_share_keys", {}), "Could not read the keys");
+  if (!plan) return;
+  if (plan.already) { toast("Every environment already uses the one keys database"); render(); return; }
+  showDialog("Move keys in", h("div", {},
+    h("p", { class: "text" }, plan.message.replace(/ Confirm to continue\.$/, "")),
+    keysMoveTable(plan.tables),
+    plan.renumbered ? h("p", { class: "warn-text small" }, `${plan.renumbered.toLocaleString()} Dev and Test keys change number. Re-run Dev and Test afterwards.`) : null), [
+    btn("Cancel", null, closeDialog, "tool outline"),
+    btn("Move keys in", "databaseArrowRight", async () => {
+      closeDialog();
+      const res = await attempt(() => rpc("platform_share_keys", { approve: true }), "Keys not moved");
+      if (!res) return;
+      if (res.ok) {
+        showDialog("Keys moved", h("div", {}, keysMoveTable(res.tables),
+          h("p", { class: "warn-text small" }, res.renumbered
+            ? "Every environment now uses the one keys database. Re-run Dev and Test: their tables still hold the old numbers for the keys that changed. Prod's tables don't change."
+            : "Every environment now uses the one keys database. No key changed number.")),
+        [btn("Close", null, () => { closeDialog(); render(); }, "tool primary")]);
+        toast("Every environment now uses the one keys database", false, { log: true });
+        return;
+      }
+      showDialog("Keys didn't switch", h("div", {}, h("p", { class: "text" }, res.message),
+        res.changed_during_move ? gateList(res.changed_during_move.map((x) => `${x} changed during the move`)) : null,
+        res.tables?.some((t) => !t.match) ? gateList(res.tables.filter((t) => !t.match).map((t) => `${ENV_LABEL[t.env] || t.env} ${t.table}: didn't check out`)) : null), [
+        btn("Cancel the move", null, () => { closeDialog(); cancelKeysMove(); }, "tool outline"),
+        btn("Move again", "sync", () => { closeDialog(); moveKeysIn(); }, "tool primary")]);
+    }, "tool primary")]);
+}
+
+async function cancelKeysMove() {
+  const plan = await attempt(() => rpc("platform_cancel_share_keys", {}), "Could not cancel");
+  if (!plan) return;
+  if (!(await confirmDialog("Cancel the move?", plan.message.replace(/ Confirm to continue\.$/, ""), "Cancel the move", { danger: true }))) return;
+  const res = await attempt(() => rpc("platform_cancel_share_keys", { approve: true }), "Not cancelled");
+  if (res) { toast("Move cancelled; every environment issues its own keys again", false, { log: true }); render(); }
 }
 
 async function platformJoin(env) {
@@ -482,7 +608,7 @@ function keysPlatformCard(k, rerender) {
   if (k.platform) {
     return h("div", { class: "card pad" }, h("div", { class: "row" }, icon("database", 18),
       h("span", { class: "grow" }, h("b", {}, "Keys are in the platform's SQL database"),
-        h("div", { class: "muted-text small" }, `Moved ${k.moved_at ? when(k.moved_at) : ""}. LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
+        h("div", { class: "muted-text small" }, `${k.moved_at ? `Moved ${when(k.moved_at)}. ` : ""}LH_Keys is kept as it was. Every run asks SQL_Platform for keys.`)),
       btn("Back to LH_Keys", null, async () => {
         if (!(await confirmDialog("Use LH_Keys again?", "Only allowed while the platform hasn't issued keys LH_Keys doesn't have.", "Use LH_Keys"))) return;
         if (await metaCall("meta_keys_to_lakehouse", { env: k.env }, "Not changed")) rerender();

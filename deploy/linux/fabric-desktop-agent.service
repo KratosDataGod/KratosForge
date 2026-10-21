@@ -1,6 +1,6 @@
-# systemd unit for the Fabric Desktop agent. Install: see docs/agent.md, "Linux".
+# systemd unit for the KratosForge agent. Install: see docs/agent.md, "Linux".
 [Unit]
-Description=Fabric Desktop by KratosBI agent (runs metadata environments and writes to OneLake)
+Description=KratosForge agent (runs metadata environments and writes to OneLake)
 Wants=network-online.target
 After=network-online.target
 

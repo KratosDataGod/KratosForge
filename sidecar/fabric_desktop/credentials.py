@@ -14,6 +14,7 @@ higher) and from the Fabric tenant setting "Service principals can use Fabric AP
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -23,6 +24,9 @@ from typing import Any, Protocol
 import msal
 
 from .auth import AUTHORITY, FABRIC_SCOPES, STORAGE_SCOPES, default_scope, resource_of  # noqa: F401  (re-exported)
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 class Credential(Protocol):
@@ -73,7 +77,8 @@ class _AppCredential:
     def silent_token(self, scopes: list[str]) -> str | None:
         try:
             return self._token(scopes)
-        except Exception:
+        except Exception as exc:
+            _log.info("No token for the agent's credential: %s", describe(exc))
             return None
 
     def signed_in_user(self) -> str | None:

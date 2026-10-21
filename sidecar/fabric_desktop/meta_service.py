@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -23,10 +24,46 @@ from .meta import snapshot
 from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
+from .redact import describe as describe_error
+
+_log = logging.getLogger(__name__)
 
 
 def _json_rows(df: pl.DataFrame, limit: int) -> list[dict[str, Any]]:
     return json.loads(df.head(limit).write_json())
+
+
+def _preview(store: Any, lakehouse: str, schema: str, table: str, limit: int) -> dict[str, Any] | None:
+    """The first ``limit`` rows and the row count from the Delta log: only those rows are read,
+    however large the table (HD-033). None when there's no table."""
+    lf = store.scan(lakehouse, schema, table)
+    if lf is None:
+        return None
+    df = lf.head(limit).collect()
+    return {"columns": df.columns, "rows": json.loads(df.write_json()), "total": store.count(lakehouse, schema, table)}
+
+
+def _env_workspaces(cfg: dict[str, Any]) -> set[str]:
+    """The workspaces an environment's lakehouses live in: its own and each designation's."""
+    ids = {cfg.get("workspace_id") or ""} | {(w or {}).get("id") or "" for w in (cfg.get("workspaces") or {}).values()}
+    return ids - {""}
+
+
+def _clashes(envs: dict[str, dict[str, Any]]) -> list[tuple[str, str, str]]:
+    """Every pair of environments that name the same workspace, as (first, second, workspace)."""
+    spaces = {env: _env_workspaces(envs.get(env, {})) for env in ENVIRONMENTS}
+    return [(a, b, ws) for i, a in enumerate(ENVIRONMENTS) for b in ENVIRONMENTS[i + 1:]
+            for ws in sorted(spaces[a] & spaces[b])]
+
+
+def shared_workspaces(envs: dict[str, dict[str, Any]], before: dict[str, dict[str, Any]] | None = None) -> list[str]:
+    """Why these environments can't be saved or used: two of them name the same workspace, so a run
+    in one would write the other's tables (LH_Meta, LH_Bronze, ... have the same names in each).
+    With ``before``, only clashes it didn't already have, so a file that shares a workspace can be
+    fixed one environment at a time."""
+    old = set(_clashes(before)) if before is not None else set()
+    return [f"{a.title()} and {b.title()} both use workspace {ws}. Each environment needs its own "
+            "workspace, or a run in one writes the other's tables." for a, b, ws in _clashes(envs) if (a, b, ws) not in old]
 
 
 def _toml(v: Any) -> str:
@@ -98,6 +135,19 @@ class MetaMixin:
             return None
         lakehouse.write_guard = guard
 
+    def _job_guard(self, workspace_id: str, lakehouse_name: str, schema: str, table: str) -> str | None:
+        """Why a job may not write this table: the metadata project manages it, or the workspace is
+        Test's or Prod's, which change only by promote. None when no project is open or it may."""
+        try:
+            project = self._project()
+        except LookupError:
+            return None
+        for env in ("test", "prod"):
+            if workspace_id in _env_workspaces(project.environments.get(env, {})):
+                return (f"This workspace is {env.title()}'s, which changes only by promote. "
+                        "Point the job at a Dev or scratch workspace.")
+        return lakehouse.write_guard(lakehouse_name, schema, table) if lakehouse.write_guard else None
+
     def meta_project(self) -> dict[str, Any]:
         try:
             project = self._project()
@@ -110,8 +160,8 @@ class MetaMixin:
         owner = ""
         try:
             owner = (self.auth.signed_in_user() or "").split("@")[0]  # type: ignore[attr-defined]
-        except Exception:  # not signed in: the owner can be filled in later
-            pass
+        except Exception as exc:  # not signed in: the owner can be filled in later
+            _log.info("Signed-in user unknown; the owner is left blank: %s", describe_error(exc))
         init_project(Path(path), preset, owner, sample)
         self._save_settings(meta_project=str(Path(path)))
         return self.meta_project()
@@ -133,6 +183,11 @@ class MetaMixin:
         ws = cfg.get("workspace_id")
         if not ws:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
+        # environments.toml can be edited by hand: never read or write one environment's tables as another's.
+        if clash := [(a, b, w) for a, b, w in _clashes(project.environments) if env in (a, b)]:
+            a, b, w = clash[0]
+            raise ValueError(f"{a.title()} and {b.title()} both use workspace {w}, so neither is read or written "
+                             f"until one gets its own workspace (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         # Each layer's lakehouse goes in its designation's workspace, else the environment's own.
         spaces = cfg.get("workspaces") or {}
@@ -146,7 +201,7 @@ class MetaMixin:
             for name, space in where.items():
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
-                        space, name, "Managed by Fabric Desktop by KratosBI's metadata framework")["id"]
+                        space, name, "Managed by KratosForge's metadata framework")["id"]
         # The organization's landing zone is the platform's, never created here.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
@@ -177,9 +232,16 @@ class MetaMixin:
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
             existing[keys_mod.KEYS_LAKEHOUSE] = fabric.create_lakehouse(
-                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop by KratosBI")["id"]
+                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by KratosForge")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
+
+    def _keys_database(self, project: Project, env: str) -> str:
+        """The SQL database an environment's keys come from once they're in the platform, else "".
+        A Spark MERGE into LH_Keys would issue keys that database never sees, so there's none then."""
+        if not self._keys_in_platform(project, env):
+            return ""
+        return "SQL_Keys" if self._keys_config().get("shared") else "SQL_Platform"  # type: ignore[attr-defined]
 
     def _keys_in_platform(self, project: Project, env: str) -> bool:
         """One key system for everything: once an environment's platform is in Fabric, its keys come
@@ -188,7 +250,7 @@ class MetaMixin:
         cfg = project.environments.get(env, {})
         if cfg.get("keys") in ("platform", "lakehouse"):
             return cfg["keys"] == "platform"
-        if not self._platform_config().get(env, {}).get("functions_id"):  # type: ignore[attr-defined]
+        if not self._keys_in_fabric(env):  # type: ignore[attr-defined]
             return False
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         has_lh_keys = (project.local_data / f"keys-{env}").exists() if local else bool(cfg.get("keys_workspace_id"))
@@ -198,6 +260,8 @@ class MetaMixin:
         return any(keys_mod.entity_keys(e) for n, e in project.entities.items() if names is None or n in names)
 
     def _write_environments(self, project: Project, envs: dict[str, dict[str, Any]]) -> None:
+        if errors := shared_workspaces(envs, before=project.environments):
+            raise ValueError(errors[0])
         lines = ["# Each environment's workspace, and where its tables live: target = \"onelake\" (the workspace's",
                  "# lakehouses, LH_<Layer>, created when first needed) or \"local\" (offline, in .local).",
                  "# compute = \"local\" runs on this PC, \"fabric\" on the workspace's capacity.",
@@ -247,7 +311,7 @@ class MetaMixin:
         if not name:
             raise ValueError("Give the workspace a name.")
         ws = self.fabric.create_workspace(  # type: ignore[attr-defined]
-            name, capacity_id, f"{env.title()} environment, managed by Fabric Desktop by KratosBI's metadata framework")
+            name, capacity_id, f"{env.title()} environment, managed by KratosForge's metadata framework")
         return self.meta_set_environment(env, ws["id"], ws.get("displayName") or name) | {
             "created": {"id": ws["id"], "displayName": ws.get("displayName") or name}}
 
@@ -273,18 +337,17 @@ class MetaMixin:
             store = self._store(project, env)
             log = store.meta("run_log").filter(pl.col("entity") == name).reverse()
             runs = _json_rows(log.drop("steps"), 10)
-            df = store.read(project.layer(e.layer).lakehouse, e.schema, e.table) \
-                if e.layer in project.layer_names() else None
-            if df is not None:
-                preview = {"columns": df.columns, "rows": json.loads(df.head(50).write_json()), "total": df.height}
+            if e.layer in project.layer_names():
+                preview = _preview(store, project.layer(e.layer).lakehouse, e.schema, e.table, 50)
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
-        keys_sql = None
-        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}):
+        keys_sql, keys_from = None, self._keys_database(project, env)
+        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}) and not keys_from:
             keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
         return e.summary() | {"text": e.path.read_text(encoding="utf-8"), "impact": impact(project, name),
-                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql}
+                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
+                              "keys_from": keys_from}
 
     def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
         """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
@@ -428,10 +491,8 @@ class MetaMixin:
     def meta_preview(self, name: str, env: str = "dev", limit: int = 100) -> dict[str, Any]:
         project = self._project()
         e = project.entities[name]
-        df = self._store(project, env).read(project.layer(e.layer).lakehouse, e.schema, e.table)
-        if df is None:
-            return {"columns": [], "rows": [], "total": 0}
-        return {"columns": df.columns, "rows": json.loads(df.head(limit).write_json()), "total": df.height}
+        out = _preview(self._store(project, env), project.layer(e.layer).lakehouse, e.schema, e.table, limit)
+        return out or {"columns": [], "rows": [], "total": 0}
 
     # ---- promote
 
@@ -493,7 +554,7 @@ class MetaMixin:
         if project.products:
             try:  # so other teams' links find this environment's tables
                 result["products"] = self.mesh_publish(target)["published"]  # type: ignore[attr-defined]
-            except Exception as exc:  # the promote itself worked; publish again from Mesh > Data products
+            except Exception as exc:  # the promote itself worked; publish again from Data mesh > Domains > Data products
                 result["products"] = f"not published: {exc}"
         if self._compute(project, target) == "fabric":  # type: ignore[attr-defined]
             try:  # so scheduled runs in Fabric pick up the promoted version
@@ -673,14 +734,15 @@ class MetaMixin:
         central = None  # the platform's key tables, when this environment's keys are there
         if self._keys_in_platform(project, env):
             try:
-                central = self._platform(env).call("list_key_tables")  # type: ignore[attr-defined]
+                central = self._keys_platform(env).call("list_key_tables")  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
+                "lakehouse": self._keys_database(project, env) or keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
-                "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
+                "platform_available": self._keys_in_fabric(env),  # type: ignore[attr-defined]
+                "shared": bool(self._keys_config().get("shared")),  # type: ignore[attr-defined]
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
@@ -747,15 +809,15 @@ class MetaMixin:
             raise ValueError(f"key table {name} already exists")
         if self._keys_in_platform(project, env):
             # One key system: the project uses a key table the platform has, it doesn't make its own.
-            central = {t["name"] for t in self._platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
                                          "Platform > Business keys, or pick one from the list."])
         owner = ""
         try:
             owner = self.auth.signed_in_user() or ""  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("Signed-in user unknown; the key table's owner is left blank: %s", describe_error(exc))
         keys_mod.write_key_table(project.root, name, owner, description)
         return self.meta_keys(env)
 
@@ -827,6 +889,10 @@ class MetaMixin:
             raise GateError("save", errors)
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
+        if db := self._keys_database(project, env):
+            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+                                     "would give rows keys the rest of the platform doesn't have. Run "
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

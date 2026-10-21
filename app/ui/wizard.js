@@ -82,7 +82,8 @@ function wizardAnswers() {
       group_by: "order_date, region", columns: "order_id, amount", file: "Files/raw/orders.csv", folder: "Files/raw/orders",
       watermark: "modified_at", dates: "order_date", numbers: "amount", required: "customer_id, order_date",
       allowed: "status: open|closed", ranges: "amount: 0..1000000", rejects: "silver.orders_rejects",
-      start: "2020-01-01", end: "2030-12-31", sums: "amount", notebooks: "Load orders\nClean orders",
+      start: "2020-01-01", end: "2030-12-31", sums: "amount", notebooks: "Load orders\nClean orders", tracked: "city, segment",
+      json_file: "Files/raw/orders.json", order_by: "modified_at",
       keys: "order_id", output: "silver.orders" }[key] || "";
     const input = w.templates.multiline.includes(key)
       ? h("textarea", { rows: 3, placeholder: hint, oninput: (e) => { w.values[key] = e.target.value; } }, w.values[key] || "")

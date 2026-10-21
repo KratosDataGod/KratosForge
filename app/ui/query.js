@@ -82,10 +82,11 @@ async function followRun(tab, status) {
 async function loadPage(tab, offset) {
   try {
     const page = await rpc("sql_page", { execution: tab.exec.id, offset });
-    if (page.rerun_needed) { tab.result = null; tab.error = page.message; return; }
-    tab.result = page;
+    if (page.rerun_needed) { tab.result = null; tab.error = page.message; tab.errorRetry = null; return; }
+    Object.assign(tab, { result: page, error: null, errorRetry: null });
   } catch (err) {
     tab.error = String(err);
+    tab.errorRetry = () => loadPage(tab, offset).then(() => sqlPage.redraw?.());  // reads the same page again
   }
 }
 
@@ -153,7 +154,7 @@ function renderQuery() {
       return;
     }
     tab.running = true;
-    Object.assign(tab, { error: null, result: null, exec: null, ranNotice: "" });
+    Object.assign(tab, { error: null, errorRetry: null, result: null, exec: null, ranNotice: "" });
     drawResults();
     let status;
     try {
@@ -162,6 +163,7 @@ function renderQuery() {
       status = await followRun(tab, status);
     } catch (err) {
       tab.error = String(err);
+      tab.errorRetry = () => run(query);  // runs it again through the same checks, including any confirmation
     }
     if (status?.state === "completed") await loadPage(tab, 0);
     tab.running = false;
@@ -175,7 +177,7 @@ function renderQuery() {
     if (status?.state === "completed") {
       tab.ranNotice = localNotice(query);
       if (tab.exportAfter) { const fmt = tab.exportAfter; delete tab.exportAfter; exportResult(fmt); }
-    } else if (status) {
+    } else if (status && !tab.errorRetry) {  // a failed engine call keeps its own message and Retry
       tab.error = status.error || `The query ${SQL_STATE[status.state]?.[1].toLowerCase() || status.state}.`;
     }
     sqlPage.redraw?.();
@@ -381,7 +383,11 @@ function renderQuery() {
         { disabled: !r.has_next || tab.paging, "aria-label": "Next page" }) : null,
       btn("Copy", null, copyRows, "tool small", { disabled: !r, title: "Copy the rows on this page" }),
       exportMenu].filter(Boolean));
-    if (tab.error) {
+    if (tab.error && tab.errorRetry) {
+      // The engine call itself failed (UX-011): a sentence, Retry and the raw text under Details.
+      grid.replaceChildren(h("div", { class: "output error" }, errorPanel(tab.error, { retry: tab.errorRetry })));
+    } else if (tab.error) {
+      // The query's own error ("Binder Error: ..."), or why it stopped, is what the person needs to read.
       grid.replaceChildren(h("div", { class: "output error" }, h("pre", {}, tab.error.replace(/^Error: /, ""))));
     } else if (r && r.columns.length) {
       grid.replaceChildren(h("table", {},
@@ -499,7 +505,7 @@ function renderQuery() {
       btn("New notebook", "notebook", () => newNotebook(ref)),
       btn("Refresh", "sync", () => { p.tables = null; p.cols = {}; p.pending = {}; renderQuery(); }),
       h("span", { class: "spacer" }),
-      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity."))),
+      h("span", { class: "muted-text" }, "Queries run on this PC with DuckDB, so no Fabric job starts. Reading OneLake still uses some capacity. ", learnMore("sql-queries")))),
     h("div", { class: "nb-body" },
       h("aside", { class: "explorer" }, h("div", { class: "explorer-head" }, "Explorer"),
         h("div", { class: "tree-row", style: "margin:4px 8px 0;font-weight:600;cursor:default" }, icon("lakehouse", 16),

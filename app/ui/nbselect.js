@@ -213,8 +213,10 @@ function mergeSelected() {
   const all = state.notebook.cells;
   const undo = { merge: { head, before: head.source }, group: rest.map((c) => ({
     cell: { type: c.type, source: c.source, meta: structuredClone(c.meta || {}), cell_id: c.cell_id }, index: all.indexOf(c) })) };
-  // A SQL or HTML cell's first line is its magic (%%sql, Databricks' %sql, %%html): only the first cell keeps it.
-  const tails = rest.map((c) => (MAGIC[cellLang(c)] ? c.source.trimStart().replace(/^[^\n]*\n?/, "") : c.source));
+  // A SQL or HTML cell's first line is its magic (%%sql, Databricks' %sql, %%html), and a Python cell can
+  // name its language (%%pyspark, %python): only the first cell keeps that line.
+  const tails = rest.map((c) => (MAGIC[cellLang(c)] ? c.source.trimStart().replace(/^[^\n]*\n?/, "")
+    : c.source.replace(/^\s*(%%pyspark|%%python|%python)[ \t]*(\n|$)/, "")));
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
   undo.merge.after = head.source;
   for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }

@@ -41,6 +41,7 @@ const PREVIEW_FEATURES = {
   sideBySide: "Side by side",
   prove: "Prove this notebook",
   validate: "Validate notebook",
+  notebookRuns: "Notebook runs",
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
@@ -60,6 +61,8 @@ const PREVIEW_FEATURES = {
   optimize: "Optimize",
   itemPreview: "Item preview",
   resultViewer: "Result downloads",
+  chartBuilder: "Chart builder",
+  dataWrangler: "Data Wrangler",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
@@ -77,6 +80,7 @@ const PREVIEW_FEATURES = {
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
+  nbFormats: "Notebook import and export formats",
   profile: "Profile",
 };
 

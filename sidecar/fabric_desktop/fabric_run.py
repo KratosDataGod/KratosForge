@@ -16,7 +16,7 @@ import re
 from typing import Any
 
 from . import magics
-from .notebook import to_ipynb
+from .notebook import configure_report, to_ipynb
 
 SHIM_MARKER = "# Fabric Desktop setup"
 TERMINAL = {"Completed", "Failed", "Cancelled", "Deduped"}
@@ -167,7 +167,7 @@ def shim_cell(lakehouse: dict[str, Any], schemas_enabled: bool = True) -> dict[s
 
 
 def _sql_cell(source: str, source_cell_id: str | None = None) -> dict[str, Any]:
-    query = source.lstrip()[len("%%sql"):].strip()
+    query = magics.cell(source).body.strip()
     return {"type": "code", "source": f"lakehouse.sql({json.dumps(query)})", "cell_id": source_cell_id}
 
 
@@ -184,13 +184,13 @@ def fabric_ipynb(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
 
     A notebook that uses Spark is published as a Spark notebook, where ``spark`` and ``%%sql``
     are Fabric's own; one that uses only the lakehouse module becomes a Python notebook."""
-    cells = fabric_sql_magics(cells, spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells))
+    cells = fabric_sql_magics([magics.fabric_cell(c) for c in cells],
+                              spark=not lakehouse or not uses_local_module(cells) or uses_spark(cells))
     if not lakehouse or not uses_local_module(cells):
         return to_ipynb(cells, lakehouse)
     if uses_spark(cells):
         return to_ipynb([shim_cell(lakehouse, schemas_enabled)] + cells, lakehouse)
-    body = [_sql_cell(c["source"], c.get("cell_id")) if c.get("type") != "markdown" and c.get("source", "").lstrip().startswith("%%sql")
-            else c for c in cells]
+    body = [_sql_cell(c["source"], c.get("cell_id")) if _is_sql(c) else c for c in cells]
     nb = to_ipynb([shim_cell(lakehouse, schemas_enabled)] + body, lakehouse)
     nb["metadata"] = PYTHON_NOTEBOOK_METADATA | {k: v for k, v in nb["metadata"].items()
                                                  if k not in ("kernelspec", "language_info")}
@@ -208,8 +208,8 @@ def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str
         source = c.get("source", "")
         if c.get("type") == "markdown":
             out.append(c)
-        elif source.lstrip().startswith("%%sql"):
-            query = source.lstrip()[len("%%sql"):].strip()
+        elif _is_sql(c):
+            query = magics.cell(source).body.strip()
             if any(later[i + 1:]) and magics.returns_rows(query):
                 c = {**c, "source": f"_sqldf = {call}({json.dumps(query)})\ndisplay(_sqldf)"}
             out.append(c)
@@ -231,13 +231,16 @@ def fabric_sql_magics(cells: list[dict[str, Any]], spark: bool) -> list[dict[str
 _USES_SQLDF = re.compile(r"\b_sqldf\b")
 
 
+def _is_sql(c: dict[str, Any]) -> bool:
+    return c.get("type") != "markdown" and magics.cell(c.get("source", "")).language == "sql"
+
+
 # ---- where a notebook can run
 
 # Code that needs Fabric's Spark runtime or its notebook services. On this PC, ``spark`` is
 # DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials and
 # runtime, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
-    (re.compile(r"^\s*%%(spark|sparkr|csharp)\b", re.M), "uses a Scala, R or .NET cell"),
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
@@ -269,7 +272,12 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         source = c.get("source", "")
         if c.get("type") == "markdown" or not source.strip():
             continue
-        if source.lstrip().startswith("%%sql"):
+        language = magics.cell(source).language
+        if language in ("scala", "r", "csharp"):
+            local.append({"cell": n, "text": "uses a Scala, R or .NET cell", "code": _snippet(source)})
+        elif language == "tsql":
+            local.append({"cell": n, "text": "runs T-SQL in a Fabric Warehouse or SQL endpoint (%%tsql)", "code": _snippet(source)})
+        elif language == "sql":
             if _SQL_WRITE.search(source):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
                               "code": _snippet(source)})
@@ -283,6 +291,14 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
         if m := _DBUTILS.search(source):
             fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "
                                                "use notebookutils in Fabric", "code": _snippet(source, m)})
+        if magics.cell(source).language == "configure":
+            try:
+                configure_report(magics.cell(source).body)
+            except ValueError as exc:
+                fabric.append({"cell": n, "text": f"has a %%configure Fabric can't read: {exc}", "code": _snippet(source)})
+        if magics.cell(source).header in ("%%cmd", "%%powershell"):
+            fabric.append({"cell": n, "text": "runs a Windows shell; Fabric runs on Linux (use %%sh there)",
+                           "code": _snippet(source)})
         if m := _LOCAL_PATH.search(source):
             fabric.append({"cell": n, "text": "reads or writes a path on this PC, which Fabric can't reach",
                            "code": _snippet(source, m)})

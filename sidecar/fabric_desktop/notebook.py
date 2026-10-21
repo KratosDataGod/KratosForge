@@ -56,10 +56,20 @@ PREVIEW_ROWS = 1000
 # and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
 STREAM_CHARS = 1_000_000
 RICH_CHARS = 16_000_000
+_CELL_FILE = "<cell>"
+# Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
+_ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                "SSL_CERT_FILE", "SSL_CERT_DIR"}
+_SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
+_SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 # The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
 # them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
 SPILL_CHARS = 100_000_000
 SPILL_PREFIX = "kratosforge-output-"
+# A notebook's own process (kernel_proc) writes its files in a folder of its own, named here, so the
+# engine can delete them when Stop or Restart ends the process.
+SPILL_DIR_ENV = "FABRIC_DESKTOP_OUTPUT_DIR"
+SPILL_DIR_PREFIX = "kratosforge-kernel-"
 _spills: set[Path] = set()
 _spills_lock = threading.Lock()
 
@@ -85,16 +95,22 @@ def remove_spills() -> None:
 def sweep_spills(idle_seconds: float = 3600) -> None:
     """At engine start: delete output files from earlier sessions, leaving any written to lately."""
     cutoff = time.time() - idle_seconds
-    for path in Path(tempfile.gettempdir()).glob(f"{SPILL_PREFIX}*.txt"):
+    temp = Path(tempfile.gettempdir())
+    for path in [*temp.glob(f"{SPILL_PREFIX}*.txt"), *temp.glob(f"{SPILL_DIR_PREFIX}*/{SPILL_PREFIX}*.txt")]:
         with contextlib.suppress(OSError):
             if path.stat().st_mtime < cutoff:
                 path.unlink()
-_CELL_FILE = "<cell>"
-# Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
-_ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
-                "SSL_CERT_FILE", "SSL_CERT_DIR"}
-_SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
-_SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
+    for folder in temp.glob(f"{SPILL_DIR_PREFIX}*"):
+        with contextlib.suppress(OSError):
+            if folder.is_dir() and folder.stat().st_mtime < cutoff:
+                folder.rmdir()  # only once empty
+
+
+def clear_spill_dir(folder: Path) -> None:
+    """Delete the output files a notebook process wrote, once it has ended."""
+    for path in folder.glob(f"{SPILL_PREFIX}*.txt"):
+        with contextlib.suppress(OSError):
+            path.unlink()
 
 
 def _no_input(*_args, **_kwargs):
@@ -332,7 +348,7 @@ class _Run:
         self.stream_chars, self.overflowed = STREAM_CHARS, True
         shown = "".join(o["text"] for o in self.outputs if o["type"] == "stream")
         try:
-            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt")
+            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt", dir=os.environ.get(SPILL_DIR_ENV) or None)
             self.spill, self.spill_file = Path(name), os.fdopen(fd, "w", encoding="utf-8", errors="replace")
             with _spills_lock:
                 _spills.add(self.spill)

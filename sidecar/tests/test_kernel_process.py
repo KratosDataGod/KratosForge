@@ -347,3 +347,19 @@ def test_variable_detail_comes_from_the_kernel_process(kernel):
     assert out["status"] == "ok", out
     assert kernel.variable_detail("frame")["columns"] == [{"name": "a", "type": "Int64"}]
     assert [i["value"] for i in kernel.variable_detail("items")["items"]] == ["1", "'two'"]
+
+
+def test_stop_restart_and_close_delete_the_processs_output_files(kernel):
+    big = "print('x' * 1_100_000)"
+    assert kernel.run(big)["status"] == "ok"
+    folder = kernel.output_dir
+    assert folder is not None and len(list(folder.glob("kratosforge-output-*.txt"))) == 1
+    kernel.stop()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    assert len(list(folder.glob("*"))) == 1
+    kernel.restart()
+    assert not list(folder.glob("*"))
+    kernel.run(big)
+    kernel.close()
+    assert not folder.exists() and kernel.output_dir is None

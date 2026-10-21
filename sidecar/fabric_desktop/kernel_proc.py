@@ -19,6 +19,7 @@ WATCH_SECONDS, so a sudden spike can go past the limit before it's seen.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import itertools
 import json
@@ -26,12 +27,13 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import lakehouse
+from . import lakehouse, notebook
 from .frames import GONE, FrameGone
 
 DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
@@ -152,6 +154,7 @@ class ProcessKernel:
         self._interrupted_at: float | None = None
         self.limit_hit = ""  # "time" or "memory" when a limit stopped the last cell
         self.library_paths: list[str] = []  # a notebook environment's folders, after the engine's (environments.py)
+        self.output_dir: Path | None = None  # where the process puts output past the cap (notebook.SPILL_DIR_ENV)
 
     # ---- the process
 
@@ -160,11 +163,16 @@ class ProcessKernel:
             if self._proc is not None and self._proc.poll() is None:
                 return self._proc
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self._clear_output_dir()  # a process that crashed or hit a limit left its files
+            if self.output_dir is None:
+                with contextlib.suppress(OSError):
+                    self.output_dir = Path(tempfile.mkdtemp(prefix=notebook.SPILL_DIR_PREFIX))
+            extra = {notebook.SPILL_DIR_ENV: str(self.output_dir)} if self.output_dir else {}
             proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, encoding="utf-8", bufsize=1, creationflags=flags,
                                     start_new_session=sys.platform != "win32",
                                     env=dict(self.env(),
-                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths)))
+                                             FABRIC_DESKTOP_LIBRARY_PATHS=os.pathsep.join(self.library_paths), **extra))
             if self._tree is not None:
                 self._tree.release()  # processes a crashed kernel left behind
             self._tree = _Tree(proc)
@@ -403,7 +411,12 @@ class ProcessKernel:
         deadline = time.monotonic() + 5
         while self._proc is proc and time.monotonic() < deadline:  # the reader marks it gone
             time.sleep(0.02)
+        self._clear_output_dir()
         return {"stopped": True}
+
+    def _clear_output_dir(self) -> None:
+        if self.output_dir is not None:
+            notebook.clear_spill_dir(self.output_dir)
 
     def restart(self) -> None:
         """A fresh process, so a restart also gives back the memory the notebook used."""
@@ -516,6 +529,11 @@ class ProcessKernel:
     def close(self) -> None:
         if self._proc is not None and self._proc.poll() is None:
             self.stop()
+        if self.output_dir is not None:
+            self._clear_output_dir()
+            with contextlib.suppress(OSError):
+                self.output_dir.rmdir()
+            self.output_dir = None
 
 
 class _Tree:

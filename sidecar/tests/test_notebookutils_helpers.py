@@ -182,3 +182,17 @@ def test_udf_get_functions_lists_signatures_and_calls_run_in_fabric(k, monkeypat
 def test_udf_needs_a_workspace(k):
     out = k.run("notebookutils.udf.getFunctions('SalesFunctions')")
     assert out["outputs"][-1]["ename"] == "ValueError" and "attach a lakehouse" in out["outputs"][-1]["evalue"]
+
+
+def test_udf_files_with_a_bom_or_errors_are_read_or_named():
+    from fabric_desktop.notebookutils_local import _udf_functions
+    windows = "\ufeff" + UDF_SOURCE.replace("def hello(name: str)", "def hello(name: str, /, *, loud: bool = False)")
+    got = _udf_functions({"Function_App.PY": windows, "broken.py": "def (:\n", "nul.py": "x = 1\0"})
+    assert [f["name"] for f in got] == ["hello", "top_customers"]
+    assert [p["name"] for p in got[0]["parameters"]] == ["name", "loud"]
+
+
+def test_udf_names_a_file_it_cant_read(capsys):
+    from fabric_desktop.notebookutils_local import _udf_functions
+    assert _udf_functions({"broken.py": "def (:\n"}) == []
+    assert "Skipped broken.py" in capsys.readouterr().out

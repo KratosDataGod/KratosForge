@@ -25,6 +25,7 @@ import base64
 import datetime as dt
 import json
 import os
+import posixpath
 import re
 import shutil
 import time
@@ -94,17 +95,37 @@ def _store() -> FileStore:
     return FileStore(lakehouse._current().storage_token)
 
 
+_URI_DRIVE = re.compile(r"^/[A-Za-z]:[\\/]")
+
+
 def _split(path: str) -> tuple[str, str]:
     """("onelake", "Files/...") for the lakehouse, or ("local", path) for this PC."""
     p = str(path)
     if p.startswith("file:"):
-        return "local", p[len("file:"):] if not p.startswith("file://") else p[len("file://"):]
+        local = p[len("file:"):] if not p.startswith("file://") else p[len("file://"):]
+        # A Windows file URI (file:///C:/data, as Path.as_uri writes it) names the drive after a slash.
+        if os.name == "nt" and _URI_DRIVE.match(local):
+            local = local[1:]
+        return "local", local
     rel = lakehouse.relative_path(p)
     if rel is not None:
         return "onelake", rel
     if p.startswith(("abfss://", "wasbs://", "https://")):
         raise ValueError(f"{path}: on this PC only the attached lakehouse and local files are reachable.")
     return "local", p
+
+
+def _same_or_inside(src: str, dest: str) -> bool:
+    """Whether ``dest`` is ``src`` or a path inside it, so copying there would copy onto itself."""
+    (sw, sp), (dw, dp) = _split(src), _split(dest)
+    if sw != dw:
+        return False
+    if sw == "local":
+        # realpath follows symlinks and Windows junctions, so a link to the source counts as the source.
+        sp, dp = (os.path.normcase(os.path.realpath(p)) for p in (sp, dp))
+        return dp == sp or dp.startswith(sp.rstrip(os.sep) + os.sep)
+    sp, dp = posixpath.normpath(sp), posixpath.normpath(dp)
+    return dp == sp or dp.startswith(sp + "/")
 
 
 TABLES_REFUSED = "{path}: Tables/ holds managed Delta tables; change them through a table write, not notebookutils.fs."
@@ -217,6 +238,8 @@ def _make_fs() -> types.SimpleNamespace:
 
     def cp(src: str, dest: str, recurse: bool = False) -> bool:
         _check_writable(dest)
+        if _same_or_inside(src, dest):
+            raise ValueError(f"{dest} is {src} or inside it, so it can't be copied there.")
         where, p = _split(src)
         if where == "local" and Path(p).is_dir():
             if not recurse:
@@ -260,6 +283,9 @@ def _make_fs() -> types.SimpleNamespace:
     def mv(src: str, dest: str, create_path: bool = False, overwrite: bool = False) -> bool:  # noqa: ARG001
         _check_writable(src)
         _check_writable(dest)
+        # Moving a path onto itself or into itself would remove it once copied.
+        if _same_or_inside(src, dest):
+            raise ValueError(f"{dest} is {src} or inside it, so it can't be moved there.")
         if not overwrite and exists(dest):
             raise FileExistsError(f"{dest} exists. Pass overwrite=True to replace it.")
         before = _entry(src)
@@ -622,11 +648,12 @@ def _udf_functions(parts: dict[str, str]) -> list[dict[str, Any]]:
     files, with its parameters, return type and docstring, read from the code (nothing runs)."""
     found = []
     for path, text in sorted(parts.items()):
-        if not path.endswith(".py"):
+        if not path.lower().endswith(".py"):
             continue
         try:
-            tree = ast.parse(text)
-        except SyntaxError:
+            tree = ast.parse(text.removeprefix("\ufeff"))
+        except (SyntaxError, ValueError, RecursionError, MemoryError) as exc:
+            print(f"Skipped {path}: Python can't read it ({exc}), so its functions aren't listed.")
             continue
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -636,7 +663,7 @@ def _udf_functions(parts: dict[str, str]) -> list[dict[str, Any]]:
                 continue
             found.append({"name": node.name, "description": ast.get_docstring(node) or "",
                           "parameters": [{"name": a.arg, "type": ast.unparse(a.annotation) if a.annotation else ""}
-                                         for a in node.args.args],
+                                         for a in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)],
                           "returnType": ast.unparse(node.returns) if node.returns else ""})
     return found
 
@@ -680,7 +707,7 @@ def _make_udf(host: Host) -> types.SimpleNamespace:
         if item is None:
             raise LookupError(f"No User data functions item named {udf} in workspace {ws}.")
         got = client.get_item_definition(ws, item["id"])
-        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8", "replace")
+        parts = {p["path"]: base64.b64decode(p.get("payload") or "").decode("utf-8-sig", "replace")
                  for p in (got.get("definition") or {}).get("parts", []) if p.get("path")}
         return UdfFunctions(item, _udf_functions(parts))
 

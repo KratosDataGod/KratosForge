@@ -8,11 +8,12 @@ remembers what was processed, so running the cell again only takes new data:
 - a Delta table source (``readStream.table("dbo.bronze")``, or ``format("delta").load(...)``)
   takes the data files added since the version it last read; a commit that removed or rewrote
   files stops the stream unless ``skipChangeCommits`` (or ``ignoreChanges``) is set, as in Spark;
+  commits that only rearrange files (OPTIMIZE, dataChange=false) are passed over, as Spark does;
 - a folder of files (``format("csv"|"json"|"parquet").load("Files/landing/")``) takes the files
   it hasn't seen.
 
-Sinks: a lakehouse table (``toTable``, or ``format("delta").start("Tables/...")``, appended, or
-replaced for ``outputMode("complete")``), ``foreachBatch(fn)``, ``format("console")`` and
+Sinks: a lakehouse table (``toTable``, or ``format("delta").start("Tables/...")``, appended),
+``foreachBatch(fn)``, ``format("console")`` and
 ``format("memory")`` (a temp view named by ``queryName``). The checkpoint moves on only after the
 sink succeeds, so a failed write is retried by the next run.
 
@@ -37,6 +38,8 @@ from duckdb.experimental.spark.sql.dataframe import DataFrame
 
 from . import jsonfile, lakehouse
 
+# Commits that only rewrite files with the same rows (dataChange=false), which a stream passes over.
+_REARRANGE = {"OPTIMIZE", "ZORDER", "Z-ORDER", "REORG", "VACUUM START", "VACUUM END"}
 _FILE_FORMATS = ("csv", "json", "parquet", "text")
 _SUFFIXES = {"csv": (".csv",), "json": (".json", ".jsonl", ".ndjson"), "parquet": (".parquet",), "text": (".txt",)}
 
@@ -72,24 +75,41 @@ class _Source:
         last = state.get("version")
         if last is not None and last >= now:
             return None, state, f"no new commits after version {last}"
-        if last is None:
-            new = _files(dt)
-        else:
-            before = _files(self._at(last))
-            current = _files(dt)
-            removed = before - current
-            if removed and not (_flag(self.options.get("skipchangecommits")) or _flag(self.options.get("ignorechanges"))):
-                raise ValueError(
-                    f"{self.target} had rows updated or deleted after version {last}, and a stream only reads "
-                    "appended rows. Add .option(\"skipChangeCommits\", \"true\") to skip those commits, as in "
-                    "Fabric, or start over with a new checkpointLocation.")
-            new = current - before
+        new = _files(dt) if last is None else self._appended(last, now)
         dataset = dt.to_pyarrow_dataset()
-        fragments = [f for f in dataset.get_fragments() if any(f.path.endswith(n) for n in new)]
+        # By path, so a file appended and then compacted away before this run still gives its rows.
+        fragments = [dataset.format.make_fragment(path, dataset.filesystem, partition_expression=_partition(values))
+                     for path, values in sorted(new.items())]
         data = pads.FileSystemDataset(fragments, dataset.schema, dataset.format, dataset.filesystem).to_table() \
             if fragments else dataset.schema.empty_table()
         what = f"versions {('0' if last is None else last + 1)}..{now} ({len(fragments)} files)"
         return data, {**state, "version": now}, what
+
+    def _appended(self, last: int, now: int) -> dict[str, dict[str, Any]]:
+        """The files appended by each commit after ``last``, commit by commit, as Spark's Delta source
+        reads them: a commit that only rearranges files (OPTIMIZE) adds no rows, and one that updated
+        or deleted rows stops the stream, or is skipped whole with skipChangeCommits."""
+        skip = _flag(self.options.get("skipchangecommits")) or _flag(self.options.get("ignorechanges"))
+        dt = self._at(last)
+        operations = {h.get("version"): h.get("operation") or "" for h in self._delta().history(now - last)}
+        before = _files(dt)
+        new: dict[str, dict[str, Any]] = {}
+        for version in range(last + 1, now + 1):
+            dt.load_as_version(version)
+            current = _files(dt)
+            removed = before.keys() - current.keys()
+            if operations.get(version, "").upper() in _REARRANGE:
+                pass  # the same rows in fewer, bigger files (dataChange=false)
+            elif removed:
+                if not skip:
+                    raise ValueError(
+                        f"{self.target} had rows updated or deleted in version {version}, and a stream only reads "
+                        "appended rows. Add .option(\"skipChangeCommits\", \"true\") to skip those commits, as "
+                        "in Fabric, or start over with a new checkpointLocation.")
+            else:
+                new.update({path: values for path, values in current.items() if path not in before})
+            before = current
+        return new
 
     def _at(self, version: int) -> Any:
         dt = self._delta()
@@ -134,9 +154,23 @@ class _Source:
         return _arrow(getattr(self.reader, self.fmt)(str(files[0]))).schema
 
 
-def _files(dt: Any) -> set[str]:
-    """The data files in a Delta table's current version, as paths relative to the table."""
-    return set(pa.table(dt.get_add_actions(flatten=True)).column("path").to_pylist())
+def _files(dt: Any) -> dict[str, dict[str, Any]]:
+    """The data files in a Delta table's current version, as paths relative to the table, with
+    each file's partition values."""
+    actions = pa.table(dt.get_add_actions(flatten=True))
+    parts = [c for c in actions.column_names if c.startswith("partition.")]
+    rows = actions.select(["path", *parts]).to_pylist()
+    return {r["path"]: {c[len("partition."):]: r[c] for c in parts} for r in rows}
+
+
+def _partition(values: dict[str, Any]) -> Any:
+    """A file's partition values as the expression a dataset fills those columns from."""
+    import pyarrow.compute as pc
+    expr = None
+    for name, value in values.items():
+        term = pc.field(name).is_null() if value is None else pc.field(name) == value
+        expr = term if expr is None else expr & term
+    return expr if expr is not None else pc.scalar(True)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -321,9 +355,12 @@ class StreamWriter:
         mode = str(mode).lower()
         if mode not in ("append", "complete", "update"):
             raise ValueError(f"Unknown output mode {mode!r}: use append, complete or update.")
-        if mode == "update":
-            raise NotImplementedError("outputMode(\"update\") runs in Fabric. On this PC use append, complete, "
-                                      "or foreachBatch with a MERGE.")
+        if mode != "append":
+            # Both keep a running result over everything the stream has read, which a stream on this
+            # PC doesn't keep: writing only the new batch's result would lose the earlier rows.
+            raise NotImplementedError(f"outputMode(\"{mode}\") runs in Fabric. On this PC use append, or a batch "
+                                      "read for a running total: spark.read.table(...).groupBy(...) written with "
+                                      "mode(\"overwrite\"), or foreachBatch with a MERGE.")
         self._mode = mode
         return self
 
@@ -464,7 +501,7 @@ class StreamWriter:
         for k in ("mergeschema", "overwriteschema"):
             if k in self._options:
                 writer.option(k, self._options[k])
-        writer.mode("overwrite" if self._mode == "complete" else "append").saveAsTable(name)
+        writer.mode("append").saveAsTable(name)
         return data.num_rows
 
     def _to_memory(self, data: pa.Table) -> int:
@@ -473,7 +510,7 @@ class StreamWriter:
         name = self._name or ""
         conn.register("__stream_batch", data)
         try:
-            if self._mode == "complete" or not _exists(conn, name):
+            if not _exists(conn, name):
                 conn.execute(f'CREATE OR REPLACE TABLE "{_ident(name)}" AS SELECT * FROM __stream_batch')
             else:
                 conn.execute(f'INSERT INTO "{_ident(name)}" SELECT * FROM __stream_batch')

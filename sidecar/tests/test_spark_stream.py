@@ -63,8 +63,40 @@ def test_rewritten_source_rows_stop_the_stream_unless_skipped(lake):
     out = k.run(STREAM)
     assert out["status"] == "error" and "skipChangeCommits" in str(out["outputs"])
     assert ids(lake, "silver") == [1, 2]
-    run(k, STREAM.replace("spark.readStream.table", "spark.readStream.option('skipChangeCommits', 'true').table"))
-    assert ids(lake, "silver") == [1, 2, 7]
+    skipping = STREAM.replace("spark.readStream.table", "spark.readStream.option('skipChangeCommits', 'true').table")
+    run(k, skipping)
+    assert ids(lake, "silver") == [1, 2]  # the rewrite is skipped whole, as in Spark
+    DeltaTable(str(lake / "dbo" / "bronze")).update(predicate="id = 7", updates={"amount": "99.0"})
+    write_deltalake(str(lake / "dbo" / "bronze"), pa.table({"id": [8], "amount": [8.0]}), mode="append")
+    assert "1 row from" in run(k, skipping)
+    assert ids(lake, "silver") == [1, 2, 8]
+
+
+def test_compaction_passes_and_rows_compacted_before_the_run_still_arrive(lake):
+    k = Kernel()
+    run(k, STREAM)
+    bronze = str(lake / "dbo" / "bronze")
+    write_deltalake(bronze, pa.table({"id": [3], "amount": [30.0]}), mode="append")
+    DeltaTable(bronze).optimize.compact()  # 3 is now inside the compacted file
+    write_deltalake(bronze, pa.table({"id": [4], "amount": [40.0]}), mode="append")
+    run(k, STREAM)
+    assert ids(lake, "silver") == [1, 2, 3, 4]
+    DeltaTable(bronze).optimize.compact()
+    assert "nothing new" in run(k, STREAM) or ids(lake, "silver") == [1, 2, 3, 4]
+    assert ids(lake, "silver") == [1, 2, 3, 4]
+
+
+def test_a_partitioned_source_keeps_its_partition_column(lake):
+    write_deltalake(str(lake / "dbo" / "sales"), pa.table({"id": [1], "region": ["EU"]}), partition_by=["region"])
+    code = STREAM.replace("dbo.bronze", "dbo.sales").replace(".withColumn('double', F.col('amount') * 2)", "") \
+        .replace("silver", "sales_copy")
+    k = Kernel()
+    run(k, code)
+    write_deltalake(str(lake / "dbo" / "sales"), pa.table({"id": [2], "region": ["US"]}), mode="append",
+                    partition_by=["region"])
+    run(k, code)
+    rows = DeltaTable(str(lake / "dbo" / "sales_copy")).to_pyarrow_table().to_pylist()
+    assert sorted((r["id"], r["region"]) for r in rows) == [(1, "EU"), (2, "US")]
 
 
 def test_a_folder_of_files_streams_new_files_into_foreach_batch_and_memory(tmp_path):
@@ -96,6 +128,7 @@ def test_what_runs_only_in_fabric_says_so(lake):
          "readStream"),
         ("spark.readStream.format('kafka').load('x')", "runs in Fabric"),
         ("spark.readStream.table('dbo.bronze').writeStream.outputMode('update')", "outputMode"),
+        ("spark.readStream.table('dbo.bronze').groupBy().count().writeStream.outputMode('complete')", "runs in Fabric"),
     ]:
         out = k.run(code)
         assert out["status"] == "error" and words in str(out["outputs"]), (code, out)

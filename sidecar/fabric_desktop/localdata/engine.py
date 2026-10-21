@@ -503,7 +503,7 @@ class LocalEngine:
             try:
                 statements = self._statements(con, sql, dialect, run)
                 if write is not None:
-                    statements = [self._as_write(statements, write)]
+                    statements = [self._as_write(statements, write, sql)]
                 result = None
                 for i, step in enumerate(statements):
                     if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
@@ -613,9 +613,9 @@ class LocalEngine:
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
 
-    def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write") -> dict[str, Any]:
+    def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write", sql: str) -> dict[str, Any]:
         if len(steps) != 1 or steps[0]["write"] is not None:
-            raise ValueError(_ONE_QUERY)
+            raise ValueError(_one_query(sql))
         write.query = steps[0]["sql"]
         return {"sql": "", "write": write, "as_of": steps[0]["as_of"], "kind": "write delta"}
 
@@ -939,6 +939,9 @@ _ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, F
               "other statements.")
 
 
+_PIVOT = re.compile(r"\bPIVOT\b", re.IGNORECASE)
+
+
 def _only_reads(con: duckdb.DuckDBPyConnection, sql: str) -> None:
     """Refuse rows to write that come from anything but one SELECT, as DuckDB itself reads it: a
     CTE can start a DELETE, INSERT or UPDATE (WITH c AS (...) DELETE FROM t)."""
@@ -947,7 +950,16 @@ def _only_reads(con: duckdb.DuckDBPyConnection, sql: str) -> None:
     except duckdb.Error as exc:
         raise ValueError(_short(exc)) from None
     if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
-        raise ValueError(_ONE_QUERY)
+        raise ValueError(_one_query(sql))
+
+
+def _one_query(sql: str) -> str:
+    """Why rows to write must come from one query, with a way out for a PIVOT: DuckDB runs one that
+    finds its own columns as two statements (it first makes a type holding the values it found)."""
+    if _PIVOT.search(sql):
+        return ("A PIVOT that finds its columns itself runs as two statements here. List the values it turns "
+                "into columns: PIVOT t ON region IN ('EU', 'US') USING sum(amount).")
+    return _ONE_QUERY
 
 
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)

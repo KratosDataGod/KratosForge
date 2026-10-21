@@ -22,6 +22,7 @@ statements: DuckDB runs the query, and delta-rs writes its Arrow stream in one c
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -37,12 +38,12 @@ import duckdb
 import pyarrow as pa
 
 from .. import delta_profile
-from . import delta
+from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
 
 _REFRESH_EVERY = 2.0  # seconds between automatic looks for changed files
-DIALECTS = ("duckdb", "spark")
+DIALECTS = ("duckdb", "spark", "tsql")
 OWN = "delta table"            # catalog kind of the project's own Delta tables
 OWN_KEY = "<project tables>"   # their entry in project.refreshed
 _WRITE_BATCH = 100_000
@@ -435,6 +436,18 @@ class LocalEngine:
         payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return payload
 
+    def explain(self, sql: str, dialect: str = "duckdb", analyze: bool = False, timeout: float | None = None,
+                query_id: str | None = None) -> dict[str, Any]:
+        """How DuckDB runs one query: its plan, or with ``analyze`` the plan as it ran, with each
+        operator's rows and time and the query's memory, spill and rows scanned. Only a query that
+        reads can be explained, because ``analyze`` runs it."""
+        mode = "analyze" if analyze else "plan"
+        with self._query(sql, dialect, timeout, query_id, explain=mode) as (result, run):
+            raw = json.loads(result.fetchall()[0][1])
+        payload = _explained(raw, mode)
+        payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
+        return payload
+
     def execute_reader(self, sql: str, dialect: str = "duckdb", timeout: float | None = None,
                        query_id: str | None = None, batch_size: int = 10_000) -> "ResultStream":
         """Run every statement in ``sql``; stream the last one's whole result, with no row limit.
@@ -475,11 +488,8 @@ class LocalEngine:
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
                write: "delta.Write | None" = None, dry_run: bool = False,
-               params: dict[str, Any] | None = None):
+               params: dict[str, Any] | None = None, explain: str | None = None):
         if dialect not in DIALECTS:
-            if dialect == "tsql":
-                raise ValueError("T-SQL isn't translated for the local engine yet (FD-LDE-004). "
-                                 "Use DuckDB or Spark SQL.")
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
             raise ValueError("The query is empty.")
@@ -507,9 +517,11 @@ class LocalEngine:
             as_of: list[str] = []
             run = {"query_id": query_id, "started": started, "statements": steps, "dialect": dialect}
             try:
-                statements = self._statements(con, sql, dialect)
+                statements = self._statements(con, sql, dialect, run)
                 if write is not None:
-                    statements = [self._as_write(statements, write)]
+                    statements = [self._as_write(statements, write, sql)]
+                if explain is not None:
+                    _one_read(con, statements)
                 result = None
                 for i, step in enumerate(statements):
                     if state["cancelled"]:  # between statements, or before DuckDB saw the interrupt
@@ -528,6 +540,10 @@ class LocalEngine:
                             'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_written',
                             [summary["table"], summary["mode"], summary["version"], summary["rows"]])
+                    elif explain == "analyze":
+                        result = _analyze(con, step["sql"])
+                    elif explain == "plan":
+                        result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
                     else:
                         result = con.execute(step["sql"], _bound(con, step["sql"], params))
                     steps.append({"statement": i + 1, "type": step["kind"],
@@ -549,9 +565,10 @@ class LocalEngine:
 
     # Statements, and the project's own Delta tables
 
-    def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str) -> list[dict[str, Any]]:
+    def _statements(self, con: duckdb.DuckDBPyConnection, sql: str, dialect: str,
+                    run: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """Each statement as DuckDB SQL, or as the Delta write it makes, with any tables it reads
-        at a version or time."""
+        at a version or time. T-SQL is translated first (tsql.py), and ``run`` gets what may differ."""
         steps: list[dict[str, Any]] = []
         n = 0
         if dialect == "spark":
@@ -573,6 +590,11 @@ class LocalEngine:
                 steps.append({"sql": text, "write": write, "as_of": found,
                               "kind": "write delta" if write else _kind(text)})
             return steps
+        if dialect == "tsql":
+            texts, notes = tsql.translate(sql, self._column_types(con))
+            if run is not None:
+                run["translation"] = {"from": "tsql", "notes": notes, "fabric_check": _fabric_check(sql)}
+            return self._duckdb_steps(con, texts, n)
         try:
             texts = [s.query for s in con.extract_statements(sql)]
         except duckdb.Error as exc:
@@ -581,6 +603,10 @@ class LocalEngine:
             texts = _split_script(sql)
             if not any(delta.parse(t, self._is_own) for t in texts):
                 raise ValueError(_short(exc)) from None
+        return self._duckdb_steps(con, texts, n)
+
+    def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
+        steps: list[dict[str, Any]] = []
         for text in texts:
             write = delta.parse(text, self._is_own)
             if write is None and len(texts) > 1:
@@ -598,15 +624,25 @@ class LocalEngine:
                           "kind": "write delta" if write else _kind(text)})
         return steps
 
+    def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
+        """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,
+        so T-SQL divisions and ``+`` can follow the column types."""
+        found: dict[str, dict[str, dict[str, str]]] = {}
+        rows = con.execute("SELECT schema_name, table_name, column_name, data_type FROM duckdb_columns() "
+                           "WHERE NOT internal").fetchall()
+        for schema, table, column, kind in rows:
+            found.setdefault(schema, {}).setdefault(table, {})[column] = kind
+        return found
+
     def _refuse_drop(self, statement: str) -> None:
         m = _DROP.match(statement)
         if m and self._is_own(*delta.split_name(m["name"])):
             raise ValueError(f"{m['name']} is one of the project's Delta tables. Dropping it deletes its folder "
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
 
-    def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write") -> dict[str, Any]:
+    def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write", sql: str) -> dict[str, Any]:
         if len(steps) != 1 or steps[0]["write"] is not None:
-            raise ValueError(_ONE_QUERY)
+            raise ValueError(_one_query(sql))
         write.query = steps[0]["sql"]
         return {"sql": "", "write": write, "as_of": steps[0]["as_of"], "kind": "write delta"}
 
@@ -957,6 +993,9 @@ _ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, F
               "other statements.")
 
 
+_PIVOT = re.compile(r"\bPIVOT\b", re.IGNORECASE)
+
+
 def _bound(con: duckdb.DuckDBPyConnection, sql: str, params: dict[str, Any] | None) -> dict[str, Any] | None:
     """The values of the ``$name`` parameters ``sql`` uses, from ``params``; refused by name when one is
     missing, so a run never goes ahead with a parameter left out."""
@@ -984,7 +1023,137 @@ def _only_reads(con: duckdb.DuckDBPyConnection, sql: str) -> None:
     except duckdb.Error as exc:
         raise ValueError(_short(exc)) from None
     if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
-        raise ValueError(_ONE_QUERY)
+        raise ValueError(_one_query(sql))
+
+
+def _one_query(sql: str) -> str:
+    """Why rows to write must come from one query, with a way out for a PIVOT: DuckDB runs one that
+    finds its own columns as two statements (it first makes a type holding the values it found)."""
+    if _PIVOT.search(sql):
+        return ("A PIVOT that finds its columns itself runs as two statements here. List the values it turns "
+                "into columns: PIVOT t ON region IN ('EU', 'US') USING sum(amount).")
+    return _ONE_QUERY
+
+
+_EXPLAIN_ONE = "Explain takes one query that reads (SELECT, WITH ... SELECT, FROM or VALUES), with no other statements."
+
+
+def _one_read(con: duckdb.DuckDBPyConnection, steps: list[dict[str, Any]]) -> None:
+    """Explaining with analyze runs the query, so only one query that reads is explained."""
+    if len(steps) != 1 or steps[0]["write"] is not None:
+        raise ValueError(_EXPLAIN_ONE)
+    try:
+        _only_reads(con, steps[0]["sql"])
+    except ValueError:
+        raise ValueError(_EXPLAIN_ONE) from None
+
+
+def _analyze(con: duckdb.DuckDBPyConnection, sql: str) -> Any:
+    """EXPLAIN ANALYZE with DuckDB's detailed JSON profile. The profile comes back as the result; the
+    settings are put back after, so later queries aren't profiled (and nothing is printed to stdout,
+    which carries the engine's RPC)."""
+    try:
+        con.execute("SET enable_profiling = 'json'")
+        con.execute("SET profiling_mode = 'detailed'")
+        result = con.execute("EXPLAIN ANALYZE " + sql)
+        rows = result.fetchall()
+    finally:
+        for name in ("enable_profiling", "profiling_mode"):
+            try:
+                con.execute(f"RESET {name}")
+            except duckdb.Error:
+                pass
+    return _Rows(rows)
+
+
+class _Rows:
+    """A fetched result that fetches again (explain reads its one row after the profile is reset)."""
+
+    def __init__(self, rows: list[tuple]):
+        self.rows = rows
+        self.description = [("explain_key",), ("explain_value",)]
+
+    def fetchall(self) -> list[tuple]:
+        return self.rows
+
+
+def _explained(raw: Any, mode: str) -> dict[str, Any]:
+    if mode == "plan":
+        roots = raw if isinstance(raw, list) else [raw]
+        plan = [_plan_node(n) for n in roots]
+        return {"mode": "plan", "plan": plan, "text": "\n".join(_render(plan)), "totals": None, "slowest": [],
+                "hints": []}
+    roots = [c for c in raw.get("children", []) if c.get("operator_name") != "EXPLAIN_ANALYZE"]
+    for wrapper in raw.get("children", []):
+        if wrapper.get("operator_name") == "EXPLAIN_ANALYZE":
+            roots += wrapper.get("children", [])
+    plan = [_ran_node(n) for n in roots]
+    flat = [n for root in plan for n in _walk(root)]
+    spent = sum(n["seconds"] for n in flat) or 0.0
+    slowest = sorted(flat, key=lambda n: -n["seconds"])[:3]
+    totals = {"seconds": round(float(raw.get("latency") or 0), 6),
+              "cpu_seconds": round(float(raw.get("cpu_time") or 0), 6),
+              "rows": plan[0]["rows"] if plan else 0,
+              "rows_scanned": int(raw.get("cumulative_rows_scanned") or 0),
+              "peak_memory_bytes": int(raw.get("system_peak_buffer_memory") or 0),
+              "spilled_bytes": int(raw.get("system_peak_temp_dir_size") or 0),
+              "bytes_read": int(raw.get("total_bytes_read") or 0)}
+    hints = []
+    if totals["spilled_bytes"]:
+        hints.append(f"The query spilled {totals['spilled_bytes']:,} bytes to the project's tmp folder. A higher "
+                     "memory_limit keeps it in memory; spilling is slower but lets it finish.")
+    return {"mode": "analyze", "plan": plan, "text": "\n".join(_render(plan)), "totals": totals,
+            "slowest": [{"operator": n["operator"], "seconds": n["seconds"],
+                         "share": round(n["seconds"] / spent, 3) if spent else 0.0} for n in slowest],
+            "hints": hints}
+
+
+def _details(info: Any) -> dict[str, Any]:
+    return {k: v for k, v in (info or {}).items() if k != "Estimated Cardinality"}
+
+
+def _estimate(info: Any) -> int | None:
+    value = (info or {}).get("Estimated Cardinality")
+    try:
+        return int(str(value).lstrip("~"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_node(node: dict[str, Any]) -> dict[str, Any]:
+    info = node.get("extra_info")
+    return {"operator": node.get("name", ""), "estimated_rows": _estimate(info), "details": _details(info),
+            "children": [_plan_node(c) for c in node.get("children", [])]}
+
+
+def _ran_node(node: dict[str, Any]) -> dict[str, Any]:
+    info = node.get("extra_info")
+    return {"operator": node.get("operator_name") or node.get("operator_type", ""),
+            "rows": int(node.get("operator_cardinality") or 0),
+            "rows_scanned": int(node.get("operator_rows_scanned") or 0),
+            "seconds": round(float(node.get("operator_timing") or 0), 6),
+            "estimated_rows": _estimate(info), "details": _details(info),
+            "children": [_ran_node(c) for c in node.get("children", [])]}
+
+
+def _walk(node: dict[str, Any]) -> Any:
+    yield node
+    for child in node["children"]:
+        yield from _walk(child)
+
+
+def _render(plan: list[dict[str, Any]], depth: int = 0) -> list[str]:
+    lines = []
+    for node in plan:
+        bits = [node["operator"]]
+        if "rows" in node:
+            bits.append(f"rows={node['rows']:,}")
+            bits.append(f"{node['seconds']:.4f}s")
+        elif node["estimated_rows"] is not None:
+            bits.append(f"~{node['estimated_rows']:,} rows")
+        lines.append("  " * depth + "  ".join(bits))
+        lines += _render(node["children"], depth + 1)
+    return lines
 
 
 _DROP = re.compile(r"^\s*DROP\s+(TABLE|VIEW)\s+(IF\s+EXISTS\s+)?(?P<name>[^\s;]+)\s*;?\s*$", re.IGNORECASE)
@@ -1077,8 +1246,21 @@ class ResultStream:
 
 
 def _about(run: dict[str, Any], project: str) -> dict[str, Any]:
-    return {"query_id": run["query_id"], "statements": run["statements"], "engine": "local",
-            "dialect": run["dialect"], "project": project}
+    about = {"query_id": run["query_id"], "statements": run["statements"], "engine": "local",
+             "dialect": run["dialect"], "project": project}
+    if "translation" in run:
+        about["translation"] = run["translation"]
+    return about
+
+
+def _fabric_check(sql: str) -> dict[str, Any]:
+    """What SQL-002's static check says about running this T-SQL in a Fabric Warehouse. Running here is
+    no proof it runs there; this says what's known not to."""
+    from ..sqlcompat import analyze
+    report = analyze(sql, "warehouse")
+    return {"target": report["target"]["id"], "outcome": report["outcome"], "counts": report["counts"],
+            "findings": [{k: d[k] for k in ("severity", "rule", "title", "line", "col")}
+                         for d in report["diagnostics"] if d["severity"] in ("error", "warning")][:20]}
 
 
 def _chain(first: pa.RecordBatch, rest: Any) -> Any:

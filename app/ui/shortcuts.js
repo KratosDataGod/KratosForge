@@ -229,7 +229,7 @@ async function renderShortcuts() {
     } else if (sp.panelTab === "readers") {
       const box = h("div", {}, h("p", { class: "muted-text" }, "Reading workspace roles and data access roles..."));
       inner.append(box);
-      rpc("shortcut_readers", { shortcut: s }).then((r) => {
+      const readers = () => rpc("shortcut_readers", { shortcut: s }).then((r) => {
         fill(box, h("p", { class: r.gap || r.partial ? "warn-text" : "" }, r.text),
           r.readers?.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Person or group", "Reads it as", "Target"].map((x) => h("th", {}, x)))),
             h("tbody", {}, r.readers.map((p) => h("tr", {}, h("td", {}, p.name, p.email ? h("div", { class: "muted-text small" }, p.email) : null),
@@ -237,12 +237,14 @@ async function renderShortcuts() {
               h("td", { class: "small" }, r.mode === "connection" ? "Connection" : r.missing.some((m) => m.id === p.id) ? h("span", { class: "pill-s wrn" }, "No access") : r.target === null ? "Unknown" : h("span", { class: "pill-s pass" }, "Allowed"))))))
             : null,
           s.exposure === "connection" ? h("p", { class: "muted-text small" }, "To limit who reads this storage, add a OneLake data access role on its folder in the Access tab.") : null);
-      }).catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+      }).catch((err) => fill(box, errorPanel(err, { label: "Couldn't read who can read this shortcut", retry: readers })));
+      readers();
     } else {
       const box = h("div", {}, h("p", { class: "muted-text" }, "Reading the history..."));
       inner.append(box);
-      rpc("shortcut_changes", { days: 3650, shortcut: s.id }).then((r) => fill(box, scChangeList(r.changes, () => { sp.data = null; load(true); }, false)))
-        .catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+      const history = () => rpc("shortcut_changes", { days: 3650, shortcut: s.id }).then((r) => fill(box, scChangeList(r.changes, () => { sp.data = null; load(true); }, false)))
+        .catch((err) => fill(box, errorPanel(err, { label: "Couldn't read the history", retry: history })));
+      history();
     }
   }
 
@@ -346,7 +348,7 @@ async function renderShortcuts() {
   }
 
   async function scRules(box) {
-    const r = await rpc("shortcut_rules").catch((err) => ({ problems: [String(err)], rules: {}, text: {} }));
+    const r = await rpc("shortcut_rules").catch((err) => ({ problems: [`Couldn't read the shortcut rules: ${friendlyError(err).text}`], rules: {}, text: {} }));
     if (!box.isConnected) return;
     sp.rules = r;
     const rules = { ...r.rules };
@@ -390,8 +392,11 @@ async function renderShortcuts() {
     kind.addEventListener("change", () => { sp.changeKind = kind.value; show(); });
     const show = () => fill(box, scChangeList((sp.changes || []).filter((c) => sp.changeKind === "all" || c.kind === sp.changeKind), () => { sp.data = null; sp.changes = null; load(true); }, true));
     if (sp.changes) show();
-    else rpc("shortcut_changes", { days: sp.days }).then((r) => { sp.changes = r.changes; if (box.isConnected) show(); })
-      .catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+    else {
+      const changes = () => rpc("shortcut_changes", { days: sp.days }).then((r) => { sp.changes = r.changes; if (box.isConnected) show(); })
+        .catch((err) => fill(box, errorPanel(err, { label: "Couldn't read the changes", retry: changes })));
+      changes();
+    }
     return h("div", { class: "sc-pad sc-two" },
       h("div", { class: "card pad sc-col" }, h("div", { class: "sc-filters" }, days, kind), box),
       h("div", { class: "sc-col sc-side" },
@@ -579,7 +584,7 @@ async function shortcutDialog(mode, opts = {}) {
       if (!l) return;
       // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
       verdict = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
-        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${err}`], warnings: [], unchecked: true }));
+        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
       fill(notice,
         verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
           : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,

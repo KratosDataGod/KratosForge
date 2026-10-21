@@ -136,8 +136,8 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 | `%time statement`, `%%time` | Runs it and prints the wall time |
 | `%timeit expression`, `%%timeit` | Runs it many times and prints the mean and spread per loop, as IPython does. `-n 100` sets loops per run and `-r 5` runs; by default it picks enough loops for 0.2 seconds and does 7 runs |
 | `%%capture name` | Keeps the cell's printed output, tables and charts in `name` instead of showing them. `name.stdout` is the text; `name.show()` shows it all. An error still shows |
-| `%%writefile path` | Writes the cell's text to a file on this PC; `-a` appends. A relative path is in the kernel's working folder (`%pwd`); give a full path to choose where |
-| `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden |
+| `%%writefile path` | Writes the cell's text to a file on this PC, replacing a file that's there without asking; `-a` appends. A relative path lands in the engine's working folder (`%pwd`), not the notebook's; give a full path to choose where |
+| `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden. `FABRIC_DESKTOP_*` and the proxy and certificate settings (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` and similar) can't be set here, because the engine's signed-in Fabric calls use them |
 | `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
 | `%pwd` | The kernel's working folder |
 | `%reset -f` | Clears every variable; `spark`, `notebookutils` and `display` stay |

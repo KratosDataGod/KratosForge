@@ -4086,6 +4086,13 @@ test("a widget after a restart asks for its cell again, and a busy kernel's refu
   assert.strictEqual(allNodes(d).find((n) => n.tag === "input").attrs.disabled, true);
 });
 
+// notebookutils.udf.getFunctions lists a User data functions item; calls run in Fabric.
+test("notebook docs describe udf.getFunctions as read only, Preview", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /\| `udf` \(Preview\) \| `getFunctions\(name, workspaceId\)` reads a User data functions item as you/);
+  assert.match(doc, /Calling a function runs it in Fabric on its workspace's capacity, so on this PC the call says so instead/);
+});
+
 // Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
 // notebook can move, and the folder actions' wiring.
 function notebookFolderHelpers() {

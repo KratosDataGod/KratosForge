@@ -234,9 +234,8 @@ function renderOutline() {
   const items = [];
   state.notebook.cells.forEach((cell) => {
     if (cell.type === "markdown") {
-      for (const line of cell.source.split("\n")) {
-        const m = line.match(/^(#{1,4})\s+(.+)$/);
-        if (m) items.push({ cell, level: m[1].length, text: m[2].replace(/[*_`]/g, "") });
+      for (const hd of markdownHeadings(cell.source)) {  // nbcells.js: skips fenced code blocks
+        if (hd.level <= 4) items.push({ cell, level: hd.level, text: hd.text.replace(/[*_`]/g, "") });
       }
     } else if (isParams(cell)) {
       items.push({ cell, level: 1, text: "Parameters" });

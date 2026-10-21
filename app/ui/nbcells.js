@@ -7,11 +7,23 @@
 
 const CELL_MIME = "application/x-kratosforge-cell";
 
+// A Markdown cell's heading lines: [{ level, text }]. A "# comment" inside a fenced code block
+// (``` or ~~~) isn't a heading.
+function markdownHeadings(source) {
+  const out = [];
+  let fence = null;
+  for (const line of source.split("\n")) {
+    const f = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; continue; }
+    const m = !fence && line.match(/^(#{1,6})\s+(\S.*)$/);
+    if (m) out.push({ level: m[1].length, text: m[2].trim() });
+  }
+  return out;
+}
+
 // The heading level a Markdown cell starts a section at: its first heading line, or 0.
 function headingLevel(cell) {
-  if (cell.type !== "markdown") return 0;
-  const m = cell.source.match(/^(#{1,6})\s+\S/m);
-  return m ? m[1].length : 0;
+  return cell.type === "markdown" ? markdownHeadings(cell.source)[0]?.level || 0 : 0;
 }
 
 // Ids of the cells hidden by collapsed sections, and how many each collapsed heading hides.

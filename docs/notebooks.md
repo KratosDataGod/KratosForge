@@ -90,7 +90,7 @@ from pyspark.sql import functions as F
 
 | Area | What works here |
 | --- | --- |
-| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths |
+| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths. Each `ls` entry has `name`, `path`, `size`, `isDir`, `isFile` and `modifyTime` (milliseconds since 1970, UTC; Databricks' `modificationTime` works too) |
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
@@ -160,6 +160,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - Replay needs **Run notebooks in their own process** (Settings > Preview features), and the bundle's lakehouse attached. A bundle saved without workspace and lakehouse IDs replays against the lakehouse you attach; check it's the same one.
 - **Replay to cell N** starts a fresh kernel process in which every table is read at the bundle's version, and every write goes to a sandbox under `Files/_fabric_desktop/proofs/replay-<id>/pc/` in the attached lakehouse, never its tables, as in a proof. Then the cells up to the failed one run as usual, so their output, variables and watches are there to debug. The banner then says whether the cell **failed the same way** (reproduced), failed with the same kind of error but another message, failed differently or earlier, or didn't fail.
+- Each replay's sandbox stays in the lakehouse's Files after the replay ends, and the notebook remembers it. **Delete replay outputs** on the banner deletes those folders (it asks first). The lakehouse's own tables aren't touched. **Keep as a normal notebook** removes the banner, so it asks first when outputs are still there.
 - If a table's version can no longer be read (vacuumed, or its log cleaned up), the banner says so and replay waits for you to choose: the bundle's sample (when it has one) or the table's latest version. Either is marked in the result as not the same input. Files are read as they are now; a file whose SHA-256 differs from the bundle's is listed.
 - The banner also lists how this PC's Python and packages differ from the bundle's.
 - While the replay runs, the kernel runs nothing else: other notebooks' cells wait until you click **End replay**. Restarting the kernel also ends it. A replay notebook's cells don't run outside a replay, and it can't be proven, run side by side or published, until you click **Keep as a normal notebook**. After that its cells read and write the lakehouse's tables like any notebook's.
@@ -168,6 +169,9 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.
 - Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views: **Table** (search, click a heading to sort), **Chart** (bar, line or scatter, with the X axis, values and aggregate you pick) and **Inspect** (missing, distinct, min, max, mean and a histogram per column). `display(df, summary=True)` opens Inspect.
+- **Table** works on the whole result, not only the first 1,000 rows. Pages hold 100 rows (**Previous**, **Next**); **Search all rows** and clicking a heading search and sort every row, and each heading shows its column type. The kernel keeps the last 20 results; a lakehouse query is read once, the first time you page, search or sort it, and that copy is reused. After a restart, or once 20 newer results have replaced it, the table asks you to run the cell again.
+- **Copy** puts the rows on the page on the clipboard, tab-separated, ready to paste into Excel.
+- **Download** (Preview) saves the whole result to your Downloads folder as **CSV**, **Excel** (.xlsx, up to 1,048,575 rows) or **Parquet**. The file is always new (`<notebook> result <date time>.csv`, then `(2)` and so on); a file already there is never replaced, and a download that fails leaves nothing behind. In Excel, values that look like formulas (`=...`) are saved as text, so opening the file never runs them. CSV and Parquet keep every value exactly as it is, for loading into other tools; open a CSV from someone else's data in Excel with care, or download Excel instead. Downloading writes only to your PC; it reads nothing new from OneLake once the result is held.
 - Matplotlib charts show as images. Objects with an HTML view (Plotly, `%%html` cells) render in a sandboxed frame.
 
 ## Editing

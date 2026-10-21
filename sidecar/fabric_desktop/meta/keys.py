@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
+from ..jsonfile import write_text
+
 if TYPE_CHECKING:
     from .project import Entity, Project
     from .store import Store
@@ -449,12 +451,12 @@ def write_key_table(root: Path, name: str, owner: str = "", description: str = "
                          "like customer")
     path = keys_dir(root) / f"{name}.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join([
+    write_text(path, "\n".join([
         f"# Key table sk.{name} in LH_Keys: {name}_sk (INT), {name}_bk (unique) and create_date.",
         f"name = {_toml_value(name)}",
         f"owner = {_toml_value(owner)}",
         f"description = {_toml_value(description)}",
-        ""]), encoding="utf-8")
+        ""]))
     return path
 
 
@@ -474,7 +476,7 @@ def write_source_systems(root: Path, systems: list[SourceSystem]) -> Path:
                 lines.append("")
     path = keys_dir(root) / SOURCE_SYSTEMS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines), encoding="utf-8")
+    write_text(path, "\n".join(lines))
     return path
 
 

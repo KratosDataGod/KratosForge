@@ -283,3 +283,33 @@ def test_nan_and_infinite_float_parameters_reach_the_notebook(svc):
     r = finish(svc, svc.pipeline_run_start(text=text, notebooks={"nb": "Floats"})["run_id"])
     assert r["state"] == "succeeded", r
     assert by_name(r)["F"]["output"]["result"]["exitValue"] == "nan inf -inf"
+
+
+# Quality review of #423: a child pipeline shares the run's notebooks, so its end must not clean up the run.
+CHILD = json.dumps({"name": "C", "properties": {"activities": [act("Noop", "SetVariable", variableName="v", value="x")],
+                                                "variables": {"v": {"type": "String"}}}})
+
+
+def test_a_child_pipeline_does_not_clean_up_the_parents_folder_mid_run(svc):
+    svc.notebooks.save("Filter orders", FILTER, LH)
+    svc.notebooks.save("Count picked", COUNT, LH)
+    text = pipeline(
+        notebook("Filter", "nb-filter", parameters={"region": {"value": "EMEA", "type": "string"}}),
+        act("Child", "ExecutePipeline", ["Filter"], pipeline={"referenceName": "c", "type": "PipelineReference"}),
+        notebook("Count", "nb-count", depends=["Child"]))
+    started = svc.pipeline_run_start(text=text, notebooks={"nb-filter": "Filter orders", "nb-count": "Count picked"},
+                                     children={"c": CHILD})
+    assert started["ok"] is True, started
+    r = finish(svc, started["run_id"])
+    assert r["state"] == "succeeded", (r["state"], by_name(r)["Count"].get("error"))
+    assert run_folders(svc) == []
+
+
+def test_steps_after_a_child_pipeline_still_get_cleaned_up(svc):
+    svc.notebooks.save("Filter orders", FILTER, LH)
+    text = pipeline(
+        act("Child", "ExecutePipeline", pipeline={"referenceName": "c", "type": "PipelineReference"}),
+        notebook("Filter", "nb-filter", depends=["Child"], parameters={"region": {"value": "EMEA", "type": "string"}}))
+    r = finish(svc, svc.pipeline_run_start(text=text, notebooks={"nb-filter": "Filter orders"}, children={"c": CHILD})["run_id"])
+    assert r["state"] == "succeeded", r
+    assert run_folders(svc) == [], "the run's folder was left behind"

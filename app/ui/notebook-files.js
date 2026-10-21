@@ -52,7 +52,7 @@ function renderAllNotebooks() {
     oninput: (e) => { nbFiles.query = e.target.value; clearTimeout(nbFiles.timer); nbFiles.timer = setTimeout(() => nbFilesDraw(results, chips), 250); } });
   setView(h("div", { class: "page nbf-page" },
     h("h1", {}, "All notebooks"),
-    h("p", { class: "sub" }, "Every notebook on this PC and in your notebooks repositories. Fabric notebooks are in Workspaces: select one there and use Edit on this PC."),
+    h("p", { class: "sub" }, "Every notebook on this PC and in your notebooks repositories. Fabric notebooks are in Workspaces: select one there and use Edit on this PC. ", learnMore("all-notebooks")),
     h("div", { class: "row wrap nbf-bar" },
       btn("New notebook", "notebook", () => newNotebook(), "tool primary"),
       btn("Open a notebook file…", "folderOpen", nbOpenFile, "tool outline"),
@@ -209,6 +209,10 @@ async function nbRenameFromList(name) {
   if (!newName || newName === name) return false;
   if (open && !(await saveNotebook())) return false;
   const ok = await attempt(() => rpc("rename_notebook", { name, new_name: newName }), "Could not rename");
+  if (ok) {
+    const kept = openNotebooks.get(name);  // a notebook kept in memory (app.js) follows its new name
+    if (kept) { openNotebooks.delete(name); kept.name = newName; openNotebooks.set(newName, kept); }
+  }
   if (ok && open) { open.name = newName; renderChrome(); }
   return !!ok;
 }
@@ -228,6 +232,7 @@ async function nbDelete(name) {
   if (open?.dirty && !(await saveNotebook())) return false;  // what goes to Recently deleted is the latest
   const out = await attempt(() => rpc("notebook_delete", { name }), "Couldn't delete the notebook");
   if (!out) return false;
+  openNotebooks.delete(name);
   if (state.notebook?.name === name) { disposeEditors(); state.notebook = null; if (state.view === "notebook") { go("notebooks"); } }
   renderChrome();
   toast(`Deleted ${name}. It's in Recently deleted on All notebooks until ${new Date(out.kept_until).toLocaleDateString()}.`, false, { log: true });

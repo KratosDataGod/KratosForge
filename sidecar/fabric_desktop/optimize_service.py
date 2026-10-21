@@ -7,19 +7,23 @@ whole feature off with the ``allow_optimize_lakehouse`` policy key.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 from . import app_settings, redact
-from .optimize import schema, setup
+from .auth import ONELAKE_SCOPES
+from .fabric_api import FabricError
+from .optimize import local_runs, roles, schema, setup
 from .optimize.installation import Installation, now
 from .optimize.lakehouse import OneLakeLakehouse
 from .optimize.registry import Registry
 from .optimize.shared import Shared
 
 DEFAULT_NAME = "FabricDesktop_Central"
+CHANGED_SINCE = "The central lakehouse's roles changed since you looked. Check again before confirming."
 METHODS = {"optimize_status", "optimize_discover", "optimize_inspect", "optimize_create", "optimize_connect",
            "optimize_switch", "optimize_disconnect", "optimize_new_installation_id", "optimize_set_label",
-           "optimize_findings", "optimize_recommendations", "optimize_set_recommendation"}
+           "optimize_findings", "optimize_recommendations", "optimize_set_recommendation",
+           "optimize_share_local_runs"}
 
 
 class OptimizeMixin:
@@ -40,10 +44,13 @@ class OptimizeMixin:
             raise PermissionError("Your organization has turned off shared optimization lakehouses "
                                   "(allow_optimize_lakehouse in its policy file).")
 
-    def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None) -> Any:
+    def _optimize_lake(self, workspace_id: str, lakehouse_id: str, schemas: bool | None = None,
+                       token: Callable[[], str] | None = None) -> Any:
+        """``token`` is a storage token taken earlier, for callers off the calling thread (sign-in
+        tokens are fetched on the thread that handles the call)."""
         if schemas is None:
             schemas = self._schemas_enabled(workspace_id, lakehouse_id)  # type: ignore[attr-defined]
-        return OneLakeLakehouse(workspace_id, lakehouse_id, schemas, self.auth.storage_token,
+        return OneLakeLakehouse(workspace_id, lakehouse_id, schemas, token or self.auth.storage_token,
                                 self.root / "optimize" / "cache")
 
     def optimize_status(self) -> dict[str, Any]:
@@ -130,12 +137,13 @@ class OptimizeMixin:
 
     # The shared results (optimize/shared.py)
 
-    def _optimize_shared(self) -> Shared:
+    def _optimize_shared(self, token: Callable[[], str] | None = None) -> Shared:
         self._optimize_allowed()
         conn = self.optimize_registry.active()
         if not conn:
             raise ValueError("Connect this PC to an optimization lakehouse first (Settings > Optimize lakehouses).")
-        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True))
+        lake = self._optimize_lake(conn["workspace_id"], conn["lakehouse_id"], conn.get("schemas", True),
+                                  **({"token": token} if token else {}))
         return Shared(lake, self.optimize_installation, access=conn.get("access") or "none")
 
     # ---------- the central lakehouse, for other features ----------
@@ -176,6 +184,63 @@ class OptimizeMixin:
             setup.initialize(lake, self.optimize_installation, approve=True, family=fam)
         return lake, self.optimize_installation
 
+    def central_restrict(self, family: schema.Family, role_name: str, members: list[str],
+                         approve: bool = False, shown: list[str] | None = None) -> dict[str, Any]:
+        """Keep ``family``'s tables from everyone who reads the central lakehouse through DefaultReader,
+        and let ``members`` (Entra object ids) read them through ``role_name`` (roles.restrict_plan).
+        Without ``approve`` it changes nothing and raises with what it would change. With it, the
+        roles are read again; if ``shown`` (the changes the person confirmed) no longer matches, it
+        refuses, otherwise the change is made, refused by Fabric if the roles changed after that
+        read, and fdopt_audit records it. Needs a lakehouse with
+        schemas, OneLake security turned on, and the family's tables set up (central_family). Untested
+        on a live tenant: the ETag and If-Match handling follow Fabric's docs only."""
+        conn = self.optimize_registry.active()
+        if conn and not conn.get("schemas", True):
+            raise ValueError("The central lakehouse has no schemas, so its tables can't be kept from DefaultReader "
+                             "without listing every other table, which would hide tables added later. Use a central "
+                             "lakehouse with schemas for tables only some people may read.")
+        lake, installation = self.central_family(family)
+        api = self._scoped(ONELAKE_SCOPES)  # type: ignore[attr-defined]
+        ws, item = conn["workspace_id"], conn["lakehouse_id"]
+        tenant = self.auth.signed_in_tenant() or ""
+
+        def plan() -> dict[str, Any]:
+            try:
+                current, etag = api.list_data_access_roles_tagged(ws, item)
+            except Exception as exc:  # noqa: BLE001 - OneLake security off, or no rights to its roles
+                raise PermissionError("Couldn't read the central lakehouse's OneLake security roles. Turn on OneLake "
+                                      "security for it, or ask its workspace Admin. " + redact.secrets(str(exc))[:200]) from exc
+            return roles.restrict_plan(current, family, role_name, members, tenant, lake.schema_names()) | {"etag": etag}
+
+        found = plan()
+        summary = {"family": family.prefix, "role": role_name, "changes": found["changes"],
+                   "default_reader_paths": found["default_reader_paths"], "family_path": found["family_path"]}
+        if not found["changes"]:
+            return summary | {"changed": False}
+        if not approve:
+            ask = PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask.changes = found["changes"]  # type: ignore[attr-defined]  # pass back as shown=
+            raise ask
+        if shown is None:
+            raise ValueError("Pass the changes the person confirmed as shown= (the error's changes).")
+        found = plan()  # read again just before writing: the roles may have changed since the person looked
+        if not found["changes"]:
+            return summary | {"changes": [], "changed": False}
+        if list(shown) != found["changes"]:
+            raise PermissionError(CHANGED_SINCE)
+        try:
+            api.put_data_access_roles(ws, item, found["roles"], etag=found["etag"])
+        except FabricError as exc:
+            if exc.code == "PreconditionFailed" or exc.status == 412:
+                raise PermissionError(CHANGED_SINCE) from exc
+            raise
+        setup.write(lake, installation, "audit", [{
+            "record_id": f"{installation.id}:restrict:{family.prefix}:{now()}", "at": now(), "action": "restrict",
+            "target": f"{found['family_path']} role {role_name}", "outcome": "ok",
+            "message": "; ".join(found["changes"])}])
+        return summary | {"changes": found["changes"], "default_reader_paths": found["default_reader_paths"],
+                          "changed": True}
+
     def _optimize_workspaces(self) -> set[str]:
         """The workspaces the signed-in person can open in Fabric: results about items anywhere
         else aren't shown to them."""
@@ -188,6 +253,34 @@ class OptimizeMixin:
     def optimize_recommendations(self, include_closed: bool = False) -> list[dict[str, Any]]:
         """Recommendations at their latest state, for items the person can open."""
         return self._optimize_shared().recommendations(self._optimize_workspaces(), include_closed=include_closed)
+
+    def optimize_share_local_runs(self, approve: bool = False) -> dict[str, Any]:
+        """Add this PC's notebook work (writes to OneLake tables, scheduled notebook runs) to the central
+        lakehouse's fdopt_local_execution, so Optimize counts what ran here. Without ``approve`` it
+        writes nothing and raises with what it would add; runs already added aren't added again."""
+        shared = self._optimize_shared()
+        me = self.optimize_installation.id
+        notebooks = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
+        rows = (local_runs.from_history(self.history(limit=100000), me)  # type: ignore[attr-defined]
+                + local_runs.from_schedule_runs(self.pc_schedules.runs(limit=100000), notebooks, me))  # type: ignore[attr-defined]
+        done = shared.local_execution_ids()
+        new = [r for r in rows if r["execution_id"] not in done]
+        writes = sum(r["workload_type"] == "notebook_write" for r in new)
+        out = {"new": len(new), "notebook_writes": writes, "notebook_runs": len(new) - writes,
+               "already": len(rows) - len(new), "shared": 0}
+        if not new:
+            return out
+        if not approve:
+            name = (self.optimize_registry.active() or {}).get("lakehouse_name") or "the central lakehouse"
+            ask = PermissionError(
+                f"Adds {len(new)} run{'s' if len(new) != 1 else ''} from this PC to {name} ({writes} notebook "
+                f"write{'s' if writes != 1 else ''} to tables, {len(new) - writes} scheduled notebook "
+                f"run{'s' if len(new) - writes != 1 else ''}): when each ran, how long it took, rows written, and "
+                "the table or notebook name. No code or data, and everyone who can read the lakehouse sees them. "
+                "Confirm to continue.")
+            ask.would = out  # type: ignore[attr-defined]
+            raise ask
+        return out | {"shared": shared.record_local_executions(new)}
 
     def optimize_set_recommendation(self, recommendation_id: str, state: str, reason: str = "") -> dict[str, Any]:
         """Accept, dismiss, reopen or otherwise move a recommendation on, for everyone using the lakehouse."""

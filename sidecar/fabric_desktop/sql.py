@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Iterator
 
 import duckdb
@@ -81,17 +82,59 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             continue  # a table function such as range(10)
         if table is made:
             continue
-        if not table.db and (table.name.lower() in ctes or is_local(table.name)):
+        if not table.db and (table.name.lower() in ctes or is_local(table.name) or table.name in views.values()):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
-        key = name.lower()
+        point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
+        key = name.lower() if point is None else f"{name.lower()}@{point}"
         if key not in views:
             views[key] = f"__lakehouse_table_{len(views)}"
-            con.register(views[key], lakehouse.open_table(name).to_pyarrow_dataset())
+            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def _time_travel(table: exp.Table) -> str | None:
+    """A table's time travel point as "v<n>" or "t<time>", taken off the table so DuckDB never
+    sees it; None to read the latest version."""
+    version = table.args.get("version")
+    if isinstance(version, exp.Version):
+        if str(version.args.get("kind", "")).upper() != "AS OF":
+            raise ValueError("Only VERSION AS OF and TIMESTAMP AS OF can be read on this PC.")
+        value = version.expression.name if isinstance(version.expression, exp.Literal) else version.expression.sql("spark")
+        table.set("version", None)
+        return f"v{value}" if str(version.this).upper() == "VERSION" else f"t{value}"
+    alias = table.args.get("alias")
+    if isinstance(alias, exp.TableAlias) and isinstance(alias.this, exp.Parameter):  # sales@v3 (Databricks)
+        value = alias.this.name
+        table.set("alias", None)
+        if re.fullmatch(r"[vV]\d+", value):
+            return f"v{value[1:]}"
+        if re.fullmatch(r"\d{14,17}", value):  # yyyyMMddHHmmssSSS
+            return f"t{value[:4]}-{value[4:6]}-{value[6:8]} {value[8:10]}:{value[10:12]}:{value[12:14]}"
+        raise ValueError(f"{table.name}@{value} isn't a version (@v3) or a time (@20261020130000000).")
+    return None
+
+
+def point_args(point: str) -> dict[str, str]:
+    return {"version": point[1:]} if point.startswith("v") else {"timestamp": point[1:]}
+
+
+def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
+                  views: dict[str, str]) -> exp.Expression:
+    """DESCRIBE HISTORY t becomes a query over the table's Delta log; any other statement is
+    returned as it is."""
+    if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
+        return statement
+    table = statement.this
+    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    view = f"__lakehouse_history_{len(views)}"
+    views[f"history:{name.lower()}:{len(views)}"] = view
+    con.register(view, lakehouse.table_history(name).to_arrow())
+    return sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb")
 
 
 READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)
@@ -109,27 +152,65 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
+def _connect() -> duckdb.DuckDBPyConnection:
+    # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
+    # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
+    con = duckdb.connect()
+    con.execute("SET TimeZone = 'UTC'")
+    return con
+
+
+def _arrow(result: duckdb.DuckDBPyConnection | None) -> pa.Table:
+    if result is None or not result.description:
+        return pa.table({})
+    return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+
+
+def prepare_sandboxed(query: str, dialect: str = "spark", memory_mb: int | None = None,
+                      threads: int | None = None) -> tuple[duckdb.DuckDBPyConnection, str]:
+    """A connection with ``query``'s lakehouse tables registered and its configuration locked, and
+    the one read-only statement to run on it (``execute_sandboxed``).
+
+    The tables need the attached lakehouse only while they are registered here (each dataset keeps
+    its own storage token), so a caller can run the statement after letting the lakehouse go.
+    ``memory_mb`` and ``threads`` are set before the configuration is locked."""
+    con = _connect()
+    try:
+        views: dict[str, str] = {}
+        statement = check_read_only([history_query(s, con, views) for s in parse(query, dialect)])
+        bind_tables(statement, con, views)
+        if memory_mb:
+            con.execute(f"SET memory_limit = '{int(memory_mb)}MB'")
+        if threads:
+            con.execute(f"SET threads = {int(threads)}")
+        con.execute("SET enable_external_access = false")
+        con.execute("SET lock_configuration = true")
+    except BaseException:
+        con.close()
+        raise
+    return con, statement.sql("duckdb")
+
+
+def execute_sandboxed(con: duckdb.DuckDBPyConnection, statement: str) -> pa.Table:
+    """Run a statement from ``prepare_sandboxed``. ``con.interrupt()`` from another thread stops it
+    (duckdb.InterruptException); an interrupt sent before DuckDB starts the statement is lost."""
+    return _arrow(con.execute(statement))
+
+
 def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
     """Run every statement in ``query``; the connection and the last one's result (None for none).
 
     ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
     once the lakehouse tables are registered, so the query can't read local files, load
     extensions or reach the network (external AI tools, integrations/executions.py)."""
-    # UTC like Fabric's Spark sessions; otherwise year() and date_format() follow this PC's time zone.
-    # SET, not connect's config: config makes DuckDB try to download ICU, which fails offline.
-    con = duckdb.connect()
-    con.execute("SET TimeZone = 'UTC'")
+    if sandbox:
+        con, statement = prepare_sandboxed(query, dialect)
+        return con, con.execute(statement)
+    con = _connect()
     views: dict[str, str] = {}
     result = None
-    statements = parse(query, dialect)
-    if sandbox:
-        statements = [check_read_only(statements)]
-        bind_tables(statements[0], con, views)
-        con.execute("SET enable_external_access = false")
-        con.execute("SET lock_configuration = true")
-        result = con.execute(statements[0].sql("duckdb"))
-        statements = []
-    for statement in statements:
+    for statement in parse(query, dialect):
+        statement = history_query(statement, con, views)
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
     return con, result
@@ -138,9 +219,7 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
 def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
     """Run every statement in ``query`` and return the last one's whole result (see _execute)."""
     _con, result = _execute(query, dialect, sandbox)
-    if result is None or not result.description:
-        return pa.table({})
-    return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+    return _arrow(result)
 
 
 BATCH_ROWS = 50_000  # rows held in memory at a time when a result is streamed

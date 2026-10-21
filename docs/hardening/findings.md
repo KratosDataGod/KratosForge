@@ -55,6 +55,7 @@ No Critical issue was confirmed. Twelve are High.
 | DI-5 | Medium | Memory | Entity previews and SQL results load the whole table or result before slicing | HD-033 |
 | DI-6 | Medium | OneLake writes | Long writes use one bearer token for their whole duration (inferred) | HD-034 |
 | UI-2 | Medium | UI | Prove and side-by-side status polling never stops on errors | HD-035 |
+| EN-12 | Medium | Security | The Fabric client sends the bearer token to whatever host a `continuationUri` or an operation's `Location` names | HD-058 (done) |
 | EP-8 | Low | Environments | Nothing stops Dev and Prod naming the same workspace | HD-036 |
 | EP-9 | Low | Publishing | `run_job` bypasses the write guard and overwrites with `schema_mode="overwrite"` | HD-036 |
 | EN-8 | Low | Notebooks | Stopping a kernel leaves the processes its cells started | HD-037 |
@@ -175,6 +176,7 @@ No Critical issue was confirmed. Twelve are High.
 - **Where:** `.github/workflows/ci.yml:169-208` builds the shell but there is no `cargo test` anywhere.
 - **What:** `integrity_tests` (`main.rs:988`), `policy_tests` (`main.rs:49`), the sign-in cookie tests and the watchdog tests exist but don't run, so the update checksum logic can regress silently. The audit ran the watchdog tests by hand (5 pass).
 - **Fix:** `cargo test --release --locked` in the Windows shell job.
+- **Status:** HD-011 adds that step to the `shell` job in `ci.yml`, after the build and before signing, so a failing test stops the exe from being signed or published. All 13 tests (policy 1, sign-in cookies 1, integrity 6, watchdog 5) pass on Linux in debug and release; the first Windows run is in CI.
 
 ### EN-2 and EN-10 Medium: tokens reachable from external-tool code
 
@@ -228,6 +230,7 @@ No Critical issue was confirmed. Twelve are High.
 | DI-5 | `meta_service.py:270-272`, `:405-411`; `service.py:496-526` | Use `scan().head(n)` and a log-based count for entity previews. The desktop SQL page has paged, memory-limited execution since SQL-003 (#134, merged); `export_sql_csv` and external-tool SQL still materialize |
 | DI-6 | `onelake.py:48-50`, `meta/store.py:426-427` | Ask for a token with at least 30 minutes left before long writes (inferred, not run against OneLake). Done in HD-034: `Authenticator.storage_token()` refreshes a token with less than `STORAGE_MIN_SECONDS` (30 minutes) left, so every OneLake read and write starts with at least that long. A write that runs longer than the token can still fail at commit. With Windows sign-in, the broker decides whether a refresh returns a new token. Tested with a fake MSAL, not against OneLake |
 | UI-2 | `app/ui/prove.js:155-165`, `sidebyside.js:54-58` | Cap attempts, stop on "not found", guard against two loops for one run |
+| EN-12 | `fabric_api.py` `_paged`, `_wait` | A spoofed response or a proxy could get the Fabric token sent to any host. Done in HD-058: `followable_url` only follows https URLs on the request's own host or under `fabric.microsoft.com`, `powerbi.com` or `analysis.windows.net` (Power BI's regional hosts); relative URLs resolve against the request. The host checked is the one requests will connect to (the prepared URL as urllib3 parses it), and addresses with a backslash or control character are refused, so `https://evil.example\.fabric.microsoft.com/` can't pass as a Fabric host. Anything else raises a plain error and sends nothing. Tested with a recording fake session, not against Fabric |
 | EP-8 | `meta_service.py:208-234`, `:373-377`; `meta/engine.py:291-299` | Refuse the same workspace in two environments |
 | EP-9 | `publish.py:44-81` | Apply `write_guard` and an environment check to `run_job` |
 | EN-8 | `kernel_proc.py:152`, `:305` | New process group (POSIX) or Job Object (Windows) so Stop ends the whole tree (reproduced: an orphaned `sleep` survived) |

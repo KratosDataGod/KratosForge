@@ -165,12 +165,43 @@ fn engine_python() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
-/// The interpreter that runs the sidecar and the startup check.
-fn python() -> String {
-    if let Ok(path) = std::env::var("FABRIC_DESKTOP_PYTHON") {
-        return path;
+/// Shown when no interpreter may be used: the engine is missing and this build won't
+/// look for a `python` on PATH, which could run whichever one comes first (SH-10).
+// Published builds install their engine before starting it, so this is a build with no engine to
+// download (one not built from a published commit).
+const NO_ENGINE: &str = "The Fabric Desktop engine isn't installed, and this build has none to download. \
+    Install a published build of Fabric Desktop, or set FABRIC_DESKTOP_PYTHON to the full path \
+    of a Python with the sidecar installed.";
+
+/// Picks the interpreter that runs the sidecar and the startup check, from
+/// `env_override` (FABRIC_DESKTOP_PYTHON), `engine` (this or another build's engine) and
+/// `dev_fallback` (whether a bare `python` from PATH may be used: debug builds only).
+///
+/// Outside debug builds a bare name is never returned: the override must be an absolute
+/// path, and with no override and no engine the answer is an error, not `python`.
+fn choose_python(env_override: Option<&str>, engine: Option<PathBuf>, dev_fallback: bool) -> Result<String, String> {
+    if let Some(path) = env_override.map(str::trim).filter(|p| !p.is_empty()) {
+        if dev_fallback || std::path::Path::new(path).is_absolute() {
+            return Ok(path.to_string());
+        }
+        return Err(format!(
+            "FABRIC_DESKTOP_PYTHON is set to \"{path}\", which isn't a full path. \
+             Set it to the full path of python.exe, or remove it to use the app's own engine."
+        ));
     }
-    engine_python().map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "python".into())
+    if let Some(engine) = engine {
+        return Ok(engine.to_string_lossy().into_owned());
+    }
+    if dev_fallback {
+        return Ok("python".into());
+    }
+    Err(NO_ENGINE.into())
+}
+
+/// The interpreter that runs the sidecar and the startup check.
+fn python() -> Result<String, String> {
+    let env_override = std::env::var("FABRIC_DESKTOP_PYTHON").ok();
+    choose_python(env_override.as_deref(), engine_python(), cfg!(debug_assertions))
 }
 
 fn hide_window(cmd: &mut Command) {
@@ -193,13 +224,13 @@ fn data_dir() -> PathBuf {
     dir
 }
 
-fn updater(args: &[&str]) -> Command {
+fn updater(args: &[&str]) -> Result<Command, String> {
     // Run from the app's own data folder so no stray .py file in the current
     // folder can shadow a standard library module.
-    let mut cmd = Command::new(python());
+    let mut cmd = Command::new(python()?);
     cmd.args(["-u", "-c", UPDATER]).args(args).current_dir(data_dir()).stdin(Stdio::null());
     hide_window(&mut cmd);
-    cmd
+    Ok(cmd)
 }
 
 /// Runs an updater command, sending each output line to the UI as a
@@ -245,7 +276,8 @@ impl Sidecar {
         // exits at once. Send it to a log file instead, so crashes can be explained.
         let log = data_dir().join("sidecar.log");
         let stderr = std::fs::File::create(&log).map(Stdio::from).unwrap_or_else(|_| Stdio::null());
-        let mut cmd = Command::new(python());
+        let python = python().map_err(std::io::Error::other)?;
+        let mut cmd = Command::new(python);
         cmd.args(["-m", "fabric_desktop.server"])
             .env("FABRIC_DESKTOP_BUILTIN_CLIENT_ID", BUILTIN_CLIENT_ID)
             .current_dir(data_dir())
@@ -355,7 +387,7 @@ async fn check_components() -> Result<Value, String> {
             "latest": { "commit": null, "error": null },
         })
     } else {
-        let out = updater(&["check"])
+        let out = updater(&["check"])?
             .output()
             .map_err(|e| format!("Python was not found ({e})."))?;
         if !out.status.success() {
@@ -392,7 +424,7 @@ async fn update_sidecar(app: tauri::AppHandle, state: tauri::State<'_, SidecarSt
     if bundled() {
         return install_engine(&app).map(|commit| json!({ "engine": commit }));
     }
-    stream(&app, updater(&["install-sidecar", BUILD_COMMIT]))?;
+    stream(&app, updater(&["install-sidecar", BUILD_COMMIT])?)?;
     Ok(Value::Null)
 }
 
@@ -520,7 +552,7 @@ async fn update_app(app: tauri::AppHandle, commit: String) -> Result<(), String>
     let new = exe.with_extension("exe.new");
     let old = exe.with_extension("exe.old");
     let dest = new.to_string_lossy().into_owned();
-    stream(&app, updater(&["download-app", &dest, &commit]))?;
+    stream(&app, updater(&["download-app", &dest, &commit])?)?;
     // Windows lets a running exe be renamed but not overwritten.
     let _ = std::fs::remove_file(&old);
     std::fs::rename(&exe, &old).map_err(|e| format!("Could not replace {}: {e}", exe.display()))?;
@@ -977,6 +1009,40 @@ fn open_doc(page: String) -> Result<(), String> {
     open_in_browser(&url)
 }
 
+/// Notebook HTML output (pandas, Plotly, a %%html cell) is untrusted: anyone can write a notebook.
+/// The UI shows it in a sandboxed frame loaded from this scheme (notebook.js, htmlFrame), an origin
+/// that isn't the app's, so the app's policy and the Tauri API don't apply to it. The frame gets the
+/// HTML from the page by postMessage and writes it into itself, keeping this page's policy: inline
+/// scripts and styles (some charting libraries need eval), images and fonts only as data: or blob:, no network.
+const OUTPUT_SCHEME: &str = "nbout";
+const OUTPUT_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; \
+    img-src data: blob:; font-src data:; media-src data: blob:; base-uri 'none'; form-action 'none'; \
+    frame-ancestors http://tauri.localhost https://tauri.localhost tauri://localhost";
+const OUTPUT_FRAME: &str = r#"<!doctype html><meta charset="utf-8"><script>
+addEventListener("message", function take(e) {
+  if (e.source !== parent || !e.data || typeof e.data.fdHtml !== "string") return;
+  removeEventListener("message", take);
+  document.open();
+  document.write(e.data.fdHtml + "<script>(function(){function s(){parent.postMessage({fdFrameHeight:document.documentElement.scrollHeight},'*')}" +
+    "addEventListener('load',s);new ResizeObserver(s).observe(document.documentElement);})();<\/script>");
+  document.close();
+});
+</script>"#;
+
+/// The frame page, for the app's own window only: the Fabric view can't load it.
+fn output_frame(webview: &str) -> tauri::http::Response<Vec<u8>> {
+    let builder = tauri::http::Response::builder();
+    if webview != "main" {
+        return builder.status(403).body(Vec::new()).unwrap();
+    }
+    builder
+        .header("Content-Type", "text/html; charset=utf-8")
+        .header("Content-Security-Policy", OUTPUT_CSP)
+        .header("X-Content-Type-Options", "nosniff")
+        .body(OUTPUT_FRAME.as_bytes().to_vec())
+        .unwrap()
+}
+
 fn main() {
     // Left behind by the last update; the old process has exited by now.
     if let Ok(exe) = std::env::current_exe() {
@@ -985,12 +1051,72 @@ fn main() {
     }
     tauri::Builder::default()
         .manage(SidecarState { sidecar: Mutex::new(None), child: Mutex::new(None) })
+        .register_uri_scheme_protocol(OUTPUT_SCHEME, |ctx, _| output_frame(ctx.webview_label()))
         .invoke_handler(tauri::generate_handler![
             rpc, stop_kernel, check_components, update_sidecar, update_app,
             fabric_view_show, fabric_view_hide, fabric_view_action, open_doc, fabric_view_sign_out, open_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running KratosForge");
+}
+
+#[cfg(test)]
+mod python_choice_tests {
+    use super::*;
+
+    fn engine() -> Option<PathBuf> {
+        Some(PathBuf::from(r"C:\Users\a\AppData\Local\FabricDesktop\engine\abc\python.exe"))
+    }
+
+    fn absolute() -> &'static str {
+        if cfg!(windows) { r"C:\Python312\python.exe" } else { "/usr/bin/python3" }
+    }
+
+    #[test]
+    fn release_never_picks_bare_python() {
+        // Every kind of input a release build can see.
+        let engine_path = engine().unwrap().to_string_lossy().into_owned();
+        for env in [None, Some(""), Some("  "), Some("python"), Some("python.exe"), Some(r".\python.exe"), Some("py"), Some(absolute())] {
+            for eng in [None, engine()] {
+                if let Ok(chosen) = choose_python(env, eng.clone(), false) {
+                    assert!(
+                        std::path::Path::new(&chosen).is_absolute() || chosen == engine_path,
+                        "release picked {chosen:?} for env={env:?} engine={eng:?}"
+                    );
+                    assert_ne!(chosen, "python");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn release_with_no_engine_and_no_override_is_a_clear_error() {
+        assert_eq!(choose_python(None, None, false).unwrap_err(), NO_ENGINE);
+        assert_eq!(choose_python(Some(""), None, false).unwrap_err(), NO_ENGINE);
+        assert!(NO_ENGINE.contains("engine isn't installed"));
+    }
+
+    #[test]
+    fn release_uses_the_engine() {
+        assert_eq!(choose_python(None, engine(), false).unwrap(), engine().unwrap().to_string_lossy());
+    }
+
+    #[test]
+    fn release_honours_an_absolute_override_only() {
+        assert_eq!(choose_python(Some(absolute()), None, false).unwrap(), absolute());
+        assert_eq!(choose_python(Some(absolute()), engine(), false).unwrap(), absolute());
+        for bare in ["python", "python3", r".\python.exe"] {
+            let err = choose_python(Some(bare), engine(), false).unwrap_err();
+            assert!(err.contains("isn't a full path"), "{err}");
+        }
+    }
+
+    #[test]
+    fn debug_keeps_the_developer_fallbacks() {
+        assert_eq!(choose_python(None, None, true).unwrap(), "python");
+        assert_eq!(choose_python(Some("python3"), None, true).unwrap(), "python3");
+        assert_eq!(choose_python(None, engine(), true).unwrap(), engine().unwrap().to_string_lossy());
+    }
 }
 
 #[cfg(test)]
@@ -1040,6 +1166,17 @@ mod integrity_tests {
         ] {
             assert!(!missing_release_file(err), "{err}");
         }
+    }
+
+    #[test]
+    fn notebook_output_frame_has_no_network_and_only_opens_in_the_app() {
+        let page = output_frame("main");
+        assert_eq!(page.status(), 200);
+        let csp = page.headers()["Content-Security-Policy"].to_str().unwrap();
+        assert!(csp.starts_with("default-src 'none';"), "{csp}");
+        let sources = csp.split("frame-ancestors").next().unwrap();
+        assert!(!sources.contains("connect-src") && !sources.contains("http") && !sources.contains("*"), "{csp}");
+        assert_eq!(output_frame(FABRIC_VIEW).status(), 403);
     }
 
     #[test]

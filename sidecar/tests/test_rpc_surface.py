@@ -26,9 +26,8 @@ _CLI = "CLI or headless agent calls the same Service method in-process (cli.py, 
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: engine only, no settings screen yet (platform_notify_service.py)"
-_TENANT = "tenant settings history: Preview, engine only so far (docs/optimize/README.md, docs/permissions.md)"
-_CAPACITY = "capacity settings history: Preview, engine only so far; the page waits on a mockup (docs/optimize/README.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
+_LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
 _INTERNAL = "used in-process by another Service method; RPC name kept, no screen (QA-017)"
 _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-017)"
@@ -38,6 +37,7 @@ _NO_SCREEN = "engine method with no screen yet; kept for API compatibility (QA-0
 # Dropping a name from METHODS? Also drop it from the timeout list in app/src-tauri/src/watchdog.rs.
 NO_UI_CALLER: dict[str, str] = {
     # MCP / local HTTP API tools (in-process).
+    "placement_advice": _MCP + "; Prove shows it later (docs/finops/placement-advice.md)",
     "notebook_environment": _MCP,
     "pipeline_activity_registry": _MCP,
     "pipeline_compatibility": _MCP,
@@ -45,8 +45,6 @@ NO_UI_CALLER: dict[str, str] = {
     "pipeline_inspect": _MCP,
     "pipeline_validate": _MCP,
     "pipeline_run_check": _MCP,
-    "pipeline_run_start": _MCP,
-    "pipeline_run_status": _MCP,
     "pipeline_run_cancel": _MCP,
     "pipeline_runs": _MCP,
     "receipt_export": _MCP,
@@ -61,7 +59,12 @@ NO_UI_CALLER: dict[str, str] = {
     "local_add_source": _LOCAL,
     "local_close_project": _LOCAL,
     "local_create_project": _LOCAL,
+    "local_change_delta": _LOCAL,
     "local_delta_history": _LOCAL,
+    "local_explain": _LOCAL,
+    "local_transform_plan": _LOCAL,
+    "local_transform_run": _LOCAL,
+    "local_transform_runs": _LOCAL,
     "local_drop_delta": _LOCAL,
     "local_forget_project": _LOCAL,
     "local_project_settings": _LOCAL,
@@ -84,13 +87,11 @@ NO_UI_CALLER: dict[str, str] = {
     "platform_notify_open": _NOTIFY,
     "platform_notify_save": _NOTIFY,
     "platform_notify_settings": _NOTIFY,
-    "tenant_settings_read": _TENANT,
-    "tenant_settings_history": _TENANT,
-    "capacity_settings_read": _CAPACITY,
     "governance_version": _NO_SCREEN,
     "kernel_info": _NO_SCREEN,
     "meta_git_status": _NO_SCREEN,
     "optimize_inspect": _NO_SCREEN,
+    "optimize_share_local_runs": _LOCAL_RUNS,
     "risk_acknowledgements": _NO_SCREEN,
     "sql_compat_profiles": _NO_SCREEN,
     "sql_dialects": _NO_SCREEN,

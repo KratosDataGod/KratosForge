@@ -78,9 +78,16 @@ class Host:
 
     # ---- requests
 
-    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
+              widget_values: dict[str, str] | None = None, resources_dir: str = "",
+              breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         self.kernel.notebook_name = notebook_name
-        return self.kernel.start(code, watches)
+        self.kernel.widget_values = dict(widget_values or {})
+        self.kernel.resources_dir = resources_dir
+        return self.kernel.start(code, watches, breakpoints, step)
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        return self.kernel.debug(action, expression)
 
     def poll(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
         return self.kernel.poll(version, wait)
@@ -93,6 +100,12 @@ class Host:
 
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
+
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        return self.kernel.inspect(code, cursor, call)
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        return self.kernel.variable_detail(name)
 
     def attach(self, context: dict[str, Any] | None, guard: bool = False) -> bool:
         """The engine's attached lakehouse, with tokens and the managed-table check asked of the engine."""
@@ -135,11 +148,29 @@ class Host:
     def reads(self) -> dict[str, Any]:
         return self.kernel.reads()
 
+    def frame_page(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_page(**args)
+
+    def frame_chart(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_chart(**args)
+
+    def frame_profile(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_profile(**args)
+
+    def frame_wrangle(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_wrangle(**args)
+
+    def ipywidget_event(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.ipywidget_event(**args)
+
+    def frame_download(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_download(**args)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
-    OPS = ("start", "poll", "interrupt", "variables", "complete", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "ping")
+    OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "ipywidget_event", "frame_download", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")
@@ -156,6 +187,11 @@ class Host:
 
 
 def main() -> None:
+    # A notebook environment's packages come after the engine's, so they add to it and never
+    # replace what the engine ships (environments.py).
+    for folder in filter(None, os.environ.get("FABRIC_DESKTOP_LIBRARY_PATHS", "").split(os.pathsep)):
+        if folder not in sys.path:
+            sys.path.append(folder)
     # Keep the protocol's pipes for ourselves; give everything else stderr and an empty stdin.
     proto_in = os.fdopen(os.dup(0), "r", encoding="utf-8")
     proto_out = os.fdopen(os.dup(1), "w", encoding="utf-8")

@@ -24,9 +24,20 @@ The headless agent's Linux image (`deploy/linux/Dockerfile`) is built and starte
 | Channel | Release tag | Moves when | Who moves it |
 | --- | --- | --- | --- |
 | **Preview** | `latest` (prerelease) | Every merge to `main` whose CI is green and is still `main`'s newest commit when the release job runs | Automatic (`ci.yml` `release` job) |
-| **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest` | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
+| **Stable** (the default) | `stable` | Someone runs **Promote to stable**, which copies the exe, engine and `version.json` from `latest`, or from a named build | The product owner (Chris), by hand, or the release manager on his explicit go for that promotion |
 
 The app reads the commit from the channel's `version.json`, not from the release's target commit (that field goes stale after a promote). Both channels publish with one shared concurrency group, `release-assets`, so a promote never copies a half-replaced Preview.
+
+### Per-build releases
+
+Each build that the release job publishes to Preview also gets a release of its own, tagged `build-<first 12 characters of the commit>` (for example `build-9715e28a1b2c`). It is a prerelease and is never marked latest. It holds the same five files as `latest` at that moment: the exe, the engine zip, the same `version.json` (same checksums, commit and history) and the two SBOMs. CI publishes it before it updates `latest`, so the build on Preview always has one.
+
+- **It never changes.** A re-run of the release job leaves an existing per-build release as it is.
+- **It is not a channel.** The app never updates from it on its own.
+- **Only the newest 20 are kept** (`KEEP_BUILDS` in `ci.yml`). The release job deletes older `build-*` releases and their tags. It never touches `latest` or `stable`.
+- **Every build promoted to Stable is kept.** Promote adds "promoted to Stable" to that build's release title, and the release job never deletes a release with that title. So Stable can always go back to any earlier Stable build that was published after per-build releases began.
+
+To list them: `gh release list -R KratosDataGod/fabric-desktop | grep build-`.
 
 **Merging to `main` is a Preview release.** About 5,000 people are expected on launch; Preview is the opt-in channel, but anything merged reaches it within one CI run. Stable is the production release.
 
@@ -97,24 +108,37 @@ A Stable promotion is the production release. Before asking Chris for it:
 2. **Check the evidence.** `main` CI green on that commit; Preview assets match their checksums (step 9 above); the [readiness checklist](../hardening/readiness-checklist.md) gates that apply to a Stable release are no worse than at the last promotion; `FABRIC_CLIENT_ID` is still unset (the engine's `engine.json` `client_id` must be empty, so sign-in uses Microsoft's Fabric CLI client).
 3. **Write the notes** for people, not developers: one line per change they will notice, from the PR titles and "Release notes" sections since the last Stable commit (`git log --first-parent --format=%s <last stable>..<candidate>`). Untested-on-a-tenant features say Preview.
 4. **Ask Chris** with the candidate commit, the PR list, the evidence and the notes.
-5. **On his go,** run **Actions > Promote to stable** with the notes. Promote copies whatever is on Preview at that moment, so check `latest` still names the candidate immediately before running it (until HD-023 makes promote take a named commit).
+5. **On his go,** run **Actions > Promote to stable** with the notes, and put the candidate commit in **build**. Promote then copies that build's own release, not whatever Preview is at that moment. Left empty, it copies `latest` as before. Either way it checks the exe and engine against the SHA-256 in that build's `version.json` and stops without changing Stable if they differ.
 6. **Verify Stable:** `stable` `version.json` names the candidate and its checksums match the `stable` asset digests.
 7. **Record it** in [release history](release-history.md).
 
-## Rollback today
+## Rollback
 
-There is no one-click rollback yet. Each channel keeps only its newest build, and the engine always comes from the channel's current release, so an older build can't be pinned (HD-028 in the [hardening backlog](../hardening/backlog.md) adds per-build release assets). `fabric-desktop.exe.old` is deleted at startup and is not a rollback.
-
-What can be done now, in order of preference:
+`fabric-desktop.exe.old` is deleted at startup and is not a rollback. A rollback is a promotion of an earlier build. In order of preference:
 
 1. **Fix forward.** Revert the offending PR on `main` (a revert PR, merged by Chris), let Preview publish, then promote. This is the normal path.
-2. **Restore Stable to the previous Stable build.** The previous Stable commit is in [release history](release-history.md). Its exe and engine are not kept as release assets, so they must be rebuilt: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), download them, verify against that build's provenance attestation, and upload to `stable` with a matching `version.json`. This replaces production files and needs Chris's explicit go.
-3. **Organizations on managed updates** can redeploy the exe and engine they already hold ([enterprise install](../enterprise-install.md)).
+2. **Promote an earlier build to Stable.** Find the previous Stable commit in [release history](release-history.md). Run **Actions > Promote to stable** with **build** set to that commit (or its `build-*` tag) and notes that say what was rolled back and why. Promote checks the files against that build's `version.json` before it copies them. Self-updating Stable PCs move to it at their next start. This replaces production files and needs Chris's explicit go.
+3. **Organizations on managed updates** deploy the earlier build's exe themselves (see pinning below).
+
+Two limits today:
+
+- **Older builds.** A build published before per-build releases began has no `build-*` release, so it can't be promoted again. For one of those, rebuild it: re-run that commit's `main` CI run if its artifacts are still retained (GitHub keeps workflow artifacts 90 days by default), verify against the build's provenance attestation, and upload to `stable` with a matching `version.json`.
+- **Preview can't be rolled back by promotion.** `latest` always follows `main`. Fix forward instead.
+
+### Pinning a build
+
+An organization can stay on one build while the channels move on. Turn off self-updating (`"auto_update": false` in the policy file, [enterprise install](../enterprise-install.md)) and deploy the exe from that build's release:
+
+`https://github.com/KratosDataGod/fabric-desktop/releases/download/build-<12 characters>/fabric-desktop.exe`
+
+The engine zip, `version.json` and SBOMs are next to it under the same tag. `version.json` gives the SHA-256 of the exe and the engine to check a copy against.
+
+The app itself can't be pointed at a `build-*` release yet. It downloads its engine from its channel's current release (`stable` or `latest`). So a pinned exe runs on a PC whose engine for that build is already installed. A PC that has to download the engine gets the channel's current engine, which doesn't match, and is told to ask IT for the current exe. Letting the app or policy name a build for the engine download is a follow-up.
 
 Reverting the app does not revert what a newer build wrote: local settings, schedules, run history, the metadata store and anything in OneLake stay as the newer build left them. Before shipping a change to a stored format, its PR must say whether an older build can still read it.
 
 ## Versioning
 
-Builds are identified by their commit. Version numbers in the code do not change between builds today: the shell reports `0.1.0` (`app/src-tauri/Cargo.toml`, `tauri.conf.json`) and the engine `0.20.0` (`sidecar/pyproject.toml`, `fabric_desktop/__init__.py`), which audit logs, agent status records and support bundles copy. So a support bundle cannot say which build it came from without the commit.
+Builds are identified by their commit. Each published build's release tag, `build-<first 12 characters of the commit>`, names it too. Version numbers in the code do not change between builds today: the shell reports `0.1.0` (`app/src-tauri/Cargo.toml`, `tauri.conf.json`) and the engine `0.20.0` (`sidecar/pyproject.toml`, `fabric_desktop/__init__.py`), which audit logs, agent status records and support bundles copy. So a support bundle cannot say which build it came from without the commit.
 
 Proposal (RM-003, needs Chris's decision): semantic versions `0.MINOR.PATCH` cut at each Stable promotion, with a `v0.x.y` tag on the promoted commit and the version stamped into the shell and engine at build time from the tag (Preview builds report `0.x.y-preview+<sha7>`). `1.0.0` is reserved for the first release that passes every gate in the readiness checklist. This needs workflow changes and pairs with HD-028's per-build assets, so it is a single design with the hardening program.

@@ -234,6 +234,11 @@ def check_run_risk(svc: Any, ctx: CallContext, workload_id: str, action: str, en
     return svc.risk_check(workload_id, action, env or None)
 
 
+def get_placement_advice(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+    """Where to run a notebook, on this PC or in Fabric, with the evidence (FINOPS-005). Changes nothing."""
+    return svc.placement_advice(name)
+
+
 def check_pipeline_compatibility(svc: Any, ctx: CallContext, definition: str) -> dict[str, Any]:
     return svc.pipeline_compatibility(text=definition)
 

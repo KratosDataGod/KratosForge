@@ -2210,6 +2210,46 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// Item 21: a table's whole lineage, hop by hop, both ways, out to the projects reading its products.
+function lineageHelper() {
+  const src = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function mfLineage\([\s\S]*?\n}\n/)[0]}; this.mfLineage = mfLineage;`, ctx);
+  return ctx.mfLineage;
+}
+
+test("lineage walks every hop both ways, to the products and the projects that read them", () => {
+  const mfLineage = lineageHelper();
+  const entities = [
+    { name: "bronze.customers", source: "landing crm/customers", reads: [] },
+    { name: "bronze.orders", source: "files orders/*.csv", reads: [] },
+    { name: "silver.customers", source: "bronze.customers", reads: ["bronze.customers"] },
+    { name: "silver.orders", reads: ["bronze.orders", "silver.customers"] },
+    { name: "gold.dim_customer", reads: ["silver.customers"] },
+    { name: "gold.fact_sales", reads: ["silver.orders", "gold.dim_customer", "sales.link_rates"] },
+  ];
+  const ports = [["Customer 360", "gold.dim_customer"], ["Orders", "bronze.orders"]];
+  const readers = { "Customer 360": ["finance", "marketing"] };
+  const cols = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "silver.customers")));
+  assert.deepStrictEqual(cols.map((c) => c.label), ["Source", "It reads", "This table", "Reads it", "Then", "Data products", "Other projects"]);
+  assert.deepStrictEqual(cols[0].items.map((x) => x.name), ["landing crm/customers"]);
+  assert.deepStrictEqual(cols[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  assert.deepStrictEqual(cols[4].items.map((x) => x.name), ["gold.fact_sales"]);
+  assert.deepStrictEqual(cols[5].items.map((x) => x.name), ["Customer 360"], "Orders is upstream, not something it ends up in");
+  assert.deepStrictEqual(cols[6].items.map((x) => `${x.name}:${x.note}`), ["finance:Customer 360", "marketing:Customer 360"]);
+  // Upstream of the fact: two hops, both roots, and the link it reads from another project.
+  const up = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "gold.fact_sales", "up")));
+  assert.deepStrictEqual(up.map((c) => c.label), ["Source", "Before that", "Before that", "It reads", "This table"]);
+  assert.deepStrictEqual(up[0].items.map((x) => x.name), ["files orders/*.csv", "landing crm/customers", "sales.link_rates"]);
+  assert.deepStrictEqual(up[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  // A cycle in hand-edited configs never loops.
+  const loop = [{ name: "a", reads: ["b"] }, { name: "b", reads: ["a"] }];
+  assert.strictEqual(mfLineage(loop, [], {}, "a").length, 3);
+  const flow = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  assert.match(flow, /pick\("both", "Whole lineage"\), pick\("up", "Only what it reads"\), pick\("down", "Only what reads it"\)/);
+  assert.match(flow, /preview\("lineage", btn\("Columns", "flow", \(\) => columnLineage\(e\.name\)/);
+});
+
 // UX-006: Advanced settings fold closed by default, and a value policy or the environment sets is read-only.
 test("a fold can start closed, and the choice made on this PC wins after that", () => {
   const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");

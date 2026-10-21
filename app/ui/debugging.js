@@ -416,6 +416,14 @@ function dbgPausedPanel(cell) {
     h("div", { class: "muted-text dbg-note" }, "Evaluating runs notebook code in the paused frame, so keep it to reads. A cell under the debugger has no time limit. Only this cell's own code stops at breakpoints; libraries, %run notebooks and threads the cell starts don't."));
 }
 
+// Listed in the Keyboard shortcuts dialog while a notebook is open and breakpoints are shown (Preview).
+registerShortcuts("Notebook debugger", [
+  { keys: ["F9"], label: "Set or clear a breakpoint on the line", when: () => state.view === "notebook" && dbgOn() },
+  { keys: ["F5"], label: "Continue to the next breakpoint (while paused)", when: () => state.view === "notebook" && dbgOn() },
+  { keys: ["F10"], label: "Step over (while paused)", when: () => state.view === "notebook" && dbgOn() },
+  { keys: ["F11"], label: "Step into (while paused)", when: () => state.view === "notebook" && dbgOn() },
+  { keys: ["Shift+F11"], label: "Step out (while paused)", when: () => state.view === "notebook" && dbgOn() },
+]);
 document.addEventListener("keydown", (e) => {
   const action = dbgKeyAction(e);
   if (!action || state.view !== "notebook" || !dbgPausedCell()) return;

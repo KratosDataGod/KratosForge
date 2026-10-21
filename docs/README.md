@@ -115,6 +115,7 @@ KratosForge is new, and it's honest about what has been proven.
 
 | Preview feature | Where |
 | --- | --- |
+| Breakpoints, variable history and watches | Notebook line numbers (breakpoints, F5/F10/F11 stepping), Variables pane, View tab (with hidden-state warnings) |
 | Run in Fabric | Notebook ribbon, Data mesh > Environments (notebooks and environments) |
 | Schedules | Notebook ribbon, Data mesh, Monitor (on this PC and in Fabric) |
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
@@ -123,7 +124,6 @@ KratosForge is new, and it's honest about what has been proven.
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | New notebook wizard | Create > Notebook from a template |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
-| Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |

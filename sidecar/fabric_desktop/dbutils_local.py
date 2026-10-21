@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import http_session
-from .notebookutils_local import Host, NotebookExit
+from .notebookutils_local import Host, NotebookExit, vault_url
 from .retrying import send_with_retry
 
 
@@ -169,7 +169,7 @@ class SecretScope:
 
 def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -> types.SimpleNamespace:
     def vault(scope: str) -> str:
-        return scope if scope.startswith("https://") else f"https://{scope}.vault.azure.net"
+        return vault_url(scope)
 
     def get(scope: str, key: str) -> str:
         return get_secret(scope, key)

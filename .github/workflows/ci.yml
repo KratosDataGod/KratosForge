@@ -209,7 +209,8 @@ jobs:
 
   release:
     # Every green build of main replaces the "latest" release (the Preview channel) with the new
-    # exe. People on the Stable channel only move when the Promote to stable workflow runs.
+    # exe, and is also kept as a release of its own (build-<sha>) for pinning and rollback.
+    # People on the Stable channel only move when the Promote to stable workflow runs.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [sidecar, ui, engine, shell, sbom-app]
     runs-on: ubuntu-latest
@@ -218,6 +219,9 @@ jobs:
     concurrency:
       group: release-assets
       cancel-in-progress: false
+    env:
+      # How many per-build releases (build-<sha>) to keep, besides every build promoted to Stable.
+      KEEP_BUILDS: 20
     permissions:
       contents: write
       id-token: write      # build provenance: signs the attestation with this workflow's identity
@@ -240,7 +244,7 @@ jobs:
         with:
           name: sbom-app
       # Signed proof that these exact files were built by this workflow from this commit.
-      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/fabric-desktop
+      # Anyone can check a download with: gh attestation verify <file> -R KratosDataGod/KratosForge
       - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
         with:
           subject-path: |
@@ -265,6 +269,34 @@ jobs:
             --arg exe "$(sha256sum fabric-desktop.exe | cut -d' ' -f1)" \
             --arg engine "$(sha256sum fabric-desktop-engine.zip | cut -d' ' -f1)" \
             '{commit: $commit, notes: $notes, history: $history[0], exe_sha256: $exe, engine_sha256: $engine}' > version.json
+          # Every published build also gets a release of its own that never changes, so it can be
+          # pinned, or promoted to Stable again to roll back, after Preview has moved on. It goes
+          # first, so the build Preview names always has one. version.json last, as for latest.
+          BUILD_TAG="build-${GITHUB_SHA::12}"
+          BUILD_FILES=(fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json)
+          if gh release view "$BUILD_TAG" > /dev/null 2>&1; then
+            ASSETS=$(gh release view "$BUILD_TAG" --json assets --jq '.assets[].name')
+            if grep -qx version.json <<< "$ASSETS"; then
+              # Published by an earlier attempt of this run: leave it as it is.
+              gh release download "$BUILD_TAG" --pattern version.json --output published.json
+              SUMS='.exe_sha256 + " " + .engine_sha256'
+              if [ "$(jq -r "$SUMS" published.json)" = "$(jq -r "$SUMS" version.json)" ]; then
+                cp published.json version.json   # so Preview gets the very same version.json
+              else
+                echo "::warning::$BUILD_TAG already holds another build of this commit; it is kept as it is."
+              fi
+            else
+              # An earlier attempt stopped before version.json, so this release never named a build.
+              gh release upload "$BUILD_TAG" "${BUILD_FILES[@]}" --clobber
+              gh release upload "$BUILD_TAG" version.json --clobber
+            fi
+          else
+            gh release create "$BUILD_TAG" "${BUILD_FILES[@]}" \
+              --title "Fabric Desktop by KratosBI (build ${GITHUB_SHA::7})" \
+              --notes "Build ${GITHUB_SHA::7} of main, kept so it can be pinned or promoted again. The app never updates from this release on its own." \
+              --target "$GITHUB_SHA" --prerelease --latest=false
+            gh release upload "$BUILD_TAG" version.json
+          fi
           BODY="Built automatically from ${GITHUB_SHA::7} on main. Download fabric-desktop.exe and double-click it."
           if gh release view latest > /dev/null 2>&1; then
             # Replace the files in place rather than deleting the release, so PCs checking for an
@@ -277,3 +309,16 @@ jobs:
             gh release create latest fabric-desktop.exe fabric-desktop-engine.zip sbom-engine.cdx.json sbom-app.cdx.json version.json \
               --title "KratosForge (latest build)" --notes "$BODY" --target "$GITHUB_SHA" --prerelease
           fi
+          # Delete per-build releases (and their tags) beyond the newest KEEP_BUILDS. A build that was
+          # promoted to Stable is always kept (promote.yml adds "promoted to Stable" to its title), so
+          # Stable can go back to it. Only build-<12 hex> tags qualify: latest and stable never do.
+          [[ "$KEEP_BUILDS" =~ ^[1-9][0-9]*$ ]] || { echo "KEEP_BUILDS must be a positive number"; exit 1; }
+          OLD_BUILDS=$(gh release list --limit 1000 --exclude-drafts --json tagName,name,createdAt |
+            jq -r --argjson keep "$KEEP_BUILDS" '[.[] | select((.tagName | test("^build-[0-9a-f]{12}$"))
+              and ((.name // "") | test("promoted to Stable") | not))] | sort_by(.createdAt) | reverse | .[$keep:][].tagName')
+          for old in $OLD_BUILDS; do
+            if [ "$old" != "$BUILD_TAG" ]; then
+              echo "Deleting $old (more than $KEEP_BUILDS builds are kept)"
+              gh release delete "$old" --cleanup-tag --yes
+            fi
+          done

@@ -176,17 +176,19 @@ ENTRIES: tuple[ActivitySupport, ...] = (
                         "dataIntegrationUnits": P("unsupported_locally", "Fabric compute sizing; no meaning here."),
                         "enableSkipIncompatibleRow": CARRIED, "logSettings": CARRIED},
             limitations=("Source and sink settings are carried, not checked against each connector's schema.",)),
-    _static("TridentNotebook", "Notebook", ("notebookId",), aliases=("Notebook",), type_name_verified=False,
-            fabric_capacity="metered_in_fabric", auth=("fabric", "workspace_role"),
-            side_effects=("runs_code", "reads_onelake", "writes_onelake"),
-            external_dependencies=("the notebook item", "its default lakehouse"),
-            planned=Planned("local", LATER, "Runs a local copy through Prove's notebook execution path, once it "
-                            "can be called with parameters."),
-            properties={"workspaceId": CARRIED, "parameters": CARRIED,
-                        "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
-                                        "feature."),
-                        "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
-            limitations=("Running on this PC uses a local Python kernel, not Fabric Spark; results can differ.",)),
+    _local("TridentNotebook", "Notebook", A.Notebook, ("notebookId",), aliases=("Notebook",), type_name_verified=False,
+           auth=("fabric",), side_effects=("runs_code", "reads_onelake", "writes_onelake"),
+           external_dependencies=("a copy of the notebook on this PC", "its default lakehouse"),
+           properties={"workspaceId": CARRIED, "parameters": CHECKED,
+                       "sessionTag": P("unsupported_locally", "High-concurrency session sharing is a Fabric Spark "
+                                       "feature."),
+                       "configuration": P("unsupported_locally", "Spark pool settings apply to Fabric only.")},
+           limitations=("Runs the notebook's copy on this PC in a fresh Python kernel, not Fabric Spark; results can "
+                        "differ. Spark notebooks still need a mock.",
+                        "Tables are read at the version they had when the step started and written to the run's own "
+                        "folder in the lakehouse (Files/_fabric_desktop/proofs/pipeline-<run>/), never to its tables. "
+                        "Reading and writing OneLake uses some capacity; no Fabric job is started.",
+                        "The output's result.exitValue is the value given to notebookutils.notebook.exit, as text.")),
     _cloud("SparkJobDefinition", "Spark job definition", ("sparkJobDefinitionId",), type_name_verified=False,
            auth=("fabric", "workspace_role"), side_effects=("runs_code", "starts_fabric_job", "writes_onelake"),
            external_dependencies=("the Spark job definition item",),

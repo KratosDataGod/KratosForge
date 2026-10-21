@@ -62,7 +62,15 @@ function backToIncidents() {
 function incidentsPanel() {
   const box = h("div", { class: "inc-panel" }, h("p", { class: "muted-text monitor-empty" }, "Reading incidents..."));
   loadIncidents(box);
-  return box;
+  return h("div", { class: "mon-how" }, withHowItWorks(box, howItWorks("monitor.incidents", {
+    reads: "Each environment's incident list, incidents/incidents.json in its LH_Meta, and the status records of the agents that serve it, with your sign-in.",
+    changes: ["That one shared list, with a write that only lands if nobody else wrote in between. ",
+      "Acknowledge, Assign, Add note and Resolve change one incident, recorded with your name and time. ",
+      "Check now, and the check this app makes every 10 minutes while no running agent checks the environment, open and recover incidents. Nothing here runs anything or changes data."],
+    results: "Everyone who can read the environment, and every agent that serves it, sees the same list. Only the app's own 10-minute check posts new incidents to Teams, to the webhook in Settings > Notifications if one is set; Check now never posts. Agents post to the routes their admin set.",
+    more: [["Can't check is not failing", "When an environment can't be read, that is its own incident kind, never a workload failure, and an open incident is only marked Recovered after a check that could read the environment."]],
+    anchor: "incidents-preview",
+  })));
 }
 
 async function loadIncidents(box) {
@@ -220,7 +228,7 @@ function resolveIncident(i, reload) {
 // ---------- one incident ----------
 
 async function renderIncident() {
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const list = await attempt(() => rpc("incidents_list", { env: incPage.env_of }), "Couldn't read the incident");
   if (state.view !== "incident") return;
   const inc = (list?.incidents || []).find((x) => x.id === incPage.id);
@@ -241,7 +249,7 @@ async function renderIncident() {
         h("h1", {}, inc.title, " ", incStatePill(inc), inc.escalated_at ? h("span", { class: "pill-s wrn" }, "Escalated") : null,
           preview("incidents", h("span", {}))),
         h("p", { class: "sub" }, [inc.kind_label, inc.criticality ? inc.criticality[0].toUpperCase() + inc.criticality.slice(1) : "",
-          envName(inc.env), opened, seen].filter(Boolean).join(" · "))),
+          envName(inc.env), opened, seen].filter(Boolean).join(" · "), " ", learnMore("incidents-preview"))),
       h("div", { class: "row" },
         inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary") : null,
         inc.state !== "resolved" ? btn("Assign", "person", () => assignIncident(inc, reload), "tool outline") : null,

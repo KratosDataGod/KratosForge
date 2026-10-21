@@ -18,7 +18,9 @@ import builtins
 import re
 from typing import Any
 
-_BUILTINS = set(dir(builtins)) | {"display", "spark", "notebookutils", "mssparkutils", "sc", "sqlContext",
+from . import magics
+
+_BUILTINS = set(dir(builtins)) | {"display", "spark", "notebookutils", "mssparkutils", "dbutils", "sc", "sqlContext",
                                   "__name__", "__file__", "get_ipython"}
 _READ_TABLE = {"read_table", "open_table", "table"}
 _READ_FILE = {"read_csv", "read_parquet", "read_json", "path", "local_path"}
@@ -193,36 +195,59 @@ class _Cell(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+_SHELL = {"system", "sx", "sh"}
+
+
 def _python(source: str) -> tuple[str | None, list[int]]:
-    """The cell's Python (magics blanked, keeping line numbers), or None for a %%sql cell."""
-    head = source.lstrip()
-    if head.startswith("%%sql"):
+    """The cell's Python (magics blanked, keeping line numbers, ``x = %sql ...`` kept as
+    ``x = None``), or None for a cell in another language (SQL, Markdown, Scala...)."""
+    cell = magics.cell(source)
+    if cell.language != "python":
         return None, []
-    magics = []
-    lines = source.split("\n")
+    found = []
+    lines = cell.body.split("\n")
     for i, ln in enumerate(lines):
-        if re.match(r"^\s*%%", ln) and i == 0:
+        if re.match(r"^\s*%%", ln):
+            found.append(i + 1)
             lines[i] = ""
-        elif re.match(r"^\s*[%!]", ln):
-            magics.append(i + 1)
-            lines[i] = ""
-    return "\n".join(lines), magics
+    found += [m.line for m in magics.find("\n".join(lines))]
+    return magics.blank("\n".join(lines)), sorted(found)
 
 
 def analyze(source: str) -> dict[str, Any]:
     """What one cell defines, uses, reads, writes and changes, read from its code."""
     out: dict[str, Any] = {"parsed": True, "defines": [], "uses": [], "deferred": [], "reads": [], "writes": [],
                            "effects": [], "dynamic": []}
-    code, magics = _python(source)
-    if code is None:
-        _sql(source.lstrip()[5:], out, 1)
-    else:
-        for line in magics:
+    code, lines = _python(source)
+    cell = magics.cell(source)
+    if cell.language == "sql":
+        _sql(cell.body, out, 1)
+        if magics.returns_rows(cell.body):
+            out["defines"].append("_sqldf")
+    elif cell.language == "shell":
+        out["effects"].append({"line": 1, "text": "runs shell commands"})
+    elif cell.language == "writefile":
+        target = next((w for w in cell.args.split() if not w.startswith("-")), "a file")
+        out["writes"].append({"kind": "file", "name": target, "line": 1})
+        out["effects"].append({"line": 1, "text": f"writes the file {target}"})
+    elif code is not None:
+        for line in lines:
             text = source.split("\n")[line - 1].strip()
-            if text.startswith("%run"):
+            magic = next(iter(magics.find(text)), None)
+            if magic is None:
+                continue
+            if magic.name == "sql":
+                _sql(magic.rest, out, line)
+            elif magic.name == "run":
                 out["dynamic"].append({"line": line, "text": f"{text} runs another notebook, which can define any name"})
-            elif text.startswith(("%pip", "!pip", "%conda")):
+            elif magic.name in ("pip", "conda") or re.match(r"\s*pip\b", magic.rest) and magic.name in _SHELL:
                 out["effects"].append({"line": line, "text": "installs packages"})
+            elif magic.name in _SHELL:
+                out["effects"].append({"line": line, "text": "runs a shell command"})
+            elif magic.name == "reset":
+                out["dynamic"].append({"line": line, "text": "%reset clears every variable"})
+            elif magic.name == "fs" and re.match(r"\s*(cp|mv|rm|mkdirs|put)\b", magic.rest):
+                out["effects"].append({"line": line, "text": "changes files with %fs"})
         try:
             tree = ast.parse(code)
         except SyntaxError as exc:
@@ -230,6 +255,8 @@ def analyze(source: str) -> dict[str, Any]:
             out["dynamic"].append({"line": exc.lineno or 1, "text": f"doesn't parse: {exc.msg}"})
             return out
         visitor = _Cell(out)
+        if cell.header == "%%capture" and (name := next((w for w in cell.args.split() if not w.startswith("-")), None)):
+            visitor.define(name)
         visitor.visit(tree)
         out["deferred"] = [n for n in out["uses"] if n not in visitor.now]  # used only inside function bodies
         for m in _NETWORK.finditer(code):

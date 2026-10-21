@@ -21,8 +21,8 @@ from .service import Service
 METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", "sign_out", "app_settings", "save_app_settings", "list_workspaces", "list_capacities", "list_lakehouses", "create_lakehouse",
            "catalog", "catalog_tables", "endorsements", "set_favorite", "list_items", "workspace_marks", "set_workspace_mark",
            "list_tables", "list_files", "preview_job", "run_job", "history",
-           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "kernel_complete", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
-           "save_notebook", "rename_notebook", "delete_notebook", "publish_notebook",
+           "run_cell", "start_cell", "poll_cell", "interrupt_cell", "debug_cell", "kernel_variables", "kernel_variable_detail", "kernel_complete", "kernel_inspect", "notebook_syntax", "notebook_frame_page", "notebook_frame_profile", "notebook_frame_chart", "notebook_frame_wrangle", "notebook_frame_download", "restart_kernel", "run_sql", "save_sql", "export_sql_csv", "table_columns", "sql_dialects", "sql_format", "sql_analyze", "sql_compat_profiles", "sql_compat_export", "sql_start", "sql_status", "sql_executions", "sql_page", "sql_cancel", "sql_export", "sql_export_status", "sql_export_cancel", "list_notebooks", "new_notebook", "open_notebook",
+           "save_notebook", "notebook_inputs", "notebook_inputs_set", "rename_notebook", "delete_notebook", "publish_notebook",
            "platform_status", "platform_setup", "platform_join", "platform_forget", "platform_keys_setup", "platform_keys_join", "platform_share_keys", "platform_cancel_share_keys", "platform_domains",
            "platform_save_domain", "platform_delete_domain", "platform_import_fabric_domains", "mesh_workspace_domains", "mesh_map", "platform_glossary", "platform_save_term", "platform_audit",
            "platform_whoami", "platform_admins", "platform_claim_admin", "platform_add_admin", "platform_remove_admin",
@@ -49,7 +49,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_drift", "meta_drift_apply",
            "meta_table_history", "meta_restore", "cost_report", "set_cost_settings", "capacity_health",
            "usage_preview", "usage_import", "usage_imports", "usage_import_delete", "usage_reconciliation",
-           "risk_check", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
+           "risk_check", "meta_risk_gate", "risk_settings", "set_risk_settings", "risk_acknowledge", "risk_acknowledgements",
            "list_shortcuts", "all_shortcuts", "create_shortcut", "delete_shortcut", "shortcut_connections",
            "shortcut_center", "shortcut_check", "shortcut_readers", "shortcut_access", "shortcut_rules",
            "shortcut_save_rules", "shortcut_preflight", "shortcut_changes", "shortcut_repoint", "shortcut_undo",
@@ -57,13 +57,13 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "meta_entity_shortcuts", "access_review", "access_set_role", "access_find_person", "access_lakehouse",
            "access_save_role", "access_delete_role", "access_who_can_read", "meta_tests", "meta_varlib",
            "meta_publish_varlib", "add_pc_schedule", "pc_schedules_for", "delete_pc_schedule",
-           "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "all_schedules",
+           "set_pc_schedule_enabled", "run_pc_schedule_now", "sync_pc_schedules", "pc_schedule_runs", "notebook_runs", "all_schedules",
            "set_fabric_schedule_enabled", "delete_fabric_schedule", "run_fabric_item_now",
            "xray", "xray_pause", "xray_optimize", "xray_optimize_check", "xray_vacuum", "xray_vacuum_preview", "xray_adopt_plan", "xray_adopt",
            "preview_table", "preview_file", "preview_notebook",
            "side_by_side_start", "side_by_side_status", "side_by_side_list", "side_by_side_cancel", "benchmark_notebooks",
            "workloads_list", "workload_detail", "workload_assign", "workload_link", "workload_unlink",
-           "workload_preflight", "workload_act", "workload_actions",
+           "workload_preflight", "workload_act", "workload_actions", "workload_capacity_use",
            "agents_list", "queue_list", "run_as_list", "incidents_list", "incidents_summary", "incidents_watch", "incidents_evaluate", "incident_acknowledge", "incident_assign", "incident_note",
            "incident_resolve",
            "incidents_board", "incident_sla_policy", "incident_report", "incident_set_priority", "incidents_history_sync", "incidents_history",
@@ -72,7 +72,8 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "prove_delete_outputs", "prove_rules_get", "prove_rules_set", "receipt_save",
            "notebook_debug_get", "notebook_debug_set", "replay_bundle_preview", "replay_bundle_save",
            "replay_bundles_list", "replay_bundle_open", "replay_check", "replay_start", "replay_result", "replay_end",
-           "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "stop_kernel_process",
+           "replay_delete_outputs",
+           "wizard_templates", "wizard_preview", "wizard_create", "kernel_info", "kernel_sessions", "stop_kernel_process", "notebook_environments", "environment_create", "environment_delete", "environment_attach", "environment_install", "environment_uninstall", "environment_job",
            "notebook_dependencies", "side_by_side_writes",
            "git_info", "git_repos", "git_open", "git_forget", "git_init", "git_clone_start", "git_fetch", "git_pull",
            "git_push", "git_op_status", "git_op_cancel", "git_ops", "git_status", "git_diff", "git_stage",
@@ -80,6 +81,7 @@ METHODS = {"environment", "readiness_check", "readiness_write_test", "sign_in", 
            "git_compare", "git_file_at", "git_branches", "git_create_branch", "git_switch", "git_delete_branch",
            "git_restore_stash", "git_abort_merge", "git_settings", "git_set_identity", "git_add_remote",
            "git_path_info", "git_notebook_info", "git_create", "git_set_kind", "git_locations", "git_set_locations",
+           "git_platform_diff", "git_platform_export", "git_platform_deploy",
            "notebook_places", "move_notebook", "audit_log",
            "pipeline_import", "pipeline_validate", "pipeline_inspect", "pipeline_export",
            "pipeline_compatibility", "pipeline_activity_registry",
@@ -113,10 +115,37 @@ from .platform_notify_service import METHODS as PLATFORM_NOTIFY_METHODS  # noqa:
 
 METHODS |= PLATFORM_NOTIFY_METHODS
 
+# A notebook's resources folder (notebook_resources_service.py).
+from .notebook_resources_service import METHODS as NOTEBOOK_RESOURCE_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_RESOURCE_METHODS
+
 # Validate notebook (validate_service.py): code checks and a clean run in a fresh kernel.
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
+from .notebook_versions_service import METHODS as NOTEBOOK_VERSIONS_METHODS  # noqa: E402
+METHODS |= NOTEBOOK_VERSIONS_METHODS
+
+# Notebook files (notebook_files_service.py): search, open a file, save a copy, delete and restore,
+# and copy a Fabric notebook to this PC.
+from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FILES_METHODS
+
+# Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
+from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FORMATS_METHODS
+# Profile (progress_service.py): the person's private record of verified work and its report.
+from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
+
+METHODS |= PROFILE_METHODS
+
+# Comments on notebook cells (comments_service.py), kept in the notebook file.
+from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
+
+METHODS |= COMMENT_METHODS
 
 
 def handle(service: Service, line: str) -> dict:

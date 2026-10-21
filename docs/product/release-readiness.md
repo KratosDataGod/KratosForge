@@ -73,11 +73,11 @@ The full threat model is in `docs/security.md` (PR #82). In short:
 | Requirement | Detail |
 | --- | --- |
 | PCs | Windows 10 or 11, 64-bit, with WebView2. Several hundred MB per user for the engine |
-| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/enterprise-install.md#network-access) |
+| Network | The hosts in [Enterprise install: Network access](https://github.com/KratosDataGod/KratosForge/blob/main/docs/enterprise-install.md#network-access) |
 | Fabric | A capacity for lakehouses and anything run in Fabric. Tenant settings as in [Configure Azure and Fabric](../azure-setup.md) |
 | Releases | A maintainer promotes a Preview build to Stable with release notes. Under managed updates, IT deploys each Stable exe |
 | Support | A `support_url` in policy, and support bundles for diagnosis |
-| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/backup.md) |
+| Backups | People's local notebooks and settings: [Back up and restore](https://github.com/KratosDataGod/KratosForge/blob/main/docs/backup.md) |
 
 ## Validated scenarios
 

@@ -151,7 +151,7 @@ Full loads and rebuilds replace the whole table. A source too big to read at onc
 
 **Before it reads a Delta source** (a table, a link or another entity), a run estimates the read from the table's Delta log alone: the files left after the watermark, their rows, their size on disk, and the memory the columns it reads take (8 bytes a number or timestamp, 4 a date, about 32 a text value). The **read** step shows it, for example *about 2,000 rows in 1 of 20 files (0.4 MB on disk, 0.1 MB in memory)*. If three times that estimate (the read plus the copies the later steps make; a 5-million-row first load peaked at 2.5 times) is more than the machine's free memory, the run stops before reading anything and says what to do instead: load it incrementally, read fewer columns, or run the environment in Fabric. To try anyway, set `memory_guard = false` under `[load]`; that isn't a logic change, so it doesn't ask whether to rebuild. Free memory is read on Windows and Linux; elsewhere there's no guard. File sources (`files`, `landing`) aren't estimated yet.
 
-Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/benchmark/large_tables.py):
+Measured on one Linux machine (4 cores, 16 GB), local Delta tables, one incremental run with 1,000 changed and 1,000 new rows, using [examples/benchmark/large_tables.py](https://github.com/KratosDataGod/KratosForge/blob/main/examples/benchmark/large_tables.py):
 
 | Table | Changed rows | Write | Seconds | Peak memory | Files rewritten | Written |
 | --- | --- | --- | --: | --: | --: | --: |
@@ -227,7 +227,7 @@ expires = "2026-11-01"
 | **Schema drift** card | Reads the source now and lists new, gone and retyped columns. Add a new column to the contract, mark a gone column as renamed (`[source] rename`), take a new type, or set this table's drift policy. **Save to config** writes it through the save gate. |
 | **Freshness** card | See [Freshness promises](#freshness-promises). |
 | **Quarantine** card | Shows held-back rows and the check that held each. Fix values in place, or fix the check and save, then **Replay selected** (Preview): they go through the contract, derived columns and checks again, and are written as a `replay` run without moving the watermark. **Discard selected** removes rows that should never load. After a replay the app offers to rebuild downstream tables. |
-| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. |
+| **Cell 1: surrogate keys** card | The Spark SQL MERGE that issues this table's keys, for running in Fabric. **Create template notebook** makes a notebook that starts with it. Once the environment's keys come from the platform (SQL_Platform, or SQL_Keys when Dev, Test and Prod share one keys database), there's no MERGE: the card says where keys come from, and runs from Data mesh take them from there. |
 
 ### Freshness promises
 
@@ -409,6 +409,7 @@ lib.CRM_server_host
 
 - If the workspace's semantic models can't be listed (no access, throttling, a sign-in that failed), the app shows the reason and the tab offers neither **Create model** nor **Update model**. Try again once Fabric answers.
 - A table that hasn't been written in the environment yet is left out, and the result says so (**Not written yet, so left out**).
+- A column whose type Direct Lake can't read (arrays, maps, structs) is left out of its table, and the result names each one with its type. A relationship that would use such a column is left out too, and named, rather than pointing at a column the model doesn't have.
 - A table that exists but can't be read stops the build with the table's name and the reason, and nothing is written, so the model never silently loses a table.
 
 Dev on the PC has no Direct Lake model: switch the environment to Test or Prod.

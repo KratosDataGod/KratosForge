@@ -6,8 +6,10 @@ import base64
 import re
 import time
 from typing import Any, Callable
+from urllib.parse import urljoin
 
 import requests
+from urllib3.util import parse_url
 
 from . import http_session
 from .retrying import retry_after, send_with_retry
@@ -51,6 +53,45 @@ def _error(method: str, url: str, resp: requests.Response) -> FabricError:
     return FabricError(f"{method} {url} failed with {resp.status_code}: {resp.text}", code, resp.status_code)
 
 
+# Hosts a URL Fabric hands back (continuationUri, an operation's Location) may name before the
+# token goes with it: Fabric, OneLake, Power BI, and Power BI's regional wabi-* hosts. Only the
+# public cloud: every base URL in this app is a public-cloud one.
+FOLLOW_DOMAINS = ("fabric.microsoft.com", "powerbi.com", "analysis.windows.net")
+UNTRUSTED_URL = "UntrustedUrl"
+
+
+def _sent_to(url: str) -> Any:
+    """The URL as requests will send it, parsed the way urllib3 will connect to it. Checking the
+    standard library's reading instead lets "https://evil.example\\.fabric.microsoft.com/" pass as a
+    Fabric host while requests connects to evil.example."""
+    return parse_url(requests.Request("GET", url).prepare().url)
+
+
+def followable_url(url: str, came_from: str) -> str:
+    """``url`` (relative or absolute) resolved against the request it came from, if it's https on
+    that request's host or under FOLLOW_DOMAINS. Anything else raises, so the token isn't sent.
+    Returns the URL exactly as it will be sent, so the host checked is the host contacted."""
+    unreadable = FabricError("Fabric pointed to a page with an address Fabric Desktop by KratosBI can't check; it "
+                             "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    try:
+        full = urljoin(came_from, url)
+        if "\\" in full or any(ord(ch) <= 0x20 or ord(ch) == 0x7F for ch in full):
+            raise unreadable
+        parts, origin = _sent_to(full), _sent_to(came_from)
+    except (requests.RequestException, ValueError) as exc:
+        raise unreadable from exc
+    host = (parts.host or "").lower()
+    same = host == (origin.host or "").lower()
+    known = any(host == d or host.endswith(f".{d}") for d in FOLLOW_DOMAINS)
+    if parts.scheme != "https" or parts.auth:
+        raise FabricError(f"Fabric pointed to a page without a secure connection ({host or full}); Fabric Desktop "
+                          "by KratosBI didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    if not host or not (same or known):
+        raise FabricError(f"Fabric pointed to a page on another site ({host or full}); Fabric Desktop by KratosBI "
+                          "didn't follow it, so your sign-in stays private.", UNTRUSTED_URL)
+    return parts.url
+
+
 POLICY_BLOCKED = "PolicyBlocked"
 
 
@@ -82,17 +123,20 @@ class FabricClient:
 
     def _paged(self, url: str, key: str = "value") -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
+        url = url if url.startswith("http") else f"{API}{url}"
         while url:
             body = self._request("GET", url).json()
             items.extend(body.get(key, []))
-            url = body.get("continuationUri")
+            nxt = body.get("continuationUri")
+            url = followable_url(nxt, url) if nxt else ""
         return items
 
     def _wait(self, resp: requests.Response) -> dict[str, Any]:
         """Follow a 202 long-running operation to its result."""
         if resp.status_code != 202:
             return resp.json() if resp.content else {}
-        location = resp.headers["Location"]
+        came_from = getattr(resp, "url", None)  # the request's own URL; Fabric's operations start at API
+        location = followable_url(resp.headers["Location"], came_from if isinstance(came_from, str) and came_from else API)
         deadline = time.monotonic() + self._poll_timeout
         while True:
             self._sleep(retry_after(resp.headers, 2))
@@ -135,6 +179,10 @@ class FabricClient:
         """Every item in the workspace: lakehouses, warehouses, notebooks, semantic models, ..."""
         return self._paged(f"/workspaces/{workspace_id}/items")
 
+    def list_tables(self, workspace_id: str, lakehouse_id: str) -> list[dict[str, Any]]:
+        """A lakehouse's tables, as Fabric lists them (lakehouses with schemas aren't listed by this API)."""
+        return self._paged(f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables", key="data")
+
     def get_lakehouse(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 
@@ -152,6 +200,11 @@ class FabricClient:
         """Delete a lakehouse with its tables and files (shortcut targets stay). Only the live test
         harness calls this, for lakehouses it created itself."""
         self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
+
+    def delete_item(self, workspace_id: str, item_id: str) -> None:
+        """Delete an item (a notebook or pipeline). Only the live test harness calls this, for
+        items it created itself and recorded in its ledger."""
+        self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
 
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
@@ -307,11 +360,21 @@ class FabricClient:
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
 
+    def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
+        """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
+        type}, role}]. Fabric admin API, Tenant.Read.All."""
+        return self._paged(f"/admin/domains/{domain_id}/roleAssignments")
+
     def list_tenant_settings(self) -> list[dict[str, Any]]:
         """Fabric's tenant settings: [{settingName, title, enabled, tenantSettingGroup, ...}]. Fabric
         administrators only (Tenant.Read.All); anyone else gets 401/403. Documented as paged
         (continuationUri) and limited to 25 calls a minute."""
         return self._paged("/admin/tenantsettings")
+
+    def list_capacity_tenant_setting_overrides(self) -> list[dict[str, Any]]:
+        """Tenant settings each capacity overrides: [{id (capacity id), tenantSettings: [...]}].
+        Fabric administrators only (Tenant.Read.All); documented as paged (continuationUri)."""
+        return self._paged("/admin/capacities/delegatedTenantSettingOverrides")
 
     # ---- workspaces: who has access
 
@@ -385,6 +448,17 @@ class FabricClient:
         url = f"/workspaces/{workspace_id}/variableLibraries/{existing['id']}/updateDefinition"
         self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
+
+    def read_variable_library(self, workspace_id: str, name: str) -> tuple[dict[str, str], str | None] | None:
+        """The library's definition files (decoded) and active value set, or None if the workspace
+        has no library with this name. Read only: getDefinition is a POST but changes nothing."""
+        item = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), None)
+        if item is None:
+            return None
+        got = self.get_item_definition(workspace_id, item["id"])
+        parts = {p["path"]: base64.b64decode(p["payload"]).decode("utf-8-sig")
+                 for p in (got.get("definition") or {}).get("parts", [])}
+        return parts, (item.get("properties") or {}).get("activeValueSetName")
 
     def set_active_value_set(self, workspace_id: str, library_id: str, value_set: str) -> None:
         self._request("PATCH", f"/workspaces/{workspace_id}/variableLibraries/{library_id}",

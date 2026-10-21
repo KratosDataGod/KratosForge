@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import threading
 import time
 import uuid
@@ -17,6 +18,8 @@ from . import depgraph, jsonfile, receipts
 from . import side_by_side as sbs
 from .fabric_run import TERMINAL, compute_check, uses_local_module, uses_spark
 from .onelake import DFS_HOST, FileStore, storage_options
+
+_log = logging.getLogger(__name__)
 
 NOTEBOOK_JOB = "RunNotebook"
 POLL_SECONDS = 5
@@ -103,10 +106,29 @@ class SideBySideMixin:
                 rows.append(json.loads(line))
             except ValueError:
                 torn = True
-        if torn:  # keep the original aside and the rows that still read in place
-            jsonfile.set_aside(self.side_by_side_file, then=f"the {len(rows)} comparisons that could be read were kept")
-            jsonfile.write_text(self.side_by_side_file, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        if torn:
+            self._sbs_repair(rows)
         return rows
+
+    def _sbs_repair(self, rows: list[dict[str, Any]]) -> None:
+        """Copy the torn file aside, then swap in the rows that still read.
+
+        If that fails, the original stays in place and the next save rewrites it. Until the file
+        changes, reads don't try again, so Monitor's polls don't pile up copies or wait on retries."""
+        path = self.side_by_side_file
+        try:
+            stat = path.stat()
+        except OSError:
+            return
+        seen = (stat.st_mtime_ns, stat.st_size)
+        if getattr(self, "_sbs_failed_repair", None) == seen:
+            return
+        try:
+            jsonfile.set_aside(path, keep=True, then=f"the {len(rows)} comparisons that could be read were kept")
+            jsonfile.write_text(path, "".join(json.dumps(r, default=str) + "\n" for r in rows))
+        except OSError as exc:
+            self._sbs_failed_repair = seen
+            _log.warning("%s could not be repaired (%s); showing the comparisons that could be read.", path, exc)
 
     def _sbs_save(self, record: dict[str, Any]) -> None:
         """Keep the finished comparison (without cell outputs, which can be large)."""
@@ -193,7 +215,7 @@ class SideBySideMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "local":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -252,9 +274,10 @@ class SideBySideMixin:
         local = record["local"]
         local["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()  # a clean start, as Fabric has
         kernel.notebook_name = record["name"]
+        kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         started = time.monotonic()
         status = "ok"
         for n, i in enumerate(code, 1):

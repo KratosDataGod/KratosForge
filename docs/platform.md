@@ -11,7 +11,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 
 | Item | Type | What it's for |
 | --- | --- | --- |
-| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
+| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`, until they move into [one keys database](#one-keys-database-for-dev-test-and-prod)) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
 | `UDF_Platform` | User data functions | The platform's API. KratosForge, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
 | `LH_Landing` | Lakehouse | The one landing zone: raw files from every source system, in `Files/<source>/<entity>/`. Teams read it; they don't copy it |
 | `LH_Meta` | Lakehouse | Run history from every project |
@@ -77,7 +77,7 @@ The rail's **Platform** page is the central team's home, and the same screens sh
 - **Overview:** counts, requests that need you, each environment's platform, landing zone sources (late ones first in red) and recent changes.
 - **Landing zone:** each source in `LH_Landing` for the environment picked at the top: its entities, newest files, last arrival, how often it's expected and which projects read it. A source that hasn't arrived within its expected hours (plus a quarter) shows **late**. Folders in the landing zone that no admin registered show **not registered**.
 - **Business keys:** the platform's key tables. **New key table** (admins) makes it in Dev, Test and Prod at once, so every environment has the same tables.
-- **Domains** and **Glossary:** your organization's domains and shared terms. This is the only place they're created and edited; Data mesh > Domains lists the domains and links here. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
+- **Domains** and **Glossary:** your organization's domains and shared terms. This is the only place they're created and edited; Data mesh > Domains lists the domains and links here. **Import from Fabric** brings in the domains and subdomains defined in Fabric; it needs a Fabric administrator. A domain that follows Fabric offers **Edit owners** (its name and parent follow Fabric); delete it in Fabric first, or the next import brings it back. See [Domains come from Fabric](data-mesh.md#domains-come-from-fabric).
 - **Governance:** the organization's governance policies, their versions, where each applies and why. See [Governance policies](governance.md).
 - **Requests:** what domain teams asked for, and what was decided.
 - **Audit** and **Settings** (where each environment's platform is, and its admins).

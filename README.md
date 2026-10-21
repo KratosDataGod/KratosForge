@@ -26,7 +26,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 
 ## Documentation
 
-**Read the docs at [kratosdatagod.github.io/fabric-desktop](https://kratosdatagod.github.io/fabric-desktop/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
+**Read the docs at [kratosdatagod.github.io/kratosforge](https://kratosdatagod.github.io/kratosforge/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
 
 | Document | What it covers |
 | --- | --- |
@@ -41,10 +41,26 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
+| [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
+| [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
+| [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
+| [docs/notebook-import-export.md](docs/notebook-import-export.md) | Fabric and Databricks notebook formats: import Fabric or Databricks source and .dbc archives, export as .ipynb, Fabric or Databricks source or HTML (Preview) |
+| [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
+| [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
+| [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
+| [docs/notebook-editor/select-and-run-parts.md](docs/notebook-editor/select-and-run-parts.md) | Select several notebook cells to run, copy, merge, freeze or delete together; run selected text with Ctrl+Shift+Enter |
+| [docs/notebook-editor/organise-cells.md](docs/notebook-editor/organise-cells.md) | Organise notebook cells: collapse heading sections, cell titles and tags, duplicate, drag to move |
+| [docs/notebook-editor/load-data-items.md](docs/notebook-editor/load-data-items.md) | Drag lakehouse tables and files into notebook cells, or right-click them to load with Polars, Spark, SQL or pandas |
+| [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |
+| [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |
+| [docs/notebook-comments.md](docs/notebook-comments.md) | Comments on notebook cells: threads on a cell or lines of its code, replies, resolve, and the Comments panel, kept in the notebook file |
+| [docs/notebook-editor/intellisense.md](docs/notebook-editor/intellisense.md) | Notebook IntelliSense: hover docs, signature help, docs in autocomplete and syntax errors as you type, all from the local kernel |
+| [docs/notebook-editor/variables.md](docs/notebook-editor/variables.md) | The notebook Variables pane: filter, sort by memory, open data frames, lists and dicts |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
@@ -57,7 +73,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
-| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
+| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, repository kinds, the platform repository (compare, export, deploy), and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
 | [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or can only run in Fabric, per activity and property (Preview) |
 | [docs/orchestration/local-runs.md](docs/orchestration/local-runs.md) | Running a Fabric pipeline's control flow on your PC, with mocks for data activities and nothing run in Fabric (Preview) |
@@ -88,7 +104,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |
 
-**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
+**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
 
 ## Layout
 
@@ -119,7 +135,7 @@ fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the 
 
 ### Desktop app
 
-Download [fabric-desktop.exe](https://github.com/KratosDataGod/fabric-desktop/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
+Download [fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
 
 Each time it starts, the app checks its components before anything else runs. The check only shows a window when something is updating or needs attention:
 

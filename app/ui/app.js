@@ -1706,8 +1706,9 @@ function renderTree(container, ref, onInsert, onPick = null) {
           const pick = { kind: "table", schema, table: t };
           rows.push(h("button", {
             class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: "padding-left:44px",
-            title: onInsert ? "Insert code that loads this table" : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
-            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table("${schema}.${t}")\ndf`) : onPick && onPick(pick),
+            title: onInsert ? "Click to add a cell that loads this table. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${schema}.${t}` : `${schema}.${t}`,
+            onclick: () => onInsert ? onInsert(`df = lakehouse.read_table(${JSON.stringify(`${schema}.${t}`)})\ndf`) : onPick && onPick(pick),
+            ...(onInsert ? dataItemAttrs(pick) : {}),  // nbdrag.js
           }, icon("table", 15), h("span", { class: "label" }, t)));
         });
       }
@@ -1733,8 +1734,9 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
     } else {
       const pick = { kind: "file", path: item.path, size: item.size };
       rows.push(h("button", { class: `tree-row${onPick && isPreviewed({ ...pick, ref }) ? " selected" : ""}`, style: `padding-left:${indent + 38}px`,
-        title: onInsert ? "Insert code that reads this file" : onPick ? `Preview ${item.path}` : item.path,
-        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick) },
+        title: onInsert ? "Click to add a cell that reads this file. Drag it into a cell, or right-click for other ways to load it." : onPick ? `Preview ${item.path}` : item.path,
+        onclick: () => onInsert ? onInsert(readSnippet(item.path)) : onPick && onPick(pick),
+        ...(onInsert ? dataItemAttrs(pick) : {}) },  // nbdrag.js
       icon("file", 15), h("span", { class: "label" }, item.name), h("span", { class: "hint" }, formatSize(item.size))));
     }
   }
@@ -1744,7 +1746,7 @@ function fileRows(ref, path, indent, onInsert, rerender, onPick = null) {
 function readSnippet(path) {
   const ext = path.split(".").pop().toLowerCase();
   const reader = { parquet: "read_parquet", json: "read_json" }[ext] || "read_csv";
-  return `df = lakehouse.${reader}("${path}")\ndf`;
+  return `df = lakehouse.${reader}(${JSON.stringify(path)})\ndf`;
 }
 
 function formatSize(bytes) {

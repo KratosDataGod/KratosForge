@@ -3157,6 +3157,37 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Tables and files from the notebook's Explorer (nbdrag.js): what a drop inserts and the ways to load.
+test("dropping a table or file inserts its load code on an empty line, else its name for the cell's language", () => {
+  const src = fs.readFileSync(path.join(ui, "nbdrag.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, readSnippet: (p) => `df = lakehouse.read_csv("${p}")\ndf` };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { dataItemDropText, dataItemLoads };`, ctx);
+  const { dataItemDropText, dataItemLoads } = ctx.f;
+  const table = { kind: "table", schema: "dbo", table: "sales" };
+  assert.strictEqual(dataItemDropText(table, "python", { blankLine: true }), 'df = lakehouse.read_table("dbo.sales")\ndf');
+  assert.strictEqual(dataItemDropText(table, "python"), '"dbo.sales"');
+  assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL"]);
+  const odd = { kind: "file", path: "Files/notes/readme.txt" };
+  assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
+  assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+  // Names are quoted wherever they go into code, so a quote in a file name can't end the string.
+  const ctx2 = { document: { addEventListener() {} } };
+  vm.createContext(ctx2);
+  vm.runInContext(`${/function readSnippet\([\s\S]*?\n}\n/.exec(app)[0]}\n${src}\nthis.f = { dataItemLoads, dataItemDropText };`, ctx2);
+  const evil = { kind: "file", path: 'Files/x"); import os; os.system("calc"); (".csv' };
+  assert.strictEqual(ctx2.f.dataItemLoads(evil)[0][1], `df = lakehouse.read_csv(${JSON.stringify(evil.path)})\ndf`);
+  assert.match(app, /onInsert\(`df = lakehouse\.read_table\(\$\{JSON\.stringify\(`\$\{schema\}\.\$\{t\}`\)\}\)\\ndf`\)/);
+  const odd2 = { kind: "table", schema: "dbo", table: "my `odd` table" };
+  assert.strictEqual(ctx2.f.dataItemDropText(odd2, "sql"), "dbo.`my ``odd`` table`");
+  assert.match(ctx2.f.dataItemLoads(odd2)[2][1], /FROM dbo\.`my ``odd`` table` LIMIT/);
+});
+
 // Notebook find and replace (nbfind.js): matches across cells with the bar's flags, regex groups in
 // the replacement, and edits applied from the end of a cell.
 test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {

@@ -1783,3 +1783,7 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .nb-find-md { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-2); padding: 0 4px; }
 .cm-editor .nb-find-match { background: rgba(248, 153, 28, 0.28); border-radius: 2px; }
 .cm-editor .nb-find-match.current { background: rgba(248, 153, 28, 0.7); outline: 1px solid #a35400; }
+/* Dragging a table or file from the Explorer into the notebook (nbdrag.js). */
+.explorer .tree-row[draggable="true"] { cursor: grab; }
+.cells.drop-ready .cell-box { outline: 1px dashed #c7d3e8; }
+.cells.drop-ready .cm-editor { background: #fbfcfe; }

@@ -3381,6 +3381,10 @@ test("a collapsed heading hides the cells up to the next heading of the same or 
   assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
   assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
   assert.strictEqual(headingLevel(code(1)), 0);
+  // A comment inside a fenced code block isn't a heading.
+  assert.strictEqual(headingLevel(md(1, "Example:\n```python\n# load the table\n```")), 0);
+  assert.strictEqual(headingLevel(md(1, "~~~\n# x\n~~~\n### After")), 3);
+  assert.strictEqual(headingLevel(md(1, "````\n```\n# x\n````\n## Out")), 2);
   const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
   const { hidden, counts } = collapsedCells(cells);
   assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);

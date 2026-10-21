@@ -46,6 +46,35 @@ fn policy_allows_updates(text: &str) -> bool {
     value.get("auto_update").and_then(Value::as_bool) != Some(false)
 }
 
+/// Extra hosts the Fabric view may open for sign-in: the organization's own identity provider
+/// (AD FS, Okta, Ping, ...), from `"fabric_view_sign_in_hosts"` in the policy file. Only that
+/// file can set it; a missing or unreadable file means none.
+fn fabric_view_sign_in_hosts() -> Vec<String> {
+    let Some(dir) = std::env::var_os("ProgramData") else { return Vec::new() };
+    policy_sign_in_hosts(&std::fs::read_to_string(PathBuf::from(dir).join("FabricDesktop").join("policy.json")).unwrap_or_default())
+}
+
+/// The valid entries of `fabric_view_sign_in_hosts`, lower-cased; invalid ones are skipped.
+fn policy_sign_in_hosts(text: &str) -> Vec<String> {
+    let value: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).unwrap_or(Value::Null);
+    let Some(list) = value.get("fabric_view_sign_in_hosts").and_then(Value::as_array) else { return Vec::new() };
+    list.iter().filter_map(Value::as_str).filter(|h| dns_name(h)).map(str::to_ascii_lowercase).collect()
+}
+
+/// An exact DNS host name: two or more labels of letters, digits and inner hyphens, each at most
+/// 63 long, 253 in all, not ending in a number (so no IP address). No wildcard, scheme, port,
+/// path, user name or trailing dot; a non-ASCII name must be given in its xn-- form.
+fn dns_name(host: &str) -> bool {
+    let labels: Vec<&str> = host.split('.').collect();
+    host.len() <= 253
+        && labels.len() >= 2
+        && labels.iter().all(|l| {
+            !l.is_empty() && l.len() <= 63 && !l.starts_with('-') && !l.ends_with('-')
+                && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+        && !labels.last().is_some_and(|l| l.bytes().all(|b| b.is_ascii_digit()))
+}
+
 #[cfg(test)]
 mod policy_tests {
     use super::policy_allows_updates;
@@ -59,6 +88,34 @@ mod policy_tests {
         assert!(policy_allows_updates(r#"{"auto_update": true}"#));
         assert!(!policy_allows_updates(r#"{"auto_update": false}"#));
         assert!(!policy_allows_updates("\u{feff}{\"auto_update\": false}"));
+    }
+
+    #[test]
+    fn sign_in_hosts_keep_only_exact_dns_names() {
+        let text = r#"{"fabric_view_sign_in_hosts": [
+            "adfs.contoso.com", "Contoso.Okta.com", "sso.login-1.example.co.uk", "xn--bcher-kva.example",
+            "*.okta.com", "https://adfs.contoso.com", "adfs.contoso.com:443", "adfs.contoso.com/adfs/ls",
+            "user@adfs.contoso.com", "adfs.contoso.com.", ".contoso.com", "localhost", "10.0.0.5",
+            "-adfs.contoso.com", "adfs-.contoso.com", "adfs..contoso.com", "adfs contoso.com", "bücher.example",
+            "", 42, null, ["adfs.contoso.com"]
+        ]}"#;
+        assert_eq!(
+            super::policy_sign_in_hosts(text),
+            ["adfs.contoso.com", "contoso.okta.com", "sso.login-1.example.co.uk", "xn--bcher-kva.example"]
+        );
+        assert!(super::dns_name(&format!("{}.com", "a".repeat(63))));
+        assert!(!super::dns_name(&format!("{}.com", "a".repeat(64))));
+        assert!(!super::dns_name(&format!("{}com", "a.".repeat(126))));
+        assert_eq!(super::policy_sign_in_hosts("\u{feff}{\"fabric_view_sign_in_hosts\": [\"adfs.contoso.com\"]}"), ["adfs.contoso.com"]);
+    }
+
+    #[test]
+    fn no_sign_in_hosts_from_a_missing_broken_or_wrongly_typed_file() {
+        for text in ["", "not json", "{", "[]", "{}", r#"{"fabric_view_sign_in_hosts": "adfs.contoso.com"}"#,
+                     r#"{"fabric_view_sign_in_hosts": {"host": "adfs.contoso.com"}}"#,
+                     r#"{"fabric_view_sign_in_hosts": null}"#] {
+            assert!(super::policy_sign_in_hosts(text).is_empty(), "{text}");
+        }
     }
 }
 
@@ -576,7 +633,8 @@ const FABRIC_VIEW: &str = "fabric";
 const FABRIC_MONITOR: &str = "https://app.fabric.microsoft.com/monitoringhub?experience=fabric-developer";
 const FABRIC_CATALOG: &str = "https://app.fabric.microsoft.com/onelake/explore?experience=fabric-developer";
 
-/// Hosts of the sign-in and of Fabric's own pages.
+/// Domains whose cookies count as the Fabric view's sign-in (saved, restored, forgotten).
+/// Only for cookies; where the view may go is `FABRIC_VIEW_HOSTS`.
 const FABRIC_HOSTS: [&str; 6] = ["microsoft.com", "microsoftonline.com", "powerbi.com", "live.com", "msauth.net", "msftauth.net"];
 
 fn fabric_host(host: &str) -> bool {
@@ -584,9 +642,60 @@ fn fabric_host(host: &str) -> bool {
     FABRIC_HOSTS.iter().any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
-/// Sign-in and Fabric's own pages stay in the view; any other link opens in the default browser.
-fn stays_in_view(url: &Url) -> bool {
-    fabric_host(url.host_str().unwrap_or_default())
+/// The only hosts the Fabric view itself navigates to (top-level pages and pop-ups), matched
+/// exactly, https only. Images, scripts and frames inside a page aren't filtered by this.
+/// The list and its reasons are in docs/security.md (SH-12).
+const FABRIC_VIEW_HOSTS: [&str; 5] = [
+    "app.fabric.microsoft.com",  // Fabric's portal: Monitoring hub, OneLake catalog, item pages
+    "app.powerbi.com",           // Fabric's former portal host; older item links redirect through it
+    "login.microsoftonline.com", // Entra ID sign-in and sign-out
+    "login.microsoft.com",       // Entra ID's other sign-in host, used on some sign-in redirects
+    "login.windows.net",         // Entra ID's legacy sign-in host; older links and redirects still use it
+];
+
+/// What the Fabric view does with a page it is about to open.
+#[derive(Debug, PartialEq, Eq)]
+enum FabricNav {
+    /// Open it in the view.
+    Stay,
+    /// Open it in the default browser instead.
+    Browser,
+    /// Open it nowhere.
+    Refuse,
+}
+
+/// Fabric's pages and sign-in stay in the view; other web links open in the default browser;
+/// anything else (http to a Microsoft host, file:, javascript:, ...) is refused. `about:blank`,
+/// which the view starts on, is allowed in the view but not as a pop-up. `sign_in_hosts` are the
+/// organization's own (`fabric_view_sign_in_hosts`, already checked by `policy_sign_in_hosts`)
+/// and follow the same rule as the built-in hosts.
+fn fabric_nav(url: &Url, new_window: bool, sign_in_hosts: &[String]) -> FabricNav {
+    if url.as_str() == "about:blank" {
+        return if new_window { FabricNav::Refuse } else { FabricNav::Stay };
+    }
+    let host = url.host_str().unwrap_or_default();
+    let listed = FABRIC_VIEW_HOSTS.contains(&host) || sign_in_hosts.iter().any(|h| h == host);
+    match url.scheme() {
+        "https" if listed && url.username().is_empty() && url.password().is_none() && url.port().is_none() => FabricNav::Stay,
+        "http" if listed => FabricNav::Refuse,
+        "https" | "http" => FabricNav::Browser,
+        _ => FabricNav::Refuse,
+    }
+}
+
+/// Applies `fabric_nav`: true keeps the page in the view.
+fn fabric_nav_allows(url: &Url, new_window: bool, sign_in_hosts: &[String]) -> bool {
+    match fabric_nav(url, new_window, sign_in_hosts) {
+        FabricNav::Stay => true,
+        FabricNav::Browser => {
+            let _ = open_in_browser(url);
+            false
+        }
+        FabricNav::Refuse => {
+            eprintln!("Fabric view: refused to open {}", url.scheme());
+            false
+        }
+    }
 }
 
 fn open_in_browser(url: &Url) -> Result<(), String> {
@@ -660,14 +769,12 @@ async fn fabric_view_show(
     let window = app.get_window("main").ok_or("The main window is not open")?;
     // Start blank: the saved sign-in goes in before the first Fabric request.
     let blank = Url::parse("about:blank").map_err(|e| e.to_string())?;
-    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank)).on_new_window(|url, _| {
-        if stays_in_view(&url) {
-            NewWindowResponse::Allow
-        } else {
-            let _ = open_in_browser(&url);
-            NewWindowResponse::Deny
-        }
-    });
+    // The organization's identity provider hosts, read once for this view.
+    let sign_in_hosts = Arc::new(fabric_view_sign_in_hosts());
+    let (app_, for_pop_ups) = (app.clone(), sign_in_hosts.clone());
+    let builder = WebviewBuilder::new(FABRIC_VIEW, WebviewUrl::External(blank))
+        .on_navigation(move |url| fabric_nav_allows(url, false, &sign_in_hosts))
+        .on_new_window(move |url, features| fabric_pop_up(&app_, &for_pop_ups, url, features));
     #[cfg(windows)]
     let builder = match sso::environment(&app) {
         Ok(environment) => builder.with_environment(environment),
@@ -684,6 +791,44 @@ async fn fabric_view_show(
     view.navigate(target).map_err(|e| e.to_string())?;
     signin::keep_saving(app.clone());
     Ok(())
+}
+
+/// Pop-ups the Fabric view opens (sign-in windows, mostly). An allowed one gets a window the app
+/// builds itself, with the same navigation and pop-up filter, rather than WebView2's own window,
+/// which would share the sign-in but follow any link. The new webview is handed to WebView2 as the
+/// pop-up (SetNewWindow), so `window.opener` and postMessage back to the opener keep working.
+/// `window_features` puts it in the opener's WebView2 environment, so it shares the sign-in.
+fn fabric_pop_up(
+    app: &tauri::AppHandle,
+    sign_in_hosts: &Arc<Vec<String>>,
+    url: Url,
+    features: tauri::webview::NewWindowFeatures,
+) -> NewWindowResponse<tauri::Wry> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    if !fabric_nav_allows(&url, true, sign_in_hosts) {
+        return NewWindowResponse::Deny;
+    }
+    let label = format!("{FABRIC_VIEW}-popup-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let blank = Url::parse("about:blank").expect("about:blank parses");
+    let (hosts, app_, hosts_) = (sign_in_hosts.clone(), app.clone(), sign_in_hosts.clone());
+    let built = tauri::WebviewWindowBuilder::new(app, label, WebviewUrl::External(blank))
+        .window_features(features)
+        .title(url.host_str().unwrap_or("Sign in"))
+        .on_navigation(move |u| fabric_nav_allows(u, false, &hosts))
+        .on_new_window(move |u, f| fabric_pop_up(&app_, &hosts_, u, f))
+        .on_document_title_changed(|window, title| {
+            let _ = window.set_title(&title);
+        })
+        .build();
+    match built {
+        Ok(window) => NewWindowResponse::Create { window },
+        Err(e) => {
+            // Never fall back to WebView2's own, unfiltered window.
+            eprintln!("Fabric view: could not open the pop-up ({e})");
+            NewWindowResponse::Deny
+        }
+    }
 }
 
 /// Keeps the Fabric view's sign-in between launches. Microsoft's sign-in cookies are usually
@@ -911,10 +1056,9 @@ mod sso {
     fn create(folder: &std::path::Path) -> Result<ICoreWebView2Environment, String> {
         let options = CoreWebView2EnvironmentOptions::default();
         unsafe {
-            // Same arguments wry uses for the main view.
-            options.set_additional_browser_arguments(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string(),
-            );
+            // The arguments wry uses for the main view, except that SmartScreen stays on here
+            // (SH-12): this view shows web pages, and it only visits Microsoft's own hosts.
+            options.set_additional_browser_arguments("--disable-features=msWebOOUI,msPdfOOUI".to_string());
             options.set_allow_single_sign_on_using_os_primary_account(true);
         }
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1184,5 +1328,129 @@ mod integrity_tests {
         let tool = system_tool("curl.exe");
         assert!(tool.ends_with("System32/curl.exe") || tool.ends_with("System32\\curl.exe"), "{}", tool.display());
         assert!(tool.is_absolute() || std::env::var_os("SystemRoot").is_none());
+    }
+}
+
+#[cfg(test)]
+mod fabric_nav_tests {
+    use super::*;
+
+    fn nav(url: &str) -> FabricNav {
+        fabric_nav(&Url::parse(url).unwrap(), false, &[])
+    }
+
+    #[test]
+    fn fabric_pages_and_sign_in_stay_in_the_view() {
+        for url in [
+            FABRIC_MONITOR,
+            FABRIC_CATALOG,
+            "https://app.fabric.microsoft.com/groups/me/list?experience=fabric-developer",
+            "https://APP.Fabric.Microsoft.com:443/home",
+            "https://app.powerbi.com/groups/me/reports/1",
+            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=x",
+            "https://login.microsoft.com/common/oauth2/authorize",
+            "https://login.windows.net/common/oauth2/authorize",
+            "about:blank",
+        ] {
+            assert_eq!(nav(url), FabricNav::Stay, "{url}");
+        }
+        let item = fabric_page("https://app.fabric.microsoft.com/groups/1/lakehouses/2", Some("72f988bf-86f1-41af-91ab-2d7cd011db47")).unwrap();
+        assert_eq!(fabric_nav(&item, false, &[]), FabricNav::Stay);
+    }
+
+    #[test]
+    fn look_alike_and_other_hosts_open_in_the_browser() {
+        for url in [
+            "https://app.fabric.microsoft.com.evil.com/",
+            "https://evil.com/app.fabric.microsoft.com",
+            "https://app-fabric.microsoft.com/",
+            "https://appfabric.microsoft.com/",
+            "https://evil.app.fabric.microsoft.com/",
+            "https://fabric.microsoft.com/",
+            "https://microsoft.com/",
+            "https://learn.microsoft.com/fabric/",
+            "https://login.microsoftonline.com.evil.com/",
+            "https://login.windows.net.evil.com/",
+            "https://windows.net/",
+            "https://login.live.com/",
+            "https://app.fabric.microsoft.com./",
+            "https://app.fabric.microsoft.com:8443/",
+            "https://\u{0430}pp.fabric.microsoft.com/", // Cyrillic a
+            "http://example.com/",
+        ] {
+            assert_eq!(nav(url), FabricNav::Browser, "{url}");
+        }
+    }
+
+    #[test]
+    fn user_info_never_counts_as_the_host() {
+        // The host is evil.com; the allowed name is only the user name.
+        assert_eq!(nav("https://app.fabric.microsoft.com@evil.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://app.fabric.microsoft.com:pw@evil.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://login.microsoftonline.com%2F@evil.com/"), FabricNav::Browser);
+        // Allowed host, but with credentials in the link: not kept in the view.
+        assert_eq!(nav("https://user@app.fabric.microsoft.com/"), FabricNav::Browser);
+        assert_eq!(nav("https://user:pw@login.microsoftonline.com/"), FabricNav::Browser);
+    }
+
+    #[test]
+    fn plain_http_and_other_schemes_are_refused() {
+        for url in [
+            "http://app.fabric.microsoft.com/monitoringhub",
+            "http://login.microsoftonline.com/common",
+            "javascript:alert(1)",
+            "file:///C:/Windows/System32/calc.exe",
+            "data:text/html,<script>alert(1)</script>",
+            "ms-settings:privacy",
+            "about:srcdoc",
+            "blob:https://evil.com/0b0b",
+        ] {
+            assert_eq!(nav(url), FabricNav::Refuse, "{url}");
+        }
+    }
+
+    #[test]
+    fn pop_ups_follow_the_same_rule_but_not_blank_ones() {
+        let popup = |u: &str| fabric_nav(&Url::parse(u).unwrap(), true, &[]);
+        assert_eq!(popup("https://login.microsoftonline.com/common/oauth2/authorize"), FabricNav::Stay);
+        assert_eq!(popup("https://example.com/"), FabricNav::Browser);
+        assert_eq!(popup("about:blank"), FabricNav::Refuse);
+        assert_eq!(popup("javascript:alert(1)"), FabricNav::Refuse);
+    }
+
+    #[test]
+    fn pop_ups_never_get_webview2s_own_unfiltered_window() {
+        // Allow hands the pop-up to WebView2's own window, which has no navigation filter;
+        // allowed pop-ups must be Create with fabric_pop_up's filtered window instead.
+        let allow = ["NewWindowResponse", "::Allow"].concat();
+        assert!(!include_str!("main.rs").contains(&allow));
+    }
+
+    #[test]
+    fn the_organizations_sign_in_hosts_follow_the_same_rule() {
+        let hosts = policy_sign_in_hosts(r#"{"fabric_view_sign_in_hosts": ["adfs.contoso.com", "Contoso.Okta.com", "*.ping.com"]}"#);
+        let with = |u: &str| fabric_nav(&Url::parse(u).unwrap(), false, &hosts);
+        assert_eq!(with("https://adfs.contoso.com/adfs/ls/?SAMLRequest=x"), FabricNav::Stay);
+        assert_eq!(with("https://ADFS.contoso.com:443/adfs/ls/"), FabricNav::Stay);
+        assert_eq!(with("https://contoso.okta.com/app/office365/sso/wsfed/passive"), FabricNav::Stay);
+        assert_eq!(fabric_nav(&Url::parse("https://contoso.okta.com/").unwrap(), true, &hosts), FabricNav::Stay);
+        assert_eq!(with(FABRIC_MONITOR), FabricNav::Stay); // the built-in hosts still apply
+        for url in [
+            "https://adfs.contoso.com.evil.com/",
+            "https://evil.adfs.contoso.com/",
+            "https://contoso.com/",
+            "https://adfs-contoso.com/",
+            "https://adfs.contoso.com@evil.com/",
+            "https://user@adfs.contoso.com/",
+            "https://adfs.contoso.com:8443/",
+            "https://adfs.contoso.com./",
+            "https://x.ping.com/",
+            "https://evil-okta.com/",
+        ] {
+            assert_eq!(with(url), FabricNav::Browser, "{url}");
+        }
+        assert_eq!(with("http://adfs.contoso.com/adfs/ls/"), FabricNav::Refuse);
+        // Without the policy, the same host leaves the view.
+        assert_eq!(nav("https://adfs.contoso.com/adfs/ls/"), FabricNav::Browser);
     }
 }

@@ -293,7 +293,7 @@ class _Run:
         self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
-        progress = _query_progress() if self.status == "running" else None
+        progress = _query_progress(self.thread.ident if self.thread else None) if self.status == "running" else None
         with self.lock:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
@@ -328,10 +328,22 @@ WIDGET_SECONDS = 60
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
 
 
-def _query_progress() -> float | None:
-    """The running ``spark`` query's progress, without importing the Spark API for a cell that never used it."""
+def _query_progress(thread: int | None) -> float | None:
+    """The running ``spark`` query's progress, when the cell's own thread is the one waiting on it:
+    a query a widget handler or a thread the cell started doesn't show under the cell. Without
+    importing the Spark API for a cell that never used it."""
     module = sys.modules.get("fabric_desktop.spark_local")
-    return module.progress() if module is not None else None
+    if module is None or thread is None:
+        return None
+    # The cell's thread is waiting on the query when the Spark API, or the table output that runs a
+    # DataFrame shown as the cell's result or a %%sql cell (as_table), is on its stack.
+    frame = sys._current_frames().get(thread)
+    while frame is not None:
+        name = str(frame.f_globals.get("__name__", ""))
+        if name.startswith(("duckdb", "fabric_desktop.spark")) or (name == __name__ and frame.f_code.co_name == "as_table"):
+            return module.progress()
+        frame = frame.f_back
+    return None
 
 
 class _Router(io.TextIOBase):

@@ -210,9 +210,9 @@ async function renderEntitiesTab(body, p) {
         h("td", {}, r ? [statusPill(r.status), h("span", { class: "muted-text" }, " ", when(r.started_at))]
           : h("span", { class: "muted-text" }, "never")),
         h("td", {}, e.owner));
-    }))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No entities yet"),
-    h("span", { class: "text" }, "Add one from a template. It starts out meeting your layer's standards."),
-    btn("New entity", "add", newEntityDialog, "tool primary")));
+    }))) : emptyState({ title: "No entities yet",
+    text: "Add one from a template. It starts out meeting your layer's standards.",
+    action: btn("New entity", "add", newEntityDialog, "tool primary") }));
 }
 
 function newEntityDialog(preset) {
@@ -347,7 +347,7 @@ async function renderEntity() {
         h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
-          h("span", { class: "mono" }, e.path))),
+          h("span", { class: "mono" }, e.path), " ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
           if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
@@ -890,10 +890,10 @@ async function renderKeysTab(body) {
       h("td", { class: "n" }, t.created ? t.keys.toLocaleString() : h("span", { class: "muted-text" }, "not created")),
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
-    : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
-        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      addKeyTableButton(k, rerender, "tool primary"));
+    : emptyState({ title: "No key tables yet",
+      text: k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys.",
+      action: addKeyTableButton(k, rerender, "tool primary") });
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
@@ -1129,6 +1129,12 @@ async function moveSourcesToPlatform(own, env, done) {
   } else toast(res.moved.length ? `Moved ${res.moved.join(", ")} to the platform` : "Already in the platform");
   done();
 }
+
+// The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
+registerShortcuts("Entity page", [
+  { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+]);
 
 registerFeature({
   id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },

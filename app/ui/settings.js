@@ -24,12 +24,14 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
+  applyMotion();  // motion.js
   return state.settings;
 }
 
 async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
+  applyMotion();
   return res;
 }
 
@@ -383,6 +385,17 @@ async function renderSettings() {
     h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
       btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
 
+  // Display
+  const motionValue = s.forge_animations?.value !== false;
+  const display = s.forge_animations ? h("section", { class: "card pad" }, h("h2", {}, "Display"),
+    settingRow("Forge animations",
+      "Show subtle wolf, forge and spark animations during application activities. Progress, results and errors show the same either way. "
+        + "Windows' \"Show animations\" setting turns these off too.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: motionValue ? true : null, disabled: locked("forge_animations") ? true : null,
+        "aria-label": "Forge animations", onchange: async (e) => { await saveSettings({ forge_animations: e.target.checked }); render(); } }),
+      h("span", {}, reducedMotion() ? "Off while Windows reduces motion" : motionValue ? "On" : "Off")),
+      s.forge_animations.source === "policy" ? "policy" : null)) : null;
+
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
     settingRow("Show features in preview",
@@ -436,6 +449,7 @@ async function renderSettings() {
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),
     h("div", { class: "row wrap" },
       btn("User guide", "help", () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}), "tool outline"),
+      btn("Keyboard shortcuts", "help", shortcutsDialog, "tool outline"),
       btn("Report a problem", "bug", reportProblem, "tool outline"),
       btn("Guide for IT admins", "shield", () => invoke("open_doc", { page: "permissions.md" }).catch(() => {}), "tool outline")),
     h("dl", { class: "about" },
@@ -466,7 +480,7 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
@@ -739,5 +753,6 @@ registerFeature({
     { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
     { label: "Show the update splash", icon: "rocket", keywords: "what's new release notes update forge splash", run: () => showUpdateSplash(true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
+    { label: "Keyboard shortcuts", icon: "help", keywords: "keys hotkeys help accessibility", run: shortcutsDialog },
   ],
 });

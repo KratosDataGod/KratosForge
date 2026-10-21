@@ -1154,7 +1154,20 @@ async function runCell(cell, { timeLimit = true, nb = state.notebook } = {}) {
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
+  cellFx(cell);  // after dbgAfterRun, which draws the results again
   return ok;
+}
+
+// Forge animations (motion.js): a spark when a cell succeeds on its own, an ember going out when
+// it fails, and one announcement for screen readers. Run all shows its progress track instead of
+// a spark per cell; Stop and Cancel show nothing.
+function cellFx(cell) {
+  if (cell.status !== "ok" && cell.status !== "error") return;
+  const n = (state.notebook?.cells.indexOf(cell) ?? -1) + 1;
+  const runningAll = state.notebook?.runningAll;
+  if (!runningAll) announce(cell.status === "ok" ? `Cell ${n} succeeded` : `Cell ${n} failed`);
+  if (cell.status === "ok" && runningAll) return;
+  fx(document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`), cell.status === "ok" ? "spark" : "fail");
 }
 
 async function runCells(cells) {
@@ -1164,16 +1177,29 @@ async function runCells(cells) {
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy", nb);
   renderNotebook();
-  for (const [i, cell] of code.entries()) {
-    const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
-    if (!ok || nb.cancelRequested) {
-      code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
-      setKernel(nb.stopRequested ? "stopped" : "idle", nb);
-      return;
+  // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
+  const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell") : null;
+  track?.set(0, code.length);
+  nb.runningAll = true;
+  try {
+    for (const [i, cell] of code.entries()) {
+      const ok = await runCell(cell, { nb });  // goes on in nb's session if another notebook is opened
+      if (!ok || nb.cancelRequested) {
+        track?.stop();
+        code.slice(i + 1).forEach((c) => { c.status = null; if (state.notebook === nb) updateResults(c); });
+        setKernel(nb.stopRequested ? "stopped" : "idle", nb);
+        announce(cell.status === "error" ? `Run stopped: cell ${nb.cells.indexOf(cell) + 1} failed` : "Run stopped");
+        return;
+      }
+      track?.set(i + 1, code.length);
+      setKernel("busy", nb);
     }
-    setKernel("busy", nb);
+    track?.arrive();
+    if (code.length) announce(`Run finished: ${code.length} ${code.length === 1 ? "cell" : "cells"} succeeded`);
+    setKernel(nb.stopRequested ? "stopped" : "idle", nb);
+  } finally {
+    nb.runningAll = false;
   }
-  setKernel(nb.stopRequested ? "stopped" : "idle", nb);
 }
 
 function runAll() {

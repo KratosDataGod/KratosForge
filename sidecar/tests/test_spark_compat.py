@@ -233,3 +233,16 @@ def test_unpivot_keeps_row_order_and_sample_with_a_seed_repeats(live):
     once, again = rows(big.sample(0.1, 42)), rows(big.sample(0.1, 42))
     assert once == again and 800 < len(once) < 1200
     assert big.sample(0.0).count() == 0 and big.sample(1.0, 3).count() == 10000
+
+
+def test_not_null_follows_pyspark_errors_verify_schema_and_arrays_of_structs(live):
+    from duckdb.experimental.spark.errors import PySparkValueError
+    with pytest.raises(PySparkValueError, match=r"^\[FIELD_NOT_NULLABLE_WITH_NAME\] field id: This field is not nullable"):
+        live.createDataFrame([(None,)], "id int NOT NULL")
+    assert live.createDataFrame([(None,)], "id int NOT NULL", verifySchema=False).count() == 1
+    schema = "items array<struct<sku: string NOT NULL, qty int>>"
+    assert live.createDataFrame([([("a", 1), None],)], schema).count() == 1
+    with pytest.raises(PySparkValueError, match=r"field items.element.sku"):
+        live.createDataFrame([([("a", 1), (None, 2)],)], schema)
+    with pytest.raises(PySparkValueError, match=r"field m.value.x"):
+        live.createDataFrame([({"k": (None,)},)], "m map<string, struct<x: int NOT NULL>>")

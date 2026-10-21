@@ -144,7 +144,7 @@ class FakeService:
 
     def _wl_record(self, wid):
         ws = ws_of(wid)
-        return {"id": wid, "name": wid, "kind": "fabric_item", "deployments": [{"env": None, "actions": ["run_item"],
+        return {"id": wid, "name": wid, "kind": "fabric_item", "deployments": [{"env": None, "actions": ["run", "run_item"],
                 "location": {"kind": "fabric", "label": "Fabric", "workspace_id": "" if "named" in wid else ws,
                              "workspace_name": ws.title()}}]}  # w-named: the workspace's name, not its id
 
@@ -360,16 +360,29 @@ def test_the_risk_check_reaches_where_the_workload_runs():
     svc = FakeService(meta_ws=IN)
     pc = {"kind": "this_pc", "label": "This PC"}
     fabric = {"kind": "fabric", "label": "Fabric", "workspace_id": OUT, "workspace_name": "Other"}
-    notebook = {"kind": "notebook", "deployments": [{"env": None, "location": pc},
-                                                    {"env": None, "location": fabric}]}
+    notebook = {"kind": "notebook", "deployments": [{"env": None, "location": pc, "actions": ["run"]},
+                                                    {"env": None, "location": fabric, "actions": ["run_in_fabric"]}]}
     assert scope.workload_of(svc, notebook, "run_in_fabric", "") == {OUT}
-    entity = {"kind": "meta_entity", "deployments": [{"env": "dev", "location": pc}, {"env": "prod", "location": fabric}]}
+    assert scope.workload_of(svc, notebook, "run", "") == set()  # this PC: no capacity is read
+    entity = {"kind": "meta_entity", "deployments": [{"env": "dev", "location": pc, "actions": ["run", "run_schedule"]},
+                                                     {"env": "prod", "location": fabric, "actions": ["run", "run_schedule"]}]}
     assert scope.workload_of(svc, entity, "run", "dev") == {IN}  # dev's inputs, not prod's capacity
-    assert scope.workload_of(svc, entity, "run_schedule", "dev") == set()  # a schedule on this PC reads no inputs
+    assert scope.workload_of(svc, entity, "run_schedule", "prod") == set()  # schedules run on this PC
     assert scope.workload_of(svc, entity, "run", "prod") == {OUT}  # prod has no environment entry here
-    named_only = {"kind": "fabric_item", "deployments": [{"env": None, "location": dict(fabric, workspace_id="")}]}
-    assert scope.workload_of(svc, named_only, "run_item", "") is None  # a name without its id can't be checked
 
+
+def test_a_risk_check_that_cant_be_placed_is_refused():
+    """No deployment for the action, or a Fabric one without its workspace id: None, not an empty set."""
+    from fabric_desktop.integrations import scope
+    svc = FakeService(meta_ws=IN)
+    fabric = {"kind": "fabric", "label": "Fabric", "workspace_id": OUT}
+    item = {"kind": "fabric_item", "deployments": [{"env": None, "location": fabric, "actions": ["run_item"]}]}
+    assert scope.workload_of(svc, {"kind": "fabric_item", "deployments": []}, "run_item", "") is None
+    assert scope.workload_of(svc, item, "refresh", "") is None  # no deployment for that action
+    assert scope.workload_of(svc, item, "run_item", "prod") is None  # nor in that environment
+    for loc in ({"kind": "fabric"}, {"kind": "fabric", "workspace_name": "Other"}):
+        bare = {"kind": "fabric_item", "deployments": [{"env": None, "location": loc, "actions": ["run_item"]}]}
+        assert scope.workload_of(svc, bare, "run_item", "") is None
 
 def test_a_limited_tool_checks_risk_only_in_its_workspaces(store):
     reg = registry(store)

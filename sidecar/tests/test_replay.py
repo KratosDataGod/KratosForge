@@ -24,6 +24,7 @@ from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
 LH = {"name": "LH_Bronze", "workspace_id": "ws1", "lakehouse_id": "lh1", "workspace_name": "Sales"}
+WS_GUID, LH_GUID = "0f6e2a3c-1b2d-4e5f-8a9b-0c1d2e3f4a5b", "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d"
 
 # Run as a cell: tables and files of a fake OneLake under ``root``, so the kernel's own lakehouse
 # module (in the engine or in its own process) reads and writes them.
@@ -390,6 +391,64 @@ def test_a_replay_reads_the_bundle_versions_and_writes_to_a_sandbox(tmp_path, mo
         assert call(s, "open_notebook", name=name)["replay"] is None
         call(s, "start_cell", code="x = 1", lakehouse_ref=None, notebook=name)
         assert finished(s.kernel)["status"] == "ok"
+    finally:
+        s.kernel.close()
+
+
+def test_replay_sandboxes_are_remembered_and_deleted_only_after_the_replay_ends(tmp_path, monkeypatch):
+    import shutil
+    s, lh = replay_service(tmp_path, monkeypatch)
+    deleted = []
+
+    def delete(ref, rel):
+        deleted.append((ref["lakehouse_id"], rel))
+        shutil.rmtree(lh / rel, ignore_errors=True)
+    monkeypatch.setattr(s, "_proof_delete_folder", delete)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        first = call(s, "replay_start", name=name, lakehouse_ref=LH)
+        run_cells(s, name, 3)
+        assert (lh / first["sandbox"] / "tables" / "dbo" / "out").exists()
+        out = handle(s, json.dumps({"id": 1, "method": "replay_delete_outputs", "params": {"name": name}}))
+        assert "End the replay first" in json.dumps(out["error"])
+        call(s, "replay_end", name=name)
+        second = call(s, "replay_start", name=name, lakehouse_ref=LH)
+        call(s, "replay_end", name=name)
+        boxes = s.replay_sandboxes(name)
+        assert [b["id"] for b in boxes] == [first["id"], second["id"]]
+        assert boxes[0]["folder"] == first["sandbox"].rsplit("/", 1)[0] and boxes[0]["lakehouse_id"] == "lh1"
+        assert call(s, "replay_check", name=name, lakehouse_ref=LH)["sandboxes"] == boxes  # what the banner shows
+        # Fabric's ids are GUIDs; this test's lakehouse isn't, so give the remembered entries real-looking ones.
+        s.notebooks.set_extra(name, "replay_sandboxes", [dict(b, workspace_id=WS_GUID, lakehouse_id=LH_GUID)
+                                                         for b in s.notebooks.extra(name, "replay_sandboxes")])
+        out = call(s, "replay_delete_outputs", name=name)
+        assert out == {"deleted": [b["folder"] for b in boxes], "problems": []}
+        assert deleted == [(LH_GUID, b["folder"]) for b in boxes]
+        assert not (lh / first["sandbox"]).exists() and (lh / "Tables" / "dbo" / "sales").exists()
+        assert s.replay_sandboxes(name) == []
+    finally:
+        s.kernel.close()
+
+
+def test_a_sandbox_that_cant_be_deleted_stays_listed_and_an_odd_id_is_never_a_path(tmp_path, monkeypatch):
+    s, _ = replay_service(tmp_path, monkeypatch)
+    try:
+        name = call(s, "replay_bundle_open", path=str(bundle_file(tmp_path)))["name"]
+        good = {"id": "replay-20261020-120000-abcdef", "workspace_id": WS_GUID, "lakehouse_id": LH_GUID, "lakehouse": "LH"}
+        odd = [dict(good, id="../../Tables"), dict(good, lakehouse_id="lh1/../../other"), dict(good, workspace_id=None),
+               {k: v for k, v in good.items() if k != "id"}]
+        s.notebooks.set_extra(name, "replay_sandboxes", [good, *odd])
+        tried = []
+
+        def refuse(ref, rel):
+            tried.append(rel)
+            raise PermissionError("403 Forbidden token=abc.def.ghi")
+        monkeypatch.setattr(s, "_proof_delete_folder", refuse)
+        out = call(s, "replay_delete_outputs", name=name)
+        assert tried == [f"Files/_fabric_desktop/proofs/{good['id']}"]  # nothing else became a path
+        assert len(s.replay_sandboxes(name)) == 5  # an entry without an id is still listed, not an error
+        assert out["deleted"] == [] and len(out["problems"]) == 5 and "abc.def.ghi" not in json.dumps(out)
+        assert s.notebooks.extra(name, "replay_sandboxes") == [good, *odd]  # all of them stay listed
     finally:
         s.kernel.close()
 

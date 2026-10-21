@@ -21,7 +21,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from . import proof_runtime
+from . import magics, proof_runtime
 from .fabric_run import compute_check, uses_local_module, uses_spark
 
 RUNTIME_SOURCE = Path(proof_runtime.__file__).read_text(encoding="utf-8")
@@ -100,6 +100,10 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
         for rx, text in _BLOCKERS:
             if m := rx.search(source):
                 add(blockers, n, c, text, source, m.start())
+        for magic in magics.find(source):
+            if magic.name == "sql" and _SQL_CHANGE.search(magic.rest):
+                add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
+                    source, sum(len(ln) + 1 for ln in source.split("\n")[:magic.line - 1]))
         for rx, text in _WARNINGS:
             if m := rx.search(source):
                 add(warnings, n, c, text, source, m.start())

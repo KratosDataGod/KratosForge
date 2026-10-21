@@ -1,4 +1,4 @@
-"""Whole results behind a notebook table output: paging, search, sort and downloads.
+"""Whole results behind a notebook table output: paging, search, sort, a profile and downloads.
 
 A cell's table output carries the first ``PREVIEW_ROWS`` rows. The value it came from is kept here
 under the output's ``frame`` id, so the result viewer can page through every row, search and sort
@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import logging
 import os
+import random
 import threading
 import uuid
 import zipfile
@@ -30,11 +32,24 @@ from xml.sax.saxutils import escape
 
 import pyarrow as pa
 
+from .redact import describe
+
+_log = logging.getLogger(__name__)
+
 MAX_FRAMES = 20
 PAGE_ROWS = 100
 MAX_PAGE_ROWS = 1000
 EXCEL_MAX_ROWS = 1_048_575  # a sheet's 1,048,576 rows less the header
 DOWNLOAD_FORMATS = ("csv", "xlsx", "parquet")
+PROFILE_COLUMNS = 200
+CHART_KINDS = ("bar", "stacked", "line", "area", "scatter", "pie", "histogram", "box")
+CHART_AGGS = ("sum", "avg", "count", "min", "max")
+CHART_CATEGORIES = 60
+CHART_SERIES = 7  # the categorical palette's slots; the rest fold into Other
+CHART_POINTS = 5000
+OTHER = "Other"
+PROFILE_ROWS = 250_000  # above this, a random sample: about 5 s for 50 columns on a laptop
+HISTOGRAM_BINS = 12
 class FrameGone(LookupError):
     """The result an output points at isn't held any more."""
 
@@ -89,6 +104,31 @@ def type_name(t: pa.DataType) -> str:
         return "map"
     return str(t)
 
+
+def _finite(c: str) -> str:
+    """Rows a number column can be charted from: not null, and not NaN or infinite."""
+    return f"({c} IS NOT NULL AND isfinite(TRY_CAST({c} AS DOUBLE)))"
+
+
+def _kind(t: pa.DataType) -> str:
+    if pa.types.is_integer(t) or pa.types.is_floating(t) or pa.types.is_decimal(t):
+        return "number"
+    if pa.types.is_temporal(t):
+        return "date"
+    if pa.types.is_boolean(t):
+        return "boolean"
+    if pa.types.is_string(t) or pa.types.is_large_string(t):
+        return "text"
+    return "other"
+
+
+def _num(v: Any) -> float | int | None:
+    if v is None:
+        return None
+    if isinstance(v, int):
+        return v
+    f = float(v)
+    return round(f, 6) if f == f else None
 
 def _rows(result: Any) -> list[list[Any]]:
     """A query's rows through Arrow: DuckDB's own fetchall() needs pytz for time zone-aware
@@ -168,6 +208,195 @@ class Frames:
         return {"frame": fid, "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema],
                 "rows": [[_cell(v) for v in r] for r in rows], "offset": offset, "total": total,
                 "all_rows": table.num_rows}
+
+    # ---- the profile (Inspect, display(df, summary=True))
+
+    def profile(self, fid: str) -> dict[str, Any]:
+        """A profile of every row, per column: missing, distinct (approximate), and for numbers min,
+        max, mean, standard deviation, quartiles and a histogram; for dates their range; for
+        everything else the most common values. NaN counts as missing, as in Fabric's summary;
+        infinite values are counted but left out of the number statistics.
+
+        A result over ``PROFILE_ROWS`` rows is profiled from a random sample of that many rows (the
+        answer says so), so Inspect stays quick on a large result. A column that can't be
+        profiled says why and the others still are."""
+        import duckdb
+        whole = self.table(fid)
+        table = whole
+        sampled = whole.num_rows > PROFILE_ROWS
+        if sampled:
+            # A random sample (the same one each time): an every-nth-row sample skews data that repeats.
+            picks = sorted(random.Random(0).sample(range(whole.num_rows), PROFILE_ROWS))
+            table = whole.take(pa.array(picks))
+        fields = list(table.schema)[:PROFILE_COLUMNS]
+        cols = [f"c{i}" for i in range(table.num_columns)]
+        con = duckdb.connect()
+        out = []
+        try:
+            con.register("t", table.rename_columns(cols))
+            n = table.num_rows
+            for i, f in enumerate(fields):
+                try:
+                    out.append(self._profile_column(con, cols[i], f, n))
+                except Exception as exc:  # noqa: BLE001 - one odd column mustn't hide the others
+                    _log.info("Couldn't profile column %s: %s", f.name, describe(exc))
+                    out.append({"name": f.name, "type": type_name(f.type), "kind": _kind(f.type),
+                                "error": f"Couldn't profile this column: {describe(exc)}"})
+        finally:
+            con.close()
+        return {"frame": fid, "rows": whole.num_rows, "profiled_rows": n, "sampled": sampled, "columns": out,
+                "more_columns": max(0, table.num_columns - PROFILE_COLUMNS)}
+    # ---- Data Wrangler (Clean view): steps written as Polars code, previewed on every row
+
+    def wrangle(self, fid: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
+        """The Polars code for ``steps`` and a preview of what it does to the result (wrangler.py)."""
+        from . import wrangler
+        table = self.table(fid)
+        with self._lock:
+            value = self._values.get(fid)
+        out = wrangler.run(table, value, list(steps or []), name)
+        out["frame"] = fid
+        return out
+
+    # ---- the chart builder (Chart view): aggregates over every row
+
+    def chart(self, fid: str, kind: str = "bar", x: int | None = None, y: int | None = None, agg: str = "sum",
+              series: int | None = None, bins: int = 20) -> dict[str, Any]:
+        """What a chart of the whole result draws. ``x``, ``y`` and ``series`` are column positions.
+
+        bar, line, area and pie: ``agg`` of ``y`` (or a row count) per ``x`` value, one list of
+        values per ``series`` value; at most ``CHART_CATEGORIES`` x values (bar and pie keep the
+        largest; line and area keep the first in x order) and ``CHART_SERIES`` series, the rest
+        folded into "Other". scatter: up to ``CHART_POINTS`` (x, y, series) rows, sampled evenly.
+        histogram: ``bins`` equal-width counts of ``y``. box: min, quartiles and max of ``y`` per x."""
+        import duckdb
+        if kind not in CHART_KINDS:
+            raise ValueError(f"Chart kinds are {', '.join(CHART_KINDS)}.")
+        if agg not in CHART_AGGS:
+            raise ValueError(f"Aggregates are {', '.join(CHART_AGGS)}.")
+        table = self.table(fid)
+        cols = [f"c{i}" for i in range(table.num_columns)]
+
+        def col(i: int | None, what: str) -> str | None:
+            if i is None:
+                return None
+            if not 0 <= int(i) < len(cols):
+                raise ValueError(f"The chart's {what} column isn't in this result.")
+            return cols[int(i)]
+        cx, cy, cs = col(x, "X axis"), col(y, "Values"), col(series, "Series")
+        con = duckdb.connect()
+        try:
+            con.register("t", table.rename_columns(cols))
+            out: dict[str, Any] = {"frame": fid, "kind": kind, "rows": table.num_rows}
+            if kind == "histogram":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                lo, hi = con.execute(f"SELECT min({cy})::DOUBLE, max({cy})::DOUBLE FROM t WHERE {_finite(cy)}").fetchone()
+                n = max(1, min(int(bins), 100))
+                counts = [0] * n
+                if lo is not None:
+                    span = (hi - lo) or 1.0
+                    for b, k in con.execute(f"SELECT least({n - 1}, floor(({cy}::DOUBLE - ?) / ? * {n}))::INT AS b, count(*) "
+                                            f"FROM t WHERE {_finite(cy)} GROUP BY b", [lo, span]).fetchall():
+                        counts[int(b)] = k
+                out.update(min=lo, max=hi, counts=counts)
+                return out
+            if cx is None:
+                raise ValueError("Pick a column for the X axis.")
+            if kind == "scatter":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                total = con.execute(f"SELECT count(*) FROM t WHERE {_finite(cx)} AND {_finite(cy)}").fetchone()[0]
+                every = max(1, -(-total // CHART_POINTS))
+                pts = con.execute(
+                    f"SELECT {cx}::DOUBLE, {cy}::DOUBLE, {('CAST(' + cs + ' AS VARCHAR)') if cs else 'NULL'} FROM "
+                    f"(SELECT *, row_number() OVER () AS rn FROM t WHERE {_finite(cx)} AND {_finite(cy)}) WHERE rn % {every} = 0 "
+                    f"LIMIT {CHART_POINTS}").fetchall()
+                out.update(points=[[a, b, c] for a, b, c in pts], sampled=every > 1, total=total)
+                return out
+            if kind == "box":
+                if cy is None:
+                    raise ValueError("Pick a number column for Values.")
+                got = con.execute(
+                    f"SELECT CAST({cx} AS VARCHAR) AS k, min({cy})::DOUBLE, quantile_cont({cy}, 0.25), median({cy})::DOUBLE, "
+                    f"quantile_cont({cy}, 0.75), max({cy})::DOUBLE, count(*) AS n FROM t WHERE {_finite(cy)} "
+                    f"GROUP BY k ORDER BY n DESC LIMIT {CHART_CATEGORIES}").fetchall()
+                out.update(boxes=[{"x": k, "min": a, "q1": b, "median": c, "q3": d, "max": e, "n": n} for k, a, b, c, d, e, n in got])
+                return out
+            value = "count(*)" if agg == "count" or cy is None else f"{agg}({cy})::DOUBLE"
+            where = f"WHERE {_finite(cy)}" if cy is not None and agg != "count" else ""
+            skey = f"CAST({cs} AS VARCHAR)" if cs else "NULL"
+            ordered = kind in ("line", "area")
+            # The x values to keep: line and area in x order, bar and pie the largest.
+            keep_order = f"min({cx})" if ordered else f"{value} DESC"
+            cats = _rows(con.execute(f"SELECT {cx}, {value} AS v FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST "
+                                     f"LIMIT {CHART_CATEGORIES + 1}"))
+            truncated = len(cats) > CHART_CATEGORIES
+            cats = cats[:CHART_CATEGORIES]
+            if ordered:
+                cats.sort(key=lambda r: (r[0] is None, r[0]))
+            keys = [r[0] for r in cats]
+            names: list[str | None] = [None]
+            if cs:
+                top = con.execute(f"SELECT {skey} AS s, {value} AS v FROM t {where} GROUP BY s ORDER BY v DESC NULLS LAST "
+                                  f"LIMIT {CHART_SERIES + 1}").fetchall()
+                names = [r[0] for r in top[:CHART_SERIES]]
+                if len(top) > CHART_SERIES:
+                    names.append(OTHER)
+            index = {k: i for i, k in enumerate(keys)}
+            values = {n: [None] * len(keys) for n in names}
+            fold = (f"CASE WHEN {skey} IN (SELECT unnest(?)) THEN {skey} ELSE '{OTHER}' END" if cs and OTHER in names else skey)
+            params = [[n for n in names if n not in (OTHER, None)]] if cs and OTHER in names else []
+            # A join, not IN: it matches NULL keys too, and DuckDB needs pytz for IN over time zone timestamps.
+            keep = f"(SELECT {cx} AS k FROM t {where} GROUP BY {cx} ORDER BY {keep_order} NULLS LAST LIMIT {CHART_CATEGORIES}) AS keep"
+            for k, sname, v in _rows(con.execute(
+                    f"SELECT t.{cx}, {fold} AS s, {value} FROM t JOIN {keep} ON t.{cx} IS NOT DISTINCT FROM keep.k {where} "
+                    f"GROUP BY t.{cx}, s", params)):
+                if sname in values and k in index:
+                    values[sname][index[k]] = _num(v)
+            out.update(categories=[_cell(k) for k in keys], series=[{"name": n, "values": values[n]} for n in names],
+                       truncated=truncated)
+            return out
+        finally:
+            con.close()
+
+    @staticmethod
+    def _profile_column(con: Any, c: str, f: pa.Field, n: int) -> dict[str, Any]:
+        t = f.type
+        kind = _kind(t)
+        floating = pa.types.is_floating(t)
+        missing_sql = f"{c} IS NULL" + (f" OR isnan({c})" if floating else "")
+        present = f"NOT ({missing_sql})"
+        missing, distinct = con.execute(
+            f"SELECT count(*) FILTER (WHERE {missing_sql}), approx_count_distinct({c}) FILTER (WHERE {present}) FROM t").fetchone()
+        col: dict[str, Any] = {"name": f.name, "type": type_name(t), "kind": kind, "missing": missing,
+                               "distinct": distinct or 0}
+        if floating:
+            infinite = con.execute(f"SELECT count(*) FROM t WHERE isinf({c})").fetchone()[0]
+            if infinite:
+                col["infinite"] = infinite
+                present = f"isfinite({c})"
+        if kind == "number":
+            if not con.execute(f"SELECT count(*) FROM t WHERE {present}").fetchone()[0]:
+                return col
+            lo, hi, mean, std, q1, med, q3 = con.execute(
+                f"SELECT min({c}), max({c}), avg({c}::DOUBLE), stddev_samp({c}::DOUBLE), quantile_cont({c}, 0.25), "
+                f"quantile_cont({c}, 0.5), quantile_cont({c}, 0.75) FROM t WHERE {present}").fetchone()
+            col.update(min=_num(lo), max=_num(hi), mean=_num(mean), std=_num(std), q1=_num(q1), median=_num(med), q3=_num(q3))
+            span = float(hi) - float(lo)
+            bins = [0] * HISTOGRAM_BINS
+            for b, count in con.execute(
+                    f"SELECT least({HISTOGRAM_BINS - 1}, floor((CAST({c} AS DOUBLE) - ?) / ? * {HISTOGRAM_BINS}))::INT AS b, "
+                    f"count(*) FROM t WHERE {present} GROUP BY b", [float(lo), span or 1.0]).fetchall():
+                bins[int(b)] = count
+            col["histogram"] = bins
+        elif kind == "date" and n - missing:
+            lo, hi = con.execute(f"SELECT CAST(min({c}) AS VARCHAR), CAST(max({c}) AS VARCHAR) FROM t WHERE {present}").fetchone()
+            col.update(min=str(lo), max=str(hi))
+        elif n - missing:
+            col["top"] = [[r[0], r[1]] for r in _rows(con.execute(
+                f"SELECT CAST({c} AS VARCHAR) AS v, count(*) AS k FROM t WHERE {present} GROUP BY v ORDER BY k DESC, v LIMIT 5"))]
+        return col
 
     # ---- downloads
 

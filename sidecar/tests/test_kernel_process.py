@@ -314,3 +314,21 @@ def test_a_proof_stopped_by_a_limit_says_so():
     record = {"pc": {"status": "failed", "stopped_by": "the time limit"}, "fabric": {"status": "ok"}}
     assert _verdict(record, [], [])["text"] == ("The run failed on this PC (stopped by the time limit), "
                                                "so the results can't be compared.")
+
+
+def test_hover_and_signature_help_come_from_the_notebook_process(kernel):
+    assert kernel.inspect("x", 1) is None  # no process is started just to hover
+    kernel.start("def area(w, h=1):\n    'Width times height.'\n    return w * h")
+    assert until_done(kernel)["status"] == "ok"
+    hover = kernel.inspect("area(2)", 1)
+    assert hover["signature"] == "(w, h=1)" and hover["doc"] == "Width times height."
+    sig = kernel.inspect("area(2, ", call=True)
+    assert sig["params"] == ["w", "h=1"] and sig["active"] == 1
+
+
+def test_variable_detail_comes_from_the_kernel_process(kernel):
+    assert kernel.variable_detail("x") == {"name": "x", "missing": True}  # no process yet
+    out = kernel.run("import polars as pl\nframe = pl.DataFrame({'a': [1]})\nitems = [1, 'two']")
+    assert out["status"] == "ok", out
+    assert kernel.variable_detail("frame")["columns"] == [{"name": "a", "type": "Int64"}]
+    assert [i["value"] for i in kernel.variable_detail("items")["items"]] == ["1", "'two'"]

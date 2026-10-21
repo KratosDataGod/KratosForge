@@ -1,0 +1,388 @@
+"""SQL engines on this PC: DuckDB, SQLite and Polars.
+
+Each session is its own in-memory database, so nothing one notebook creates is visible to another
+and closing the session frees everything. A session can also open an existing DuckDB or SQLite
+file as its database, always read-only. (SQL the person writes, such as COPY ... TO or ATTACH, works
+with files as that engine allows, as it would anywhere else.)
+
+The result of the last statement comes back as a table (the first ``preview_rows`` rows, with the
+exact total counted by reading the rest in batches), the same shape the notebook already shows.
+Results arrive when the statement finishes; none of these engines stream rows to the cell.
+
+What runs where, honestly (see each descriptor):
+
+- DuckDB runs DuckDB SQL natively and Spark SQL translated by sqlglot (the same translation the SQL
+  page and ``%%sql`` cells use, sql.parse). It is not Fabric's or Databricks' Spark.
+- SQLite runs SQLite's SQL. Python's own sqlite3; nothing to install.
+- Polars runs the SQL subset Polars implements over its own tables; its plan is Polars' optimized plan.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import sqlite3
+import threading
+import time
+from pathlib import Path
+from typing import Any
+
+import pyarrow as pa
+
+from .capabilities import EngineDescriptor, Support
+from .contract import CellRequest, CellResult, OutputSink, SessionClosed, SessionConfig, Unsupported
+
+_T = "unit_tests"
+_LOCAL_COST = Support("unsupported", "Runs on this PC, so the engine bills nothing; Metrics has the measured "
+                      "time. Reading or writing OneLake from this PC still uses Fabric capacity.")
+_NO_VARIABLES = Support("unsupported", "A SQL session holds tables, not variables; Catalog lists them.")
+_NO_STREAM = Support("unsupported", "The result arrives when the statement finishes.")
+
+
+def _table_output(table: pa.Table, total: int) -> dict[str, Any]:
+    from ..notebook import display
+    out = display(table)
+    out["total_rows"] = total
+    return out
+
+
+def _done(seconds: float) -> dict[str, Any]:
+    return {"type": "text", "text": f"Done in {seconds:.2f} s."}
+
+
+class _SqlSession:
+    """What the three SQL sessions share: one statement at a time, cancel, close, timing."""
+
+    engine = ""
+
+    def __init__(self, config: SessionConfig) -> None:
+        self.notebook = config.notebook
+        self._lock = threading.Lock()
+        self._running = False
+        self._cancelled = False
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _check_open(self) -> None:
+        if self._closed:
+            raise SessionClosed(f"This {self.engine} session was closed. Start the engine again to run cells.")
+
+    def execute(self, request: CellRequest, on_output: OutputSink | None = None) -> CellResult:
+        self._check_open()
+        if request.language != "sql":
+            raise Unsupported(f"The {self.engine} engine runs SQL cells only.")
+        if not self._lock.acquire(blocking=False):
+            raise RuntimeError("A cell is already running in this session. Wait for it, or Cancel it.")
+        self._running, self._cancelled = True, False
+        started = time.perf_counter()
+        try:
+            try:
+                table, total = self._run(request)
+            except Exception as exc:  # noqa: BLE001 - reported to the person as the cell's error
+                seconds = time.perf_counter() - started
+                status = "cancelled" if self._cancelled else "error"
+                out = {"type": "error", "ename": type(exc).__name__,
+                       "evalue": "Cancelled." if self._cancelled else str(exc)}
+                if on_output:
+                    on_output(out)
+                return CellResult(status, [out], seconds, None, self.engine)
+            seconds = time.perf_counter() - started
+            out = _table_output(table, total) if table is not None else _done(seconds)
+            if on_output:
+                on_output(out)
+            return CellResult("ok", [out], seconds, total if table is not None else None, self.engine)
+        finally:
+            self._running = False
+            self._lock.release()
+
+    def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        raise NotImplementedError
+
+    def cancel(self) -> bool:
+        if not self._running:
+            return False
+        self._cancelled = True
+        self._interrupt()
+        return True
+
+    def _interrupt(self) -> None:
+        raise Unsupported(f"The {self.engine} engine can't stop a running statement.")
+
+    def variables(self) -> list[dict[str, Any]]:
+        raise Unsupported(_NO_VARIABLES.note)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        if self._running:
+            with contextlib.suppress(Unsupported):   # Polars can't stop; the statement finishes on its own
+                self.cancel()
+        self._closed = True
+        self._release()
+
+    def _release(self) -> None:
+        raise NotImplementedError
+
+
+def _drain(reader: Any, limit: int) -> tuple[pa.Table, int]:
+    """The first ``limit`` rows of an Arrow batch reader, and how many rows it had in all."""
+    kept: list[pa.RecordBatch] = []
+    have = total = 0
+    for batch in reader:
+        total += batch.num_rows
+        if have < limit:
+            part = batch.slice(0, limit - have)
+            kept.append(part)
+            have += part.num_rows
+    return pa.Table.from_batches(kept, schema=reader.schema), total
+
+
+# ---------------------------------------------------------------- DuckDB
+
+DUCKDB = EngineDescriptor(
+    id="local-duckdb", label="DuckDB (this PC)", location="local", platform="local", billing="none", adapter=True,
+    family="duckdb",
+    languages={"sql": Support("native", evidence=_T)},
+    dialects={"duckdb": Support("native", evidence=_T),
+              "spark": Support("translated", "Spark SQL is rewritten for DuckDB by sqlglot. Most queries match; "
+                               "Spark-only functions and Delta commands (OPTIMIZE, VACUUM) don't.", _T)},
+    capabilities={
+        "session": Support("native", "An in-memory database per session; an existing file opens read-only.", _T),
+        "execute": Support("native", evidence=_T),
+        "cancel": Support("native", "Stops the running statement (DuckDB interrupt).", _T),
+        "stream": _NO_STREAM, "variables": _NO_VARIABLES,
+        "debug": Support("unsupported", "SQL has no step debugger; use Plan."),
+        "plan": Support("native", "DuckDB's EXPLAIN.", _T),
+        "metrics": Support("native", "Wall time and exact row count.", _T),
+        "catalog": Support("native", "Schemas, tables and views in the session (information_schema).", _T),
+        "cost": _LOCAL_COST,
+        "compat": Support("native", "The language and dialect are checked before running.", _T),
+    },
+    requirements=("duckdb (ships with KratosForge)",),
+    limitations=("Not Fabric's or Databricks' Spark: results can differ where engines differ (use Prove to compare).",
+                 "A database file the session opens is read-only."),
+)
+
+
+class DuckDBSession(_SqlSession):
+    engine = DUCKDB.id
+
+    def __init__(self, config: SessionConfig) -> None:
+        super().__init__(config)
+        import duckdb
+        if config.database:
+            self._con = duckdb.connect(str(Path(config.database)), read_only=True)
+        else:
+            self._con = duckdb.connect(":memory:")
+
+    def _sql(self, code: str, dialect: str | None) -> str:
+        if (dialect or "duckdb") == "duckdb":
+            return code
+        if dialect != "spark":
+            raise Unsupported(f"DuckDB doesn't run the {dialect} dialect. Use Spark SQL or DuckDB SQL.")
+        from .. import sql
+        return ";\n".join(s.sql(dialect="duckdb") for s in sql.parse(code, "spark"))
+
+    def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        cur = self._con.execute(self._sql(request.code, request.dialect))
+        if cur.description is None:
+            return None, 0
+        reader = getattr(cur, "to_arrow_reader", None) or cur.fetch_record_batch
+        return _drain(reader(), request.preview_rows)
+
+    def _interrupt(self) -> None:
+        self._con.interrupt()
+
+    def plan(self, code: str, dialect: str | None = None) -> str:
+        self._check_open()
+        rows = self._con.execute("EXPLAIN " + self._sql(code, dialect)).fetchall()
+        return "\n".join(str(r[-1]) for r in rows)
+
+    def catalog(self) -> list[dict[str, Any]]:
+        self._check_open()
+        rows = self._con.execute(
+            "SELECT table_catalog, table_schema, table_name, table_type FROM information_schema.tables "
+            "ORDER BY 1, 2, 3").fetchall()
+        return [{"catalog": c, "schema": s, "name": n, "type": "view" if "VIEW" in t else "table"} for c, s, n, t in rows]
+
+    def _release(self) -> None:
+        self._con.close()
+
+
+class DuckDBAdapter:
+    def describe(self) -> EngineDescriptor:
+        return DUCKDB
+
+    def open_session(self, config: SessionConfig, authorization: Any = None) -> DuckDBSession:
+        return DuckDBSession(config)
+
+
+# ---------------------------------------------------------------- SQLite
+
+SQLITE = EngineDescriptor(
+    id="local-sqlite", label="SQLite (this PC)", location="local", platform="local", billing="none", adapter=True,
+    family="sqlite",
+    languages={"sql": Support("native", evidence=_T)},
+    dialects={"sqlite": Support("native", evidence=_T)},
+    capabilities={
+        "session": Support("native", "An in-memory database per session; an existing file opens read-only.", _T),
+        "execute": Support("native", "Several statements run in order; the last one's rows are shown.", _T),
+        "cancel": Support("native", "Stops the running statement (sqlite3 interrupt).", _T),
+        "stream": _NO_STREAM, "variables": _NO_VARIABLES,
+        "debug": Support("unsupported", "SQL has no step debugger; use Plan."),
+        "plan": Support("native", "SQLite's EXPLAIN QUERY PLAN.", _T),
+        "metrics": Support("native", "Wall time and exact row count.", _T),
+        "catalog": Support("native", "Tables and views in the session (sqlite_master).", _T),
+        "cost": _LOCAL_COST,
+        "compat": Support("native", "The language and dialect are checked before running.", _T),
+    },
+    requirements=("Python's sqlite3 (built in)",),
+    limitations=("SQLite's types and functions are not Spark's or T-SQL's.", "A database file the session opens is read-only."),
+)
+
+
+def _statements(code: str) -> list[str]:
+    """SQLite runs one statement per call; split where sqlite3 says a statement is complete."""
+    out: list[str] = []
+    buf = ""
+    parts = code.split(";")
+    for i, part in enumerate(parts):
+        buf += part
+        if i < len(parts) - 1:
+            buf += ";"
+            if sqlite3.complete_statement(buf):
+                out.append(buf.strip())
+                buf = ""
+    if buf.strip():
+        out.append(buf.strip())
+    return [s for s in out if s.strip(" ;\n\t")]
+
+
+class SQLiteSession(_SqlSession):
+    engine = SQLITE.id
+
+    def __init__(self, config: SessionConfig) -> None:
+        super().__init__(config)
+        if config.database:
+            uri = Path(config.database).resolve().as_uri() + "?mode=ro"
+            self._con = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        else:
+            self._con = sqlite3.connect(":memory:", check_same_thread=False)
+
+    def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        if (request.dialect or "sqlite") != "sqlite":
+            raise Unsupported(f"SQLite doesn't run the {request.dialect} dialect.")
+        statements = _statements(request.code)
+        if not statements:
+            raise ValueError("The cell is empty.")
+        cur = None
+        for statement in statements:
+            cur = self._con.execute(statement)
+        self._con.commit()
+        assert cur is not None
+        if cur.description is None:
+            return None, 0
+        names = [d[0] for d in cur.description]
+        kept = cur.fetchmany(request.preview_rows)
+        total = len(kept)
+        while True:
+            more = cur.fetchmany(10_000)
+            if not more:
+                break
+            total += len(more)
+        columns = list(zip(*kept)) if kept else [[] for _ in names]
+        table = pa.table({n: pa.array([None if v is None else (v if isinstance(v, (int, float, str)) else str(v))
+                                       for v in col]) for n, col in zip(names, columns)}) if names else pa.table({})
+        return table, total
+
+    def _interrupt(self) -> None:
+        self._con.interrupt()
+
+    def plan(self, code: str, dialect: str | None = None) -> str:
+        self._check_open()
+        statements = _statements(code)
+        if len(statements) != 1:
+            raise ValueError("Plan shows one statement at a time.")
+        rows = self._con.execute("EXPLAIN QUERY PLAN " + statements[0]).fetchall()
+        return "\n".join(str(r[-1]) for r in rows)
+
+    def catalog(self) -> list[dict[str, Any]]:
+        self._check_open()
+        rows = self._con.execute("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') "
+                                 "AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
+        return [{"catalog": "main", "schema": "main", "name": n, "type": t} for t, n in rows]
+
+    def _release(self) -> None:
+        self._con.close()
+
+
+class SQLiteAdapter:
+    def describe(self) -> EngineDescriptor:
+        return SQLITE
+
+    def open_session(self, config: SessionConfig, authorization: Any = None) -> SQLiteSession:
+        return SQLiteSession(config)
+
+
+# ---------------------------------------------------------------- Polars
+
+POLARS = EngineDescriptor(
+    id="local-polars", label="Polars SQL (this PC)", location="local", platform="local", billing="none", adapter=True,
+    family="polars",
+    languages={"sql": Support("native", evidence=_T)},
+    dialects={"polars": Support("partial", "Polars implements a subset of SQL (SELECT, joins, CTEs, CREATE TABLE AS, "
+                                "read_parquet/read_csv); no UPDATE or DELETE.", _T)},
+    capabilities={
+        "session": Support("native", "Tables live in the session's SQL context and go when it closes.", _T),
+        "execute": Support("native", evidence=_T),
+        "cancel": Support("unsupported", "Polars can't stop a query part way; it finishes, then the session can close."),
+        "stream": _NO_STREAM, "variables": _NO_VARIABLES,
+        "debug": Support("unsupported", "SQL has no step debugger; use Plan."),
+        "plan": Support("native", "Polars' optimized query plan (LazyFrame.explain).", _T),
+        "metrics": Support("native", "Wall time and exact row count.", _T),
+        "catalog": Support("native", "Tables registered in the session.", _T),
+        "cost": _LOCAL_COST,
+        "compat": Support("native", "The language and dialect are checked before running.", _T),
+    },
+    requirements=("polars (ships with KratosForge)",),
+    limitations=("Polars SQL is not Spark SQL; many Spark functions don't exist.",),
+)
+
+
+class PolarsSession(_SqlSession):
+    engine = POLARS.id
+
+    def __init__(self, config: SessionConfig) -> None:
+        super().__init__(config)
+        import polars as pl
+        self._ctx: Any = pl.SQLContext()
+
+    def _run(self, request: CellRequest) -> tuple[pa.Table | None, int]:
+        if (request.dialect or "polars") != "polars":
+            raise Unsupported(f"Polars doesn't run the {request.dialect} dialect.")
+        result = self._ctx.execute(request.code, eager=True)
+        if result.width == 0:
+            return None, 0
+        return result.head(request.preview_rows).to_arrow(), result.height
+
+    def plan(self, code: str, dialect: str | None = None) -> str:
+        self._check_open()
+        return str(self._ctx.execute(code, eager=False).explain())
+
+    def catalog(self) -> list[dict[str, Any]]:
+        self._check_open()
+        return [{"catalog": "session", "schema": "session", "name": n, "type": "table"} for n in sorted(self._ctx.tables())]
+
+    def _release(self) -> None:
+        for name in list(self._ctx.tables()):
+            self._ctx.unregister(name)
+
+
+class PolarsAdapter:
+    def describe(self) -> EngineDescriptor:
+        return POLARS
+
+    def open_session(self, config: SessionConfig, authorization: Any = None) -> PolarsSession:
+        return PolarsSession(config)

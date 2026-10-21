@@ -135,6 +135,10 @@ class FabricClient:
         """Every item in the workspace: lakehouses, warehouses, notebooks, semantic models, ..."""
         return self._paged(f"/workspaces/{workspace_id}/items")
 
+    def list_tables(self, workspace_id: str, lakehouse_id: str) -> list[dict[str, Any]]:
+        """A lakehouse's tables, as Fabric lists them (lakehouses with schemas aren't listed by this API)."""
+        return self._paged(f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables", key="data")
+
     def get_lakehouse(self, workspace_id: str, lakehouse_id: str) -> dict[str, Any]:
         return self._request("GET", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}").json()
 
@@ -395,6 +399,17 @@ class FabricClient:
         url = f"/workspaces/{workspace_id}/variableLibraries/{existing['id']}/updateDefinition"
         self._wait(self._request("POST", url, json={"definition": definition}))
         return existing | {"created": False}
+
+    def read_variable_library(self, workspace_id: str, name: str) -> tuple[dict[str, str], str | None] | None:
+        """The library's definition files (decoded) and active value set, or None if the workspace
+        has no library with this name. Read only: getDefinition is a POST but changes nothing."""
+        item = next((v for v in self.list_variable_libraries(workspace_id) if v["displayName"] == name), None)
+        if item is None:
+            return None
+        got = self.get_item_definition(workspace_id, item["id"])
+        parts = {p["path"]: base64.b64decode(p["payload"]).decode("utf-8-sig")
+                 for p in (got.get("definition") or {}).get("parts", [])}
+        return parts, (item.get("properties") or {}).get("activeValueSetName")
 
     def set_active_value_set(self, workspace_id: str, library_id: str, value_set: str) -> None:
         self._request("PATCH", f"/workspaces/{workspace_id}/variableLibraries/{library_id}",

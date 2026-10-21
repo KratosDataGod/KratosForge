@@ -72,11 +72,13 @@ class CloudMixin:
         self._write_fabric_runs(self._read_fabric_runs() + [record])
         return record
 
-    def fabric_runs(self, limit: int = 50, refresh: bool = True) -> list[dict[str, Any]]:
-        """Jobs this app started in Fabric, newest first; unfinished ones are asked for their status."""
+    def fabric_runs(self, limit: int = 50, refresh: bool = True, job_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        """Jobs this app started in Fabric, newest first; unfinished ones are asked for their status
+        (only those in ``job_ids`` when it is given)."""
         runs = self._read_fabric_runs()
         if refresh:
-            open_runs = [r for r in runs[-limit:] if r.get("status") not in TERMINAL]
+            open_runs = [r for r in runs[-limit:] if r.get("status") not in TERMINAL
+                         and (job_ids is None or r.get("job_id") in job_ids)]
             fabric = self._quiet_fabric() if open_runs else None
             if fabric is not None:
                 for r in open_runs:

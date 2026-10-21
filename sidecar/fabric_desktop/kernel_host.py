@@ -78,8 +78,10 @@ class Host:
 
     # ---- requests
 
-    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
+              widget_values: dict[str, str] | None = None) -> dict[str, Any]:
         self.kernel.notebook_name = notebook_name
+        self.kernel.widget_values = dict(widget_values or {})
         return self.kernel.start(code, watches)
 
     def poll(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:

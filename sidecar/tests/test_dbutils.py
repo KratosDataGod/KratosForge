@@ -41,7 +41,7 @@ def test_widgets_defaults_values_and_errors():
     assert _last(out) == "('West', 'Mon,Tue', 'fallback')"
     widgets = k.namespace["dbutils"].widgets
     assert [w["name"] for w in widgets.describe()] == ["region", "env", "days"]
-    widgets.set_in_app["region"] = "East"
+    k.widget_values = {"region": "East"}  # set in the Widgets bar
     assert _last(k.run("dbutils.widgets.get('region')")) == "'East'"
     out = k.run("dbutils.widgets.dropdown('bad', 'qa', ['dev', 'prod'])")
     assert out["status"] == "error" and "isn't one of the choices" in out["outputs"][-1]["evalue"]

@@ -41,11 +41,24 @@ def test_changed_values_run_after_their_cell_and_the_code_stays():
     got = inputs([PARAMS, WIDGETS, USE], values)
     assert got["suffix"]["p"].splitlines()[1:] == ["run_date = '2026-10-19'", "max_rows = 5", "full_load = True"]
     k = Kernel()
+    k.widget_values = values["widgets"]  # what start_cell gives the kernel from the saved bar values
     for cell in (PARAMS, WIDGETS, USE):
         out = k.run(cell["source"] + ("\n" + got["suffix"][cell["cell_id"]] if cell["cell_id"] in got["suffix"] else ""))
         assert out["status"] == "ok", out
     assert k.namespace["result"] == ("2026-10-19", "East", 5, True, "prod", "North")
     assert PARAMS["source"].startswith('run_date = "2026-01-01"')
+
+
+def test_a_cell_that_creates_a_widget_and_reads_it_gets_the_bar_value():
+    k = Kernel()
+    k.widget_values = {"run_date": "2026-05-05", "env": "qa"}
+    out = k.run("dbutils.widgets.text('run_date', '2026-01-01')\n"
+                "dbutils.widgets.dropdown('env', 'dev', ['dev', 'prod'])\n"
+                "(dbutils.widgets.get('run_date'), dbutils.widgets.get('env'))")
+    # A value that isn't one of the choices (the bar shows it as an error) reads as the default.
+    assert out["outputs"][-1]["text"] == "('2026-05-05', 'dev')"
+    k.widget_values = {}
+    assert k.run("dbutils.widgets.get('run_date')")["outputs"][-1]["text"] == "'2026-01-01'"
 
 
 @pytest.mark.parametrize("values, error", [
@@ -94,3 +107,20 @@ def test_values_are_kept_with_the_notebook(tmp_path, monkeypatch):
     assert call(s, "notebook_inputs", name="nb", cells=[PARAMS])["parameters"][1]["value"] == "7"
     call(s, "notebook_inputs_set", name="nb", cells=[PARAMS], values={"parameters": {}, "widgets": {}})
     assert s.notebooks.extra("nb", "inputs") is None
+
+
+def test_start_cell_gives_the_kernel_the_saved_widget_values(tmp_path, monkeypatch):
+    import time
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    s = Service(root=tmp_path / "app")
+    call(s, "save_notebook", name="nb", cells=[WIDGETS])
+    call(s, "notebook_inputs_set", name="nb", cells=[WIDGETS], values={"widgets": {"env": "prod"}})
+    call(s, "start_cell", code="dbutils.widgets.dropdown('env', 'dev', ['dev', 'prod'])\ndbutils.widgets.get('env')",
+         notebook="nb")
+    for _ in range(200):
+        snap = call(s, "poll_cell", wait=0.1)
+        if snap["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert snap["outputs"][-1]["text"] == "'prod'", snap

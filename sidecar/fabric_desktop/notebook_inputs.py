@@ -4,7 +4,8 @@ The notebook screen shows them in a bar above the cells. Values set there are ke
 notebook (``fabric_desktop.inputs`` in its metadata) and never change its code: when a cell runs,
 the app adds the lines ``suffix`` gives for that cell. For the parameter cell, that is an
 assignment per changed value, run right after the cell, as Fabric does with a run's parameters.
-For a cell that creates widgets, it sets their values, so ``dbutils.widgets.get`` returns them.
+Widget values are not code: each cell run on this PC starts with them (``Kernel.widget_values``),
+so ``dbutils.widgets.get`` returns them, even in the cell that creates the widget.
 """
 
 from __future__ import annotations
@@ -146,7 +147,6 @@ def inputs(cells: list[dict[str, Any]], values: dict[str, Any] | None = None) ->
     for cell in cells:
         if cell.get("type") != "code":
             continue
-        changed = {}
         for w in _widgets(cell):
             if w["name"] in seen:
                 continue
@@ -157,11 +157,6 @@ def inputs(cells: list[dict[str, Any]], values: dict[str, Any] | None = None) ->
                 picked = text.split(",") if w["kind"] == "multiselect" and text else [text]
                 if any(p not in w["choices"] for p in picked):
                     row["error"] = "Pick from the choices."
-            if text is not None and text != w["default"] and not row["error"]:
-                changed[w["name"]] = text
             widgets.append(row)
-        if changed:
-            suffix[cell["cell_id"]] = (suffix.get(cell["cell_id"], "") + "\n# Values from the Widgets bar\n"
-                                  f"dbutils.widgets.set_in_app.update({changed!r})").lstrip("\n")
     return {"parameters": parameters, "widgets": widgets, "parameter_cell": params_cell["cell_id"] if params_cell else None,
             "suffix": suffix}

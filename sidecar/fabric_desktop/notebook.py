@@ -221,6 +221,8 @@ class Kernel:
         self.load_notebook = load_notebook
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
+        # The Widgets bar's values for the open notebook; each cell run starts with them (start).
+        self.widget_values: dict[str, str] = {}
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
@@ -301,6 +303,9 @@ class Kernel:
         (so Cancel and the cell time limit cover them); their values come back in ``watches``."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
+        if widgets is not None:
+            widgets.set_in_app = dict(self.widget_values)
         self.count += 1
         run = _Run(self.count)
         self._current = run

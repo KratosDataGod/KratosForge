@@ -437,6 +437,9 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
+            # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
+            saved = self.notebooks.extra(notebook, "inputs") if notebook else None
+            self.kernel.widget_values = dict((saved or {}).get("widgets") or {})
             if isinstance(self.kernel, ProcessKernel):
                 return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
             return self.kernel.start(code, check_watches(watches))

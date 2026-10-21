@@ -1985,3 +1985,9 @@ test("dbutils docs say bare absolute paths are refused", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
 });
+
+// Widget values from the bar apply from the start of every cell, even the one that creates the widget.
+test("the inputs bar docs say widget values apply in the creating cell", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`dbutils\.widgets\.get` returns them from the start of every cell, including the cell that creates the widget/);
+});

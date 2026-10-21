@@ -167,7 +167,16 @@ class KernelSessions:
         for s in stale:
             if s.running():  # a cell started in it from a kernel a caller already held: keep it
                 with self._lock:
-                    self._sessions.setdefault(s.notebook, s)
+                    # A lookup meanwhile may have made a new session for the notebook. One stays
+                    # (the one with a running cell) and the other is closed, not left untracked.
+                    newer = self._sessions.get(s.notebook)
+                    if newer is None or not newer.running():
+                        self._sessions[s.notebook], s = s, newer
+                if s is None:
+                    continue
+                s.kernel.close()
+                self.notes.append(f"Stopped a second session for {s.notebook} that started while its idle one "
+                                  "was being stopped. Its variables were cleared.")
                 continue
             s.kernel.close()
             self.notes.append(f"Stopped the session for {s.notebook}: idle for more than {minutes:g} minutes. "

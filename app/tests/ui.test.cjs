@@ -3130,6 +3130,33 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
+function notebookVersionsHelpers() {
+  const ctx = { registerFeature: () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(`${fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8")}
+this.groups = nbvGroups; this.summary = nbvChangeSummary; this.title = nbvTitle;`, ctx);
+  return ctx;
+}
+
+test("version history groups versions by day and sums up a compare", () => {
+  const f = notebookVersionsHelpers();
+  const today = new Date("2026-10-20T15:00:00");
+  const v = (at, kind = "auto", label = "") => ({ at, kind, label });
+  const groups = f.groups([v("2026-10-20T14:00:00"), v("2026-10-20T09:00:00", "checkpoint", "Before refactor"), v("2026-10-19T22:00:00")], today);
+  assert.deepStrictEqual([...groups].map((g) => [g.day, g.rows.length]), [["Today", 2], ["Yesterday", 1]]);
+  assert.strictEqual(f.title(v("x", "checkpoint", "Before refactor")), "Before refactor");
+  assert.strictEqual(f.title(v("x", "before restore")), "Before a restore");
+  assert.strictEqual(f.summary([]), "No changes to cells.");
+  assert.strictEqual(f.summary([{ kind: "changed" }, { kind: "changed" }, { kind: "added" }, { kind: "reordered" }]),
+    "2 cells changed, 1 cell added, cells reordered.");
+  const src = fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8");
+  assert.match(src, /confirmDialog\(`Delete \$\{v\.kind === "checkpoint"[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /The notebook as it is now is kept as a version first/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\), btn\("Versions", "history", nbVersions\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook-files\.js"><\/script>\n  <script src="notebook-versions\.js"><\/script>/);
+});
+
 // Optimize > Settings history (item 30): changes from fdten_ and fdcap_, named and filtered, and a
 // read that asks before it creates the tables.
 test("Settings history names capacities, filters by scope and asks before creating its tables", async () => {

@@ -48,6 +48,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
+| [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
 | [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
 | [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
 | [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |

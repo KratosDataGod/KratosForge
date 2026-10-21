@@ -119,6 +119,8 @@ METHODS |= PLATFORM_NOTIFY_METHODS
 from .validate_service import METHODS as VALIDATE_METHODS  # noqa: E402
 
 METHODS |= VALIDATE_METHODS
+from .notebook_versions_service import METHODS as NOTEBOOK_VERSIONS_METHODS  # noqa: E402
+METHODS |= NOTEBOOK_VERSIONS_METHODS
 
 # Notebook files (notebook_files_service.py): search, open a file, save a copy, delete and restore,
 # and copy a Fabric notebook to this PC.

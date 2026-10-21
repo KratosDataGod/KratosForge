@@ -89,7 +89,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),

@@ -1682,6 +1682,17 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .nbf-diff .del { color: #8a0b16; background: #fdf3f4; }
 @media (max-width: 720px) { .nbf-search { min-width: 0; width: 100%; } .nbf-hit { grid-template-columns: 1fr; } }
 
+/* Version history (notebook-versions.js) */
+.nbv { display: flex; flex-direction: column; gap: 10px; min-width: min(640px, 80vw); max-height: 62vh; overflow: auto; }
+.nbv-h { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.nbv-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.nbv-what { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 1; min-width: 0; }
+.nbv-acts { display: flex; gap: 6px; }
+.nbv-change { display: flex; flex-direction: column; gap: 4px; }
+.nbv-diff { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--canvas); font-family: var(--mono); font-size: 12px; overflow: auto; }
+.nbv-diff span { display: block; white-space: pre; }
+.nbv-diff .add { color: #0e5c2a; }
+.nbv-diff .del { color: #b10e1c; }
 /* Profile (profile.js): tokens only, so a dark theme picks it up. Badges and the level are static;
    their motion comes from the shared Forge animations work. */
 .profile-id { display: flex; align-items: center; gap: 16px; }

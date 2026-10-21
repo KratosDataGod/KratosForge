@@ -42,6 +42,7 @@ nav = [
     { "Validate a notebook" = "validate-notebook.md" },
     { "Motion and effects" = "forge-animations.md" },
     { "Notebook files" = "notebook-files.md" },
+    { "Notebook version history" = "notebook-versions.md" },
     { "Profile" = "profile.md" },
     { "Engines and connection profiles" = "engines.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },

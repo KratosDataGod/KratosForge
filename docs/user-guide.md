@@ -8,6 +8,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
+- **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
 - **[Metadata framework](metadata-guide.md):** building and running medallion layers from config, step by step, with a reference for every setting.
@@ -168,6 +169,10 @@ In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Pro
 ## Notebook files
 
 **All notebooks** (on Home, under Recent notebooks) lists every notebook, with a search that finds names and text inside cells. From there you can **Open a notebook file** from anywhere on this PC (a copy is added; the file isn't changed), **Save a copy**, **Rename**, **Move** and **Delete**, which keeps the notebook in **Recently deleted** for 30 days and turns its schedules on this PC off until you restore it. In Workspaces, **Edit on this PC** (Preview) copies a Fabric notebook here, linked to its item; Publish then shows any changes made in Fabric before it would replace them. See [Notebook files](notebook-files.md).
+
+## Notebook version history
+
+In a notebook, **Versions** (Home tab) lists the notebook's earlier versions on this PC: one per save (one every 5 minutes while you edit, kept 30 days) and named checkpoints you create. **Compare** shows the cells that changed, and **Restore** puts a version's cells back after keeping the notebook as it is now as a version. See [Notebook version history](notebook-versions.md).
 
 ## Workspaces
 

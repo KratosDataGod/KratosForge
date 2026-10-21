@@ -343,3 +343,17 @@ def test_variable_explorer_does_not_call_a_users_iter_or_sizeof_or_plan_a_lazy_f
     assert k.variable_detail("loud") == {"name": "loud", "type": "Loud"}
     assert k.variable_detail("lazy") == {"name": "lazy", "type": "LazyFrame"}
     assert k.namespace["calls"] == []
+
+
+def test_a_paused_frames_locals_carry_memory_but_never_open_from_the_namespace():
+    k = Kernel()
+    k.run("items = ['global']")
+    k.start("def f():\n    items = [1, 2, 3]\n    return items\nf()", breakpoints=[3])
+    deadline = time.monotonic() + 20
+    snap = k.poll(-1, 0.3)
+    while not snap.get("paused") and time.monotonic() < deadline:
+        snap = k.poll(-1, 0.3)
+    local = next(v for v in snap["paused"]["variables"] if v["name"] == "items")
+    assert local["value"] == "[1, 2, 3]" and local["memory"] > 0 and local["expandable"] is False
+    assert [i["value"] for i in k.variable_detail("items")["items"]] == ["'global'"]  # the namespace's, not the frame's
+    k.interrupt()

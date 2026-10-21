@@ -7,8 +7,9 @@ statement is an expression its value is shown: data frames as a table, charts as
 with an HTML view as HTML, anything else as its repr. ``display(...)`` shows values mid-cell.
 
 Every cell has what a Fabric notebook has: ``spark`` (see spark_local), ``notebookutils`` and
-``mssparkutils`` (see notebookutils_local) and ``display``. ``%%sql`` cells run Spark SQL,
-``%%html`` shows HTML, and ``%run`` runs another notebook in this one's namespace.
+``mssparkutils`` (see notebookutils_local) and ``display``. ``%%sql`` cells run Spark SQL and keep
+a query's result in ``_sqldf``, ``df = %sql SELECT ...`` runs one query inside Python, ``%%html``
+shows HTML, and ``%run`` runs another notebook in this one's namespace (line magics: magics.py).
 """
 
 from __future__ import annotations
@@ -34,6 +35,9 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from . import magics
+from .frames import Frames, type_name
+
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -41,6 +45,7 @@ PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SPARK_ONLY = re.compile(r"^\s*%%(spark|sparkr|csharp)\b")
+_SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 
 
 def _no_input(*_args, **_kwargs):
@@ -102,7 +107,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
         total = _total_rows(value, table)
-        return {"type": "table", "columns": table.schema.names, "rows": rows,
+        return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
     module = type(value).__module__
     if module.startswith("matplotlib"):
@@ -143,6 +148,13 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
+        self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
+        self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
+
+    def set_paused(self, paused: dict[str, Any] | None) -> None:
+        with self.lock:
+            self.paused = json.loads(json.dumps(paused, default=str)) if paused is not None else None
+            self.version += 1
 
     def write(self, text: str) -> None:
         if not text:
@@ -174,6 +186,8 @@ class _Run:
                     "outputs": list(self.outputs) if changed else None}
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if self.debugger is not None:
+                snap["paused"] = self.paused
             return snap
 
 
@@ -224,6 +238,7 @@ class Kernel:
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
+        self.frames = Frames()
         self.restart()
 
     # ---- namespace
@@ -261,11 +276,26 @@ class Kernel:
         lakehouse.reads_reset()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
+        self.frames.clear()
+
+    def _show(self, value: Any) -> dict[str, Any]:
+        """``display(value)``; a table also keeps its whole result for the result viewer (frames.py)."""
+        out = display(value)
+        if out["type"] == "table":
+            out["frame"] = self.frames.keep(value)
+        return out
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        return self.frames.page(frame, offset, limit, sort, desc, q)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        return self.frames.download(frame, format, path)
 
     def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
         for value in values:
-            out = display(value)
+            out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
             if run is not None:
@@ -275,15 +305,25 @@ class Kernel:
 
     # ---- running a cell
 
-    def start(self, code: str, watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, watches: list[str] | None = None, breakpoints: list[int] | None = None,
+              step: bool = False) -> dict[str, Any]:
         """Start ``code`` on its own thread; ``poll`` reports its output as it comes.
 
         ``watches`` are expressions evaluated after the cell, in its namespace and on its thread
-        (so Cancel and the cell time limit cover them); their values come back in ``watches``."""
+        (so Cancel and the cell time limit cover them); their values come back in ``watches``.
+        ``breakpoints`` (line numbers in the cell) or ``step`` (pause at the first line) run the
+        cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        from .debugger import Debugger, check_breakpoints
+        lines = check_breakpoints(breakpoints)
         self.count += 1
         run = _Run(self.count)
+        if lines or step:
+            from .redact import secrets
+            run.debugger = Debugger(lines, step, self._frame_row, redact=secrets, watches=watches,
+                                    on_change=run.set_paused)
+            run.debugger.skip = set(self._base_namespace_keys())
         self._current = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
@@ -307,12 +347,23 @@ class Kernel:
         run = self._current
         if run is None or run.done.is_set() or run.thread is None:
             return {"interrupted": False}
+        # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
+        # interrupt it the usual way.
+        if run.debugger is not None and run.debugger.stop() and run.done.wait(0.5):
+            return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        """Resume a paused cell (continue, step, next, out) or evaluate ``expression`` where it is paused."""
+        run = self._current
+        if run is None or run.done.is_set() or run.debugger is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return run.debugger.command(action, expression)
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
@@ -332,7 +383,13 @@ class Kernel:
         status = "error"
         try:
             try:
-                status = self._exec(code, self.namespace, run)
+                if run.debugger is not None:
+                    sys.settrace(run.debugger.trace)
+                try:
+                    status = self._exec(code, self.namespace, run, run.debugger)
+                finally:
+                    if run.debugger is not None:
+                        sys.settrace(None)
                 self._flush_figures(run)
             except NotebookExit:
                 status = "ok"
@@ -370,12 +427,13 @@ class Kernel:
         with run.lock:
             run.watches = results
 
-    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
-        """Run one cell's code in ``namespace``; returns "ok" or "error"."""
+    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
+        """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
+        code compiled here (not %run notebooks), so its line numbers are the cell's own."""
         from .notebookutils_local import NotebookExit
         head = code.lstrip()
         if head.startswith("%%sql"):
-            return self._run_sql(head[len("%%sql"):], run)
+            return self._run_sql(head[len("%%sql"):], run, namespace)
         if head.startswith("%%html"):
             self._emit(run, {"type": "html", "html": head[len("%%html"):]})
             return "ok"
@@ -388,22 +446,29 @@ class Kernel:
                              "traceback": ""})
             return "error"
         if re.match(r"%%(pyspark|python)\b", head):
-            code = head.split("\n", 1)[1] if "\n" in head else ""
-        code = _line_magics(code)
-        namespace.setdefault("__fd_magic__", self._magic)
+            # Blank lines keep each line's number, for tracebacks and breakpoints.
+            code = "\n" * (code[:len(code) - len(head)].count("\n") + 1) + (head.split("\n", 1)[1] if "\n" in head else "")
+        code = magics.rewrite(code)
+        namespace.setdefault(magics.CALL, self._magic)
         self._patch_pyplot(run)
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
                 tree = ast.parse(code, _CELL_FILE)
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-                exec(compile(tree, _CELL_FILE, "exec"), namespace)
+                body = compile(tree, _CELL_FILE, "exec")
+                tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
+                if debugger is not None:
+                    debugger.add(body)
+                    if tail is not None:
+                        debugger.add(tail)
+                exec(body, namespace)
                 value = None
-                if last is not None:
-                    value = eval(compile(ast.Expression(last.value), _CELL_FILE, "eval"), namespace)
+                if tail is not None:
+                    value = eval(tail, namespace)
                 if value is not None:
                     namespace["_"] = value
-                    self._emit(run, display(value))
+                    self._emit(run, self._show(value))
         except NotebookExit as done:
             print(f"Notebook exited with value: {done.value}")
             namespace["__fd_exit__"] = done.value
@@ -437,12 +502,13 @@ class Kernel:
                 run.add(_png(plt.figure(num)))
         plt.close("all")
 
-    def _run_sql(self, query: str, run: _Run | None) -> str:
+    def _run_sql(self, query: str, run: _Run | None, namespace: dict[str, Any]) -> str:
         """A %%sql cell: Spark SQL on this PC, through the notebook's spark session.
 
         It reads lakehouse tables and the session's temp views; CREATE TABLE AS and INSERT INTO
-        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric."""
-        if re.search(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", query, re.IGNORECASE):
+        write lakehouse tables. MERGE, UPDATE and DELETE run in Fabric. A query's result stays in
+        ``_sqldf`` as a spark DataFrame, as in Databricks, so the next Python cell can use it."""
+        if _SQL_IN_PLACE.search(query):
             text = ("This cell changes tables, so it runs in Fabric once the notebook is published. "
                     "On this PC, a Data mesh run does the same surrogate key MERGE.\n")
             self._emit(run, {"type": "stream", "text": text})
@@ -451,7 +517,9 @@ class Kernel:
             from . import spark_local
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
-                self._emit(run, display(result))
+                if magics.returns_rows(query):  # DDL comes back as an empty frame; that isn't a result
+                    namespace["_sqldf"] = result
+                self._emit(run, self._show(result))
             return "ok"
         except Exception as exc:  # noqa: BLE001
             self._emit(run, self._error(exc))
@@ -464,6 +532,8 @@ class Kernel:
             target, _, rest = line.strip().partition(" ")
             args = ast.literal_eval(rest.strip()) if rest.strip() else {}
             return self._run_notebook_in(target.strip("\"'"), self.namespace, args)
+        if name == "sql":
+            return self._sql_value(line)
         if name in ("pip", "conda"):
             print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
                   f"are fixed, so this line was skipped.")
@@ -473,12 +543,23 @@ class Kernel:
             value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
             print(f"Wall time: {time.monotonic() - started:.3f} s")
             return value
-        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %pip (skipped), %time.")
+        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %pip (skipped), %time.")
+
+    @staticmethod
+    def _sql_value(query: str) -> Any:
+        """``%sql SELECT ...`` inside Python: the query's result as a spark DataFrame."""
+        if not query.strip():
+            raise ValueError("%sql needs a query after it, like: df = %sql SELECT * FROM sales")
+        if _SQL_IN_PLACE.search(query):
+            raise ValueError("MERGE, UPDATE and DELETE change rows in place, which runs in Fabric only. "
+                             "Put the statement in a %%sql cell; it runs once the notebook is published.")
+        from . import spark_local
+        return spark_local.session().sql(query)
 
     def run_notebook(self, name: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None) -> Any:
         """notebookutils.notebook.run: the other notebook runs in a fresh namespace; returns its exit value."""
         ns = self._base_namespace()
-        ns["__fd_magic__"] = self._magic
+        ns[magics.CALL] = self._magic
         return self._run_notebook_in(name, ns, arguments or {})
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any]) -> Any:
@@ -537,20 +618,30 @@ class Kernel:
         skip = set(self._base_namespace_keys())
         rows = []
         for name, value in list(self.namespace.items()):
-            if name.startswith("_") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
+            if (name.startswith("_") and name != "_sqldf") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
                     or inspect.isroutine(value):
                 continue
-            hidden = self._hidden(name, value)
-            rows.append({"name": name, "type": type(value).__name__, "size": _size(value),
-                         "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
-                         "expandable": not hidden and _expandable(value)})
+            rows.append(self._describe(name, value))
         return sorted(rows, key=lambda r: r["name"].lower())
+
+    def _describe(self, name: str, value: Any) -> dict[str, Any]:
+        """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
+        memory it holds and whether variable_detail can open it."""
+        hidden = self._hidden(name, value)
+        return {"name": name, "type": type(value).__name__, "size": _size(value),
+                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                "expandable": not hidden and _expandable(value)}
+
+    def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
+        """A paused frame's local: never expandable, since variable_detail reads the namespace,
+        where the same name may be another value."""
+        return {**self._describe(name, value), "expandable": False}
 
     def variable_detail(self, name: str) -> dict[str, Any]:
         """One variable opened up, read without running code: a data frame's columns and their
         types, or the first VAR_ITEMS items of a list, tuple, set or dict. Secrets stay hidden."""
         value = self.namespace.get(name, _MISSING)
-        if value is _MISSING or name.startswith("_"):
+        if value is _MISSING or (name.startswith("_") and name != "_sqldf"):
             return {"name": name, "missing": True}
         out: dict[str, Any] = {"name": name, "type": type(value).__name__}
         if self._hidden(name, value):
@@ -648,19 +739,6 @@ class Kernel:
 
 
 _MISSING = object()
-
-
-def _line_magics(code: str) -> str:
-    """``%run nb`` and other line magics become calls the kernel answers."""
-    out = []
-    for line in code.split("\n"):
-        m = re.match(r"^(\s*)%(?!%)(\w+)\s?(.*)$", line)
-        if m:
-            indent, name, rest = m.groups()
-            out.append(f"{indent}__fd_magic__({name!r}, {rest!r})")
-        else:
-            out.append(line)
-    return "\n".join(out)
 
 
 def _size(value: Any) -> str:

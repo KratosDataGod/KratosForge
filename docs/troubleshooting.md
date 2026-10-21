@@ -2,6 +2,8 @@
 
 When something goes wrong, KratosForge says what happened in a sentence and keeps the technical text in **Activity** (the bell) under **Details**. Find the sentence you saw below. If it isn't here, use **Report a problem** in the account menu: it collects the build and recent errors for you, without your data.
 
+When a page or panel couldn't load something, the error shows in place with **Retry** and a **Details** section; **Copy** puts the technical text on the clipboard for a problem report. An error message at the bottom of the window stays while the pointer or keyboard focus is on it, and has **Retry** where trying again is safe.
+
 ## Starting the app
 
 | What you see | What it means | What to do |
@@ -45,6 +47,8 @@ When something goes wrong, KratosForge says what happened in a sentence and keep
 | "Fabric doesn't accept that name" when creating a lakehouse | Lakehouse names can use only letters, numbers and underscores, and must start with a letter, so `TPC-H_Benchmark` is refused. | Use a name like `TPC_H_Benchmark`. The **New lakehouse** box now says this before anything is sent. |
 | "... isn't in ... yet. Run the TPC-H data notebook" | **TPC-H benchmark** reads the tables **TPC-H data** writes, and that notebook hasn't run on the attached lakehouse. | Attach the same lakehouse to **TPC-H data**, run it once, then run **TPC-H benchmark** again. |
 | "Fabric is busy and asked the app to slow down" | Fabric throttled the requests. | Wait a minute and retry. |
+| "There is no file or folder at ... on this PC" | A file the app or engine expected on this PC is missing: it was moved, renamed or deleted. This is about your PC, not Fabric. | Check the path, or pick the file again. **Retry** if it was only briefly unavailable. |
+| "This PC didn't allow access to ..." | Windows refused to open or write a file, usually because another program has it open or the folder is read-only. | Close the program that has the file open, or pick a folder you can write to. |
 | A new table shows under **Unidentified** in Fabric | Fabric hasn't picked up a table written from outside yet. | Refresh the lakehouse in Fabric. See also [xray-fixes.md](xray-fixes.md#unidentified-tables). |
 | Endorsed items is greyed out | Reading endorsement needs an admin-only permission, which KratosForge doesn't ask for. | Nothing to fix: the Fabric catalog embedded on the same page shows endorsement. |
 | **Couldn't list capacities** when creating a workspace | Your sign-in lacks `Capacity.Read.All` (your organization's own app registration doesn't have it). | Create the workspace in Fabric, or an admin adds it ([permissions.md](permissions.md#using-your-own-app-registration)). |

@@ -31,7 +31,9 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import lakehouse
+from .frames import GONE, FrameGone
 
+DOWNLOAD_SECONDS = 1800.0  # writing a whole result to Downloads, or a first page of a large query
 ANSWER_SECONDS = 15.0  # a request that isn't a long poll; a kernel that misses this is stuck
 STOPPED_TEXT = "Stopped. The notebook's Python process was ended, so variables were cleared."
 WATCH_SECONDS = 1.0
@@ -240,9 +242,13 @@ class ProcessKernel:
 
     # ---- the Kernel interface
 
-    def start(self, code: str, time_limit: bool = True, watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, time_limit: bool = True, watches: list[str] | None = None,
+              breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         """Start ``code``. ``time_limit`` False runs this one cell without the cell time limit.
-        ``watches`` are evaluated after it (notebook.Kernel.start)."""
+        ``watches`` are evaluated after it, ``breakpoints`` and ``step`` run it under the debugger
+        (notebook.Kernel.start). A debugged cell has no time limit: time paused counts as running."""
+        if breakpoints or step:
+            time_limit = False
         if self._running and self._proc is not None:
             snap = self.poll()
             if snap["status"] == "running":
@@ -257,7 +263,8 @@ class ProcessKernel:
         if time_limit:
             self._started_at = time.monotonic()
         try:
-            snap = self._request("start", code=code, notebook_name=self.notebook_name, watches=list(watches or []))
+            snap = self._request("start", code=code, notebook_name=self.notebook_name, watches=list(watches or []),
+                                 breakpoints=list(breakpoints or []), step=step)
         except KernelGone:
             # The cell ended its process before the start was even answered (os._exit, a crash).
             deadline = time.monotonic() + 5
@@ -342,6 +349,11 @@ class ProcessKernel:
                 outputs = snap["outputs"]
         return {"status": snap["status"], "execution_count": snap["execution_count"], "outputs": outputs}
 
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        from .debugger import EVAL_SECONDS
+        return self._request("debug", timeout=EVAL_SECONDS + ANSWER_SECONDS, spawn=False, action=action,
+                             expression=expression)
+
     def variables(self) -> list[dict[str, Any]]:
         if self._proc is None or self._proc.poll() is not None:
             return []
@@ -360,6 +372,20 @@ class ProcessKernel:
         if self._proc is None or self._proc.poll() is not None:
             return {"tables": {}, "files": {}}
         return self._request("reads")
+
+    # ---- the result viewer (frames.py): results live where the cells ran
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_page", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, offset=offset,
+                             limit=limit, sort=sort, desc=desc, q=q)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        if not self.alive():
+            raise FrameGone(GONE)
+        return self._request("frame_download", timeout=DOWNLOAD_SECONDS, spawn=False, frame=frame, format=format, path=path)
 
     # ---- proofs (prove_service): the proof runtime lives where the cells run
 

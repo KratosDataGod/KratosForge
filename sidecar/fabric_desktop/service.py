@@ -23,6 +23,7 @@ from .auth import CAPACITY_SCOPES, EXECUTE_SCOPES, Authenticator
 from .fabric_api import FabricClient
 from . import app_settings, jsonfile, lakehouse, sql, sql_dialects, sql_exec, sql_format, sqlcompat
 from .filenames import file_stem
+from .frames import DOWNLOAD_FORMATS, GONE, FrameGone
 from .jobs import Job, run_local
 from .cloud_service import CloudMixin
 from .fabric_run import compute_check
@@ -54,7 +55,9 @@ from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
 from .notebook_files_service import NotebookFilesMixin
+from .progress_service import ProgressMixin
 from .kernel_proc import ProcessKernel
+from .debugger import check_breakpoints
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
 from .publish import run_job
@@ -70,7 +73,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin):
+class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, ProgressMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -423,9 +426,13 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     # interrupt_cell stops it without clearing variables.
     def start_cell(self, code: str, lakehouse_ref: dict[str, str] | None = None,
                    notebook: str | None = None, time_limit: bool = True,
-                   watches: list[str] | None = None) -> dict[str, Any]:
+                   watches: list[str] | None = None, breakpoints: list[int] | None = None,
+                   step: bool = False) -> dict[str, Any]:
         """``time_limit`` False runs this cell without the cell time limit (Run again without the limit).
-        ``watches`` are expressions shown in the Variables pane, evaluated after the cell."""
+        ``watches`` are expressions shown in the Variables pane, evaluated after the cell.
+        ``breakpoints`` (line numbers) or ``step`` (pause at the first line) run it under the
+        debugger; ``debug_cell`` resumes it."""
+        breakpoints = check_breakpoints(breakpoints)
         if self.proof_busy():
             raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
         self._replay_guard(notebook)  # prove_service: a replay's cells run only inside it
@@ -439,8 +446,9 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
             if isinstance(self.kernel, ProcessKernel):
-                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
-            return self.kernel.start(code, check_watches(watches))
+                return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
+                                         breakpoints=breakpoints, step=bool(step))
+            return self.kernel.start(code, check_watches(watches), breakpoints, bool(step))
         finally:
             self.attach_lock.release()
 
@@ -450,6 +458,10 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def interrupt_cell(self) -> dict[str, Any]:
         return self.kernel.interrupt()
 
+    def debug_cell(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        """A cell paused under the debugger: continue, step, next, out, or eval ``expression`` where it is."""
+        return self.kernel.debug(action, expression)
+
     def kernel_variables(self) -> list[dict[str, Any]]:
         return self.kernel.variables()
 
@@ -458,6 +470,34 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
 
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))
+
+    # ---- the result viewer behind a cell's table output (frames.py)
+
+    def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                            desc: bool = False, q: str = "") -> dict[str, Any]:
+        """A page of a cell's whole result, searched and sorted over every row."""
+        try:
+            return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:
+        """Write a cell's whole result to a new file in Downloads (CSV, Excel or Parquet); never replaces a file."""
+        if format not in DOWNLOAD_FORMATS:
+            raise ValueError(f"Download as {', '.join(DOWNLOAD_FORMATS)}.")
+        folder = Path.home() / "Downloads"
+        folder.mkdir(parents=True, exist_ok=True)
+        base = f"{file_stem(name or 'notebook')} result {time.strftime('%Y-%m-%d %H%M%S')}"
+        path = sql_exec._reserve(folder, base, "." + format)
+        try:
+            return self.kernel.frame_download(frame=frame, format=format, path=str(path))
+        except BaseException as exc:
+            sql_exec._discard(path.with_name(path.name + ".partial"), path)
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
 
     def _token_for(self, audience: str) -> str:
         """notebookutils.credentials.getToken on this PC: a token for you, from your sign-in."""

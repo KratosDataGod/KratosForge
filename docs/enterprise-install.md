@@ -79,7 +79,7 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
 | `login.microsoftonline.com` | Sign-in |
-| `login.microsoft.com`, `login.windows.net` | Sign-in redirects in the Fabric pages embedded in the app |
+| `login.microsoft.com`, `login.windows.net`, `device.login.microsoftonline.com`, `autologon.microsoftazuread-sso.com`, `login.live.com` | Sign-in redirects in the Fabric pages embedded in the app (device checks, Seamless SSO, guests with a personal Microsoft account) |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |

@@ -33,7 +33,7 @@ notebookutils.nbResPath          # the notebook's resources folder; its files ar
 ```
 
 `%run -b helpers.py` runs a Python file from the resources in the notebook, and `%run -b
-query.sql` runs a SQL file; see [%run -b](notebook-magics.md#running-a-file-from-the-notebooks-resources-run--b).
+query.sql` runs a SQL file; see [%run -b](notebook-magics.md#running-a-file-from-the-notebooks-resources-run-b).
 
 While a cell runs on this PC, a string in its code that starts with `builtin/` (or `./builtin/`) means the notebook's `builtin` folder when it is the start of the whole path value: on its own (`p = "builtin/x.csv"`), as an argument (`open("builtin/x.csv")`, `pl.read_csv(source="builtin/x.csv")`), as the first piece of a `+` or `/` (`"builtin/" + name`), as the first argument of a join (`os.path.join("builtin/", name)`), or at the start of an f-string (`f"builtin/{name}"`). That works for `open()`, pandas, polars, DuckDB, `notebookutils.fs` and anything else that takes a path.
 

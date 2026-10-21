@@ -3989,7 +3989,7 @@ test("the magics page documents %run -b and the resources page links to it", () 
   const root = path.join(__dirname, "..", "..");
   const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
   assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
-  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run-b/);
 });
 
 test("a workload page says whether its actions reached the platform's audit", () => {

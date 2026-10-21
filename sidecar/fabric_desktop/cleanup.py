@@ -21,7 +21,7 @@ import sys
 import tokenize
 from typing import Any
 
-from . import depgraph
+from . import depgraph, magics
 
 _KEEP_IMPORTS = {"__future__", "fabric_desktop"}  # imported for what importing does, or named in docs
 # Modules whose import only defines names, so an import no cell names can go without changing
@@ -37,8 +37,7 @@ _TO_PANDAS = {"to_pandas", "toPandas"}
 def _python(c: dict[str, Any]) -> bool:
     if c.get("type") == "markdown":
         return False
-    head = (c.get("source") or "").lstrip()
-    return not head.startswith("%%") or head.startswith(("%%pyspark", "%%python"))
+    return magics.cell(c.get("source") or "").language == "python"
 
 
 def _frozen(c: dict[str, Any]) -> bool:

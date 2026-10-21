@@ -170,8 +170,8 @@ def register_core(reg: Registry) -> None:
             schema({"name": NAME}, ["name"]),
             schema({"place": {"enum": ["pc", "fabric", "either", "unknown"]}, "headline": STR,
                     "reasons": {"type": "array"}}, ["place", "reasons"], extra=True),
-            "READ_METADATA", services.get_placement_advice, status="preview", artifact_types=("Notebook",),
-            timeout=60),
+            "READ_METADATA", services.get_placement_advice, workspaces=scope.notebook, status="preview",
+            artifact_types=("Notebook",), timeout=60),
     ]
     caps += _prove() + _pipelines() + _pipeline_runs() + _executions() + _prove_actions()
     for cap in caps:

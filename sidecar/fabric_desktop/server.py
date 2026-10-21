@@ -334,6 +334,8 @@ def main() -> None:
     sys.stdin.reconfigure(encoding="utf-8")  # the shell sends UTF-8 whatever the Windows code page
     _log_to_stderr()
     _refresh_integration_launcher()
+    from . import notebook
+    notebook.sweep_spills()  # output files a closed notebook session left behind
     service = Service()
     threading.Thread(target=_start_integration_http, args=(service,), daemon=True, name="integrations-http").start()
     try:

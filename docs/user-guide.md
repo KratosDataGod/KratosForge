@@ -64,6 +64,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Esc** | Close the command bar, a menu, a dialog or the activity tray |
 | **Tab**, **Shift+Tab** | Move to the next or previous control; in a dialog, focus stays inside it |
 | **Enter** or **Space** | Open the row or card that has focus |
+| **Alt+Left**, **Alt+Right** | Go back or forward to the page you were on, as the top bar's arrows do (not while typing in a box) |
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 

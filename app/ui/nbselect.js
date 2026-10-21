@@ -166,14 +166,10 @@ function copySelected(cut = false) {
 }
 
 function moveSelected(delta) {
-  const cells = state.notebook.cells;
-  const block = selectedCells();
-  const first = cells.indexOf(block[0]);
-  const last = cells.indexOf(block[block.length - 1]);
-  if (last - first + 1 !== block.length) { toast("Select cells next to each other to move them together."); return; }
-  if (first + delta < 0 || last + delta >= cells.length) return;
-  cells.splice(first, block.length);
-  cells.splice(first + delta, 0, ...block);
+  // nbcells.js: collapsed headings take their sections along, and a cell that showed stays shown.
+  const moved = moveShown(selectedCells(), delta);
+  if (moved === "apart") { toast("Select cells next to each other to move them together."); return; }
+  if (moved !== "moved") return;
   markDirty();
   renderNotebook();
   selectionPaint();

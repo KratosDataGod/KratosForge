@@ -82,3 +82,10 @@ test("a notebook lists its cell, several-cell and find keys, with Ctrl+S in the 
   await page().evaluate(() => { state.view = "home"; });
   assert.deepStrictEqual(app.errors, []);
 });
+
+test("Alt+Left and Alt+Right (Back and Forward) are listed on every page", { skip }, async () => {
+  await page().evaluate(() => { state.view = "home"; shortcutsDialog(); });
+  const row = dialog().locator("tr", { hasText: "Go back or forward" });
+  assert.deepStrictEqual(await row.locator("kbd").allTextContents(), ["Alt", "Left", "Alt", "Right"]);
+  await page().keyboard.press("Escape");
+});

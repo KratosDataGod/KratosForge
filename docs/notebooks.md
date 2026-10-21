@@ -35,6 +35,8 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 | Clean and check | Standardize names and types | Renames columns to snake_case, trims text, and turns the columns you name into dates or numbers. A value that can't be read stops the run, so nothing is quietly lost |
 | Clean and check | Data quality checks | Checks required columns, unique keys, allowed values (`status: open\|closed`) and ranges (`amount: 0..1000000`). Rows that pass go to one table; rows that fail go to a rejects table with a `reason` |
 | Model | Join and aggregate | Joins two tables on a column and groups by columns |
+| Model | Update a dimension in place (SCD type 1) | Upsert: source rows replace the dimension's rows with the same key, new keys are added, and keys no longer in the source stay. No history. Rewrites the dimension as a whole |
+| Model | Keep a dimension's history (SCD type 2) | When a tracked column changes (every non-key column when you name none), closes the current row (`valid_to`, `is_current` false) and adds the next `version`. A change to an untracked column alone updates the current row in place, without a new version. New keys start at version 1; keys no longer in the source stay current. `valid_from` and `valid_to` are the run's time in UTC, so a proof matches rows by key and `version` and leaves those two out. A tracked column the dimension doesn't have yet stops the run. Rewrites the dimension as a whole |
 | Model | Date dimension | One row per day between two dates, with year, quarter, month, ISO week, weekday, weekend, and a fiscal year named by the calendar year it ends in |
 | Model | Daily snapshot | Appends today's rows of a table to a history table with a `snapshot_date` (UTC). A second run on the same day writes nothing, so a retry can't double a day. It can't write to the table it reads |
 | Compare | Reconcile two tables | Compares row counts, keys on one side only and column totals; the run fails when they differ, so a schedule stops. Writes nothing |
@@ -172,6 +174,18 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 - **Hidden state.** After a cell runs, KratosForge checks the names it uses against the cells in the notebook (the same reading of the code as Dependencies). If the cell uses a name that no cell defines, or that only a cell further down defines, but the kernel still has it from an earlier run, a warning shows under the cell: the cell works now but will fail in Fabric, in a proof and after a restart. If that name was set by a cell you've since deleted or changed in this session, **Insert that cell back above** puts its code back. **Ignore for this notebook** stops the warning for that name and is saved in the notebook file.
 
 None of these run for notebooks that run in Fabric.
+
+### Breakpoints and stepping (Preview)
+
+For cells that run on this PC, with the same Preview setting as watches:
+
+- **Set a breakpoint** by clicking a line number (with **Line numbers** on) or pressing **F9** on a line. A red bar marks it. Breakpoints follow their lines as you edit, and they're kept for this session only, not saved in the notebook file.
+- **A cell with breakpoints pauses at them** whenever it runs, whether you run it alone or with **Run all**. **Debug cell (pause at the first line)** in the cell's **...** menu pauses before its first line.
+- **While paused**, the paused line is highlighted and a panel under the cell shows the call stack, that frame's variables (names, types, sizes and short previews; a variable whose name looks like a secret, or whose value is a secret from `getSecret`, shows as `hidden`, but a value built from a secret, such as a connection string, isn't hidden, as in watches), and your watches as they are in that frame. **Evaluate** runs an expression in the paused frame, such as `df.shape` or `n + 1`. Like a watch, it runs as notebook code, so keep it to reads.
+- **Continue** (F5) runs to the next breakpoint, **Step over** (F10) to the next line, **Step into** (F11) into a function the cell defines, and **Step out** (Shift+F11) to the next line after the function returns. **Stop** cancels the cell like **Cancel**, keeping variables.
+- Only the cell's own code stops: functions and classes it defines pause wherever the cell calls them. Libraries, functions from earlier cells, `%run` notebooks and threads the cell starts run at full speed and never pause. A cell running under the debugger has no time limit, because time spent paused counts as running. The memory limit still applies.
+
+Proofs, side by side, Validate and scheduled runs never stop at breakpoints, because they don't run cells from the editor.
 
 ### Failure replay bundles (Preview)
 

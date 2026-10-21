@@ -684,6 +684,10 @@ def _deadline(seconds: float | None, message: str):
         if fired.is_set():
             raise RunTimeout(message) from exc
         raise
+    else:
+        # Code that catches Exception can swallow the timeout; the run still ran out of time.
+        if fired.is_set():
+            raise RunTimeout(message)
     finally:
         timer.cancel()
         if fired.is_set():

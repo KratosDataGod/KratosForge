@@ -30,6 +30,13 @@ def test_run_stops_at_its_timeout_and_the_kernel_keeps_going(tmp_path):
     assert k.run("1 + 1")["outputs"][-1]["text"] == "2"
 
 
+def test_a_child_that_catches_exception_still_times_out(tmp_path):
+    k = _kernel(tmp_path, {"greedy": ["import time\ntry:\n    for _ in range(40):\n        time.sleep(0.05)\n"
+                                      "except Exception:\n    pass", "notebookutils.notebook.exit('done')"]})
+    out = k.run("try:\n    r = notebookutils.notebook.run('greedy', 1)\nexcept TimeoutError as e:\n    r = 'timeout'\nr")
+    assert out["outputs"][-1]["text"] == "'timeout'", out
+
+
 def test_run_multiple_honors_cell_and_dag_timeouts(tmp_path):
     k = _kernel(tmp_path, {"slow": ["import time\nfor _ in range(200):\n    time.sleep(0.05)"],
                            "fast": ["notebookutils.notebook.exit('ok')"]})

@@ -1965,3 +1965,9 @@ test("notebook.run timeouts and validateDAG are documented", () => {
   assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
   assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
 });
+
+// notebook.run timeouts land between Python steps; the docs say so.
+test("notebook.run docs say where the timeout lands", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /The timeout lands between Python steps, so a single long call such as `time\.sleep\(4\)` finishes before it stops/);
+});

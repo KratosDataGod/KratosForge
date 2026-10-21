@@ -152,13 +152,13 @@ class KernelSessions:
             return
         cutoff = time.time() - minutes * 60
         with self._lock:
+            # Taken out under the lock, so a cell can't start in a session that is about to close.
             stale = [s for s in self._sessions.values()
                      if s.notebook != self.active and s.last_used < cutoff and s.alive() and not s.running()]
+            for s in stale:
+                del self._sessions[s.notebook]
         for s in stale:
             s.kernel.close()
-            with self._lock:
-                if self._sessions.get(s.notebook) is s:
-                    del self._sessions[s.notebook]
             self.notes.append(f"Stopped the session for {s.notebook}: idle for more than {minutes:g} minutes. "
                               "Its variables were cleared.")
 

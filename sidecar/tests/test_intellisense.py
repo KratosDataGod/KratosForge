@@ -1,4 +1,6 @@
 """Hover docs, signature help and the as-you-type syntax check for the notebook editor."""
+import pytest
+
 from fabric_desktop.intellisense import call_help, dotted_at, open_call, syntax_problems
 from fabric_desktop.notebook import Kernel
 from fabric_desktop import audit, server
@@ -67,6 +69,32 @@ def test_syntax_problems_point_at_the_line_and_ignore_other_languages_and_magics
     assert syntax_problems("await something()") == []
     [p] = syntax_problems("%%pyspark\nx = (")
     assert p["line"] >= 2
+
+
+@pytest.mark.parametrize("code", [
+    'q = "id=%s" % 5',
+    'print("done=!")',
+    'url = f"a?x={1}&y=%d" % 2',
+    "where = \"WHERE a=%(a)s\" % {'a': 1}",
+    'ok = x != 1',
+    'msg = "a=!b"; n = 1',
+])
+def test_equals_percent_or_bang_inside_a_string_is_valid_python(code):
+    # Quality repro r354: the IPython `x = %magic` rewrite used to fire inside strings.
+    assert syntax_problems(code) == []
+
+
+@pytest.mark.parametrize("code", ["x = %sql select 1", "files = !ls", "%time y = 1", "a, b = %who_ls", "self.out = !dir"])
+def test_ipython_assignment_forms_still_pass(code):
+    assert syntax_problems(code) == []
+
+
+def test_hover_removes_credential_text_from_values_and_defaults():
+    k = Kernel()
+    k.run('conn = "Server=db;Password=abc123"\ndef connect(dsn="Server=db;Password=xyz789"):\n    pass')
+    shown = k.inspect("conn", 2)
+    assert "abc123" not in shown["value"] and "[removed]" in shown["value"]
+    assert "xyz789" not in k.inspect("connect", 3)["signature"]
 
 
 def test_the_new_calls_are_read_only_rpc_methods():

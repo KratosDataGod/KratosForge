@@ -610,7 +610,12 @@ class Kernel:
         obj = self._lookup(name)
         if obj is _MISSING:
             return None
-        out = intellisense.describe(name, obj, hidden=self._hidden(name.split(".")[-1], obj), preview=_preview)
+        from .redact import secrets
+        # Credential-shaped text in a value or a default argument is removed, as in the Variables pane.
+        out = intellisense.describe(name, obj, hidden=self._hidden(name.split(".")[-1], obj),
+                                    preview=lambda v: secrets(_preview(v)))
+        if "signature" in out:
+            out["signature"] = secrets(out["signature"])
         return {**out, "from": start, "to": end}
 
     def _lookup(self, dotted: str) -> Any:

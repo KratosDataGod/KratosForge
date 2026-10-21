@@ -153,6 +153,9 @@ _CELL_MAGIC = re.compile(r"^\s*%%(\w+)")
 _PY_CELL_MAGICS = ("pyspark", "python")
 
 
+_ASSIGN_MAGIC = re.compile(r"^(\s*[A-Za-z_][\w.]*(?:\s*,\s*[A-Za-z_][\w.]*)*\s*=\s*)[%!].*$")
+
+
 def syntax_problems(source: str) -> list[dict[str, Any]]:
     """The first Python syntax error in a cell, as {line, col, end_line, end_col, message} with
     1-based lines and 0-based columns in the cell's own text. Cells in another language (``%%sql``,
@@ -172,8 +175,9 @@ def syntax_problems(source: str) -> list[dict[str, Any]]:
         if stripped.startswith(("%", "!")):
             lines.append(f"{indent}pass" + " " * max(0, len(stripped) - 4))
         else:
-            # `x = %sql ...` or `files = !ls` (IPython assignment forms)
-            lines.append(re.sub(r"(=\s*)[%!].*$", lambda a: a.group(1) + "None", line))
+            # `x = %sql ...` or `files = !ls` (IPython assignment forms): only a plain target at the
+            # start of the line, so `=%` or `=!` inside a string is left alone.
+            lines.append(_ASSIGN_MAGIC.sub(lambda a: a.group(1) + "None", line))
     text = "\n".join(lines)
     try:
         with warnings.catch_warnings():

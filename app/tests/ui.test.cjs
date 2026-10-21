@@ -2913,6 +2913,18 @@ test("notebook cells read Databricks %sql and %md headers", () => {
   assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
 });
 
+// Notebook shell cells: %sh, %%sh, %%bash, %%cmd and %%powershell are plain text in the editor.
+test("notebook shell cells are recognised for the editor", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const shellMagic = [^\n]*\n/.exec(nb)[0] + "\nthis.sh = shellMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  for (const s of ["%sh ls", "%%sh\nls", "%%bash\nls", "  %%cmd\ndir", "%%powershell\nGet-Date"]) assert.strictEqual(ctx.sh(code(s)), true, s);
+  for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
+  assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

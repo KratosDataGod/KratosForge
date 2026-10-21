@@ -73,6 +73,59 @@ cell is listed as Fabric only.
 `%%sql`, `%scala` becomes `%%spark`, `%r` becomes `%%sparkr`, `%python` is dropped, and a `%md` or
 `%%markdown` cell becomes a Markdown cell. Your notebook on this PC keeps what you wrote.
 
+## Shell commands and files
+
+A line that starts with `!` runs in this PC's shell, as in IPython, Fabric and Databricks
+notebooks. Output appears in the cell as it comes, and **Cancel** ends the command and everything
+it started.
+
+```python
+!pip list
+files = !dir /b Files
+print(len(files))
+```
+
+- `x = !command` keeps the output as a list of lines instead of showing it.
+- `{expression}` and `$name` take values from the notebook (`!echo {table_name}`); `$$` is a
+  plain `$`. Text in braces that isn't Python, such as `find . -exec rm {} ;`, is left alone.
+- `_exit_code` holds the last command's exit code. A failing `!` command doesn't fail the cell,
+  as in IPython.
+- `!` uses `cmd.exe` on Windows. Fabric runs on Linux, so a notebook you publish needs Linux
+  commands there.
+
+**A notebook's `!` lines and shell cells run on your PC, as you.** Running a notebook someone
+else wrote runs their shell commands here, with your files and your sign-in, the same as running
+a script they sent you. Read it first. See [Security](security.md), item 6.
+
+A whole cell can be a script:
+
+| First line | Runs in |
+| --- | --- |
+| `%sh` (Databricks), `%%sh` | bash or sh. On Windows, the one Git for Windows or WSL installs |
+| `%%bash` | bash |
+| `%%cmd` | Windows' command prompt |
+| `%%powershell` | PowerShell |
+
+A script cell fails when its last command exits with a non-zero code, as a `%sh` cell does in
+Databricks. `%%cmd` and `%%powershell` cells are listed as not running in Fabric by the **Runs
+on** check; a `%sh` cell is published as `%%sh`.
+
+`%fs` runs one `notebookutils.fs` command, as in Databricks, with the same paths and the same
+rules (writes to OneLake need a lakehouse you can write to, and a proof refuses them):
+
+| Command | Does |
+| --- | --- |
+| `%fs ls Files/raw` | Lists a folder as a table (name, path, size, isDir) |
+| `%fs head Files/raw/a.csv` | Prints the start of a file |
+| `%fs cp [-r] from to` | Copies a file, or a folder with `-r` |
+| `%fs mv from to` | Moves a file or folder; the source goes only once the copy is complete |
+| `%fs rm [-r] path` | Removes a file, or a folder with `-r` |
+| `%fs mkdirs path` | Makes a folder |
+| `%fs put [-f] path "text"` | Writes text to a file; `-f` replaces one that exists |
+
+Dependencies treat shell commands and `%fs` changes as side effects, so **Run stale cells** asks
+before running them again, and Prove warns that it can't contain what a shell command changes.
+
 ## Supported magics
 
 | Magic | On this PC |
@@ -81,6 +134,9 @@ cell is listed as Fabric only.
 | `%sql` | One Spark SQL query inside Python; returns a DataFrame |
 | `%%html` | Shows the HTML in a sandboxed frame |
 | `%run Other notebook` | Runs another notebook in this one's namespace |
+| `!command`, `x = !command` | Runs in this PC's shell; the assigned form keeps the output lines |
+| `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
+| `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |
 | `%time expression` | Runs the expression and prints the wall time |
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |

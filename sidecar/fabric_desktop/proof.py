@@ -98,6 +98,8 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict
                 add(blockers, n, c, "is SQL that creates or changes tables; in a proof, write with lakehouse.write_table",
                     source, m.start())
             continue
+        if language == "shell" or any(m.name in ("system", "sx", "sh") for m in magics.find(source)):
+            add(warnings, n, c, "runs shell commands; the proof can't contain or compare what they change")
         if language != "python":
             continue
         for rx, text in _BLOCKERS:

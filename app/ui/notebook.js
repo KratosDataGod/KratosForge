@@ -899,6 +899,7 @@ document.addEventListener("keydown", (e) => {
 
 function renderOutput(o, cell) {
   if (o.type === "stream" || o.type === "text") return h("div", { class: "output" }, h("pre", {}, o.text));
+  if (o.type === "widget") return renderWidgetOutput(o, cell);  // ipywidgets.js
   if (o.type === "error" && cell && limitStop(o)) return limitOutput(o, cell);
   if (o.type === "error") {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),

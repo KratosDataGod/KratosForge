@@ -19,7 +19,7 @@ In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to th
 
 Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
 
-### DataFrame: 77 of 102
+### DataFrame: 79 of 102
 
 | Method | On this PC |
 | --- | --- |
@@ -66,7 +66,7 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 | `intersectAll` | Works |
 | `isEmpty` | Works |
 | `isLocal` | Works |
-| `isStreaming` | Runs in Fabric: streaming runs in Fabric |
+| `isStreaming` | Works |
 | `join` | Works |
 | `limit` | Works |
 | `localCheckpoint` | Accepted, does nothing on one PC |
@@ -123,10 +123,10 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 | `withMetadata` | Not yet on this PC |
 | `withWatermark` | Runs in Fabric: streaming runs in Fabric |
 | `write` | Works |
-| `writeStream` | Runs in Fabric: streaming runs in Fabric |
+| `writeStream` | Works |
 | `writeTo` | Not yet on this PC |
 
-### SparkSession: 13 of 17
+### SparkSession: 14 of 17
 
 | Method | On this PC |
 | --- | --- |
@@ -138,7 +138,7 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 | `newSession` | Works |
 | `range` | Works |
 | `read` | Works |
-| `readStream` | Runs in Fabric: streaming runs in Fabric |
+| `readStream` | Works |
 | `sparkContext` | Works |
 | `sql` | Works |
 | `stop` | Works |
@@ -150,4 +150,4 @@ Calls that only change how Spark spreads or keeps work across a cluster (`repart
 
 ## Not on this PC
 
-RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, streaming, Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).
+RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, continuous and Kafka or Event Hubs streams ([streaming on this PC](notebooks.md#fabric-notebook-code-on-this-pc) runs as availableNow), Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

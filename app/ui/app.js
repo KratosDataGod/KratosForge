@@ -478,8 +478,7 @@ function navStartView(view) {
 // Fabric portal never reach this page (it is a separate child webview, main.rs add_child); there they
 // move within Fabric's own history, so the top-bar buttons are the way out.
 function navKey(e) {
-  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
-  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return false;
+  if (!isShortcut(e, "history") || e.ctrlKey || e.metaKey || e.shiftKey) return false;
   const t = e.target;
   if (t?.closest?.("input, textarea, select, [contenteditable], .cm-editor")) return false;
   if (document.getElementById("dialog-root")?.childElementCount) return false;

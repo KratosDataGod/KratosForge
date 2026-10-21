@@ -15,6 +15,8 @@ collapsed heading shows **N cells hidden. Click to show.** underneath.
 - Sections nest: open a `#` section and its collapsed `##` sections stay folded.
 - Hidden cells still run with **Run all**, and **J**/**K** and the arrow keys skip them.
 - Clicking a cell in **View > Outline** opens the sections that hide it.
+- Moving a collapsed heading (**Move up**/**Move down**, **Alt+Up**/**Alt+Down** or dragging it) takes its hidden cells with it, as in JupyterLab. Cells you selected next to each other on screen move together even when a collapsed section sits between them.
+- A move, a new cell or a paste never hides a cell: if it lands inside a collapsed section, the section opens.
 
 The collapsed state is saved in the cell's `jp-MarkdownHeadingCollapsed` metadata, the key
 JupyterLab uses, so a notebook opens folded the same way in JupyterLab.

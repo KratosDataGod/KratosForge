@@ -177,15 +177,49 @@ function duplicateCell(cell) {
   enterCommandMode(copy);
 }
 
-// Where a dragged cell goes: before or after `target`, by which half the pointer is over.
-function moveCellTo(cell, target, after) {
+// A shown cell and the cells its collapsed section hides right after it: they move together, as
+// in JupyterLab.
+function withSection(cell, cells = state.notebook.cells, hidden = collapsedCells(cells).hidden) {
+  const out = [cell];
+  for (let i = cells.indexOf(cell) + 1; i < cells.length && hidden.has(cells[i].id); i++) out.push(cells[i]);
+  return out;
+}
+
+// Puts `moving` (whole sections) before `target`, or after target and its hidden cells. A cell that
+// was showing stays showing: a collapsed section it lands in is opened.
+function placeCells(moving, target, after) {
   const cells = state.notebook.cells;
-  if (cell === target) return;
-  cells.splice(cells.indexOf(cell), 1);
-  cells.splice(cells.indexOf(target) + (after ? 1 : 0), 0, cell);
+  const { hidden } = collapsedCells(cells);
+  const shown = cells.filter((c) => !hidden.has(c.id));
+  const span = withSection(target, cells, hidden).length;
+  const rest = cells.filter((c) => !moving.includes(c));
+  rest.splice(rest.indexOf(target) + (after ? span : 0), 0, ...moving);
+  cells.splice(0, cells.length, ...rest);
+  shown.forEach(revealCell);
+}
+
+// Moves `block` (cells next to each other on screen, in order) one shown cell up or down.
+// "apart" when they aren't next to each other on screen, "edge" at the top or bottom.
+function moveShown(block, delta) {
+  const cells = state.notebook.cells;
+  const { hidden } = collapsedCells(cells);
+  const shown = cells.filter((c) => !hidden.has(c.id));
+  const first = shown.indexOf(block[0]);
+  if (first < 0 || block.some((c, k) => shown[first + k] !== c)) return "apart";
+  const neighbour = shown[delta < 0 ? first - 1 : first + block.length];
+  if (!neighbour) return "edge";
+  placeCells(block.flatMap((c) => withSection(c, cells, hidden)), neighbour, delta > 0);
+  return "moved";
+}
+
+// Where a dragged cell goes: before or after `target`, by which half the pointer is over. A
+// collapsed heading brings its hidden cells.
+function moveCellTo(cell, target, after) {
+  const moving = withSection(cell);
+  if (moving.includes(target)) return;
+  placeCells(moving, target, after);
   state.selected = cell.id;
   markDirty();
-  revealCell(cell);
   renderNotebook();
   refreshOutline();
 }

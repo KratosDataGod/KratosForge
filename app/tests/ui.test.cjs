@@ -2668,6 +2668,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
   assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
   assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  assert.ok(ctx.isShortcut(key("ArrowLeft", { altKey: true }), "history") && !ctx.isShortcut(key("ArrowLeft"), "history"));
   // "?" typed in a box stays a character.
   const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
   assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
@@ -2680,7 +2681,7 @@ test("the global key handlers and the Keyboard shortcuts dialog read one table",
   inNotebook = true;
   const groups = ctx.shortcutGroups();
   assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
-    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+    [["Anywhere", 3], ["Moving around", 3], ["Menus and tabs", 2], ["Notebook", 1]]);
   assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
   // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
   const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];

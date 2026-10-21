@@ -501,6 +501,7 @@ function addCell(type, atEnd = false, offset = 1) {
   cells.splice(offset > 0 ? i + 1 : Math.max(i, 0), 0, cell);
   state.selected = cell.id;
   markDirty();
+  revealCell(cell);  // nbcells.js: added inside a collapsed section (below its heading): open it
   renderNotebook();
   document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "nearest" });
   enterEditMode(cell);
@@ -521,15 +522,11 @@ function setSource(cell, source) {
   }
 }
 
+// Moves past the next shown cell; a collapsed heading takes its section along (nbcells.js).
 function moveCell(delta, cell = selectedCell()) {
-  const cells = state.notebook.cells;
-  const i = cells.indexOf(cell);
-  const j = i + delta;
-  if (j < 0 || j >= cells.length) return;
-  [cells[i], cells[j]] = [cells[j], cells[i]];
+  if (moveShown([cell], delta) !== "moved") return;
   state.selected = cell.id;
   markDirty();
-  revealCell(cell);  // moved into a collapsed section: open it rather than hide the cell
   renderNotebook();
   refreshOutline();
 }
@@ -579,6 +576,7 @@ function pasteCell(cell, offset) {
   const copy = copies[0];
   state.selected = copy.id;
   markDirty();
+  copies.forEach(revealCell);  // pasted into a collapsed section: open it
   renderNotebook();
   enterCommandMode(copy);
 }

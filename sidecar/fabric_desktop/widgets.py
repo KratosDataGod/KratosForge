@@ -18,6 +18,7 @@ import contextlib
 import importlib.abc
 import importlib.machinery
 import itertools
+import json
 import sys
 import threading
 import traceback
@@ -574,6 +575,14 @@ class Output(DOMWidget):
         super().__init__(**kw)
         object.__setattr__(self, "outputs", [])
         object.__setattr__(self, "_stack", [])
+        self._recount()
+
+    def _recount(self) -> None:
+        # The same caps as a cell's own output (notebook.STREAM_CHARS, RICH_CHARS), counted from the
+        # last clear_output: a control's handler can add to one Output on every click.
+        object.__setattr__(self, "_chars", 0)
+        object.__setattr__(self, "_rich", 0)
+        object.__setattr__(self, "_cut", set())
 
     def __enter__(self) -> "Output":
         if registry.capture is None:
@@ -590,6 +599,7 @@ class Output(DOMWidget):
 
     def clear_output(self, wait: bool = False) -> None:
         self.outputs.clear()
+        self._recount()
 
     def append_stdout(self, text: str) -> None:
         self._write(text)
@@ -613,14 +623,33 @@ class Output(DOMWidget):
 
     # what a captured block writes
     def _write(self, text: str) -> None:
-        if not text:
+        from .notebook import STREAM_CHARS
+        if not text or "stream" in self._cut:
             return
-        if self.outputs and self.outputs[-1].get("type") == "stream":
-            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + text}
-        else:
-            self.outputs.append({"type": "stream", "text": text})
+        room = STREAM_CHARS - self._chars
+        part = text[:room]
+        object.__setattr__(self, "_chars", self._chars + len(part))
+        if part and self.outputs and self.outputs[-1].get("type") == "stream":
+            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + part}
+        elif part:
+            self.outputs.append({"type": "stream", "text": part})
+        if len(text) > room:
+            self._cut.add("stream")
+            self.outputs.append({"type": "text", "text": f"Output truncated: this output printed more than "
+                                                         f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
+        from .notebook import RICH_CHARS
+        if output.get("type") != "error":  # an error always shows
+            if "rich" in self._cut:
+                return
+            size = len(json.dumps(output, default=str))
+            if self._rich + size > RICH_CHARS:
+                self._cut.add("rich")
+                output = {"type": "text", "text": f"Output truncated: this output's tables, charts and HTML passed "
+                                                  f"{RICH_CHARS // 1_000_000} MB, so later ones aren't shown."}
+            else:
+                object.__setattr__(self, "_rich", self._rich + size)
         self.outputs.append(output)
 
     def _extra(self, depth: int, seen: set[str]) -> dict[str, Any]:

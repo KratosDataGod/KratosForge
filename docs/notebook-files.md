@@ -35,6 +35,7 @@ When you already have a notebook with the file's name, a free name is suggested.
 - The notebook goes to **Recently deleted** on All notebooks, kept on this PC for 30 days, then removed for good. **Restore** puts it back where it was (in the app's own folder when its repository isn't open any more). If another notebook has taken its name, Restore asks for a new one.
 - Its schedules on this PC are **turned off**, not deleted, so none starts a notebook that isn't there. Restore turns them back on. A notebook restored under a new name leaves them off, since a schedule runs a notebook by name.
 - Its Fabric item isn't deleted. Delete it in Fabric if you want it gone too.
+- Its [resources folder](notebook-resources.md) stays where it is on this PC. Restoring the notebook under its own name, or making a new notebook with that name, picks it up again; a notebook restored under a new name starts without it.
 - In a notebooks repository, the file leaves the repository's folder, which shows as a change to commit there.
 
 Recently deleted is in the app's data folder, outside every repository, so a delete never adds files to Git.

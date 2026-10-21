@@ -264,7 +264,10 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   const ctx = {};
   vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
   const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+  for (const c of cases) {
+    const input = Array.isArray(c.in) ? c.in.join("") : c.in;
+    assert.strictEqual(ctx.redactReport(input, c.level), c.out, input);
+  }
 });
 
 // Accessibility (FD-139): checks that need no browser.
@@ -2235,6 +2238,23 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
+// Workloads and Agents, linked to their own section of the guide.
+test("Queue, Incidents and Run as say how they work beside the list", () => {
+  const guide = fs.readFileSync(path.join(ui, "..", "..", "docs", "user-guide.md"), "utf8");
+  for (const [file, fn, id, anchor] of [["queue.js", "queuePanel", "monitor.queue", "queue-preview"],
+    ["incidents.js", "incidentsPanel", "monitor.incidents", "incidents-preview"], ["runas.js", "runAsPanel", "monitor.runas", "run-as-preview"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n\\}\\n`).exec(src)[0];
+    assert.match(body, new RegExp(`withHowItWorks\\(box, howItWorks\\("${id.replace(".", "\\.")}"`), file);
+    for (const part of ["reads:", "changes:", "results:", `anchor: "${anchor}"`]) assert.ok(body.includes(part), `${file} ${part}`);
+    const heading = { "queue-preview": "### Queue (Preview)", "incidents-preview": "### Incidents (Preview)", "run-as-preview": "### Run as (Preview)" }[anchor];
+    assert.ok(guide.includes(heading), heading);
+  }
+  const inc = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(inc, /Check now never posts/);
+});
+
 // Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
 // each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
 test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
@@ -2875,12 +2895,47 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
+// red, and the Resources tab keeps its snippets under the files.
+test("notebook resource names, sizes and the Resources tab", () => {
+  const src = fs.readFileSync(path.join(ui, "nbresources.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
+${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+  for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
+  for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
+    assert.notStrictEqual(ctx.problem(bad), "", bad);
+  }
+  assert.strictEqual(ctx.size(17), "17 B");
+  assert.strictEqual(ctx.size(2048), "2.0 KB");
+  assert.strictEqual(ctx.size(5 * 1024 * 1024), "5.0 MB");
+  assert.match(src, /confirmDialog\(`Delete \$\{file\.name\}\?`,[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /copyText\(`builtin\/\$\{file\.name\}`, "Path"\)/);
+  assert.match(src, /const NB_RES_MAX_FILES = 100;/);
+  assert.match(src, /const NB_RES_MAX_BYTES = 50 \* 1024 \* 1024;/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /content\.append\(nbResourcesSection\(state\.notebook\), h\("div", \{ class: "nb-res-head" \}, h\("b", \{\}, "Code snippets"\)\)/);
+  assert.ok(nb.includes("...SNIPPETS.map("), "the snippets stay");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbresources.js"') > html.indexOf('src="replay.js"'), "replayBase64 loads first");
+});
+
 // Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
 test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
   const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
+});
+
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
 });
 
 // Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
@@ -2892,6 +2947,65 @@ test("notebook snippets include a %sql query into a DataFrame, and the magics pa
     ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
     assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
   }
+});
+
+// Notebook cell languages: Databricks' %sql alone on the first line is a SQL cell, %md shows Markdown.
+test("notebook cells read Databricks %sql and %md headers", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function cellLang\([\s\S]*?\n}\n/.exec(nb)[0] + /const mdMagic = [^\n]*\n/.exec(nb)[0]
+    + "\nthis.lang = cellLang; this.md = mdMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  assert.strictEqual(ctx.lang(code("%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("  %%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("%sql SELECT 1")), "python");
+  assert.strictEqual(ctx.lang(code("%python\nx = 1")), "python");
+  assert.strictEqual(ctx.md(code("%md # Title")), true);
+  assert.strictEqual(ctx.md(code("%%markdown\n# Title")), true);
+  assert.strictEqual(ctx.md(code("%mdx")), false);
+  assert.strictEqual(ctx.md({ type: "markdown", source: "%md" }), false);
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
+});
+
+// Notebook shell cells: %sh, %%sh, %%bash, %%cmd and %%powershell are plain text in the editor.
+test("notebook shell cells are recognised for the editor", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const shellMagic = [^\n]*\n/.exec(nb)[0] + "\nthis.sh = shellMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  for (const s of ["%sh ls", "%%sh\nls", "%%bash\nls", "  %%cmd\ndir", "%%powershell\nGet-Date"]) assert.strictEqual(ctx.sh(code(s)), true, s);
+  for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
+  assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
+});
+
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});
+
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});
+
+// %%tsql cells are highlighted as SQL in the notebook editor.
+test("notebook %%tsql cells get SQL highlighting", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(\/\^\\s\*%%tsql\(\\s\|\$\)\/\.test\(cell\.source\)\) return \[CM\.sql\(/);
 });
 
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
@@ -3041,6 +3155,502 @@ test("the profile report preview renders headings, bullets and source tags witho
   const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
   assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
+});
+
+// Running part of a cell (nbselect.js): the selected text, or the cursor's line dedented, in the
+// cell's language.
+test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
+  const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
+  ctx.cellLang = (c) => c.lang;
+  const py = { lang: "python" };
+  const code = "for i in range(3):\n    x = i\n    print(x)";
+  assert.strictEqual(ctx.f(py, code, 25, 25), "x = i");  // cursor on line 2, nothing selected
+  assert.strictEqual(ctx.f(py, code, 23, code.length), "x = i\nprint(x)");
+  assert.strictEqual(ctx.f(py, "a = 1\n\nb", 6, 6), null);  // a blank line has nothing to run
+  const sql = { lang: "sql" };
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+});
+
+test("several selected cells: the notebook hooks are in place", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(selectionClick\(cell, e\)\) return;/);
+  assert.match(nb, /if \(last\.group\) return undoDeleteGroup\(last\);/);
+  assert.match(nb, /if \(code == null\) depsRan\(cell, ok\);/);
+  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : \{\}\) \}\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbselect.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Organising cells (nbcells.js): which cells a collapsed heading hides, and the hooks in notebook.js.
+test("a collapsed heading hides the cells up to the next heading of the same or a higher level", () => {
+  const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
+  const ctx = { document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  const { collapsedCells, headingLevel, visibleCells } = ctx.f;
+  const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
+  const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
+  assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
+  assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
+  assert.strictEqual(headingLevel(code(1)), 0);
+  const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
+  const { hidden, counts } = collapsedCells(cells);
+  assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
+  assert.strictEqual(counts.get(1), 3);
+  assert.strictEqual(counts.get(7), 1);
+  assert.deepStrictEqual([...visibleCells(cells).map((c) => c.id)], [1, 5, 6, 7]);
+  assert.strictEqual(visibleCells(cells.slice(4, 6)).length, 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /\.\.\.cellHeadExtras\(cell\)/);
+  assert.match(nb, /return \[\.\.\.items, \.\.\.cellMenuExtras\(cell\)\];/);
+  assert.match(nb, /cell\.status === "error" && state\.notebook\?\.cells\.includes\(cell\) && revealCell\(cell\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>(\n {2}<script src="[\w.-]+"><\/script>)*\n {2}<script src="nbcells\.js"><\/script>/);
+});
+
+// Tables and files from the notebook's Explorer (nbdrag.js): what a drop inserts and the ways to load.
+test("dropping a table or file inserts its load code on an empty line, else its name for the cell's language", () => {
+  const src = fs.readFileSync(path.join(ui, "nbdrag.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, readSnippet: (p) => `df = lakehouse.read_csv("${p}")\ndf` };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { dataItemDropText, dataItemLoads };`, ctx);
+  const { dataItemDropText, dataItemLoads } = ctx.f;
+  const table = { kind: "table", schema: "dbo", table: "sales" };
+  assert.strictEqual(dataItemDropText(table, "python", { blankLine: true }), 'df = lakehouse.read_table("dbo.sales")\ndf');
+  assert.strictEqual(dataItemDropText(table, "python"), '"dbo.sales"');
+  assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL"]);
+  const odd = { kind: "file", path: "Files/notes/readme.txt" };
+  assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
+  assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+  // Names are quoted wherever they go into code, so a quote in a file name can't end the string.
+  const ctx2 = { document: { addEventListener() {} } };
+  vm.createContext(ctx2);
+  vm.runInContext(`${/function readSnippet\([\s\S]*?\n}\n/.exec(app)[0]}\n${src}\nthis.f = { dataItemLoads, dataItemDropText };`, ctx2);
+  const evil = { kind: "file", path: 'Files/x"); import os; os.system("calc"); (".csv' };
+  assert.strictEqual(ctx2.f.dataItemLoads(evil)[0][1], `df = lakehouse.read_csv(${JSON.stringify(evil.path)})\ndf`);
+  assert.match(app, /onInsert\(`df = lakehouse\.read_table\(\$\{JSON\.stringify\(`\$\{schema\}\.\$\{t\}`\)\}\)\\ndf`\)/);
+  const odd2 = { kind: "table", schema: "dbo", table: "my `odd` table" };
+  assert.strictEqual(ctx2.f.dataItemDropText(odd2, "sql"), "dbo.`my ``odd`` table`");
+  assert.match(ctx2.f.dataItemLoads(odd2)[2][1], /FROM dbo\.`my ``odd`` table` LIMIT/);
+});
+
+// Notebook find and replace (nbfind.js): matches across cells with the bar's flags, regex groups in
+// the replacement, and edits applied from the end of a cell.
+test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
+  const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
+  const { findMatches, findReplacement, findApply } = ctx.f;
+  const cells = [{ type: "markdown", source: "# Sales" }, { type: "code", source: "sales = 1\nsales_count = sales" }];
+  assert.strictEqual(findMatches(cells, "sales").matches.length, 4);
+  assert.strictEqual(findMatches(cells, "sales", { matchCase: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { word: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { markdown: false }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
+  assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
+  assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
+  assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
+  assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
+  // Lookarounds and anchors see the whole cell, as when they matched.
+  const xa = [{ type: "code", source: "xa ya xa" }];
+  const found = findMatches(xa, "(?<=x)a", { regex: true }).matches;
+  assert.strictEqual(found.length, 2);
+  assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
+  assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
+  const lines = [{ type: "code", source: "a1\nb2" }];
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
+  assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
+  assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");
+});
+
+test("the notebook keeps its matches marked and the bar over the cells", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /nbFindBar\(\), h\("div", \{ class: "cells-inner" \}/);
+  assert.match(nb, /findHighlighter\(cell\),/);
+  assert.match(nb, /findCellChanged\(\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbfind.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
+// selection, and the panel lists threads in cell order with deleted cells' threads last.
+test("cell comments: mentions, selected lines and the panel's rows", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["commentParts", "commentLines", "commentRows", "commentAuthor", "ownComment"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(ctx.commentParts("ask @bob.smith, <b>now</b>. me@")), [
+    { text: "ask ", mention: false }, { text: "@bob.smith", mention: true }, { text: ", <b>now</b>. me@", mention: false }]);
+  const code = "a = 1\nb = 2\nc = 3";
+  assert.strictEqual(ctx.commentLines(code, 3, 3), null, "no selection: the whole cell");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 7, 1)), [1, 2]);
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 6, 12)), [2, 2], "ending at a line's start leaves that line out");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 0, code.length)), [1, 3]);
+  const cells = [{ cell_id: "a" }, { cell_id: "b" }];
+  const threads = [
+    { id: "t1", cell_id: "b", resolved: false, comments: [{ at: "2026-10-20T10:00:00+00:00" }] },
+    { id: "t2", cell_id: "gone", resolved: false, comments: [{ at: "2026-10-20T09:00:00+00:00" }] },
+    { id: "t3", cell_id: "a", resolved: false, comments: [{ at: "2026-10-20T11:00:00+00:00" }] },
+    { id: "t4", cell_id: "a", resolved: true, comments: [{ at: "2026-10-20T08:00:00+00:00" }] },
+  ];
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // "You" only for the current account's (or this PC's) id; others keep their stored name.
+  const me = { name: "ann@contoso.com", id: "aad:1" };
+  assert.strictEqual(ctx.commentAuthor("ann@contoso.com", "aad:1", me), "You");
+  assert.strictEqual(ctx.commentAuthor("bob@contoso.com", "aad:2", me), "bob@contoso.com");
+  assert.strictEqual(ctx.commentAuthor("", "pc:other", me), "Someone on this PC");
+  assert.strictEqual(ctx.commentAuthor("", "", { name: "", id: "" }), "Someone on this PC", "no id is never you");
+  assert.strictEqual(ctx.ownComment({ author: "ann@contoso.com", author_id: "aad:9" }, me), false, "the name alone isn't ownership");
+  assert.strictEqual(ctx.ownComment({ author_id: "aad:1" }, me), true);
+  assert.strictEqual(ctx.ownComment({}, { name: "", id: "" }), false);
+  // Comment text only ever becomes text nodes, and deleting asks first, in red.
+  assert.doesNotMatch(src, /innerHTML/);
+  assert.match(src, /"Delete", \{ danger: true \}/);
+  assert.match(src, /nobody is notified/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+});
+
+// Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
+test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
+  const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function fabricStatus\([\s\S]*?\n}\n/)[0]}
+    ${src.slice(0, src.indexOf("// ---------- state"))}
+    Object.assign(this, { NB_RUN_TRIGGERS, nbRunStatus, nbRunWhere, nbRunsUnfinished, nbRunsSummary, nbRunKey });`, ctx);
+  const pcOk = { source: "pc", status: "ok", trigger: "schedule", started: "2026-10-20T06:00:00+00:00", schedule_id: "s1" };
+  const pcBad = { source: "pc", status: "failed", trigger: "manual" };
+  const going = { source: "fabric", status: "InProgress", trigger: "fabric", workspace_name: "Sales", job_id: "j1" };
+  const done = { source: "fabric", status: "Completed", trigger: "run_now" };
+  assert.deepStrictEqual([pcOk, pcBad, going, done, { source: "pc", status: "skipped" }].map(ctx.nbRunStatus),
+    ["ok", "failed", "running", "ok", "skipped"]);
+  assert.deepStrictEqual([pcOk, going, done].map(ctx.nbRunWhere), ["This PC", "Fabric: Sales", "Fabric"]);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, going, done]), 1);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, done]), 0, "nothing to ask Fabric about");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk, pcBad, going, done]), "4 runs, 1 failed, 1 still going");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk]), "1 run");
+  assert.strictEqual(ctx.nbRunsSummary([]), "No runs yet");
+  assert.strictEqual(ctx.nbRunKey(pcOk), "pc:2026-10-20T06:00:00+00:00:s1");
+  for (const t of ["schedule", "manual", "fabric", "run_now", "prove", "side_by_side"]) assert.ok(ctx.NB_RUN_TRIGGERS[t], t);
+  // Wired into the ribbon and the notebook body, tagged Preview, and the engine call is read-only.
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/runsToggle\(nb\)/g).length, 2, "Home and Run tabs");
+  assert.match(nb, /runsPanel\(nb\), provePanel\(nb\)/);
+  assert.match(src, /preview\("notebookRuns", btn\("Recent runs"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /\n  notebookRuns: "Notebook runs",/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="runs.js"><\/script>/);
+  assert.match(src, /rpc\("notebook_runs", \{ name: nb\.name, limit: NB_RUNS_LIMIT, refresh \}\)/);
+  const audit = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "audit.py"), "utf8");
+  assert.match(audit, /\bnotebook_runs\b/);
+  // How this works names the one write, and no other panel stays open beside it.
+  assert.match(src, /saves the answer in fabric_runs\.jsonl on this PC/);
+  assert.match(src, /anchor: "notebook-runs-preview"/);
+  for (const f of ["prove.js", "validate.js"]) assert.match(fs.readFileSync(path.join(ui, f), "utf8"), /if \(nb\.runs\?\.open\) nb\.runs\.open = false;/);
+});
+
+// Notebook parity L5: export and import formats (notebook-formats.js, notebook_formats.py).
+test("notebook export sends the cells with their outputs, and says where the file goes", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+  vm.createContext(ctx);
+  vm.runInContext(`${src.match(/const NBF_EXPORTS = [\s\S]*?\];/)[0]}
+${src.match(/function nbfExportPayload\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfExportMenu\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfBase64\([\s\S]*?\n}\n/)[0]}
+this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64;`, ctx);
+  const nb = { name: "Sales", lakehouse: null, cells: [
+    { type: "markdown", source: "# T", meta: {}, cell_id: "m", outputs: [{ type: "text", text: "x" }], count: null },
+    { type: "code", source: "1", meta: {}, cell_id: "c", outputs: [{ type: "text", text: "1" }], count: 4 }] };
+  const p = JSON.parse(JSON.stringify(ctx.payload(nb, "ipynb_outputs")));
+  assert.deepStrictEqual(p.cells.map((c) => [c.outputs.length, c.count]), [[0, null], [1, 4]]);
+  assert.strictEqual(p.format, "ipynb_outputs");
+  const items = ctx.menu();
+  assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
+  assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
+});
+
+// Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
+function notebookVersionsHelpers() {
+  const ctx = { registerFeature: () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(`${fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8")}
+this.groups = nbvGroups; this.summary = nbvChangeSummary; this.title = nbvTitle;`, ctx);
+  return ctx;
+}
+
+test("version history groups versions by day and sums up a compare", () => {
+  const f = notebookVersionsHelpers();
+  const today = new Date("2026-10-20T15:00:00");
+  const v = (at, kind = "auto", label = "") => ({ at, kind, label });
+  const groups = f.groups([v("2026-10-20T14:00:00"), v("2026-10-20T09:00:00", "checkpoint", "Before refactor"), v("2026-10-19T22:00:00")], today);
+  assert.deepStrictEqual([...groups].map((g) => [g.day, g.rows.length]), [["Today", 2], ["Yesterday", 1]]);
+  assert.strictEqual(f.title(v("x", "checkpoint", "Before refactor")), "Before refactor");
+  assert.strictEqual(f.title(v("x", "before restore")), "Before a restore");
+  assert.strictEqual(f.summary([]), "No changes to cells.");
+  assert.strictEqual(f.summary([{ kind: "changed" }, { kind: "changed" }, { kind: "added" }, { kind: "reordered" }]),
+    "2 cells changed, 1 cell added, cells reordered.");
+  const src = fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8");
+  assert.match(src, /confirmDialog\(`Delete \$\{v\.kind === "checkpoint"[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /The notebook as it is now is kept as a version first/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\), btn\("Versions", "history", nbVersions\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook-files\.js"><\/script>\n  <script src="notebook-versions\.js"><\/script>/);
+});
+
+// Optimize > Settings history (item 30): changes from fdten_ and fdcap_, named and filtered, and a
+// read that asks before it creates the tables.
+test("Settings history names capacities, filters by scope and asks before creating its tables", async () => {
+  const src = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(src, /\["settings", "Settings history"\]\]/);
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = { calls: [], toasts: [], renders: 0 };
+  vm.createContext(ctx);
+  vm.runInContext(`${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}${fn("settingsHistoryRead")}
+    this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead;`, ctx);
+  const changes = [  // newest first, as tenant_settings_history returns them
+    { scope_type: "capacity", scope_id: "cap-1", setting: "sku", changed_after: "t1", changed_by_time: "t2", old_json: '"F64"', new_json: '"F128"' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: "t1", changed_by_time: "t2", old_json: '"Old"', new_json: '"Prod"' },
+    { scope_type: "tenant", scope_id: "ten", setting: "ExportToExcel", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '{"enabled":true}' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '"Old"' },
+    { scope_type: "capacity", scope_id: "cap-2", setting: "override:Copilot", changed_after: "t1", changed_by_time: "t2", old_json: "true", new_json: null },
+  ];
+  const names = ctx.names(changes);
+  assert.strictEqual(JSON.stringify(names), '{"cap-1":"Prod"}');  // the newest name; cap-2 has none yet
+  assert.strictEqual(ctx.rows(changes, names, "all").length, 5);
+  assert.strictEqual(ctx.rows(changes, names, "tenant").map((r) => r.scope).join(), "Tenant");
+  assert.strictEqual(ctx.rows(changes, names, "capacity").length, 4);
+  const [sku] = ctx.rows(changes, names, "cap-1");
+  assert.strictEqual(JSON.stringify([sku.after, sku.by, sku.scope, sku.setting, sku.was, sku.now]), '["t1","t2","Capacity Prod","sku","\\"F64\\"","\\"F128\\""]');
+  const [ov] = ctx.rows(changes, names, "cap-2");
+  assert.strictEqual(JSON.stringify([ov.scope, ov.setting, ov.now]), '["Capacity cap-2","Override: Copilot",null]');
+
+  // The first read asks; only a yes passes approve.
+  ctx.toast = (t, err) => ctx.toasts.push([t, !!err]);
+  ctx.render = () => { ctx.renders += 1; };
+  ctx.friendlyError = (e) => ({ text: String(e.message).replace(/^PermissionError: /, "") });
+  ctx.attempt = async (f) => { try { return await f(); } catch { return undefined; } };
+  ctx.rpc = async (method, args) => {
+    ctx.calls.push([method, JSON.stringify(args)]);
+    if (!args.approve) throw new Error("PermissionError: Setting up adds 3 tables. Confirm to continue.");
+    return { outcome: "read", changes: [{}, {}] };
+  };
+  ctx.confirmDialog = async (title, text) => { ctx.asked = [title, text]; return ctx.yes; };
+  ctx.yes = false;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.asked[1], "Setting up adds 3 tables.");
+  assert.strictEqual(JSON.stringify(ctx.calls), '[["capacity_settings_read","{}"]]');
+  ctx.yes = true;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.calls[2][1], '{"approve":true}');
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Capacities read: 2 changes",false]');
+  // An unreadable read is recorded by the engine and shown as an error toast, not asked about again.
+  ctx.rpc = async () => ({ outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings.", changes: [] });
+  await ctx.read("tenant_settings_read", "Tenant settings");
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
+  assert.strictEqual(ctx.renders, 2);
+
+  const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
+  for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
+    assert.ok(how.includes(t), t);
+  }
+});
+
+// Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
+test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined), textContent: "",
+    append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); }, replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); },
+    querySelector(sel) { return findAll(this, (n) => n.attrs?.class === sel.slice(1))[0]; } });
+  const answers = [{ frame: "f", rows: 10000, more_columns: 0, columns: [
+    { name: "n", type: "integer", kind: "number", missing: 0, distinct: 9990, min: 0, max: 9999, mean: 4999.5, std: 2886.9, q1: 2499.75, median: 4999.5, q3: 7499.25, histogram: [5, 10] },
+    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] },
+    { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
+    { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
+    { frame: "f", gone: true }];
+  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  vm.createContext(ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
+  const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
+  const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
+  assert.match(texts(box), /Profiling every row\.\.\.$/);
+  await new Promise((r) => setImmediate(r));
+  const t = texts(box);
+  assert.match(t, /Profile of all 10,000 rows$/);
+  assert.match(t, /Distinct≈ 9,990/);
+  assert.match(t, /Median4999\.5/);
+  assert.match(t, /null3/);
+  assert.match(t, /baddoubleCouldn't profile this column: Out of Range/);
+  const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
+  await new Promise((r) => setImmediate(r));
+  assert.match(texts(big), /Infinite3/);
+  assert.match(texts(big), /Profile of a random sample of 1,000,000 of 5,000,000 rows$/);
+  assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
+  const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
+  const box2 = ctx.p(o2, [true], "1 row");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o2.profileGone, true);
+  assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
+});
+
+// The chart builder (charts.js): the engine aggregates every row; the cell keeps its chart by column name.
+function chartsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "charts.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: { ...attrs }, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined),
+    textContent: "", listeners: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+    replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); }, replaceWith(n) { this.replaced = n; },
+    addEventListener(t, fn) { this.listeners[t] = fn; } });
+  const calls = [];
+  let dirty = 0;
+  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+    document: { createElementNS: (_ns, tag) => node(tag) },
+    rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  return { ctx, calls, dirty: () => dirty, node };
+}
+const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
+
+test("the chart builder asks the engine for every row and keeps the cell's chart by column name", async () => {
+  const d = { kind: "stacked", rows: 3000, truncated: false, categories: ["East", "West"],
+    series: [{ name: "p1", values: [1, 2] }, { name: "Other", values: [3, null] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "product", "amount"], rows: [["East", "p1", 1]] };
+  const cell = { meta: {} };
+  const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
+  const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
+  kind.attrs.onchange({ target: { value: "stacked" } });
+  const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
+  series.attrs.onchange({ target: { value: "product" } });
+  assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
+  assert.strictEqual(dirty(), 2);
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  await new Promise((r) => setImmediate(r));
+  // A rerun keeps the saved chart; a renamed column falls back to the default.
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["area", "amount"] }, [false, true], cell).kind, "bar");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
+  assert.match(nb, /previewMarked\("chartBuilder"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
+  const { ctx } = chartsHarness(null);
+  const kinds = {
+    bar: { kind: "bar", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, -2] }] },
+    stacked: { kind: "stacked", rows: 2, categories: ["a"], series: [{ name: "x", values: [1] }, { name: "y", values: [2] }] },
+    line: { kind: "line", rows: 2, categories: [1, 2], series: [{ name: null, values: [1, null] }] },
+    area: { kind: "area", rows: 2, categories: [1, 2], series: [{ name: "x", values: [1, 2] }, { name: "y", values: [2, 1] }] },
+    pie: { kind: "pie", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, 3] }] },
+    scatter: { kind: "scatter", rows: 2, points: [[1, 2, "x"], [2, 3, "y"]], sampled: false, total: 2 },
+    histogram: { kind: "histogram", rows: 2, min: 0, max: 10, counts: [1, 0, 1] },
+    box: { kind: "box", rows: 2, boxes: [{ x: "a", min: 0, q1: 1, median: 2, q3: 3, max: 4, n: 5 }] },
+  };
+  for (const [k, d] of Object.entries(kinds)) {
+    const svg = ctx.api.chartSvg(d, { kind: k, x: "x", y: "v", title: "" });
+    const titled = allNodes(svg).filter((n) => n.tag === "title");
+    assert.ok(titled.length > 0, `${k} has tooltips`);
+    assert.strictEqual(svg.attrs.role, "img");
+  }
+  const empty = ctx.api.chartSvg({ kind: "bar", rows: 0, categories: [], series: [] }, { kind: "bar" });
+  assert.ok(allNodes(empty).some((n) => n.textContent === "Nothing to chart"));
+  const pie = ctx.api.chartSvg({ kind: "pie", rows: 9, categories: [1, 2, 3, 4, 5, 6, 7, 8, 9], series: [{ name: null, values: [1, 1, 1, 1, 1, 1, 1, 1, 1] }] }, { kind: "pie" });
+  assert.strictEqual(allNodes(pie).filter((n) => n.tag === "path").length, 7, "a pie folds past six slices into Other");
+});
+
+// Data Wrangler (wrangler.js): steps go to the engine, which writes the Polars code and previews it on every row.
+function wranglerHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "wrangler.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const inserted = [];
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { wrangleName, renderWrangler, renderWrangleAdd, addWrangleCell };", ctx);
+  return { ctx, calls, inserted };
+}
+
+test("Data Wrangler sends its steps to the engine and adds the code as a new cell under the output", async () => {
+  const d = { code: "import polars as pl\n...", columns: ["id", "name"], types: ["integer", "string"], rows: [[1, "Ann"]],
+    rows_before: 4, rows_after: 3, changed: ["name"], sampled: false, error: null, steps: ["Remove duplicate rows"] };
+  const { ctx, calls, inserted } = wranglerHarness(d);
+  assert.strictEqual(ctx.api.wrangleName({ source: "orders = spark.sql('x')\ndisplay(orders)" }), "orders");
+  assert.strictEqual(ctx.api.wrangleName({ source: "df2" }), "df2");
+  assert.strictEqual(ctx.api.wrangleName({ source: "display(spark.sql('x'))" }), "df");
+  const o = { frame: "f", columns: ["id", "name"], rows: [] };
+  const cell = { id: "c1", source: "display(orders)" };
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  // Adding a step: pick the operation, then its columns, then Add step.
+  o.wrangle.adding = "dedupe";
+  const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
+  const cols = allNodes(form).find((n) => n.tag === "select" && n.attrs.multiple);
+  cols.selectedOptions = [{ value: "id" }];
+  allNodes(form).find((n) => n.tag === "button" && n.kids.includes("Add step")).attrs.onclick();
+  assert.deepStrictEqual(plain(o.wrangle.steps), [{ op: "dedupe", columns: ["id"] }]);
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[1][1].steps, [{ op: "dedupe", columns: ["id"] }]);
+  await new Promise((r) => setImmediate(r));
+  ctx.api.addWrangleCell(cell, d.code);
+  assert.strictEqual(ctx.state.selected, "c1");
+  assert.deepStrictEqual(inserted, [d.code]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame \? seg\("clean", "Clean"\) : null/);
+  assert.match(nb, /previewMarked\("dataWrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataWrangler: "Data Wrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="charts\.js"><\/script>\n  <script src="wrangler\.js"><\/script>/);
+  // The code is shown as text, never as HTML.
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "wrangler.js"), "utf8"), /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+test("a Data Wrangler step that can't run is marked with its reason and blocks adding the code", async () => {
+  const d = { code: "x", columns: ["id"], types: ["integer"], rows: [], rows_before: 1, rows_after: 1, changed: [], sampled: false,
+    error: { step: 0, message: "'lots' isn't a number." }, steps: ["Fill missing values: id"] };
+  const { ctx } = wranglerHarness(d);
+  const o = { frame: "f", columns: ["id"], rows: [], wrangle: { steps: [{ op: "fill", columns: ["id"], value: "lots" }], name: "df", data: null, adding: "" } };
+  const box = ctx.api.renderWrangler(o, { id: "c" });
+  await new Promise((r) => setImmediate(r));
+  const alert = allNodes(box).find((n) => n.attrs?.role === "alert");
+  assert.ok(alert.kids.includes("'lots' isn't a number."));
+  const add = allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Add code to notebook"));
+  assert.strictEqual(add.attrs.disabled, true);
+  // After a restart the kernel no longer holds the result.
+  const gone = wranglerHarness({ gone: true });
+  const box2 = gone.ctx.api.renderWrangler({ frame: "f", columns: [], rows: [] }, null);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });
 
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.

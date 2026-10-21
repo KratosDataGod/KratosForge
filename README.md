@@ -97,6 +97,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/optimize/plan.md](docs/optimize/plan.md) | The Optimize program (PR-OPT-001 to 009): audit, risks, data model, PRs in order |
 | [docs/finops/plan.md](docs/finops/plan.md) | The administration and FinOps program (FINOPS-001 to 005): audit of what exists, overlaps with other programs, PRs in order |
 | [docs/ui-guidelines.md](docs/ui-guidelines.md) | Where new features go in the UI |
+| [docs/animation-style-guide.md](docs/animation-style-guide.md) | The four animation tiers, brand fire and winter colours, motifs and timing for new effects |
 | [docs/ux/README.md](docs/ux/README.md) | UX and simplicity audit: scores, backlog and usability release gates |
 | [docs/orchestration/plan.md](docs/orchestration/plan.md) | Fabric pipelines on this PC (ORCH-001 to ORCH-010): definition engine, compatibility registry and local execution, with a [continuation note](docs/orchestration/continuation.md) |
 | [docs/workloads/plan.md](docs/workloads/plan.md) | The workload operations program: inventory, ownership, health, incidents, releases and value across this PC, agents and Fabric, with all 100 backlog items and a [continuation note](docs/workloads/continuation.md) |

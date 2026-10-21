@@ -145,6 +145,7 @@ nav = [
       { "AI tool test checklist" = "product/ai-integration-client-checklist.md" },
     ] },
     { "UI guidelines" = "ui-guidelines.md" },
+    { "Animation style guide" = "animation-style-guide.md" },
     { "UX and simplicity" = [
       { "Assessment" = "ux/README.md" },
       { "Scorecard" = "ux/scorecard.md" },

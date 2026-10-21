@@ -3250,7 +3250,7 @@ test("the profile report preview renders headings, bullets and source tags witho
 // cell's language.
 test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
   const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
-  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  const ctx = { document: { addEventListener() {} }, registerShortcuts() {}, MAGIC: { sql: "%%sql", html: "%%html" } };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
   ctx.cellLang = (c) => c.lang;
@@ -3339,7 +3339,7 @@ test("dropping a table or file inserts its load code on an empty line, else its 
 // the replacement, and edits applied from the end of a cell.
 test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
   const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
-  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} }, registerShortcuts() {} };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
   const { findMatches, findReplacement, findApply } = ctx.f;
@@ -3876,4 +3876,13 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});
+
+test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
+    assert.ok(at > 0, `${file} registers ${group}`);
+    assert.ok(src.slice(at, src.indexOf("]);", at)).includes(`"${key}"`), `${group} lists ${key}`);
+  }
 });

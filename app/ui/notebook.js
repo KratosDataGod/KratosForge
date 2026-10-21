@@ -895,6 +895,31 @@ document.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
+// The keys above and the editor's own (editorKeys), listed in the Keyboard shortcuts dialog while a
+// notebook is open. The select (nbselect.js) and find (nbfind.js) keys are listed beside their handlers.
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook", [
+    { keys: ["Shift+Enter"], label: "Run the cell and select the next one", when: inNotebook },
+    { keys: ["Ctrl+Enter"], label: "Run the cell", when: inNotebook },
+    { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
+    { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
+    { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
+    { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
+    { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },
+    { keys: ["Z"], label: "In command mode: put the last deleted cell back", when: inNotebook },
+    { keys: ["M", "Y"], label: "In command mode: make the cell Markdown or code", when: inNotebook },
+    { keys: ["C", "X"], label: "In command mode: copy or cut the cell", when: inNotebook },
+    { keys: ["V", "Shift+V"], label: "In command mode: paste below or above", when: inNotebook },
+    { keys: ["O"], label: "In command mode: show or hide the cell's output", when: inNotebook },
+    { keys: ["Shift+L"], label: "In command mode: show or hide line numbers", when: inNotebook },
+    { keys: ["Ctrl+Space"], label: "While editing: suggest names, attributes and table names", when: inNotebook },
+    { keys: ["Ctrl+/"], label: "While editing: comment or uncomment the selected lines", when: inNotebook },
+    { keys: ["Ctrl+Shift+-"], label: "While editing: split the cell at the cursor", when: inNotebook },
+  ]);
+}
+
 // ---------- outputs ----------
 
 function renderOutput(o, cell) {

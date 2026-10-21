@@ -7,16 +7,27 @@
 
 const CELL_MIME = "application/x-kratosforge-cell";
 
-// A Markdown cell's heading lines: [{ level, text }]. A "# comment" inside a fenced code block
-// (``` or ~~~) isn't a heading.
+// A Markdown cell's heading lines: [{ level, text }], "# Title" and a line underlined with === or ---.
+// A "# comment" inside a fenced code block (``` or ~~~) isn't a heading; as in CommonMark, only a
+// bare fence of the same kind, at least as long, closes it (```python doesn't).
 function markdownHeadings(source) {
   const out = [];
   let fence = null;
+  let prev = "";  // the line before, when it could be a heading's text
   for (const line of source.split("\n")) {
-    const f = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (f && (!fence || f[1][0] === fence[0] && f[1].length >= fence.length)) { fence = fence ? null : f[1]; continue; }
-    const m = !fence && line.match(/^(#{1,6})\s+(\S.*)$/);
+    if (fence) {
+      const close = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+      continue;
+    }
+    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    if (open) { fence = open[1]; prev = ""; continue; }
+    const m = line.match(/^(#{1,6})\s+(\S.*)$/);
+    const under = prev && line.match(/^ {0,3}(=+|-+)\s*$/);
     if (m) out.push({ level: m[1].length, text: m[2].trim() });
+    else if (under) out.push({ level: under[1][0] === "=" ? 1 : 2, text: prev.trim() });
+    // Text that can be underlined: not blank, not a heading or list item, not itself an underline.
+    prev = !m && !under && line.trim() && !/^\s*([-*+]|\d+[.)])\s/.test(line) && !/^ {0,3}>/.test(line) ? line : "";
   }
   return out;
 }

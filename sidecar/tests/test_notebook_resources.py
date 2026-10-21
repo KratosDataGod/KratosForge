@@ -240,3 +240,32 @@ def test_formatting_and_text_after_a_base_stay_as_written(kernel, code):
 ])
 def test_a_builtin_path_on_its_own_still_reads_the_folder(kernel, code):
     assert cell_text(kernel, f'import os\nn = "a.csv"\nprint({code})') == "x"
+
+
+def test_run_b_runs_a_python_or_sql_file_from_the_resources(tmp_path):
+    folder = tmp_path / "N.resources"
+    res = Resources(folder)
+    res.add("helpers.py", b"def double(x):\n    return x * factor\nloaded = True\n")
+    res.add("count.sql", b"SELECT 41 + 1 AS answer")
+    res.add("notes.txt", b"hi")
+    k = Kernel()
+    k.resources_dir = str(folder)
+    out = k.run('%run -b helpers.py {"factor": 2}\nprint(loaded, double(21))')
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1]["text"].strip() == "True 42"
+    out = k.run("%run --builtin count.sql\n_sqldf.collect()[0]['answer']")
+    assert out["status"] == "ok", out
+    assert out["outputs"][-1] == {"type": "text", "text": "42"}
+    for line, says in [("%run -b notes.txt", "runs .py and .sql"), ("%run -b missing.py", "isn't in this notebook"),
+                       ("%run -b ../../secrets.py", "isn't in this notebook")]:
+        out = k.run(line)
+        assert out["status"] == "error" and says in out["outputs"][-1]["evalue"], (line, out)
+    k.resources_dir = ""
+    out = k.run("%run -b helpers.py")
+    assert out["status"] == "error" and "no resources folder" in out["outputs"][-1]["evalue"]
+
+
+def test_run_b_is_a_resources_file_to_the_dependency_view():
+    from fabric_desktop import depgraph
+    out = depgraph.analyze("%run -b helpers.py")
+    assert any("resources" in d["text"] for d in out["dynamic"])

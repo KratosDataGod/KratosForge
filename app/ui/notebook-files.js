@@ -209,6 +209,10 @@ async function nbRenameFromList(name) {
   if (!newName || newName === name) return false;
   if (open && !(await saveNotebook())) return false;
   const ok = await attempt(() => rpc("rename_notebook", { name, new_name: newName }), "Could not rename");
+  if (ok) {
+    const kept = openNotebooks.get(name);  // a notebook kept in memory (app.js) follows its new name
+    if (kept) { openNotebooks.delete(name); kept.name = newName; openNotebooks.set(newName, kept); }
+  }
   if (ok && open) { open.name = newName; renderChrome(); }
   return !!ok;
 }
@@ -228,6 +232,7 @@ async function nbDelete(name) {
   if (open?.dirty && !(await saveNotebook())) return false;  // what goes to Recently deleted is the latest
   const out = await attempt(() => rpc("notebook_delete", { name }), "Couldn't delete the notebook");
   if (!out) return false;
+  openNotebooks.delete(name);
   if (state.notebook?.name === name) { disposeEditors(); state.notebook = null; if (state.view === "notebook") { go("notebooks"); } }
   renderChrome();
   toast(`Deleted ${name}. It's in Recently deleted on All notebooks until ${new Date(out.kept_until).toLocaleDateString()}.`, false, { log: true });

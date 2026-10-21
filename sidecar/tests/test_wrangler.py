@@ -156,8 +156,10 @@ def test_frames_wrangle_raises_gone_for_a_dropped_result():
 
 
 def test_service_wrangle_after_restart_asks_to_run_again():
+    from fabric_desktop.kernel_sessions import KernelSessions
     from fabric_desktop.service import Service
     svc = Service.__new__(Service)
+    svc.sessions = KernelSessions(lambda _process: Kernel(), lambda: False)
     svc.kernel = Kernel()
     run = svc.kernel.run("import polars as pl\npl.DataFrame({'a': [1, 1]})")
     fid = next(o for o in run["outputs"] if o.get("type") == "table")["frame"]

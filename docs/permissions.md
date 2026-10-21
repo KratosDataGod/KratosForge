@@ -9,6 +9,8 @@ There are two ways it signs in:
 
 The [headless agent](#the-headless-agent) is separate: it runs unattended, so it signs in as a managed identity or service principal.
 
+Permissions decide what the app may read. Once data is read to the PC for a local run, OneLake data access roles, row-level and column-level security no longer apply to that copy: see [Data copied to this PC](security.md#data-copied-to-this-pc).
+
 ## Microsoft's Fabric sign-in: what IT may need to check
 
 Nothing, in most tenants. These are the things that can stop it:

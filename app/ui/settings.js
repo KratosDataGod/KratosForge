@@ -508,7 +508,7 @@ async function renderSettings() {
   // A limit from Settings: a fixed list, plus the current value when the policy file set another.
   function limitRow(key, title, help, options) {
     const current = Number(s[key].value || 0);
-    if (!options.some(([v]) => v === current)) options = [...options, [current, key.endsWith("_gb") ? `${current} GB` : `${current} minutes`]];
+    if (!options.some(([v]) => v === current)) options = [...options, [current, key.endsWith("_gb") ? `${current} GB` : key.endsWith("_minutes") ? `${current} minutes` : String(current)]];
     return settingRow(h("span", {}, title, " ", previewTag()), help,
       h("select", { "aria-label": title, disabled: locked(key) ? true : null,
         onchange: async (e) => { if (await saveSettings({ [key]: Number(e.target.value) })) render(); } },
@@ -608,7 +608,13 @@ function advancedSection(s, locked, limitRow) {
       [[0, "Off"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"]]) : null,
     s.kernel_process.value && s.kernel_memory_limit_gb ? limitRow("kernel_memory_limit_gb", "Notebook memory limit",
       "The notebook's process is ended if it uses more, so one notebook can't slow the whole PC. Variables are cleared.",
-      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null) : null;
+      [[0, "Off"], [4, "4 GB"], [8, "8 GB"], [16, "16 GB"], [32, "32 GB"]]) : null,
+    s.kernel_process.value && s.kernel_max_sessions ? limitRow("kernel_max_sessions", "Notebooks with a session",
+      "Each notebook you run gets a process of its own. Opening one more than this stops the least recently used idle one, and its variables are cleared. A running notebook is never stopped.",
+      [[2, "2"], [5, "5"], [10, "10"], [20, "20"]]) : null,
+    s.kernel_process.value && s.kernel_idle_minutes ? limitRow("kernel_idle_minutes", "Stop idle sessions after",
+      "A notebook you haven't run for this long, and don't have open, has its process stopped to give back memory. Its variables are cleared.",
+      [[0, "Never"], [20, "20 minutes"], [60, "1 hour"], [240, "4 hours"]]) : null) : null;
   // SQL queries (SQL-003): the limits every SQL page query runs with on this PC.
   const sql = s.sql_page_rows ? sqlSettingsSection(s, locked) : null;
   return foldable("settings.advanced", h("h2", {}, "Advanced"), [

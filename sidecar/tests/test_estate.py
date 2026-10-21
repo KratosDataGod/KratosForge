@@ -91,7 +91,7 @@ def test_layer_retention_is_saved_checked_and_used_by_maintenance(svc, tmp_path)
 
 # ---- cost
 
-def test_cost_estimates_fabric_runs_and_what_local_runs_saved():
+def test_cost_estimates_fabric_runs_and_the_local_scenario():
     now = dt.datetime(2026, 10, 15, 12, tzinfo=dt.timezone.utc)
     cfg = costs.settings({"price_per_cu_hour": 0.2})
     meta = [{"entity": "silver.orders", "env": "dev", "compute": "local", "seconds": 3600, "started_at": "2026-10-14T10:00:00+00:00"},
@@ -108,7 +108,7 @@ def test_cost_estimates_fabric_runs_and_what_local_runs_saved():
     t = out["total"]
     # Fabric: 0.5 h x 1 CU + 0.25 h x 8 CU + 0.5 h x 1 CU = 3 CU hours; the runner job isn't counted twice.
     assert t["cu_hours"] == 3.0 and t["cost"] == 0.6
-    assert t["saved_cu_hours"] == 1.0 and t["saved"] == 0.2 and t["runs"] == 5
+    assert t["scenario_cu_hours"] == 1.0 and t["scenario_saved"] == 0.2 and t["runs"] == 5
     # The run that is still going is counted, with its capacity use unknown rather than 0.
     assert t["unknown_runs"] == 1 and not t["evidence"]["fabric_job_cu"]["complete"]
     prod = next(e for e in out["by_env"] if e["env"] == "prod")

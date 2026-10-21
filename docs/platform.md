@@ -68,7 +68,7 @@ Inside the platform:
 
 The platform checks these itself on every call, as the person Fabric says is calling (a user data function reads the caller from Fabric, never from what the app sends). The app hides buttons you can't use, but that's only a convenience. Whoever sets the platform up is its first admin; a platform with no admin lets the first person who signs in claim it on **Platform > Settings**, and always keeps at least one. Admins are kept in each environment's `SQL_Platform`; adding or removing one on the Platform page changes all of them.
 
-Every change is recorded with who made it and when (**Platform > Audit**).
+Every change is recorded with who made it and when (**Platform > Audit**). Actions and changes made from a workload page in Monitor (runs, cancels, owners, criticality, tags and links) are recorded there too, with before, after and how they ended ([Workloads](user-guide.md)). In Fabric, a platform admin runs **Platform > Settings > Finish or repair** once after this update, so `UDF_Platform` has the `log_workload_action` function; until then each PC keeps its lines and sends them afterwards.
 
 ## The Platform page
 

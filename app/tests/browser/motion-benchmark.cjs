@@ -1,6 +1,8 @@
 // Motion & effects benchmark and frame sheets (docs/forge-animations.md#performance). Not a test:
 // run it by hand to measure what the effects cost, and to draw each effect at four moments.
-//   NODE_PATH="$(npm root -g)" node app/tests/browser/motion-benchmark.cjs <out-folder>
+//   NODE_PATH="$(npm root -g)" node app/tests/browser/motion-benchmark.cjs [out-folder]
+// Without a folder it writes to a new folder in the system's temp folder and prints where, so the
+// results never land in the repository.
 // Measures, at motion Off (0) and Expressive (3):
 //   1. Run all on a 20-cell notebook against the real engine: wall time, three runs each.
 //   2. A burst of 200 forge events in 10 s while a rAF loop records frame intervals: p50, p95 and
@@ -9,10 +11,11 @@
 // Numbers come from headless Chromium in whatever machine runs this; they are a baseline to compare
 // against, not a promise about a given PC.
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { openApp } = require("./harness.cjs");
 
-const OUT = process.argv[2] || ".";
+const OUT = process.argv[2] || fs.mkdtempSync(path.join(os.tmpdir(), "kf-motion-benchmark-"));
 const CELLS = Array.from({ length: 20 }, (_, i) => ({ type: "code", cell_id: `c${i}`, source: `x${i} = sum(range(20000))`, meta: {} }));
 const ENGINE = ["start_cell", "poll_cell", "kernel_variables", "app_settings", "save_app_settings"];
 
@@ -112,5 +115,6 @@ async function frameSheets(page) {
   results.userAgent = await page.evaluate(() => navigator.userAgent);
   fs.writeFileSync(path.join(OUT, "motion-benchmark.json"), JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
+  console.log(`Results and frame sheets: ${OUT}`);
   await app.close();
 })();

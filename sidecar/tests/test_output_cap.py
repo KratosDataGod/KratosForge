@@ -126,3 +126,26 @@ def test_the_sweep_empties_old_kernel_folders(monkeypatch, tmp_path):
     os.utime(folder, (hour_ago, hour_ago))  # deleting the file touched the folder
     notebook.sweep_spills()
     assert not folder.exists()
+
+
+def test_a_swept_kernel_folder_is_made_again(monkeypatch, tmp_path):
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 10)
+    folder = tmp_path / "kratosforge-kernel-gone"
+    monkeypatch.setenv(notebook.SPILL_DIR_ENV, str(folder))
+    run = _Run(1)
+    run.write("a" * 20)
+    run.finish("ok")
+    assert "is in " in run.outputs[-1]["text"] and len(list(folder.glob("kratosforge-output-*.txt"))) == 1
+
+
+def test_printed_text_joins_in_order_around_other_outputs():
+    run = _Run(1)
+    for part in "abc":
+        run.write(part)
+    assert run.snapshot()["outputs"] == [{"type": "stream", "text": "abc"}]
+    run.write("d")
+    run.add({"type": "html", "html": "<b>x</b>"})
+    run.write("e")
+    run.write("f")
+    assert run.outputs == [{"type": "stream", "text": "abcd"}, {"type": "html", "html": "<b>x</b>"},
+                           {"type": "stream", "text": "ef"}]

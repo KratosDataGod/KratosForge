@@ -994,11 +994,15 @@ def _plain(value: Any) -> Any:
 
 # ---- the event from the app
 
+class WidgetGone(LookupError):
+    """The app's control points at a widget the kernel no longer holds."""
+
+
 def handle(model: str, event: dict[str, Any]) -> None:
     """Apply one change from the app: a new value, an index, a click or a submit."""
     w = registry.get(model)
     if w is None:
-        raise LookupError(model)
+        raise WidgetGone(model)
     if w.disabled:
         return
     w._event(dict(event or {}))

@@ -77,6 +77,8 @@ async function serveWithCsp(page) {
 // holdCheck: the component and update check doesn't answer until the test calls
 // page.evaluate(() => __fdReleaseCheck()), as a slow release check would (UX-020).
 // csp: serve the page with the shell's Content Security Policy; `violations` collects what it blocks.
+// Use csp for a test that reloads the page and reads localStorage back: from file://, Chromium
+// sometimes loses the page's localStorage across a reload under load (back-forward.test.cjs).
 async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { width: 1440, height: 940 }, holdCheck = false,
   csp = false } = {}) {
   const browser = await playwright.chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });

@@ -3816,3 +3816,10 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});

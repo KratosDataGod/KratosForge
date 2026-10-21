@@ -142,7 +142,31 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 | `%pwd` | The kernel's working folder |
 | `%reset -f` | Clears every variable; `spark`, `notebookutils` and `display` stay |
 | `%matplotlib inline` | Accepted: charts always show in the cell |
-| `%load_ext`, `%autoreload`, `%config` | Skipped with a note: they change IPython itself, and this kernel isn't IPython |
+| `%load_ext autoreload`, `%autoreload 2`, `%aimport name` | Reloads your own modules when you edit their files, before the next cell runs; see below |
+| `%load_ext` (other extensions), `%config` | Skipped with a note: they change IPython's own shell, and this kernel isn't IPython |
+
+### Editing your own modules: %autoreload
+
+Keep helper code in a `.py` file (for example in the notebook's resources, or a folder on
+`sys.path`), import it, and turn on autoreload. When you edit the file, the next cell uses the new
+code without restarting the session:
+
+```python
+%load_ext autoreload
+%autoreload 2
+from helpers import clean_names    # after you edit helpers.py, clean_names is the new one
+```
+
+- `%autoreload 2` (or `all`, or `3`/`complete`) reloads every module that is your own file;
+  `%autoreload 1` (`explicit`) only those named with `%aimport helpers`; `%autoreload 0` (`off`)
+  stops. `%autoreload` alone reloads changed modules now. `%aimport -name` leaves one out, and
+  `%aimport` lists both.
+- Only your own files reload: Python's own modules, installed packages and KratosForge's engine
+  never do.
+- Names taken with `from helpers import f` follow the new code. Objects made before the edit keep
+  their old class, so make them again if their class changed.
+- A file that fails to reload (a syntax error) is reported above the cell's output, and the cell
+  runs with the module as it was.
 
 Two aren't available, and say why when used: `%cd`, because the kernel shares its working folder
 with the app, and `%%javascript`, because cell output shows in a sandboxed frame without scripts.

@@ -632,6 +632,8 @@ class Kernel:
             return "error"
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
+        if getattr(self, "_autoreload", None) is not None:
+            self._autoreload.check(namespace)  # %autoreload: your edited modules, before the cell runs
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
@@ -788,7 +790,7 @@ class Kernel:
     def _line_magic_help(self) -> str:
         return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
                 "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
-                "%load_ext, %autoreload and %config (skipped)\n"
+                "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
                 "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
@@ -898,10 +900,29 @@ class Kernel:
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell
-        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
-            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+        if name in ("load_ext", "reload_ext") and line.strip() == "autoreload":
+            self._reloader()  # %autoreload and %aimport work with or without this, as a convenience
+            return None
+        if name == "autoreload":
+            self._reloader().command(line)
+            return None
+        if name == "aimport":
+            listed = self._reloader().aimport(line, self.namespace)
+            if listed:
+                print(listed)
+            return None
+        if name in ("load_ext", "reload_ext", "unload_ext", "config"):
+            what = f"the {line.strip()} extension" if name.endswith("_ext") and line.strip() else f"%{name}"
+            print(f"Note: {what} needs IPython's own shell, which this kernel isn't, so this line was skipped. "
+                  "%load_ext autoreload works.")
             return None
         raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _reloader(self) -> Any:
+        from .autoreload import Reloader
+        if getattr(self, "_autoreload", None) is None:
+            self._autoreload = Reloader()
+        return self._autoreload
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.

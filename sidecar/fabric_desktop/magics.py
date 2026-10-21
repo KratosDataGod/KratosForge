@@ -43,11 +43,12 @@ def _lines(code: str) -> list[tuple[str, tuple[str, str, str, str | None] | None
     out = []
     quote, depth, joined = "", 0, False
     for text in code.split("\n"):
-        m = None if quote or depth or joined else _match(text)
+        bare = text.removesuffix("\r")  # a cell saved on Windows: the magic's argument doesn't end in \r
+        m = None if quote or depth or joined else _match(bare)
         out.append((text, m))
         if m is None:
-            quote, depth = _scan(text, quote, depth)
-            joined = not quote and text.endswith("\\") and not text.endswith("\\\\")
+            quote, depth = _scan(bare, quote, depth)
+            joined = not quote and bare.endswith("\\") and not bare.endswith("\\\\")
         else:
             joined = False
     return out
@@ -87,6 +88,45 @@ def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
             depth = max(depth - 1, 0)
         i += 1
     return quote, depth
+
+
+def words(line: str) -> list[str]:
+    """A magic's arguments, split the way Windows' own command line splits them: spaces separate,
+    quotes group a name with spaces, and a backslash is kept as it is (C:\\Users\\me\\req.txt
+    arrives whole). Inside double quotes, \\" is a quote, as in "say \\"hi\\"", unless it ends
+    the word ("C:\\My Folder\\" is a folder). Single quotes keep everything inside them."""
+    out: list[str] = []
+    word, started, quote, i, n = [], False, "", 0, len(line)
+    while i < n:
+        c = line[i]
+        if quote == '"' and c == "\\" and line[i + 1:i + 2] == '"' and not _ends_word(line, i + 2):
+            word.append('"')
+            i += 2
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+            else:
+                word.append(c)
+        elif c in "\"'":
+            quote, started = c, True
+        elif c.isspace():
+            if started:
+                out.append("".join(word))
+            word, started = [], False
+        else:
+            word.append(c)
+            started = True
+        i += 1
+    if quote:
+        raise ValueError(f"No closing quotation ({quote}).")
+    if started:
+        out.append("".join(word))
+    return out
+
+
+def _ends_word(line: str, i: int) -> bool:
+    return i >= len(line) or line[i].isspace()
 
 
 def find(code: str) -> list[Magic]:

@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import queue
 import sys
 import threading
 import time
-from typing import IO, Callable
+from typing import IO, Any, Callable
 
 from . import audit
 from .redact import secrets
@@ -231,6 +232,26 @@ def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
         print(f"telemetry: could not count {method}: {type(exc).__name__}", file=sys.stderr)
 
 
+def _finite(value: Any) -> Any:
+    """``value`` with NaN and infinity as null, anywhere in it."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(v) for v in value]
+    return value
+
+
+def _reply_text(reply: dict[str, Any]) -> str:
+    """The reply as one line of strict JSON. Python writes NaN and Infinity, which the shell's parser
+    (and JavaScript's) refuses, failing the whole call: a widget's value or a chart's data can hold them."""
+    try:
+        return json.dumps(reply, default=str, allow_nan=False)
+    except ValueError:
+        return json.dumps(_finite(json.loads(json.dumps(reply, default=str))), allow_nan=False)
+
+
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
     """Hands each request to its lane (QUICK, or everything else in order). Replies can come back
     in a different order from the requests: each carries its request's id, which the shell matches."""
@@ -240,7 +261,7 @@ def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO
     def answer(line: str) -> None:
         reply = handle(service, line)
         try:
-            text = json.dumps(reply, default=str)
+            text = _reply_text(reply)
         except Exception as exc:  # noqa: BLE001 - the caller still gets an answer
             text = json.dumps({"id": reply.get("id"), "error": f"Could not send the result: {type(exc).__name__}"})
         with write:

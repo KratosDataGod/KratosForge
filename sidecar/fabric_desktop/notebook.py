@@ -24,6 +24,7 @@ import itertools
 import json
 import keyword
 import logging
+import math
 import os
 import re
 import sys
@@ -64,8 +65,11 @@ def _no_input(*_args, **_kwargs):
 
 
 def _json_value(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, float, str)):
+    """A preview cell: JSON (and the shell) has no NaN or infinity, so those show as text, as SQL results do."""
+    if value is None or isinstance(value, (bool, int, str)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
     return str(value)
 
 
@@ -289,7 +293,7 @@ class _Run:
         self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
-        progress = _query_progress() if self.status == "running" else None
+        progress = _query_progress(self.thread.ident if self.thread else None) if self.status == "running" else None
         with self.lock:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
@@ -324,10 +328,22 @@ WIDGET_SECONDS = 60
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
 
 
-def _query_progress() -> float | None:
-    """The running ``spark`` query's progress, without importing the Spark API for a cell that never used it."""
+def _query_progress(thread: int | None) -> float | None:
+    """The running ``spark`` query's progress, when the cell's own thread is the one waiting on it:
+    a query a widget handler or a thread the cell started doesn't show under the cell. Without
+    importing the Spark API for a cell that never used it."""
     module = sys.modules.get("fabric_desktop.spark_local")
-    return module.progress() if module is not None else None
+    if module is None or thread is None:
+        return None
+    # The cell's thread is waiting on the query when the Spark API, or the table output that runs a
+    # DataFrame shown as the cell's result or a %%sql cell (as_table), is on its stack.
+    frame = sys._current_frames().get(thread)
+    while frame is not None:
+        name = str(frame.f_globals.get("__name__", ""))
+        if name.startswith(("duckdb", "fabric_desktop.spark")) or (name == __name__ and frame.f_code.co_name == "as_table"):
+            return module.progress()
+        frame = frame.f_back
+    return None
 
 
 class _Router(io.TextIOBase):
@@ -569,8 +585,10 @@ class Kernel:
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
 
-    def _display_html(self, html: str) -> None:
+    def _display_html(self, html: str | bytes) -> None:
         """displayHTML(html), as Fabric and Databricks have: shown in the cell's sandboxed frame."""
+        if isinstance(html, (bytes, bytearray)):  # read from a file in binary, as open(..., 'rb')
+            html = bytes(html).decode("utf-8", errors="replace")
         self._display(_Html(str(html)))
 
     def _clear_output(self, wait: bool = False) -> None:
@@ -876,15 +894,20 @@ class Kernel:
 
     def _writefile(self, cell: Any, run: _Run | None) -> str:
         """``%%writefile [-a] path``: the cell's text into a file on this PC (``-a`` appends)."""
-        words = cell.args.split()
+        try:
+            words = magics.words(cell.args)
+        except ValueError as exc:  # an unclosed quote
+            self._emit(run, self._error(exc))
+            return "error"
         append = "-a" in words or "--append" in words
         target = next((w for w in words if not w.startswith("-")), None)
         if target is None:
             self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "",
                              "evalue": "%%writefile needs a file name, like: %%writefile helpers.py"})
             return "error"
-        path = Path(os.path.expandvars(os.path.expanduser(target.strip("\"'")))).resolve()
-        text = cell.body.removeprefix("\n")
+        path = Path(os.path.expandvars(os.path.expanduser(target))).resolve()
+        # A cell saved on Windows has \r\n; text mode writes this PC's own line ending once.
+        text = cell.body.removeprefix("\n").replace("\r\n", "\n")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             existed = path.exists()
@@ -1116,7 +1139,7 @@ class Kernel:
         path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
         if path is None or not os.path.isfile(path):
             raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
-        text = Path(path).read_text(encoding="utf-8")
+        text = Path(path).read_text(encoding="utf-8-sig")  # Notepad may save a BOM
         kind = Path(path).suffix.lower()
         if kind == ".sql":
             if args:
@@ -1637,8 +1660,7 @@ class CapturedOutput:
 def _fs_magic(fs: Any, line: str) -> Any:
     """Databricks' ``%fs`` on notebookutils.fs: ``%fs ls Files/raw``, ``head``, ``cp [-r]``,
     ``mv``, ``rm [-r]``, ``mkdirs``, ``put [-f] path "text"``. Same paths and safety rules as fs."""
-    import shlex
-    words = shlex.split(line, posix=True)
+    words = magics.words(line)
     if not words:
         raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
     command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}

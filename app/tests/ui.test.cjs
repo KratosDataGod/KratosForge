@@ -4206,3 +4206,10 @@ test("the Spark on this PC page says createDataFrame reads a DDL schema string",
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`spark.createDataFrame` takes a list of column names, a `StructType` or a DDL string/);
 });
+
+// Magics hardening: the magics page says how to write Windows paths with spaces.
+test("the magics page says to quote paths with spaces and keeps backslashes", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /Put a path with spaces in quotes/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
+});

@@ -11,10 +11,11 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import re
-import shlex
 import time
 from pathlib import Path
 from typing import Any, Callable
+
+from . import magics
 
 POLL_SECONDS = 1.0
 GIVE_UP_SECONDS = 15 * 60 + 60  # the engine stops pip at 15 minutes (environments.INSTALL_SECONDS)
@@ -57,7 +58,7 @@ def _requirements(text: str) -> list[str]:
 def run(line: str, engine_call: Callable[..., Any] | None, read_file: Callable[[str], str]) -> None:
     """``%pip <command> ...`` in a cell."""
     try:
-        args = shlex.split(line, posix=True)
+        args = magics.words(line)
     except ValueError as exc:
         raise ValueError(f"%pip couldn't read {line!r}: {exc}.") from None
     command, rest = (args[0], args[1:]) if args else ("", [])
@@ -119,4 +120,4 @@ def read_text(path: str, resources_dir: str) -> str:
     """A requirements file: ``builtin/...`` in the notebook's resources, or a path on this PC."""
     from . import notebook_resources
     resolved = notebook_resources.resolve(path, resources_dir) if resources_dir else None
-    return Path(resolved or path).expanduser().read_text(encoding="utf-8")
+    return Path(resolved or path).expanduser().read_text(encoding="utf-8-sig")  # Notepad may save a BOM

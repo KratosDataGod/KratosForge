@@ -64,7 +64,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Next action
 
-Land #331 and #353 (#336, the PC schedule alert outbox, merged as 531107e). Then item 76 stage 2B (platform audit of workload actions; stage 1 exists as the action log and ownership history in `workloads.sqlite`), the bell and settings UI for platform notices (mockup first), and Chris's open cards: what counts as a workload, and whether Runs and Schedules merge. Notebook run history and job progress inside the notebook belong to the notebook threads, not this program.
+Item 76 stage 2B (workload actions on the platform's audit) is up as a draft: `log_workload_action` in `central/core.py` and `udf.py`, the `audit_out` outbox in `workloads.sqlite`, and the line under Actions from KratosForge. In Fabric it needs Platform > Settings > Finish or repair once. Next: the bell and settings UI for platform notices, built after Chris reacts to the mockup (https://claude.ai/artifact/51h5YXyrhvEXoDJhyWEUdw; quiet-hours exemptions are by severity, and the ledger needs a title column), and Chris's open cards: what counts as a workload, and whether Runs and Schedules merge. Notebook run history and job progress inside the notebook belong to the notebook threads, not this program.
 
 ## Resume prompt
 

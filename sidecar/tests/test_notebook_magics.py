@@ -371,7 +371,8 @@ def test_small_ipython_magics():
     k = Kernel()
     assert "%%capture" in k.run("%lsmagic")["outputs"][0]["text"]
     assert k.run("%matplotlib inline")["status"] == "ok"
-    assert "skipped" in k.run("%load_ext autoreload")["outputs"][0]["text"]
+    assert "skipped" in k.run("%load_ext sql")["outputs"][0]["text"]
+    assert k.run("%load_ext autoreload")["outputs"] == []  # autoreload works (test_notebook_autoreload)
     k.run("%env KF_TEST_VALUE=abc")
     assert k.run("%env KF_TEST_VALUE")["outputs"] == [{"type": "text", "text": "'abc'"}]
     k.run("%env KF_TEST_TOKEN=s3cret")

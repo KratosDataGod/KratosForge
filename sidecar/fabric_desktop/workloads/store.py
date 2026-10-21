@@ -4,6 +4,7 @@
     history      every assignment change: who, when, before, after
     link         a notebook linked to its Fabric item: recorded by the app, or made by hand
     action       what was done from a workload page, and how it ended
+    audit_out    the same, as lines for the platform's audit: kept until the platform has them
     cache        the last collection from each slow source, so offline shows what was last seen
 
 These are local records: the app labels them "on this PC". Shared records come with the
@@ -20,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .model import CRITICALITY, ROLES, iso, now
+from .model import CRITICALITY, ROLES, iso, notebook_id, now
 
 SCHEMA_VERSION = 1
 ACTION_KEEP = 10000
@@ -48,6 +49,8 @@ class ManagementStore:
                 CREATE INDEX IF NOT EXISTS action_wid ON action (wid, at);
                 CREATE TABLE IF NOT EXISTS cache (source TEXT PRIMARY KEY, collected_at TEXT, state TEXT,
                     detail TEXT, payload TEXT);
+                CREATE TABLE IF NOT EXISTS audit_out (key TEXT PRIMARY KEY, workload TEXT, action TEXT,
+                    status TEXT, entry TEXT, created TEXT, tries INTEGER, tried_at TEXT, error TEXT, sent_at TEXT);
             """)
             db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
 
@@ -112,18 +115,35 @@ class ManagementStore:
     # ---- notebook <-> Fabric item links
 
     def record_link(self, notebook: str, workspace_id: str, item_id: str, workspace_name: str = "",
-                    how: str = "recorded", by: str = "") -> None:
+                    how: str = "recorded", by: str = "") -> tuple[str, str]:
         """Remember which Fabric item a notebook is. A hand-made link is kept over a recorded one
-        only until the app publishes the notebook somewhere again."""
+        only until the app publishes the notebook somewhere again. A different item than before is
+        kept in the notebook's history; returns (before, after) as that history writes them."""
         if not (notebook and workspace_id and item_id):
-            return
+            return "", ""
+        after = _link_text(workspace_name or workspace_id, item_id, how)
+        at = iso(now())
         with self._tx() as db:
+            old = db.execute("SELECT * FROM link WHERE notebook = ?", (notebook,)).fetchone()
+            before = _link_text(old["workspace_name"] or old["workspace_id"], old["item_id"], old["how"]) if old else ""
             db.execute("INSERT OR REPLACE INTO link VALUES (?, ?, ?, ?, ?, ?, ?)",
-                       (notebook, workspace_id, workspace_name, item_id, how, by, iso(now())))
+                       (notebook, workspace_id, workspace_name, item_id, how, by, at))
+            if not old or (old["workspace_id"], old["item_id"]) != (workspace_id, item_id):
+                db.execute("INSERT INTO history (wid, field, before, after, by, at) VALUES (?, 'link', ?, ?, ?, ?)",
+                           (notebook_id(notebook), before, after, by, at))
+        return before, after
 
-    def unlink(self, notebook: str) -> None:
+    def unlink(self, notebook: str, by: str = "") -> str:
+        """Forget the notebook's Fabric item. Returns what it was linked to ("" when it wasn't)."""
         with self._tx() as db:
+            old = db.execute("SELECT * FROM link WHERE notebook = ?", (notebook,)).fetchone()
+            if old is None:
+                return ""
+            before = _link_text(old["workspace_name"] or old["workspace_id"], old["item_id"], old["how"])
             db.execute("DELETE FROM link WHERE notebook = ?", (notebook,))
+            db.execute("INSERT INTO history (wid, field, before, after, by, at) VALUES (?, 'link', ?, '', ?, ?)",
+                       (notebook_id(notebook), before, by, iso(now())))
+        return before
 
     def rename_link(self, old: str, new: str) -> None:
         with self._tx() as db:
@@ -188,6 +208,43 @@ class ManagementStore:
     def _action_out(row: dict[str, Any]) -> dict[str, Any]:
         return dict(row, target=json.loads(row.get("target") or "{}"), ref=json.loads(row.get("ref") or "{}"))
 
+    # ---- lines for the platform's audit
+
+    def audit_queue(self, key: str, workload: str, action: str, status: str, entry: dict[str, Any]) -> None:
+        """Keep a line for the platform's audit until it's sent. The same key is kept once."""
+        with self._tx() as db:
+            db.execute("INSERT OR IGNORE INTO audit_out (key, workload, action, status, entry, created, tries) "
+                       "VALUES (?, ?, ?, ?, ?, ?, 0)", (key, workload, action, status, json.dumps(entry), iso(now())))
+            db.execute("DELETE FROM audit_out WHERE key IN (SELECT key FROM audit_out WHERE sent_at IS NOT NULL "
+                       "ORDER BY created DESC LIMIT -1 OFFSET ?)", (ACTION_KEEP,))
+
+    def audit_waiting(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Lines not on the platform yet, oldest first."""
+        with self._tx() as db:
+            rows = db.execute("SELECT * FROM audit_out WHERE sent_at IS NULL ORDER BY created, rowid LIMIT ?",
+                              (limit,)).fetchall()
+        return [dict(r, entry=json.loads(r["entry"] or "{}")) for r in rows]
+
+    def audit_result(self, key: str, error: str = "") -> None:
+        """Record one try: sent when there's no error, else still waiting with why."""
+        at = iso(now())
+        with self._tx() as db:
+            if error:
+                db.execute("UPDATE audit_out SET tries = tries + 1, tried_at = ?, error = ? WHERE key = ?",
+                           (at, error[:500], key))
+            else:
+                db.execute("UPDATE audit_out SET tries = tries + 1, tried_at = ?, error = NULL, sent_at = ? "
+                           "WHERE key = ?", (at, at, key))
+
+    def audit_state(self) -> dict[str, Any]:
+        """How many lines wait, since when, and the last reason a try failed."""
+        with self._tx() as db:
+            r = db.execute("SELECT COUNT(*) AS n, MIN(created) AS oldest, MAX(tried_at) AS tried FROM audit_out "
+                           "WHERE sent_at IS NULL").fetchone()
+            last = db.execute("SELECT error FROM audit_out WHERE sent_at IS NULL AND error IS NOT NULL "
+                              "ORDER BY tried_at DESC LIMIT 1").fetchone()
+        return {"waiting": r["n"], "oldest": r["oldest"], "tried_at": r["tried"], "error": last["error"] if last else ""}
+
     # ---- collection cache
 
     def cache_put(self, source: str, payload: Any, state: str = "live", detail: str = "",
@@ -203,3 +260,7 @@ class ManagementStore:
             return None
         return {"collected_at": r["collected_at"], "state": r["state"], "detail": r["detail"],
                 "payload": json.loads(r["payload"])}
+
+
+def _link_text(workspace: str, item_id: str, how: str) -> str:
+    return f"{workspace} / {item_id}" + (" (linked by hand)" if how == "manual" else "")

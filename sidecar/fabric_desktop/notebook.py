@@ -378,6 +378,8 @@ class Kernel:
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None):
         self.token = token
         self.load_notebook = load_notebook
+        # Asks the engine for something (name, *args), when the kernel runs in its own process: %pip.
+        self.engine_call: Callable[..., Any] | None = None
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
@@ -745,6 +747,8 @@ class Kernel:
             return "error"
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
+        if getattr(self, "_autoreload", None) is not None:
+            self._autoreload.check(namespace)  # %autoreload: your edited modules, before the cell runs
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
@@ -899,9 +903,9 @@ class Kernel:
         return None
 
     def _line_magic_help(self) -> str:
-        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
-                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
-                "%load_ext, %autoreload and %config (skipped)\n"
+        return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
+                "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
                 "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
@@ -957,6 +961,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
+            if m := _RUN_SCRIPT.match(line):
+                return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
@@ -969,10 +975,13 @@ class Kernel:
             return lines if name == "sx" else None
         if name == "fs":
             return _fs_magic(self.namespace["notebookutils"].fs, line)
-        if name in ("pip", "conda"):
-            print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
-                  f"are fixed, so this line was skipped.")
+        if name == "pip":
+            from . import pip_magic
+            pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
+        if name == "conda":
+            raise ValueError("%conda isn't on this PC. Use %pip install, which installs into the notebook's "
+                             "own environment.")
         if name == "time":
             started = time.monotonic()
             try:
@@ -1011,10 +1020,29 @@ class Kernel:
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell
-        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
-            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+        if name in ("load_ext", "reload_ext") and line.strip() == "autoreload":
+            self._reloader()  # %autoreload and %aimport work with or without this, as a convenience
+            return None
+        if name == "autoreload":
+            self._reloader().command(line)
+            return None
+        if name == "aimport":
+            listed = self._reloader().aimport(line, self.namespace)
+            if listed:
+                print(listed)
+            return None
+        if name in ("load_ext", "reload_ext", "unload_ext", "config"):
+            what = f"the {line.strip()} extension" if name.endswith("_ext") and line.strip() else f"%{name}"
+            print(f"Note: {what} needs IPython's own shell, which this kernel isn't, so this line was skipped. "
+                  "%load_ext autoreload works.")
             return None
         raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _reloader(self) -> Any:
+        from .autoreload import Reloader
+        if getattr(self, "_autoreload", None) is None:
+            self._autoreload = Reloader()
+        return self._autoreload
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
@@ -1049,6 +1077,37 @@ class Kernel:
         ns[magics.CALL] = self._magic
         with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
             return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
+
+    def _run_builtin(self, flags: str, rest: str) -> Any:
+        """Fabric's ``%run -b script.py`` (or ``.sql``): runs a file from the notebook's Built-in
+        resources in this session. A ``.py`` file runs in the notebook's variables, after any
+        ``{"name": value}`` arguments are set; a ``.sql`` file runs as a %%sql cell would."""
+        from . import notebook_resources
+        if "-c" in flags.split() or "--current" in flags.split():
+            if getattr(self._local, "depth", 0):
+                raise NotImplementedError("%run -c inside a notebook that another one runs isn't supported on "
+                                          "this PC yet: it would need that notebook's own resources. Use -b, "
+                                          "which reads the resources of the notebook you run.")
+        file, args = _run_target(rest, keep_path=True)
+        if not self.resources_dir:
+            raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
+                                    "under Resources (Built-in) first.")
+        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        if path is None or not os.path.isfile(path):
+            raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
+        text = Path(path).read_text(encoding="utf-8")
+        kind = Path(path).suffix.lower()
+        if kind == ".sql":
+            if args:
+                raise ValueError("%run -b with a .sql file takes no arguments.")
+            if self._run_sql(text, getattr(self._local, "run", None), self.namespace) != "ok":
+                raise RuntimeError(f"{file} failed; its error is shown above.")
+            return None
+        if kind != ".py":
+            raise ValueError(f"%run -b runs .py and .sql files; {file} is neither.")
+        self.namespace.update(args)
+        exec(compile(text, f"builtin/{file}", "exec"), self.namespace)  # noqa: S102 - the notebook's own file
+        return None
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
@@ -1430,7 +1489,10 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
 
-def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+_RUN_SCRIPT = re.compile(r"^\s*(?P<flags>(?:(?:-b|--builtin|-c|--current)\s+)+)(?P<rest>.*)$", re.S)
+
+
+def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]]:
     """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
     ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
     ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
@@ -1443,7 +1505,9 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
     if not name:
         raise ValueError("%run needs a notebook name, like: %run Load sales")
-    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    name = name.replace("\\", "/").rstrip("/")
+    if not keep_path:  # a notebook is found by its name; a resources file keeps its folder
+        name = name.rsplit("/", 1)[-1].removesuffix(".ipynb")
     rest = rest.strip()
     if not rest:
         return name, {}

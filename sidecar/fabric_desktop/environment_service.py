@@ -22,6 +22,7 @@ class EnvironmentMixin:
         if isinstance(kernel, ProcessKernel) and notebook:
             kernel.library_paths = self.environments.paths_for(notebook)
             kernel.calls["install_packages"] = lambda specs: self.notebook_packages_install(notebook, specs)
+            kernel.calls["package_job"] = self.environments.job  # %pip follows its install until pip finishes
 
     def notebook_environments(self, notebook: str | None = None) -> dict[str, Any]:
         """Every environment, and the one ``notebook`` uses."""

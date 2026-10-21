@@ -23,13 +23,13 @@ import re
 from typing import Any
 
 from . import depgraph, envprofile, proof
-from .fabric_run import compute_check
+from .fabric_run import compute_check, uses_spark
 from .git import secrets
 
 SEVERITIES = ("error", "warning", "info")
 LIMITS = ["Code checks read the code; they can't see names or calls built at run time.",
-          "A clean run uses this PC's packages. It doesn't run Spark cells yet, so a notebook that uses Spark gets "
-          "code checks only.",
+          "A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), "
+          "not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly.",
           "Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); "
           "the ones the code checks find are listed before it starts."]
 
@@ -175,20 +175,27 @@ def check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, runs_on
                            "The cells read or write lakehouse tables or files.", "Attach a lakehouse with Add data items."))
     if not _code_cells(cells):
         out.append(finding("info", "empty", "The notebook has no code"))
-    plan = run_plan(cells, lakehouse)
-    spark = next((b["cell"] for b in plan["blockers"] if b["text"].startswith("uses Spark")), None)
+    plan = run_plan(cells, lakehouse, spark=True)
+    spark = next((n for n, c in _code_cells(cells) if uses_spark([c])), None)
     if spark:
-        out.append(finding("info", "spark_code_checks_only", "Spark notebooks get code checks only for now",
-                           f"Cell {spark} uses Spark. A clean run doesn't run Spark cells yet.", "", spark, cells))
+        out.append(finding("info", "spark_local", "Spark cells run on this PC's Spark",
+                           f"Cell {spark} uses Spark. A clean run runs it with this PC's PySpark-compatible engine "
+                           "(DuckDB), reading and writing through the same sandbox as other cells. Fabric's Spark can "
+                           "behave differently; Side by side compares the two.", "", spark, cells))
     return {"findings": _sorted(out), "counts": counts(out), "run": plan,
             "tables": {"reads": reads, "writes": writes}, "limits": LIMITS}
 
 
-def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None) -> dict[str, Any]:
+def run_plan(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None, spark: bool = False) -> dict[str, Any]:
     """What stops a clean run (a write that would escape its sandbox) and what it can't contain
-    (network calls, files on this PC, other notebooks), which the person confirms first."""
+    (network calls, files on this PC, other notebooks), which the person confirms first.
+
+    ``spark`` True lets Spark cells run: on this PC ``spark`` (spark_local) reads tables through
+    lakehouse.open_table and writes them through lakehouse.write_table, which the proof runtime pins
+    and redirects like any other cell's. proof.check blocks Spark for a proof's Fabric side only."""
     pr = proof.check(cells, lakehouse)
-    blockers = [b for b in pr["blockers"] if b.get("cell") and _escapes(b["text"])]
+    blockers = [b for b in pr["blockers"] if b.get("cell") and _escapes(b["text"])
+                and not (spark and b["text"].startswith("uses Spark"))]
     uncontained = [{"cell": w["cell"], "cell_id": w.get("cell_id"), "line": w.get("line"), "text": _effect(w["text"])[1]}
                    for w in pr["warnings"] if not w["text"].startswith("uses the clock")]
     return {"ok": not blockers, "blockers": blockers, "uncontained": uncontained,

@@ -408,6 +408,8 @@ A notebook is linked to its Fabric item when you publish or run it in Fabric fro
 
 Ownership, criticality, tags, links and the action log are kept on this PC in `workloads.sqlite`, next to your other app data. They aren't shared with your team yet.
 
+**On the platform's audit.** When there's a platform ([The platform](platform.md)), each action and change made from a workload page is also written to **Platform > Audit**: the action as **Submitted**, then as **Succeeded**, **Failed** or **Cancelled** once the run records say how it ended, and each owner, criticality, tag or link change with what it was before and after. Who made it is the signed-in person the platform sees, not what the app says. The environment, where it ran, as whom and the target go with it; secrets in an error are removed and each value is cut to 500 characters. If the platform can't take a line (you're signed out, or a platform in Fabric hasn't been updated yet), this PC keeps it, sends the lines in order later, and **Actions from KratosForge** says how many wait and why. Without a platform nothing is sent and no platform is made. The action itself never fails because its audit line couldn't be sent.
+
 **On Home**, **Your workloads** (Preview) shows what you own by health, the ones that need attention with **Open**, and how many workloads in your workspaces have no owner, with **Review**.
 
 ### Incidents (Preview)

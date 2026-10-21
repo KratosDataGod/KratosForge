@@ -239,7 +239,9 @@ def analyze(source: str) -> dict[str, Any]:
             if magic.name == "sql":
                 _sql(magic.rest, out, line)
             elif magic.name == "run":
-                out["dynamic"].append({"line": line, "text": f"{text} runs another notebook, which can define any name"})
+                what = "a file from the notebook's resources" if re.match(r"\s*(-b|--builtin|-c|--current)\b", magic.rest) \
+                    else "another notebook"
+                out["dynamic"].append({"line": line, "text": f"{text} runs {what}, which can define any name"})
             elif magic.name in ("pip", "conda") or re.match(r"\s*pip\b", magic.rest) and magic.name in _SHELL:
                 out["effects"].append({"line": line, "text": "installs packages"})
             elif magic.name in _SHELL:

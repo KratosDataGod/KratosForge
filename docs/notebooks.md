@@ -138,7 +138,7 @@ Fabric has no `dbutils`, so **Where a notebook runs** says a notebook that uses 
 
 **Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. plotly, seaborn and matplotlib charts draw in the cell. bokeh's `show(p)` draws in the cell too, with bokeh's JavaScript included so nothing is fetched, instead of writing a file and opening your browser. Call it from the cell itself: from a thread the cell starts, it says so rather than opening a browser. Altair charts don't draw in a cell yet: they need JavaScript from the internet, so `chart.save('chart.html')` saves one to open in a browser.
 
-**Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` is checked and explained, not applied (see [Notebook magics](notebook-magics.md#configure)).
+**Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip install` installs into the notebook's own environment when notebooks run in their own process (see [Notebook magics](notebook-magics.md#installing-packages-with-pip)). `%%configure` is checked and explained, not applied (see [Notebook magics](notebook-magics.md#configure)).
 
 ## Running cells
 

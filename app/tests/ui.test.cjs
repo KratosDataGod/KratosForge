@@ -3936,6 +3936,42 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
 
+// Notebook %pip: the magics page says installs go to the notebook's own environment.
+test("the magics page documents %pip installing into the notebook's environment", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /## Installing packages with %pip/);
+  assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
+});
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
 test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
   for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
     const src = fs.readFileSync(path.join(ui, file), "utf8");

@@ -26,7 +26,7 @@ What a clean run touches:
 - **Your notebook's kernel** and its variables are left alone. The clean run has its own process, with the same time and memory limits.
 - **No Fabric job starts.** Reading and writing OneLake still uses some capacity.
 - **What it can't contain**, such as network calls or files written on this PC, really happens, so Validate lists those cells and asks before it starts. A write it can't redirect (a direct `deltalake` write or `notebookutils.fs` change) stops it before it starts.
-- **Spark notebooks** get code checks only for now: a clean run doesn't run Spark cells yet.
+- **Spark cells** run on this PC's PySpark-compatible engine (DuckDB), not Fabric's Spark. `spark.read.table` and `spark.sql` read the same tables as other cells, and `saveAsTable` writes go to the same sandbox. Spark features this PC doesn't have (RDDs, UDFs, continuous or Kafka streams, `MERGE`/`UPDATE`/`DELETE` through `spark.sql`, the `replaceWhere` and `partitionOverwriteMode` write options) are listed by the code checks, and the run stops at the first one. Results can differ slightly from Fabric's Spark; Side by side compares the two. Spark `parquet()` or `csv()` writes to a path outside the lakehouse are listed with the other files written on this PC.
 
 When the code changes after a check or a clean run, the panel says the result is **Out of date** and which cells changed. **Validate again** runs a new clean run. **Save report** writes the result as a new Markdown file in Downloads. The last 100 results are kept on this PC.
 
@@ -61,5 +61,5 @@ The `fabric_desktop_validate_notebook` capability returns the same findings and 
 ## Limits
 
 - Code checks read the code; they can't see names or calls built at run time.
-- A clean run uses this PC's packages. It doesn't run Spark cells yet, so a notebook that uses Spark gets code checks only.
+- A clean run uses this PC's packages. Spark cells run on this PC's PySpark-compatible engine (DuckDB), not Fabric's Spark: what it doesn't have stops the run, and results can differ slightly.
 - Outside the lakehouse's tables, a clean run does what the code does (files on this PC, network calls); the ones the code checks find are listed before it starts.

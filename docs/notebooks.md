@@ -102,7 +102,7 @@ from pyspark.sql import functions as F
 
 **pandas** is there as in Fabric: `import pandas as pd`, `df.toPandas()`, and pandas data frames show as tables and can be written with `lakehouse.write_table`. It's pandas 2, like Fabric's runtimes.
 
-**Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. How their charts show in a cell's output is covered under outputs.
+**Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. plotly, seaborn and matplotlib charts draw in the cell. bokeh's `show(p)` draws in the cell too, with bokeh's JavaScript included so nothing is fetched, instead of writing a file and opening your browser. Altair charts don't draw in a cell yet: they need JavaScript from the internet, so `chart.save('chart.html')` saves one to open in a browser.
 
 **Magics:** `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
 

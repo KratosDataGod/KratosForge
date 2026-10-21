@@ -34,3 +34,31 @@ def test_the_chart_libraries_fabric_notebooks_use_are_there():
         "print(type(fig).__name__, chart.to_dict()['mark']['type'], type(p).__name__, type(ax).__name__)")
     assert out["status"] == "ok", out
     assert out["outputs"][0]["text"].split() == ["Figure", "line", "figure", "Axes"]
+
+
+def test_bokeh_draws_in_the_cell_without_a_file_or_a_browser(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda *a, **k: opened.append(a))
+    monkeypatch.setattr("webbrowser.get", lambda *a, **k: opened.append(a))
+    k = Kernel()
+    out = k.run("from bokeh.plotting import figure, show\n"
+                "p = figure(title='Sales'); p.line([1, 2, 3], [3, 1, 2])\n"
+                "show(p)\n"
+                "print('after')")
+    assert out["status"] == "ok", out
+    html, text = out["outputs"]
+    assert html["type"] == "html" and "Sales" in html["html"] and "Bokeh" in html["html"]
+    assert "cdn.bokeh.org" not in html["html"]  # its JavaScript is inline: nothing is fetched
+    assert text["text"] == "after\n"
+    assert opened == [] and list(tmp_path.iterdir()) == []
+    # As a cell's last value too, and through bokeh.io.
+    out = k.run("import bokeh.io\nbokeh.io.show(p)\np")
+    assert [o["type"] for o in out["outputs"]] == ["html", "html"]
+
+
+def test_an_altair_chart_says_how_to_see_it():
+    out = Kernel().run("import altair as alt, pandas as pd\n"
+                       "alt.Chart(pd.DataFrame({'x': [1, 2]})).mark_line().encode(x='x')")
+    assert out["status"] == "ok", out
+    assert out["outputs"][0]["text"].startswith("Altair charts don't draw in a cell on this PC yet.")

@@ -6,7 +6,7 @@ Find, open, copy and delete notebooks, and edit a Fabric notebook on this PC. Ev
 
 On **Home**, under **Recent notebooks**, select **All notebooks**. The page lists every notebook in the app's own folder and in your notebooks repositories (Source control), with where it's saved, the Fabric workspace it was last published to, and when it changed. When you have a repository, the **Saved in** chips filter the list.
 
-Each row's **⋯** menu has **Open**, **Save a copy**, **Rename**, **Move to another place** and **Delete**. The command bar (Ctrl+K) finds **All notebooks**, **Search inside notebooks**, **Open a notebook file** and **Save a copy of this notebook**.
+Each row's **⋯** menu has **Open**, **Save a copy**, **Rename**, **Move to folder**, **Move to another place** and **Delete**. Notebooks can be grouped into folders: see [Notebook folders](notebook-folders.md). The command bar (Ctrl+K) finds **All notebooks**, **Search inside notebooks**, **Open a notebook file** and **Save a copy of this notebook**.
 
 ## Search inside notebooks
 

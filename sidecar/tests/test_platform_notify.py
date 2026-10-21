@@ -196,3 +196,54 @@ def test_incident_notices_keep_the_signature_out_too(tmp_path):
     notify.send([], notify.single(LEAKY), box, "test", leaky_post, now=NOON)
     assert out["queued"] == 1 and "SECRET123" not in str(out)
     assert "SECRET123" not in (tmp_path / "alerts.sqlite").read_bytes().decode("latin-1")
+
+
+def test_the_bell_names_each_open_notice_without_a_requests_detail(svc):
+    svc.platform_notify_save([{"name": "default", "url": HOOK}])
+    svc.platform_notify([raw(), dict(raw(kind="shortcut.broken", id="s1", title="Customers_Silver",
+                                         detail="Its target folder no longer exists"),
+                                     open={"view": "shortcuts", "tab": "health"}, dedupe="shortcut.broken:s1")])
+    shown = svc.platform_notify_open()
+    assert [(n["kind"], n["title"]) for n in shown["open"]] == [("shortcut.broken", "Customers_Silver"),
+                                                                ("request.waiting", "Access to LH_Sales")]
+    request = shown["open"][1]
+    assert request["whom"] == "ana@contoso.com" and request["detail"] == "" and request["open"]["tab"] == "requests"
+    assert "Q3" not in str(shown)  # a request's reason stays out, as it does in Teams
+    assert shown["open"][0]["detail"] == "Its target folder no longer exists"
+    assert shown["waiting"] == 0 and shown["error"] == "" and shown["routes"] is True
+    svc.platform_notify([dict(raw(kind="request.decided"), dedupe="request.decided:r1")])
+    assert [n["kind"] for n in svc.platform_notify_open()["open"]] == ["shortcut.broken"]
+
+
+def test_notices_teams_didnt_take_are_counted_with_why(svc, monkeypatch):
+    svc.platform_notify_save([{"name": "default", "url": HOOK}])
+    monkeypatch.setattr(pns, "post_teams", leaky_post)
+    svc.platform_notify([raw()])
+    shown = svc.platform_notify_open()
+    assert shown["waiting"] == 1 and shown["held"] == 0 and "ConnectionError" in shown["error"]
+    assert "SECRET" not in str(shown) and HOOK not in str(shown)
+    assert shown["open"][0]["title"] == "Access to LH_Sales"  # queued counts as posted
+
+
+def test_a_token_or_sas_address_in_a_notice_never_reaches_teams_the_bell_or_the_record(svc):
+    sas = "https://acct.blob.core.windows.net/c/x?sv=2024&sig=SASSECRET"
+    svc.platform_notify_save([{"name": "default", "url": HOOK}])
+    svc.platform_notify([dict(raw(kind="shortcut.broken", id="s1", title="T Bearer eyJhbGciOiJIUzI1NiJ9.e30.TOKENSECRET",
+                                  detail=f"target {sas}"), open={"view": "shortcuts", "tab": "health"},
+                              dedupe="shortcut.broken:s1")])
+    seen = str(svc.platform_notify_open()) + str(svc.posts) + (svc.root / "platform_outbox.sqlite").read_bytes().decode("latin-1")
+    assert "TOKENSECRET" not in seen and "SASSECRET" not in seen and "[removed]" in seen
+
+
+def test_one_damaged_notice_row_doesnt_hide_the_rest(svc):
+    import sqlite3
+    svc.platform_notify_save([{"name": "default", "url": HOOK}])
+    svc.platform_notify([raw(), dict(raw(kind="shortcut.broken", id="s1", title="Customers_Silver"),
+                                     open={"view": "shortcuts", "tab": "health"}, dedupe="shortcut.broken:s1")])
+    db = sqlite3.connect(svc.root / "platform_outbox.sqlite")
+    db.execute("UPDATE notice SET open = '{bad'")
+    db.commit()
+    db.close()
+    shown = {n["kind"]: n["open"] for n in svc.platform_notify_open()["open"]}
+    assert shown == {"request.waiting": {"view": "platform", "tab": "requests"},
+                     "shortcut.broken": {"view": "shortcuts", "tab": "health"}}

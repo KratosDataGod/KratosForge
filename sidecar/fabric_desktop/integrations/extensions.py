@@ -35,7 +35,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import policy
+from . import policy, scope
 from .core import CallContext
 from .registry import PERMISSIONS, SOURCE_PATTERN, URI_SCHEME, Capability, Registry, schema
 
@@ -257,7 +257,7 @@ def _outline_capabilities() -> list[Capability]:
         schema({"name": {"type": "string", "minLength": 1, "maxLength": 200,
                          "description": "From fabric_desktop_list_notebooks."}}, ["name"]),
         schema({"name": {"type": "string"}, "cells": {"type": "array", "items": cell}}, ["name", "cells"]),
-        "READ_METADATA", notebook_outline, artifact_types=("Notebook",), timeout=30, source=OUTLINE_ID,
+        "READ_METADATA", notebook_outline, artifact_types=("Notebook",), timeout=30, source=OUTLINE_ID, workspaces=scope.notebook,
         resource=f"{URI_SCHEME}ext/{OUTLINE_ID}/notebooks/{{name}}")]
 
 

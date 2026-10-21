@@ -64,7 +64,7 @@ Every table is a text file, so the normal software workflow applies.
 | `fd-sales-release` | Contributor on Test and Prod (the people who promote) |
 | `fd-sales-readers` | Viewer on Prod, plus OneLake data access roles for the tables they may read |
 
-**One runner per shared environment.** A metadata run writes a table by reading it, merging new rows and committing the result. Two runs of the same environment from two PCs at the same time can overwrite each other's commit. So for Test and Prod, run from one place: a schedule (on one PC, or in Fabric) or the headless agent, which takes a write lease per table before it writes. Ad hoc runs from a laptop belong in Dev.
+**One runner per shared environment.** A metadata run writes a table by reading it, merging new rows and committing the result. Runs on PCs and agents take a write lease per table first, so two of them writing the same table wait in turn, and notebooks writing that table wait too ([agent.md](agent.md)). Runs in Fabric take no lease, and whether OneLake honours the leases between machines is not yet verified on a tenant. So for Test and Prod, still run from one place: a schedule (on one PC, or in Fabric) or the headless agent. Ad hoc runs from a laptop belong in Dev.
 
 **Promote is the only way into Test and Prod.** It checks the gate, records each promoted metadata version in `meta.deployments`, and keeps environments reproducible. Restrict Contributor on Prod to the release group so nobody can bypass it from Fabric.
 

@@ -44,7 +44,7 @@ from . import chart_output
 from . import notebook_resources
 from . import magics
 from . import history
-from .frames import Frames, type_name
+from .frames import Frames, pandas_table, type_name
 from .redact import describe
 
 # Charts are drawn off screen and shown as images in the cell.
@@ -145,7 +145,7 @@ def as_table(value: Any) -> pa.Table | None:
         rel = value.limit(PREVIEW_ROWS + 1)
         return (getattr(rel, "to_arrow_table", None) or rel.arrow)()
     if module.startswith("pandas") and hasattr(value, "columns"):
-        return pa.Table.from_pandas(value.head(PREVIEW_ROWS + 1), preserve_index=False)
+        return pandas_table(value.head(PREVIEW_ROWS + 1))
     return None
 
 
@@ -689,7 +689,7 @@ class Kernel:
                     self._patch_pyplot(run)
                     widgets.handle(model, event)
                     self._flush_figures(run)
-                except LookupError:
+                except widgets.WidgetGone:  # not any LookupError: a handler's own KeyError is its error
                     status["value"] = "gone"
                 except KeyboardInterrupt:
                     status["value"] = "cancelled"
@@ -1530,13 +1530,14 @@ class Kernel:
     @staticmethod
     def _error(exc: BaseException) -> dict[str, Any]:
         frames = [f for f in traceback.extract_tb(exc.__traceback__)
-                  if f.filename != __file__ and not f.filename.endswith(("notebookutils_local.py",))]
+                  if f.filename not in (__file__, _WIDGETS_FILE) and not f.filename.endswith(("notebookutils_local.py",))]
         lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
         return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
                 "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
 
 
 _MISSING = object()
+_WIDGETS_FILE = str(Path(__file__).with_name("widgets.py"))  # a control handler's error shows the user's frames only
 
 
 # How many notebooks notebook.run and %run may nest, so a notebook that runs itself stops.

@@ -73,8 +73,19 @@ def full_table(value: Any) -> pa.Table:
     if module.startswith("duckdb"):
         return (getattr(value, "to_arrow_table", None) or value.arrow)()
     if module.startswith("pandas"):
-        return pa.Table.from_pandas(value, preserve_index=False)
+        return pandas_table(value)
     raise TypeError(f"{type(value).__name__} isn't a table.")
+
+
+def keeps_index(df: Any) -> bool:
+    """A named index (a groupby or set_index result) is data, shown as leading columns as Jupyter shows
+    it. An unnamed one is row numbers and is left out."""
+    names = list(getattr(df.index, "names", []) or [])
+    return any(n is not None for n in names) and not any(n in df.columns for n in names if n is not None)
+
+
+def pandas_table(df: Any) -> pa.Table:
+    return pa.Table.from_pandas(df.reset_index() if keeps_index(df) else df, preserve_index=False)
 
 
 def type_name(t: pa.DataType) -> str:

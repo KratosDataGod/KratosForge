@@ -31,6 +31,7 @@ from .meta import impact
 from .meta import restore as restore_mod
 from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
+from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
@@ -397,7 +398,7 @@ class EstateMixin:
         try:
             token = self.auth._token(GRAPH_USER_SCOPES)  # type: ignore[attr-defined]
         except Exception as exc:  # noqa: BLE001
-            raise LookupError(f"{text} doesn't have a role in this workspace, and Fabric Desktop by KratosBI can't look people up "
+            raise LookupError(f"{text} doesn't have a role in this workspace, and KratosForge can't look people up "
                               "in your directory. Give them a workspace role first, or paste their object ID "
                               "(Microsoft Entra admin center > Users).") from exc
         headers = {"Authorization": f"Bearer {token}"}
@@ -525,7 +526,7 @@ class EstateMixin:
             raise LookupError(f"Assign a workspace to {env.title()} first (Data mesh > Deploy > Environments and promote).")
         fabric = self.fabric  # type: ignore[attr-defined]
         item = fabric.save_variable_library(ws, varlib_mod.LIBRARY, varlib_mod.definition(project),
-                                            "Source system connections, managed by Fabric Desktop by KratosBI")
+                                            "Source system connections, managed by KratosForge")
         if item.get("id"):
             fabric.set_active_value_set(ws, item["id"], varlib_mod.active_set(env))
         published = self._settings().get("varlib_published", {})  # type: ignore[attr-defined]
@@ -543,16 +544,24 @@ class EstateMixin:
             raise ValueError(f"environment must be one of {', '.join(ENVIRONMENTS)}")
         return self._publish_varlib(self._project(), env)  # type: ignore[attr-defined]
 
-    def _notebook_variables(self, library: str) -> dict[str, str] | None:
-        """notebookutils.variableLibrary on this PC: VL_Sources for the attached lakehouse's environment."""
-        if library != varlib_mod.LIBRARY:
-            return None
-        try:
-            project = self._project()  # type: ignore[attr-defined]
-        except Exception as exc:  # noqa: BLE001
-            _log.info("No metadata project for notebook variables: %s", describe(exc))
-            return None
+    def _notebook_variables(self, library: str) -> dict[str, Any] | None:
+        """notebookutils.variableLibrary on this PC. VL_Sources comes from the metadata project, for
+        the attached lakehouse's environment; any other library is read (never changed) from the
+        attached lakehouse's workspace, with its active value set, as Fabric reads the notebook's."""
         from . import lakehouse
         ws = lakehouse._attached.workspace_id if lakehouse._attached else None
-        env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
-        return varlib_mod.resolve(project, env)
+        if library == varlib_mod.LIBRARY:
+            try:
+                project = self._project()  # type: ignore[attr-defined]
+            except Exception as exc:  # noqa: BLE001
+                _log.info("No metadata project for notebook variables: %s", describe(exc))
+            else:
+                env = next((env for env in ENVIRONMENTS if ws and project.environments.get(env, {}).get("workspace_id") == ws), "dev")
+                return varlib_mod.resolve(project, env)
+        if not ws:
+            return None
+        found = self.fabric.read_variable_library(ws, library)  # type: ignore[attr-defined]
+        if found is None:
+            raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
+        # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
+        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}

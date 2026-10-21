@@ -280,8 +280,8 @@ def test_spark_sql_dialect(local, data):
     r = local.engine(pid).execute("SELECT name, nvl(NULL, 'x') AS v FROM dbo.orders ORDER BY id LIMIT 1",
                                   dialect="spark")
     assert r["rows"] == [["a", "x"]]
-    with pytest.raises(ValueError, match="FD-LDE-004"):
-        local.engine(pid).execute("SELECT TOP 1 * FROM dbo.orders", dialect="tsql")
+    r = local.engine(pid).execute("SELECT TOP 1 [name] FROM dbo.orders ORDER BY id", dialect="tsql")
+    assert r["rows"] == [["a"]]
 
 
 def test_another_process_cant_open_the_database_for_writing(local, data, tmp_path):

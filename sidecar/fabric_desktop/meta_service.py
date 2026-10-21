@@ -201,7 +201,7 @@ class MetaMixin:
             for name, space in where.items():
                 if name not in existing:
                     existing[name] = fabric.create_lakehouse(
-                        space, name, "Managed by Fabric Desktop by KratosBI's metadata framework")["id"]
+                        space, name, "Managed by KratosForge's metadata framework")["id"]
         # The organization's landing zone is the platform's, never created here.
         platform = self._platform_config().get(env, {})  # type: ignore[attr-defined]
         if platform.get("landing_id"):
@@ -232,9 +232,16 @@ class MetaMixin:
         existing = {lh["displayName"]: lh["id"] for lh in fabric.list_lakehouses(ws)}
         if create and keys_mod.KEYS_LAKEHOUSE not in existing:
             existing[keys_mod.KEYS_LAKEHOUSE] = fabric.create_lakehouse(
-                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by Fabric Desktop by KratosBI")["id"]
+                ws, keys_mod.KEYS_LAKEHOUSE, "Surrogate keys and source systems, managed by KratosForge")["id"]
         return OneLakeStore(env, ws, existing, lambda: self.auth.storage_token(),  # type: ignore[attr-defined]
                             self.root / "onelake-cache")
+
+    def _keys_database(self, project: Project, env: str) -> str:
+        """The SQL database an environment's keys come from once they're in the platform, else "".
+        A Spark MERGE into LH_Keys would issue keys that database never sees, so there's none then."""
+        if not self._keys_in_platform(project, env):
+            return ""
+        return "SQL_Keys" if self._keys_config().get("shared") else "SQL_Platform"  # type: ignore[attr-defined]
 
     def _keys_in_platform(self, project: Project, env: str) -> bool:
         """One key system for everything: once an environment's platform is in Fabric, its keys come
@@ -243,7 +250,7 @@ class MetaMixin:
         cfg = project.environments.get(env, {})
         if cfg.get("keys") in ("platform", "lakehouse"):
             return cfg["keys"] == "platform"
-        if not self._platform_config().get(env, {}).get("functions_id"):  # type: ignore[attr-defined]
+        if not self._keys_in_fabric(env):  # type: ignore[attr-defined]
             return False
         local = cfg.get("target", "onelake" if env != "dev" else "local") == "local"
         has_lh_keys = (project.local_data / f"keys-{env}").exists() if local else bool(cfg.get("keys_workspace_id"))
@@ -304,7 +311,7 @@ class MetaMixin:
         if not name:
             raise ValueError("Give the workspace a name.")
         ws = self.fabric.create_workspace(  # type: ignore[attr-defined]
-            name, capacity_id, f"{env.title()} environment, managed by Fabric Desktop by KratosBI's metadata framework")
+            name, capacity_id, f"{env.title()} environment, managed by KratosForge's metadata framework")
         return self.meta_set_environment(env, ws["id"], ws.get("displayName") or name) | {
             "created": {"id": ws["id"], "displayName": ws.get("displayName") or name}}
 
@@ -335,11 +342,12 @@ class MetaMixin:
         except Exception as exc:  # the config is still useful when the environment can't be read
             runs = [{"status": "unavailable", "message": str(exc)}]
         errors = [x for x in project.summary()["errors"] if x.startswith(name + ":")]
-        keys_sql = None
-        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}):
+        keys_sql, keys_from = None, self._keys_database(project, env)
+        if keys_mod.entity_keys(e) and not errors and "entity" in e.spec.get("source", {}) and not keys_from:
             keys_sql = keys_mod.merge_sql(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))
         return e.summary() | {"text": e.path.read_text(encoding="utf-8"), "impact": impact(project, name),
-                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql}
+                              "runs": runs, "preview": preview, "errors": errors, "keys_sql": keys_sql,
+                              "keys_from": keys_from}
 
     def meta_save_entity(self, name: str, text: str) -> dict[str, Any]:
         """Save an entity file. TOML that doesn't parse is refused; other problems are listed."""
@@ -726,14 +734,15 @@ class MetaMixin:
         central = None  # the platform's key tables, when this environment's keys are there
         if self._keys_in_platform(project, env):
             try:
-                central = self._platform(env).call("list_key_tables")  # type: ignore[attr-defined]
+                central = self._keys_platform(env).call("list_key_tables")  # type: ignore[attr-defined]
             except Exception as exc:  # noqa: BLE001
                 problem = problem or str(exc)
         return {"env": env, "local": local, "path": str(project.local_data / f"keys-{env}") if local else None,
                 "workspace_id": cfg.get("keys_workspace_id", ""), "workspace_name": cfg.get("keys_workspace_name", ""),
-                "lakehouse": "SQL_Platform" if self._keys_in_platform(project, env) else keys_mod.KEYS_LAKEHOUSE,
+                "lakehouse": self._keys_database(project, env) or keys_mod.KEYS_LAKEHOUSE,
                 "platform": self._keys_in_platform(project, env), "moved_at": cfg.get("keys_moved_at", ""),
-                "platform_available": bool(self._platform_config().get(env, {}).get("functions_id")),  # type: ignore[attr-defined]
+                "platform_available": self._keys_in_fabric(env),  # type: ignore[attr-defined]
+                "shared": bool(self._keys_config().get("shared")),  # type: ignore[attr-defined]
                 "key_tables": tables, "central_key_tables": central,
                 "source_systems": summary["source_systems"], "system_types": list(keys_mod.SYSTEM_TYPES),
                 "connection_fields": list(keys_mod.CONNECTION_FIELDS), "problem": problem,
@@ -800,7 +809,7 @@ class MetaMixin:
             raise ValueError(f"key table {name} already exists")
         if self._keys_in_platform(project, env):
             # One key system: the project uses a key table the platform has, it doesn't make its own.
-            central = {t["name"] for t in self._platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
+            central = {t["name"] for t in self._keys_platform(env).call("list_key_tables")}  # type: ignore[attr-defined]
             if name not in central:
                 raise GateError("save", [f"{name} isn't one of the platform's key tables. Request it in "
                                          "Platform > Business keys, or pick one from the list."])
@@ -880,6 +889,10 @@ class MetaMixin:
             raise GateError("save", errors)
         if not keys_mod.entity_keys(e):
             raise ValueError(f"{name} has no [[keys]] block, so there is no key MERGE to start its notebook with")
+        if db := self._keys_database(project, env):
+            raise GateError("save", [f"{env.title()}'s keys come from {db}, so a notebook that merges into LH_Keys "
+                                     "would give rows keys the rest of the platform doesn't have. Run "
+                                     f"{name} from Data mesh instead: its run takes the keys from {db}."])
         src = project.entities[e.spec["source"]["entity"]]
         nb_name = f"nb_{src.layer}_to_{e.layer}_{e.table}"
         cells = keys_mod.template_cells(project, e, project.environments.get(env, {}).get("keys_workspace_name", ""))

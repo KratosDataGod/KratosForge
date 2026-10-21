@@ -1,6 +1,6 @@
 # Running pipelines on your PC (Preview)
 
-Fabric Desktop by KratosBI can run a Microsoft Fabric Data Factory pipeline on your PC, so you can test its control flow (dependencies, conditions, loops, variables, failure handling and child pipelines) without a Fabric run. A local run never calls Fabric or OneLake, so it starts no Fabric job and meters no activity runs.
+KratosForge can run a Microsoft Fabric Data Factory pipeline on your PC, so you can test its control flow (dependencies, conditions, loops, variables, failure handling and child pipelines) and its Python notebooks without a Fabric run. A local run starts no Fabric job and meters no activity runs. Control flow never calls Fabric or OneLake; a [notebook step](#notebook-steps) reads its lakehouse's tables and writes to a folder of its own there, which uses some capacity.
 
 This is Preview. The behaviour follows Microsoft's Data Factory documentation and is tested with hand-built pipelines; it hasn't been compared with a run in Fabric yet. Every run record says `verified_against_fabric: false`.
 
@@ -10,7 +10,8 @@ This is Preview. The behaviour follows Microsoft's Data Factory documentation an
 | --- | --- |
 | Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter | Run on this PC (classification `local` in the [activity registry](activity-registry.md)). |
 | Execute Pipeline and Invoke Pipeline | Run the child pipeline on this PC when you give its definition, by `referenceName` or `pipelineId`. |
-| Copy, Notebook, Lookup, Get Metadata, Script, Stored procedure, Delete, Web, Webhook | Don't run. Give a mock for each one the run reaches. |
+| Notebook | Runs a Python notebook saved in KratosForge when you say which one (see [Notebook steps](#notebook-steps)). Spark notebooks need a mock. |
+| Copy, Lookup, Get Metadata, Script, Stored procedure, Delete, Web, Webhook | Don't run. Give a mock for each one the run reaches. |
 | Dataflow Gen2, Spark job definition, semantic model refresh, Outlook, Teams, KQL and other Fabric-only activities, and unknown types | Don't run. Give a mock, or run the pipeline in Fabric. |
 
 Before anything starts, the run checks every activity it could reach, nested ones and child pipelines included. One activity that can't run here and has no mock refuses the whole run, with the activity and the reason. The pipeline's own checks ([pipeline definitions](pipeline-definitions.md)) must pass too, and every parameter without a default needs a value.
@@ -27,6 +28,26 @@ A mock stands in for one activity, by name:
 ```
 
 `status` is `Succeeded` (the default) or `Failed`. Later activities read the mock's `output` with `activity('Ingest orders').output`, as they would in Fabric. A mocked activity does nothing else, and the run record marks it `executed_by: mock`. A mocked container's inner activities don't run.
+
+## Notebook steps
+
+A Notebook activity runs a notebook saved in KratosForge on this PC. Say which notebook each one runs, by the activity's name or its `notebookId`:
+
+```powershell
+fabric-desktop pipeline run .\pl_orders_daily.DataPipeline --notebook "Transform=Transform orders" --notebook "5f0c2a9e-0000-0000-0000-000000000000=Load customers"
+```
+
+The step runs the notebook the way [Validate notebook](../validate-notebook.md)'s clean run does:
+
+- Every code cell runs from the top in a fresh Python kernel of its own, so the notebook you have open and its variables are left alone. Frozen cells are skipped, as in Fabric. As in a clean run, the random seed is fixed and the time zone is UTC. At most two notebook steps of a run go at once.
+- The activity's `parameters` go in a cell of their own after the notebook's parameter cell (the cell tagged `parameters`), or first when it has none. Their `type` is `string`, `int`, `float` or `bool`, and their values can be expressions.
+- `notebookutils.notebook.exit(value)` ends the notebook. Later activities read the value, as text, with `activity('Transform').output.result.exitValue`. Without an exit, `exitValue` is `null`.
+- Tables are read at the version they had when the run's first notebook step started in that lakehouse. Writes through the lakehouse module go to the run's own folder, `Files/_fabric_desktop/proofs/pipeline-<run id>/pc/`, never to the lakehouse's tables, and a later notebook step in the same run reads what an earlier one wrote. The folder is deleted when the run ends; `keep_outputs` keeps it so you can look at the results.
+- A failing cell fails the activity with `LocalNotebookFailed`, naming the cell and the error (secrets removed). The activity's policy timeout and Cancel stop the notebook's kernel.
+
+The run is refused before anything starts when a notebook isn't named, can't be opened, uses Spark, or writes in a way its folder can't contain (a direct `deltalake` or `notebookutils.fs` write). A notebook that calls the network or reads files on this PC runs only when you confirm it with `--allow-uncontained`. `--keep-outputs` keeps the run's folder. The output also has `notebook`, `cells_run`, `cells_total`, `seconds`, `tables_written` and `sandbox`.
+
+Notebook steps run only when you start the run yourself (the command above; the engine method takes `notebooks`, `allow_uncontained` and `keep_outputs`). A run your AI tool starts still needs a mock for every Notebook activity, because you'd approve the pipeline without seeing the notebooks' code. Results can differ from Fabric: the notebook runs in KratosForge's Python kernel, not Fabric's runtime, and the step hasn't been compared with a Fabric run.
 
 ## How a run behaves
 
@@ -65,7 +86,7 @@ Known differences, or things not yet compared with Fabric:
 
 Each run is saved as one file under `pipeline_runs` in the app's data folder (`%LOCALAPPDATA%\FabricDesktop` on Windows), written as the run goes, and the last 200 are kept. A record has the run's state, parameters (secure ones hidden), options, every activity run (state, status, how it ran, timings, attempts, output, error, the branch an If Condition or Switch took, ForEach and Until iteration counts, and a child pipeline's whole run), the final variables and the pipeline return value.
 
-If Fabric Desktop by KratosBI stops while a run is going, the record is marked `interrupted` the next time it opens. The run isn't resumed: activities that were running may have done part of their work, so running it again is your decision.
+If KratosForge stops while a run is going, the record is marked `interrupted` the next time it opens. The run isn't resumed: activities that were running may have done part of their work, so running it again is your decision.
 
 ## Using it
 
@@ -74,14 +95,14 @@ fabric-desktop pipeline run .\pl_orders_daily.DataPipeline --mocks .\mocks.json 
 fabric-desktop pipeline run .\parent.json --child child_pipeline=.\child.json --wait-scale 0 --json
 ```
 
-The command prints each activity run and the result. It exits 0 when the run succeeds, 1 when it fails and 2 when it is refused. It doesn't save a record.
+The command prints each activity run and the result. It exits 0 when the run succeeds, 1 when it fails and 2 when it is refused. It doesn't save a record. With `--notebook`, it signs in first when a notebook has a lakehouse.
 
-The engine methods are `pipeline_run_check`, `pipeline_run_start` (runs in the background, at most two at once), `pipeline_run_status`, `pipeline_run_cancel` and `pipeline_runs`. From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)):
+The engine methods are `pipeline_run_check`, `pipeline_run_start` (runs in the background, at most two at once; `notebooks`, `allow_uncontained` and `keep_outputs` are for notebook steps), `pipeline_run_status`, `pipeline_run_cancel` and `pipeline_runs`. From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)):
 
 | Tool | Permission |
 | --- | --- |
 | `fabric_desktop_check_pipeline_run` | Read metadata |
-| `fabric_desktop_start_pipeline_run` | Run code on this PC; you approve every run |
+| `fabric_desktop_start_pipeline_run` | Run code on this PC; you approve every run. Notebook activities need a mock. |
 | `fabric_desktop_get_pipeline_run`, `fabric_desktop_list_pipeline_runs` | Read metadata. Outputs, variable values and parameter values are left out. |
 | `fabric_desktop_cancel_pipeline_run` | Run code on this PC; you approve it |
 
@@ -89,7 +110,7 @@ They take definitions as text, up to 1 MB. There is no page in the app for local
 
 ## Try it
 
-`sidecar/tests/pipelines/reference_local.json` is a reference pipeline: a checkpoint, an ingest (Copy), a loop over regions, a transform (Notebook), a validation that fails the run when too few rows arrived, and a record of the result as the pipeline return value. With the ingest and transform mocked, it runs in full on your PC:
+`sidecar/tests/pipelines/reference_local.json` is a reference pipeline: a checkpoint, an ingest (Copy), a loop over regions, a transform (Notebook), a validation that fails the run when too few rows arrived, and a record of the result as the pipeline return value. With the ingest and transform mocked, it runs in full on your PC (or name a notebook for the transform with `--notebook`):
 
 ```powershell
 '{"Ingest orders": {"output": {"rowsCopied": 120}}, "Transform": {}}' | Set-Content mocks.json

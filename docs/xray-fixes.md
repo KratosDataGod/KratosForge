@@ -1,6 +1,6 @@
 # Estate X-ray: what each finding means and how to fix it
 
-The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes nothing until you press a fix.
+The Estate X-ray on Home reads every lakehouse you can reach and lists what needs attention. It only reads: the folders under `Tables`, each Delta table's log, workspace roles, and the cost of runs this app started in Fabric. It changes none of the lakehouses it reads until you press a fix. One write happens by itself: when this PC is connected to a central lakehouse you can write to, each scan adds its lakehouse and table findings there for Optimize, never people's names or cost estimates. Anyone who can read the central lakehouse can read those rows, including the workspace, lakehouse and table names ([Optimize](optimize/README.md#findings-and-recommendations)).
 
 Each finding links here. Every section says what the finding means, why it matters, what the button in the app does, and how to fix it by hand in Fabric if you'd rather.
 
@@ -27,7 +27,7 @@ A finding marked fixed shows again if a later scan, started after the job comple
 
 ## When Fabric can't be read
 
-Vacuum deletes files for good, so Fabric Desktop by KratosBI never guesses how much history a table must keep. If it can't read the table's own retention setting (no access, throttling, a sign-in that failed) or the metadata project (a broken `layers.toml` or `environments.toml`), **Vacuum**, **Optimize** and the Vacuum dry run stop with the reason and start nothing. Fix the cause and press the button again. With no metadata project open at all, a table keeps the longest of Fabric's 7 days and its own setting.
+Vacuum deletes files for good, so KratosForge never guesses how much history a table must keep. If it can't read the table's own retention setting (no access, throttling, a sign-in that failed) or the metadata project (a broken `layers.toml` or `environments.toml`), **Vacuum**, **Optimize** and the Vacuum dry run stop with the reason and start nothing. Fix the cause and press the button again. With no metadata project open at all, a table keeps the longest of Fabric's 7 days and its own setting.
 
 ## Small files
 
@@ -49,7 +49,7 @@ OPTIMIZE my_schema.my_table VORDER;
 VACUUM my_schema.my_table RETAIN 168 HOURS;
 ```
 
-**To stop it coming back.** Load in larger batches. For tables loaded by Fabric Desktop by KratosBI's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
+**To stop it coming back.** Load in larger batches. For tables loaded by KratosForge's metadata framework, Test and Prod already optimize after each run (`optimize_after_run` in `environments.toml`, on by default).
 
 ## Unidentified tables
 
@@ -63,7 +63,7 @@ VACUUM my_schema.my_table RETAIN 168 HOURS;
 
 - **Files belong in Files.** In the lakehouse explorer, move the folder from `Tables` to `Files`.
 - **It should be a table.** Load the files into a Delta table: right-click the folder in `Files` and choose **Load to Tables**, or in a notebook read them and write with `df.write.format("delta").saveAsTable("my_table")`. Then delete the original folder under `Tables`.
-- **A table written from outside Fabric** (for example by Fabric Desktop by KratosBI) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
+- **A table written from outside Fabric** (for example by KratosForge) that is Delta but still shows as Unidentified needs a refresh of the lakehouse in Fabric. In that case the X-ray doesn't list it, since it does have a `_delta_log`.
 
 ## Access
 

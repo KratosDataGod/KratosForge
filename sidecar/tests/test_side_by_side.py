@@ -15,6 +15,7 @@ from deltalake import DeltaTable, write_deltalake
 from fabric_desktop import benchmark, lakehouse
 from fabric_desktop import side_by_side as sbs
 from fabric_desktop import side_by_side_service
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
@@ -421,3 +422,16 @@ def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
     out = svc.kernel.run(cells[2]["source"])
     assert out["status"] == "error"
     assert "Run the TPC-H data notebook" in str(out["outputs"])
+
+
+def test_side_by_side_runs_its_own_notebooks_kernel_not_the_open_one(svc, tables):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
+    assert out["state"] == "done", out["message"]
+    assert svc.sessions.kernel("NB").run("print(x)")["outputs"][0]["text"] == "2\n"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook wasn't restarted

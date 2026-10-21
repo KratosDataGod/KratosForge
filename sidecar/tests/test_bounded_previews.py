@@ -47,6 +47,20 @@ def test_csv_export_writes_every_row_in_batches(tmp_path, monkeypatch, no_full_r
     assert out["rows"] == 2 and Path(out["path"]).read_text().splitlines() == ['"Country","Region"', '"UK","Europe"', '"US","Americas"']
 
 
+def test_csv_export_keeps_a_hostile_lakehouse_name_in_downloads_and_never_overwrites(tmp_path, monkeypatch):
+    # HD-038 (finding EN-11): the lakehouse name came straight into the path.
+    service, _ = _sql_service(tmp_path, monkeypatch)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+    monkeypatch.setattr("fabric_desktop.service.time.strftime", lambda fmt: "2026-01-01 000000")
+    downloads = tmp_path / "home" / "Downloads"
+    ref = dict(LH, name="../../escaped/x")
+    paths = [Path(service.export_sql_csv("SELECT * FROM regions", ref)["path"]) for _ in range(2)]
+    assert all(p.parent == downloads for p in paths) and paths[0] != paths[1]
+    assert paths[0].name == "escapedx query 2026-01-01 000000.csv"
+    assert not (tmp_path / "escaped").exists()
+    assert all(p.read_text().count("\n") == 3 for p in paths)
+
+
 @pytest.fixture
 def svc(tmp_path):
     s = Service(root=tmp_path / "app")

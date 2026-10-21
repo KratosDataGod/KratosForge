@@ -13,10 +13,13 @@ from typing import Any
 import polars as pl
 
 from ..meta import keys as keys_mod
+from .keys_home import add_renumbering
 
 
-def migrate(project: Any, lakehouse: Any, service: Any) -> dict[str, Any]:
-    """Copy and check each key table. ``lakehouse`` is the LH_Keys store, ``service`` the platform's keys."""
+def migrate(project: Any, lakehouse: Any, service: Any, keep_numbers: bool = True) -> dict[str, Any]:
+    """Copy and check each key table. ``lakehouse`` is the LH_Keys store, ``service`` the platform's keys.
+    Without ``keep_numbers`` (Dev or Test moving into the one keys database Prod already uses), a
+    business key takes the key it has there, or a new one; the report counts the renumbered."""
     report: list[dict[str, Any]] = []
     for kt in sorted(project.key_tables.values(), key=lambda k: k.name):
         df = lakehouse.read(keys_mod.KEYS_LAKEHOUSE, keys_mod.KEY_SCHEMA, kt.table)
@@ -26,6 +29,10 @@ def migrate(project: Any, lakehouse: Any, service: Any) -> dict[str, Any]:
             continue
         real = df.filter(pl.col(kt.sk) != keys_mod.UNKNOWN_KEY).sort(kt.sk)
         rows = [[int(r[kt.sk]), str(r[kt.bk]), str(r["create_date"])] for r in real.iter_rows(named=True)]
+        if not keep_numbers:
+            service.ensure(kt.name)
+            report.append(add_renumbering(rows, kt.name, service))
+            continue
         out = {"imported": 0}
         for i in range(0, len(rows), 5000):
             got = service.client.call("import_keys", name=kt.name, rows=rows[i:i + 5000])
@@ -36,4 +43,5 @@ def migrate(project: Any, lakehouse: Any, service: Any) -> dict[str, Any]:
         extra = [sk for sk in copy if sk not in source]
         report.append({"table": kt.name, "copied": out["imported"], "checked": len(source),
                        "match": not differ, "differ": differ[:10], "extra_in_platform": len(extra)})
-    return {"tables": report, "ok": all(r["match"] for r in report)}
+    return {"tables": report, "ok": all(r["match"] for r in report),
+            "renumbered": sum(r.get("renumbered", 0) for r in report)}

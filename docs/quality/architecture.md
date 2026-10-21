@@ -80,7 +80,7 @@ These hold almost everywhere and new work should keep them.
 | Writes to OneLake | Stage locally, check the Fabric-safe Delta profile, write with delta-rs, record in run history | `lakehouse.write_table`, `publish.py` |
 | Dependencies | Pinned in `constraints.txt`, moved only by their own PR | `CONTRIBUTING.md` |
 | Docs | User docs in `docs/`, linked from both READMEs; permissions in `docs/permissions.md` | `CONTRIBUTING.md` |
-| Words | "Fabric Desktop by KratosBI" in text; plain-language errors | memory, `CONTRIBUTING.md` |
+| Words | "KratosForge" in text; plain-language errors | memory, `CONTRIBUTING.md` |
 
 ## Where the standards contradict each other
 

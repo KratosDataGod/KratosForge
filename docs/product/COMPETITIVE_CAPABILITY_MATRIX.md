@@ -1,13 +1,13 @@
 # Competitive capability matrix
 
-Where Fabric Desktop by KratosBI stands against the tools Fabric developers already use, and what
+Where KratosForge stands against the tools Fabric developers already use, and what
 that means for the backlog. The aim is not to match every competitor: a capability belongs in the
 backlog only when it serves the mission (develop and run data work on the PC instead of Fabric
 compute, then create Fabric items and write to OneLake) or the enterprise services built on it.
 
 ## How to read it
 
-- **Fabric Desktop** status and verification come from [the feature inventory](FEATURE_INVENTORY.md)
+- **KratosForge** status and verification come from [the feature inventory](FEATURE_INVENTORY.md)
   (main at `b7b04cc`). Partially Verified means tested with Fabric faked; nothing was run on a tenant.
 - **Competitor** claims come only from the sources listed at the end, read on 2026-10-17. A claim
   marked *(search result only)* came from a search snippet, not a page that was opened. Nothing was
@@ -16,18 +16,18 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 | Class | Meaning |
 | --- | --- |
-| Already available | Fabric Desktop has it at comparable depth |
-| Available but incomplete | Fabric Desktop has part of it |
+| Already available | KratosForge has it at comparable depth |
+| Available but incomplete | KratosForge has part of it |
 | Available through integration | Better reached through another tool Fabric developers already have; integrate or link, don't rebuild |
 | Genuine gap | Missing, and the mission needs it |
-| Potential differentiator | Fabric Desktop has, or can uniquely have, something the others don't offer for Fabric |
+| Potential differentiator | KratosForge has, or can uniquely have, something the others don't offer for Fabric |
 | Not strategically relevant | Competitors have it, but it is off mission or against a standing decision |
 
 ## Matrix
 
 ### Local development and execution
 
-| Capability | Fabric Desktop | Who else offers it | Class | Mission fit and decision | Backlog |
+| Capability | KratosForge | Who else offers it | Class | Mission fit and decision | Backlog |
 | --- | --- | --- | --- | --- | --- |
 | Run notebook code on the PC against OneLake tables, with no Fabric job started (OneLake reads and writes still use capacity) | Implemented, Partially Verified (FEAT-NB-02, FEAT-NB-04) | Fabric VS Code extension runs notebooks on remote Fabric Spark [S1]; Databricks runs on clusters via Databricks Connect [S2]; JupyterLab runs locally with no OneLake integration | Potential differentiator | Core of the mission and the main CU saving. Keep the claim honest: the Spark surface is a DuckDB shim, not Spark | PB-012, PB-015 |
 | Fabric-compatible Delta writes from the PC | Implemented, Partially Verified (FEAT-ONE-05) | None found in the sources for Fabric | Potential differentiator | Needs live proof before it is marketed (PB-002, PB-003) | PB-002, PB-003 |
@@ -40,7 +40,7 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 ### SQL development
 
-| Capability | Fabric Desktop | Who else offers it | Class | Mission fit and decision | Backlog |
+| Capability | KratosForge | Who else offers it | Class | Mission fit and decision | Backlog |
 | --- | --- | --- | --- | --- | --- |
 | SQL editor with completion and formatting | Plain textarea (FEAT-SQL-01) | DataGrip [S9], DBeaver [S10], SSMS [S11], VS Code MSSQL [S13], Snowflake extension [S3] | Available but incomplete | Needed for lakehouse SQL on the PC; SQL sprint owns it | PB-021 |
 | Cancel, streaming results, query history | No cancel, 1,000-row page (FEAT-SQL-01) | Snowflake extension: cancel and history [S3] | Available but incomplete | SQL sprint owns it | PB-023 |
@@ -50,10 +50,10 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 ### Data engineering, governance and deployment
 
-| Capability | Fabric Desktop | Who else offers it | Class | Mission fit and decision | Backlog |
+| Capability | KratosForge | Who else offers it | Class | Mission fit and decision | Backlog |
 | --- | --- | --- | --- | --- | --- |
 | Column-level lineage | Computed, no screen (FEAT-META-17) | dbt Fusion VS Code extension [S4] | Available but incomplete | Finish the view | PB-081 |
-| Data tests, quarantine and replay | Implemented (FEAT-META-03, FEAT-GOV-02) | dbt tests on Fabric Warehouse through dbt-fabric [S5] | Already available | dbt-fabric targets Warehouse, not lakehouse Spark SQL [S5]; Fabric Desktop covers lakehouses | none |
+| Data tests, quarantine and replay | Implemented (FEAT-META-03, FEAT-GOV-02) | dbt tests on Fabric Warehouse through dbt-fabric [S5] | Already available | dbt-fabric targets Warehouse, not lakehouse Spark SQL [S5]; KratosForge covers lakehouses | none |
 | Medallion metadata framework with promote gates | Implemented (FEAT-META-01..09) | dbt models (Warehouse) [S5] | Potential differentiator | Keep; verify promote on a tenant | PB-002 |
 | Cross-workspace deployment of Fabric items | Metadata promote only; item deploy planned (FEAT-FAB-13) | fabric-cicd, officially supported, parameterized deploys [S6]; Databricks bundles [S2] | Available through integration | Recommend the Git-native program builds item deployment on fabric-cicd or its file format rather than a new deployer. Recorded as a recommendation to that program, not a new requirement | PB-041 |
 | Git source control | Implemented, Phase 1 (FEAT-GIT-01) | VS Code, DataGrip, Databricks workspace sync [S2] | Already available | Owned by the Git-native program | PB-040 |
@@ -62,10 +62,10 @@ compute, then create Fabric items and write to OneLake) or the enterprise servic
 
 ### Administration, AI and extensibility
 
-| Capability | Fabric Desktop | Who else offers it | Class | Mission fit and decision | Backlog |
+| Capability | KratosForge | Who else offers it | Class | Mission fit and decision | Backlog |
 | --- | --- | --- | --- | --- | --- |
 | CU cost before and after a run | Estimates only (FEAT-ADM-01) | Microsoft publishes CU rates per notebook type (Python 2 vCores = 1 CU; Spark starter pool 8 CU or more) [S7]; no tool in the sources advises before a run | Potential differentiator | FinOps sprint owns it; every number must say measured or estimated | PB-050, PB-090, PB-017 |
-| MCP server for external AI tools | Planned (PR-AI-001..012) | Fabric MCP servers: Core remote, Fabric IQ read-only, local open-source [S14]; DataGrip MCP tools [S9]; DBeaver MCP configuration [S10] | Available through integration | Expose only what is local to Fabric Desktop (local runs, proofs, metadata project). Leave Fabric item operations to Microsoft's Fabric MCP servers instead of duplicating them | PB-095 |
+| MCP server for external AI tools | Planned (PR-AI-001..012) | Fabric MCP servers: Core remote, Fabric IQ read-only, local open-source [S14]; DataGrip MCP tools [S9]; DBeaver MCP configuration [S10] | Available through integration | Expose only what is local to KratosForge (local runs, proofs, metadata project). Leave Fabric item operations to Microsoft's Fabric MCP servers instead of duplicating them | PB-095 |
 | Embedded AI assistant | None, by decision | SSMS Copilot Agent Mode [S11]; Snowflake CoCo agent [S3]; DataGrip AI chat [S9] | Not strategically relevant | Standing decision: AI-ready, not AI-dependent. No embedded assistant, no AI keys | none |
 | Extensions and custom commands | Planned (FEAT-EXT-03) | VS Code and JetBrains ecosystems | Available but incomplete | Git-native program owns it | PB-097 |
 | Real-time co-editing of notebooks | None | JupyterLab real-time collaboration *(search result only)* [S12]; Fabric web | Not strategically relevant | Collaboration happens in Fabric and Git; a desktop tool doesn't need it | none |

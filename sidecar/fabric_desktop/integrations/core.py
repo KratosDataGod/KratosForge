@@ -36,18 +36,18 @@ CODES = {
     "invalid_input": "The arguments don't match what the capability takes.",
     "not_found": "The thing named doesn't exist, or you can't see it.",
     "permission_denied": "This client, your account or your organization doesn't allow it.",
-    "approval_required": "The person at the PC has to approve this in Fabric Desktop by KratosBI.",
+    "approval_required": "The person at the PC has to approve this in KratosForge.",
     "approval_denied": "The person at the PC said no.",
     "conflict": "Something else is using what this needs; try again when it has finished.",
     "timeout": "It took longer than allowed.",
     "cancelled": "The caller cancelled it.",
     "unavailable": "This capability isn't available here.",
-    "integrations_disabled": "External AI tools are turned off in Fabric Desktop by KratosBI.",
+    "integrations_disabled": "External AI tools are turned off in KratosForge.",
     "too_large": "The request or the result is bigger than allowed.",
     "rate_limited": "Too many requests; slow down.",
     "upstream": "Microsoft Fabric or OneLake returned an error.",
     "failed": "The operation ran and failed.",
-    "internal": "Fabric Desktop by KratosBI hit an unexpected problem.",
+    "internal": "KratosForge hit an unexpected problem.",
 }
 
 

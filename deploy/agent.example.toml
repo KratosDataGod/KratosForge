@@ -1,4 +1,4 @@
-# Fabric Desktop agent settings. Copy to:
+# KratosForge agent settings. Copy to:
 #   Linux:   /etc/fabric-desktop/agent.toml
 #   Windows: C:\ProgramData\FabricDesktop\agent.toml
 # or point FABRIC_DESKTOP_AGENT_CONFIG (or --config) at it. See docs/agent.md.

@@ -16,8 +16,9 @@ figure, the same time on a Python notebook, stays as ``scenario_cu`` and is neve
 
 Every figure is also a classified measurement (``measurement.py``): Fabric use worked out from
 run time is **estimated**, the rough figure for a run on this PC is a **scenario**, and a run
-whose time isn't known is **unknown** rather than 0. The plain numbers (``cu_hours``, ``cost``,
-``saved``...) stay for older callers as they were: ``saved`` is still the rough scenario.
+whose time isn't known is **unknown** rather than 0. The plain numbers ``cu_hours`` and ``cost`` stay
+for older callers. The rough scenario's plain numbers are called ``scenario_cu_hours`` and
+``scenario_saved``, so no field named "saved" carries a figure that was never saved (KF-DE-043).
 """
 
 from __future__ import annotations
@@ -81,8 +82,8 @@ def _scenario_cu(seconds: float, cu: float, ids: dict[str, Any], at: Any) -> dic
     return ms.make(ms.SCENARIO, "fabric_job_cu_avoided", ms.CU_SECONDS, seconds * cu,
                    method="time on this PC x configured CUs of a Python notebook", period_start=at,
                    assumptions=["The run would take as long in Fabric as it took on this PC.",
-                                (f"It would run as a Python notebook at {cu:g} CU, which is what Fabric Desktop by "
-                                 "KratosBI's runner uses in Fabric."),
+                                (f"It would run as a Python notebook at {cu:g} CU, which is what KratosForge's "
+                                 "runner uses in Fabric."),
                                 "OneLake reads and writes made from this PC still use capacity and aren't counted."], **ids)
 
 
@@ -267,7 +268,12 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
                                     or (r.get("scenario_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
                 "uncalibrated_runs": sum((r.get("avoided_cu") or {}).get("classification") == ms.UNKNOWN for r in group),
                 "cu_hours": round(cu / 3600, 3), "cost": money(cu),
-                "saved_cu_hours": round(would / 3600, 3), "saved": money(would), "evidence": _evidence(group, cfg)}
+                "scenario_cu_hours": round(would / 3600, 3), "scenario_saved": money(would),
+                "evidence": _evidence(group, cfg)}
+
+    def avoided(g: dict[str, Any]) -> float:
+        """What a group avoided in Fabric, only when estimated from Fabric runs; unknown counts as 0."""
+        return g["evidence"]["avoided_cost"]["value"] or 0.0
 
     def grouped(key) -> list[dict[str, Any]]:
         groups: dict[Any, list[dict[str, Any]]] = {}
@@ -276,7 +282,7 @@ def report(rows: list[dict[str, Any]], cfg: dict[str, Any], days: int, now: dt.d
         return [{"key": k} | total(g) for k, g in groups.items()]
 
     items = sorted(grouped(lambda r: (r["kind"], r["name"], r["env"])),
-                   key=lambda g: -(g["cost"] + g["saved"] + g["seconds"] / 1e6))
+                   key=lambda g: -(g["cost"] + avoided(g) + g["seconds"] / 1e6))
     by_item = [{"kind": g["key"][0], "name": g["key"][1], "env": g["key"][2]} | {k: v for k, v in g.items() if k != "key"}
                for g in items]
     by_env = []
@@ -310,6 +316,6 @@ def capacity_share(cu: dict[str, Any], cap: dict[str, Any], days: int, since: dt
                     method=f"estimated CU hours / ({cap.get('sku')} = {cus} CU x {days} days x 24 h)",
                     period_start=since, period_end=now,
                     assumptions=cu["assumptions"] + [f"{cap.get('sku')} has {cus} CUs, every hour of the period.",
-                                                     ("Only runs started from Fabric Desktop by KratosBI are counted, not "
+                                                     ("Only runs started from KratosForge are counted, not "
                                                       "everything else on the capacity.")], **ids)
     return {"capacity_share": round(value, 3), "capacity_share_evidence": m}

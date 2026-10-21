@@ -152,7 +152,7 @@ class Guard:
             if found is None:
                 await self._refuse(scope, receive, send, IntegrationError(
                     "permission_denied", "A valid token is required." if token else "Send Authorization: Bearer <token>.",
-                    hint="Fabric Desktop by KratosBI > Settings > Integrations shows the token when you connect a tool."),
+                    hint="KratosForge > Settings > Integrations shows the token when you connect a tool."),
                     {"WWW-Authenticate": "Bearer"}, 401)
                 return
             if not self.limiter.allow(found["id"]):
@@ -213,8 +213,8 @@ def openapi(registry: Registry, port: int) -> dict[str, Any]:
                                                  "seconds": {"type": "number"}, "result": cap.output_schema},
                 "required": ["ok", "result"]}}}}, **errors}}}
     return {"openapi": "3.1.0",
-            "info": {"title": "Fabric Desktop by KratosBI local API", "version": __version__,
-                     "description": "Fabric Desktop by KratosBI's capabilities for external tools, on this PC only. "
+            "info": {"title": "KratosForge local API", "version": __version__,
+                     "description": "KratosForge's capabilities for external tools, on this PC only. "
                                     "The same capabilities as the MCP server, with the same permissions and approvals."},
             "servers": [{"url": f"http://127.0.0.1:{port}"}],
             "security": [{"bearer": []}],
@@ -240,7 +240,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         return Caller(client["id"], "api", client["name"])
 
     async def health(request: Request) -> Response:
-        return JSONResponse({"ok": True, "product": "Fabric Desktop by KratosBI", "version": __version__})
+        return JSONResponse({"ok": True, "product": "KratosForge", "version": __version__})
 
     async def spec(request: Request) -> Response:
         return JSONResponse(openapi(registry, port))
@@ -287,7 +287,7 @@ def build_app(registry: Registry, store: IntegrationStore, port: int, service_fa
         with anyio.move_on_after(QUEUE_WAIT_SECONDS) as waiting:
             await slots.acquire()
         if waiting.cancelled_caught:
-            return error_response(IntegrationError("rate_limited", "Fabric Desktop by KratosBI is busy with other calls.",
+            return error_response(IntegrationError("rate_limited", "KratosForge is busy with other calls.",
                                                    retryable=True, hint="Try again shortly."), {"Retry-After": "5"})
         result: dict[str, Any] = {}
         try:

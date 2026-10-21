@@ -28,12 +28,19 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)([?&]sig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
-    # A Teams incoming webhook: anyone with the address can post to the channel.
-    (re.compile(r"https://[A-Za-z0-9.\-]+\.webhook\.office\.com/[^\s\"'<>]+"), REMOVED),
+    # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
+    # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
+    (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"
+                r"[^\s\"'<>]+"), REMOVED),
+    # The same webhook's path on its own: a failed post's error names the host and the path apart
+    # ("host='x.webhook.office.com' ... url: /webhookb2/<id>@<id>/IncomingWebhook/...").
+    (re.compile(r"(?i)/webhook(?:b2)?/[^\s\"'<>/]+@[^\s\"'<>/]+/IncomingWebhook/[^\s\"'<>]+"), REMOVED),
     # Provider tokens and keys, as git/secrets.py finds them in files about to be committed.
     (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"), REMOVED),
     (re.compile(r"(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])"), REMOVED),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
+    # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
+    (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
     # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).

@@ -240,7 +240,9 @@ The ribbon has four tabs:
 | **Run** | Run all, Run cell, Run all above, Run cell and below, Run selected cells, Cancel, Runs on, Restart kernel, Restart and run all, Schedule, Recent runs |
 | **View** | Explorer, **Outline** (Markdown headings; click to jump), **Variables** (name, type, size and value of each variable, secrets hidden; click one to display it), collapse or expand all inputs and outputs, line numbers |
 
-A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric. A **frozen** cell can't be edited, run or deleted until you unfreeze it.
+A **Parameter cell** is the cell that pipelines and `notebookutils.notebook.run` pass values into, as in Fabric.
+
+**Parameters and widgets bar (Preview).** When a notebook has a parameter cell, or creates Databricks widgets with `dbutils.widgets`, a bar above the cells shows each value: the parameter cell's `name = value` lines (text, whole numbers, decimals and True/False) and each widget (text, dropdown, combobox and multiselect). Change a value there to run the notebook with it: when you run cells on this PC, the new values are set right after the parameter cell, as Fabric does with a run's parameters, and `dbutils.widgets.get` returns them from the start of every cell, including the cell that creates the widget. The notebook's code doesn't change, and the values are kept with the notebook on this PC. **Reset to code** puts back the values written in the code. A value that doesn't fit (a word where a whole number goes, a choice that isn't in the list) is shown in red and not used. The bar reads only values written as literals; a widget whose name or default is computed isn't listed. Run in Fabric, schedules and `notebook.run` use the code's values or the arguments they pass, not the bar's. A **frozen** cell can't be edited, run or deleted until you unfreeze it.
 
 ## Publish to OneLake
 

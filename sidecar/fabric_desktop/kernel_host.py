@@ -79,8 +79,10 @@ class Host:
     # ---- requests
 
     def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
-              resources_dir: str = "", breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
+              widget_values: dict[str, str] | None = None, resources_dir: str = "",
+              breakpoints: list[int] | None = None, step: bool = False) -> dict[str, Any]:
         self.kernel.notebook_name = notebook_name
+        self.kernel.widget_values = dict(widget_values or {})
         self.kernel.resources_dir = resources_dir
         return self.kernel.start(code, watches, breakpoints, step)
 

@@ -142,6 +142,7 @@ KratosForge is new, and it's honest about what has been proven.
 | New notebook wizard | Create > Notebook from a template |
 | Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
+| Parameters and widgets bar | Notebook, above the cells (parameter cell values and Databricks widgets) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |

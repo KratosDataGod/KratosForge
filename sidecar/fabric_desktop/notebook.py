@@ -239,6 +239,8 @@ class Kernel:
         self.load_notebook = load_notebook
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
+        # The Widgets bar's values for the open notebook; each cell run starts with them (start).
+        self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
         self._local = threading.local()
@@ -348,6 +350,9 @@ class Kernel:
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
+        if widgets is not None:
+            widgets.set_in_app = dict(self.widget_values)
         from .debugger import Debugger, check_breakpoints
         lines = check_breakpoints(breakpoints)
         self.count += 1

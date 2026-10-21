@@ -735,6 +735,21 @@ h2.flush { margin: 0; }
 .compute-note-slot:empty { display: none; }
 .compute-note-slot .problems, .compute-note-slot .callout { margin: 0; }
 .compute-callout { font-size: 13px; }
+/* Parameters and widgets bar above the cells (nbinputs.js) */
+.nb-inputs-slot:empty { display: none; }
+.nb-inputs { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 10px; }
+.nb-inputs-head { gap: 10px; flex-wrap: wrap; }
+.nb-inputs-fields { display: flex; flex-wrap: wrap; gap: 14px; }
+.nb-input { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+.nb-input input:not([type]), .nb-input select { height: 30px; min-width: 120px; max-width: 220px; border: 1px solid var(--border-input);
+  border-radius: 4px; padding: 0 8px; color: var(--text); background: var(--surface); font-family: var(--mono); }
+.nb-input.changed input:not([type]), .nb-input.changed select { border-color: var(--accent); }
+.nb-input.invalid input:not([type]), .nb-input.invalid select { border-color: var(--danger); }
+.nb-input-kind { margin-left: 6px; opacity: .8; }
+.nb-input-error { color: var(--danger); }
+.nb-input-choices { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text); }
+.nb-input-choice { display: flex; align-items: center; gap: 4px; }
 
 /* Notebook results: Table / Chart / Inspect, images, HTML, and the Variables and Outline panes. */
 .out-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

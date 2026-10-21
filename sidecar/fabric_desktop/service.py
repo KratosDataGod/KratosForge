@@ -450,6 +450,8 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
+            # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
+            self.kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
             self.kernel.resources_dir = self._resources_dir(notebook)
             if isinstance(self.kernel, ProcessKernel):
                 return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches),
@@ -764,6 +766,28 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
         nb = self.notebooks.load(name)
         return self._with_place(nb) | {"check": compute_check(nb["cells"], nb["lakehouse"]),
                                        "replay": self.notebooks.extra(name, "replay")}  # a replay notebook (prove_service)
+
+    def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
+        """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""
+        from .notebook_inputs import inputs
+        return inputs(cells, self._saved_inputs(name))
+
+    def _saved_inputs(self, name: str | None) -> dict[str, Any] | None:
+        """The bar's values kept with the notebook; None for a notebook that isn't saved yet."""
+        if not name:
+            return None
+        try:
+            return self.notebooks.extra(name, "inputs")
+        except (OSError, ValueError):  # not saved yet, or a name no file can have
+            return None
+
+    def notebook_inputs_set(self, name: str, cells: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
+        """Keeps the bar's values with the notebook (its code doesn't change); empty values forget them."""
+        from .notebook_inputs import check_values, inputs
+        values = check_values(values)
+        kept = {group: given for group, given in values.items() if given}
+        self.notebooks.set_extra(name, "inputs", kept or None)
+        return inputs(cells, kept)
 
     def _with_place(self, nb: dict[str, Any]) -> dict[str, Any]:
         """Adds where the notebook is saved and, in a notebooks repository, where its data is per

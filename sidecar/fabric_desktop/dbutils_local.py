@@ -119,7 +119,13 @@ class Widgets:
         if name not in self.defined:
             raise InputWidgetNotDefined(f"No widget named {name}. Create it first, for example "
                                         f"dbutils.widgets.text({name!r}, \"\").")
-        return self.set_in_app.get(name, self.defined[name]["default"])
+        widget = self.defined[name]
+        value = self.set_in_app.get(name)
+        picked = (value.split(",") if value else []) if widget["kind"] == "multiselect" else [value]
+        if value is None or (widget["kind"] in ("dropdown", "multiselect") and widget["choices"] is not None
+                             and any(v not in widget["choices"] for v in picked)):
+            return widget["default"]  # a bar value that isn't one of the choices (the bar says so)
+        return value
 
     def getArgument(self, name: str, optional: str | None = None) -> str | None:  # noqa: N802
         try:

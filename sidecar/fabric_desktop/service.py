@@ -902,6 +902,15 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
                              replace_fabric_changes=replace_fabric_changes)
 
 
+def sql_result(result: pa.Table, limit: int, started: float) -> dict[str, Any]:
+    """A query result as run_sql returns it: the first ``limit`` rows, and the seconds since ``started``
+    (time.monotonic)."""
+    columns = [c.to_pylist() for c in result.slice(0, limit).columns]  # by position: names can repeat
+    return {"columns": [{"name": f.name, "type": str(f.type)} for f in result.schema],
+            "rows": [[_json_value(v) for v in row] for row in zip(*columns)],
+            "row_count": result.num_rows, "seconds": round(time.monotonic() - started, 2)}
+
+
 def _json_value(value: Any) -> Any:
     """A cell value the UI can parse: JSON has no NaN, dates or decimals."""
     if value is None or isinstance(value, (bool, int, str)):

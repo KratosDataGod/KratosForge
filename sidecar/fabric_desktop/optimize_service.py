@@ -192,7 +192,8 @@ class OptimizeMixin:
         roles are read again; if ``shown`` (the changes the person confirmed) no longer matches, it
         refuses, otherwise the change is made, refused by Fabric if the roles changed after that
         read, and fdopt_audit records it. Needs a lakehouse with
-        schemas, OneLake security turned on, and the family's tables set up (central_family)."""
+        schemas, OneLake security turned on, and the family's tables set up (central_family). Untested
+        on a live tenant: the ETag and If-Match handling follow Fabric's docs only."""
         conn = self.optimize_registry.active()
         if conn and not conn.get("schemas", True):
             raise ValueError("The central lakehouse has no schemas, so its tables can't be kept from DefaultReader "
@@ -217,11 +218,15 @@ class OptimizeMixin:
         if not found["changes"]:
             return summary | {"changed": False}
         if not approve:
-            raise PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask = PermissionError("; ".join(found["changes"]) + ". Confirm to continue.")
+            ask.changes = found["changes"]  # type: ignore[attr-defined]  # pass back as shown=
+            raise ask
+        if shown is None:
+            raise ValueError("Pass the changes the person confirmed as shown= (the error's changes).")
         found = plan()  # read again just before writing: the roles may have changed since the person looked
         if not found["changes"]:
             return summary | {"changes": [], "changed": False}
-        if shown is not None and list(shown) != found["changes"]:
+        if list(shown) != found["changes"]:
             raise PermissionError(CHANGED_SINCE)
         try:
             api.put_data_access_roles(ws, item, found["roles"], etag=found["etag"])

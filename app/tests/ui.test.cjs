@@ -3157,6 +3157,50 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
+// selection, and the panel lists threads in cell order with deleted cells' threads last.
+test("cell comments: mentions, selected lines and the panel's rows", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["commentParts", "commentLines", "commentRows", "commentAuthor", "ownComment"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(ctx.commentParts("ask @bob.smith, <b>now</b>. me@")), [
+    { text: "ask ", mention: false }, { text: "@bob.smith", mention: true }, { text: ", <b>now</b>. me@", mention: false }]);
+  const code = "a = 1\nb = 2\nc = 3";
+  assert.strictEqual(ctx.commentLines(code, 3, 3), null, "no selection: the whole cell");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 7, 1)), [1, 2]);
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 6, 12)), [2, 2], "ending at a line's start leaves that line out");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 0, code.length)), [1, 3]);
+  const cells = [{ cell_id: "a" }, { cell_id: "b" }];
+  const threads = [
+    { id: "t1", cell_id: "b", resolved: false, comments: [{ at: "2026-10-20T10:00:00+00:00" }] },
+    { id: "t2", cell_id: "gone", resolved: false, comments: [{ at: "2026-10-20T09:00:00+00:00" }] },
+    { id: "t3", cell_id: "a", resolved: false, comments: [{ at: "2026-10-20T11:00:00+00:00" }] },
+    { id: "t4", cell_id: "a", resolved: true, comments: [{ at: "2026-10-20T08:00:00+00:00" }] },
+  ];
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // "You" only for the current account's (or this PC's) id; others keep their stored name.
+  const me = { name: "ann@contoso.com", id: "aad:1" };
+  assert.strictEqual(ctx.commentAuthor("ann@contoso.com", "aad:1", me), "You");
+  assert.strictEqual(ctx.commentAuthor("bob@contoso.com", "aad:2", me), "bob@contoso.com");
+  assert.strictEqual(ctx.commentAuthor("", "pc:other", me), "Someone on this PC");
+  assert.strictEqual(ctx.commentAuthor("", "", { name: "", id: "" }), "Someone on this PC", "no id is never you");
+  assert.strictEqual(ctx.ownComment({ author: "ann@contoso.com", author_id: "aad:9" }, me), false, "the name alone isn't ownership");
+  assert.strictEqual(ctx.ownComment({ author_id: "aad:1" }, me), true);
+  assert.strictEqual(ctx.ownComment({}, { name: "", id: "" }), false);
+  // Comment text only ever becomes text nodes, and deleting asks first, in red.
+  assert.doesNotMatch(src, /innerHTML/);
+  assert.match(src, /"Delete", \{ danger: true \}/);
+  assert.match(src, /nobody is notified/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+});
+
 // Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
 test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
   const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");

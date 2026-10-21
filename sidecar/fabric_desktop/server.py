@@ -142,6 +142,11 @@ from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 
 METHODS |= PROFILE_METHODS
 
+# Comments on notebook cells (comments_service.py), kept in the notebook file.
+from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
+
+METHODS |= COMMENT_METHODS
+
 
 def handle(service: Service, line: str) -> dict:
     try:

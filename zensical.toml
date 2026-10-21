@@ -47,6 +47,7 @@ nav = [
     { "Notebook version history" = "notebook-versions.md" },
     { "Profile" = "profile.md" },
     { "Engines and connection profiles" = "engines.md" },
+    { "Notebook comments" = "notebook-comments.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },

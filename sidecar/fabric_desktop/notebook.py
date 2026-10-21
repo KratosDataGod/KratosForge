@@ -1353,6 +1353,10 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
 
 
 class NotebookStore:
+    # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
+    # doesn't write over the other's change (the local API and MCP tools call in from other threads).
+    _write_lock = threading.RLock()
+
     def __init__(self, folder: Path):
         self.folder = folder
 
@@ -1377,6 +1381,11 @@ class NotebookStore:
 
         Cells keep their ``cell_id``; a cell without one gets one, returned in ``cell_ids`` so the
         app can keep it. Metadata other tools wrote into the file is kept."""
+        with self._write_lock:
+            return self._save(name, cells, lakehouse, compute, workspace)
+
+    def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+              compute: str | None, workspace: dict[str, Any] | None) -> dict[str, Any]:
         path = self.path(name)
         before: dict[str, Any] = {}
         if path.exists():
@@ -1410,18 +1419,27 @@ class NotebookStore:
     def set_extra(self, name: str, key: str, value: Any) -> None:
         """Set (or, with None, remove) ``fabric_desktop.<key>`` in the saved notebook. Saves from the
         notebook screen keep it (merge_saved)."""
+        self.update_extra(name, key, lambda _old, _nb: value)
+
+    def update_extra(self, name: str, key: str, change: Callable[[Any, dict[str, Any]], Any]) -> Any:
+        """Read ``fabric_desktop.<key>`` from the file as it is now, set it to ``change(old, nb)``
+        (None removes it) and replace the file in one step, under the write lock. ``nb`` is the
+        whole notebook as read, for checks. Returns the new value."""
         if key in ("compute", "workspace", "lakehouse"):
             raise ValueError(f"{key} is saved with the notebook, not set on its own.")
-        path = self.path(name)
-        nb = json.loads(path.read_text(encoding="utf-8"))
-        fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
-        if value is None:
-            fd.pop(key, None)
-        else:
-            fd[key] = value
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        with self._write_lock:
+            path = self.path(name)
+            nb = json.loads(path.read_text(encoding="utf-8"))
+            fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
+            value = change(fd.get(key), nb)
+            if value is None:
+                fd.pop(key, None)
+            else:
+                fd[key] = value
+            tmp = path.with_suffix(".ipynb.tmp")
+            tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+            os.replace(tmp, path)
+            return value
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}

@@ -72,6 +72,7 @@ notebook_resources
 notebook_listing notebook_search notebook_import_check notebook_delete_check notebook_deleted notebook_fabric_check notebook_publish_check
 notebook_formats_import_check
 profile_get profile_report
+notebook_comments_list
 """.split())
 
 # Parameters that hold code, queries or data: never recorded, only noted as given.

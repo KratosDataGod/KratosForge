@@ -344,7 +344,11 @@ def _to_running_cell(output: dict[str, Any]) -> bool:
     return True
 
 
-chart_output.install(_to_running_cell)  # bokeh's show() draws in the cell
+def _cell_running() -> bool:
+    return bool(_routers()[0].targets)
+
+
+chart_output.install(_to_running_cell, _cell_running)  # bokeh's show() draws in the cell
 
 
 class Kernel:

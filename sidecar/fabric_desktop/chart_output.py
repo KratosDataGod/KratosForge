@@ -19,7 +19,11 @@ SHOWING = "bokeh.io.showing"
 ALTAIR_NOTE = ("Altair charts don't draw in a cell on this PC yet. chart.save('chart.html') saves it to open "
                "in a browser; plotly, bokeh, seaborn and matplotlib charts draw here.")
 
+THREAD_NOTE = ("bokeh's show() draws in the cell only from the cell's own code, not from a thread it started. "
+               "Call show() in the cell, or bokeh.io.save(p, 'chart.html') to save it to open in a browser.")
+
 _emit: Callable[[dict[str, Any]], bool] = lambda _output: False  # set by install()
+_cell_running: Callable[[], bool] = lambda: False  # set by install()
 
 
 def bokeh_html(obj: Any) -> dict[str, Any]:
@@ -47,6 +51,8 @@ def _patch(showing: Any) -> None:
     def show(obj: Any, *args: Any, **kwargs: Any) -> Any:
         if _emit(bokeh_html(obj)):  # inside a cell: draw it there
             return None
+        if _cell_running():  # a thread a cell started: no file next to Python, no browser tab
+            raise RuntimeError(THREAD_NOTE)
         return original(obj, *args, **kwargs)
 
     show._fabric_desktop = True  # type: ignore[attr-defined]
@@ -85,10 +91,11 @@ class _PatchAfter(importlib.abc.Loader):
         _patch(module)
 
 
-def install(emit: Callable[[dict[str, Any]], bool]) -> None:
-    """``emit`` adds an output to the running cell, and says False when no cell is running."""
-    global _emit
-    _emit = emit
+def install(emit: Callable[[dict[str, Any]], bool], cell_running: Callable[[], bool]) -> None:
+    """``emit`` adds an output to the cell running on this thread, and says False when none is;
+    ``cell_running`` says whether any cell is running, on any thread."""
+    global _emit, _cell_running
+    _emit, _cell_running = emit, cell_running
     if SHOWING in sys.modules:
         _patch(sys.modules[SHOWING])
     elif not any(isinstance(f, _PatchOnImport) for f in sys.meta_path):

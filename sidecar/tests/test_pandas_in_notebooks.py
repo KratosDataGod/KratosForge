@@ -57,6 +57,27 @@ def test_bokeh_draws_in_the_cell_without_a_file_or_a_browser(tmp_path, monkeypat
     assert [o["type"] for o in out["outputs"]] == ["html", "html"]
 
 
+def test_bokeh_show_from_a_thread_a_cell_started_says_so_instead_of_opening_a_browser(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    opened = []
+    monkeypatch.setattr("webbrowser.open", lambda *a, **k: opened.append(a))
+    monkeypatch.setattr("webbrowser.get", lambda *a, **k: opened.append(a))
+    out = Kernel().run("import threading\n"
+                       "from bokeh.plotting import figure, show\n"
+                       "p = figure(); p.line([1, 2], [2, 1])\n"
+                       "errors = []\n"
+                       "def draw():\n"
+                       "    try:\n"
+                       "        show(p)\n"
+                       "    except RuntimeError as e:\n"
+                       "        errors.append(str(e))\n"
+                       "t = threading.Thread(target=draw); t.start(); t.join()\n"
+                       "errors")
+    assert out["status"] == "ok", out
+    assert "from the cell's own code" in out["outputs"][-1]["text"]
+    assert opened == [] and list(tmp_path.iterdir()) == []
+
+
 def test_an_altair_chart_says_how_to_see_it():
     out = Kernel().run("import altair as alt, pandas as pd\n"
                        "alt.Chart(pd.DataFrame({'x': [1, 2]})).mark_line().encode(x='x')")

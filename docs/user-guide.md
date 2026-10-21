@@ -8,6 +8,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
+- **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
 - **[Metadata framework](metadata-guide.md):** building and running medallion layers from config, step by step, with a reference for every setting.
 
@@ -452,6 +453,10 @@ The banner at the top lists what to look at: a certificate that has expired or e
 ## Source control (Preview)
 
 **Source control**, at the bottom of the left rail, is Git in the app: clone a repository from GitHub, Azure DevOps or any Git server, see what changed (inline, side by side, or cell by cell for notebooks), stage and commit, make and switch branches, fetch, pull and push, and read the history. The top bar shows the branch you're on, how many commits are ahead or behind, and a dot when there are uncommitted changes. Commits are checked for secrets first, and nothing that discards your work happens without asking. It uses the Git installed on your PC and its sign-in (Git Credential Manager or your SSH agent). Pushing never changes a Fabric workspace. Notebooks, data mesh projects, platform definitions and capacity definitions each get their own kind of repository, and the list is grouped by kind. Notebooks can be saved in a notebooks repository, where they find their lakehouse for each environment from that repository's locations. A platform repository holds the platform's definitions as files: compare them with what each environment has deployed, export the platform into them, and deploy committed changes after one confirm. The whole page is described in [Source control](source-control.md).
+
+## Profile (Preview)
+
+**Profile**, in the account menu (top right), is a private record of work KratosForge verified: notebooks that passed Validate with a clean run. It shows your level and achievements (for fun, not a skill rating), skills as evidence coverage, and a **Professional report** you can save as Markdown for a review. Recording is on from the start and stays on this PC; turn it off in **Profile > Settings**. The whole page is described in [Profile](profile.md).
 
 ## Settings
 

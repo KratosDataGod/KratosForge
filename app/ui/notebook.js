@@ -27,13 +27,21 @@ function selectedCell() {
   return state.notebook.cells.find((c) => c.id === state.selected) || state.notebook.cells[0];
 }
 
+// A code cell's language from its first line: Fabric's %%sql, or Databricks' %sql alone on the line
+// (magics.py reads it the same way in the engine).
 function cellLang(cell) {
   if (cell.type === "markdown") return "markdown";
   const first = cell.source.trimStart().split("\n", 1)[0].trim();
-  if (first.startsWith("%%sql")) return "sql";
+  if (first.startsWith("%%sql") || first === "%sql") return "sql";
   if (first.startsWith("%%html")) return "html";
   return "python";
 }
+
+// A code cell that shows Markdown when run: Databricks' %md, or %%markdown.
+const mdMagic = (cell) => cell.type === "code" && /^\s*(%md|%%md|%%markdown)(\s|$)/.test(cell.source);
+
+// A code cell that runs as a shell script on this PC (shell.py): %sh, %%sh, %%bash, %%cmd, %%powershell.
+const shellMagic = (cell) => cell.type === "code" && /^\s*(%sh|%%sh|%%bash|%%cmd|%%powershell)(\s|$)/.test(cell.source);
 
 const isParams = (cell) => (cell.meta?.tags || []).includes("parameters");
 
@@ -81,8 +89,8 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(),
+      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
       h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",
@@ -94,14 +102,14 @@ function renderNotebook() {
       h("div", { class: "sep" }),
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
-      btn("Find and replace", "search", () => findInCell(sel)),
+      btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
+      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook)), runsToggle(nb)],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
       toggleBtn("Outline", "documentTable", state.showExplorer && state.explorerTab === "outline", () => {
         const on = state.showExplorer && state.explorerTab === "outline";
@@ -109,7 +117,7 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
@@ -122,7 +130,7 @@ function renderNotebook() {
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), visibleCells(nb.cells).map(renderCell),
+  nbFindBar(), h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), visibleCells(nb.cells).map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -131,7 +139,7 @@ function renderNotebook() {
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, commentsPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       h("span", { class: "mode-hint" }, modeHint()),
@@ -187,7 +195,8 @@ function renderExplorer() {
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
   } else if (state.explorerTab === "resources") {
-    content.append(h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
+    content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
+      h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
       ...SNIPPETS.map(([title, code]) => h("button", { class: "snippet", onclick: () => insertCell(code) },
         h("div", { class: "t" }, title), h("code", {}, code))));
   } else if (lh) {
@@ -317,6 +326,7 @@ function renderCell(cell) {
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
     cell.type === "code" ? depsHead(cell) : null,
     ...cellHeadExtras(cell),
+    commentBadge(cell),  // notebook-comments.js
     h("span", { class: "spacer" }),
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
@@ -400,7 +410,8 @@ function cellMenu(cell) {
   items.push({ label: "Merge with cell below", icon: "down", action: () => mergeBelow(cell) });
   items.push({ label: "Copy cell", icon: "copyArrowRight", action: () => copyCell(cell) });
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
-  items.push({ label: "Find and replace", icon: "search", action: () => findInCell(cell) });
+  items.push({ label: "Find in this cell", icon: "search", action: () => findInCell(cell) });
+  items.push(...commentMenuItems(cell));  // notebook-comments.js
   return [...items, ...cellMenuExtras(cell)];
 }
 
@@ -590,7 +601,7 @@ function mergeBelow(cell) {
 }
 
 function setLanguage(cell, lang) {
-  const body = cell.source.replace(/^\s*%%(sql|html|pyspark|python)[^\n]*\n?/, "");
+  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python)[^\n]*|%(sql|python)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {
     cell.type = "markdown";
@@ -702,7 +713,10 @@ function readOnly(cell) {
 
 function languageFor(cell) {
   const lang = cellLang(cell);
-  if (lang === "markdown") return [CM.markdown(), CM.autocompletion()];
+  if (lang === "markdown" || mdMagic(cell)) return [CM.markdown(), CM.autocompletion()];
+  if (shellMagic(cell)) return [];  // plain text: no Python highlighting or completions in a script
+  // %%tsql (Fabric Python notebooks): T-SQL for a Warehouse; it runs in Fabric (notebook.py _tsql).
+  if (/^\s*%%tsql(\s|$)/.test(cell.source)) return [CM.sql({ dialect: CM.StandardSQL, upperCaseKeywords: true })];
   if (lang === "html") return [CM.html(), CM.autocompletion()];
   if (lang === "sql") {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
@@ -779,6 +793,8 @@ function editorFor(cell) {
         CM.syntaxHighlighting(editorHighlight),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
+        findHighlighter(cell),  // nbfind.js
+        dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
@@ -786,14 +802,15 @@ function editorFor(cell) {
           : "Write Python or PySpark. Press Shift+Enter to run, Ctrl+Space for suggestions."),
         CM.EditorView.updateListener.of((u) => {
           if (u.docChanged) {
-            const before = cellLang(cell);
+            const before = `${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}`;
             cell.source = u.state.doc.toString();
-            if (cellLang(cell) !== before && cell.type === "code") {
+            if (`${cellLang(cell)} ${mdMagic(cell)} ${shellMagic(cell)}` !== before && cell.type === "code") {
               u.view.dispatch({ effects: langComp.reconfigure(languageFor(cell)) });
               const select = document.querySelector(`[data-cell="${cell.id}"] select.lang`);
               if (select) select.value = cellLang(cell);
             }
             markDirty();
+            findCellChanged();  // nbfind.js
             if (cell.type === "markdown") refreshOutline();
             else depsChanged();
           }
@@ -879,11 +896,12 @@ function renderOutput(o, cell) {
     return h("div", { class: "output error" }, h("div", { class: "ename" }, `${o.ename}: ${o.evalue}`),
       o.traceback ? h("details", {}, h("summary", {}, "Traceback"), h("pre", {}, o.traceback)) : null);
   }
-  if (o.type === "table") return renderTableOutput(o);
+  if (o.type === "table") return renderTableOutput(o, cell);
   if (o.type === "image") {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
   return h("div", { class: "output" }, h("pre", {}, JSON.stringify(o)));
 }
 
@@ -926,15 +944,16 @@ function numericColumns(o) {
   return o.columns.map((_, i) => o.rows.length > 0 && o.rows.every((r) => r[i] === null || isNumber(r[i])) && o.rows.some((r) => isNumber(r[i])));
 }
 
-// A table result with Fabric's views: Table (search, sort), Chart, and Inspect (a summary per column).
-function renderTableOutput(o) {
-  o.view ||= o.summary ? "inspect" : "table";
+// A table result with Fabric's views: Table (search, sort), Chart, Inspect (a summary per column), and
+// Clean (Data Wrangler, wrangler.js) when the kernel holds the whole result.
+function renderTableOutput(o, cell) {
+  o.view ||= o.summary ? "inspect" : o.frame && cell?.meta?.chart ? "chart" : "table";
   const wrap = h("div", { class: "output table-output" });
-  const redraw = () => wrap.replaceWith(renderTableOutput(o));
+  const redraw = () => wrap.replaceWith(renderTableOutput(o, cell));
   const seg = (id, label) => h("button", { class: `seg${o.view === id ? " on" : ""}`, "aria-pressed": String(o.view === id),
     onclick: () => { o.view = id; redraw(); } }, label);
   const bar = h("div", { class: "out-bar" }, h("div", { class: "segs", role: "group", "aria-label": "View" },
-    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect")));
+    seg("table", "Table"), seg("chart", "Chart"), seg("inspect", "Inspect"), o.frame ? seg("clean", "Clean") : null));
   wrap.append(bar);
   const numeric = numericColumns(o);
   const count = typeof o.total_rows === "number"
@@ -961,8 +980,16 @@ function renderTableOutput(o) {
     search.addEventListener("input", () => { o.q = search.value; draw(); });
     wrap.append(body, h("div", { class: "more" }, count));
     draw();
+  } else if (o.view === "chart" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("chartBuilder", h("span", { class: "muted-text" }, "Chart of every row")));
+    wrap.append(renderChartBuilder(o, numeric, cell));
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
+  } else if (o.view === "clean" && o.frame) {
+    bar.append(h("span", { class: "spacer" }), previewMarked("dataWrangler", h("span", { class: "muted-text" }, "Data Wrangler")));
+    wrap.append(renderWrangler(o, cell));
+  } else if (o.frame && !o.profileGone) {
+    wrap.append(renderFrameProfile(o, numeric, count));
   } else {
     wrap.append(renderInspect(o, numeric), h("div", { class: "more" }, `Summary of ${count.toLowerCase()}`));
   }
@@ -1150,6 +1177,49 @@ function svgChart(points, cfg) {
     });
   }
   return svg;
+}
+
+// Inspect over every row (frames.py profile), as display(df, summary=True) and Databricks' data
+// profile show it. Until the profile arrives, the preview's summary shows; after a kernel restart
+// the preview's summary stays, with a note.
+function renderFrameProfile(o, numeric, count) {
+  const box = h("div", { class: "profile" });
+  const show = (p) => {
+    const fmt = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString() : +v.toPrecision(6)) : String(v));
+    box.replaceChildren(h("div", { class: "inspect" }, p.columns.map((c) => {
+      if (c.error) return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)), h("div", { class: "muted-text" }, c.error));
+      const stats = [["Missing", fmt(c.missing)], ["Distinct", `≈ ${fmt(c.distinct)}`]];
+      if (c.infinite) stats.push(["Infinite", fmt(c.infinite)]);
+      let picture = null;
+      if (c.histogram) {
+        stats.push(["Min", fmt(c.min)], ["Max", fmt(c.max)], ["Mean", fmt(c.mean)], ["Std dev", fmt(c.std)],
+          ["Q1", fmt(c.q1)], ["Median", fmt(c.median)], ["Q3", fmt(c.q3)]);
+        const top = Math.max(...c.histogram, 1);
+        picture = h("div", { class: "hist", role: "img", "aria-label": `Distribution of ${c.name} from ${fmt(c.min)} to ${fmt(c.max)}` },
+          c.histogram.map((b) => h("span", { style: `height:${Math.round((b / top) * 100)}%`, title: b.toLocaleString() })));
+      } else if (c.kind === "date" && c.min !== undefined) {
+        stats.push(["Earliest", c.min], ["Latest", c.max]);
+      } else if (c.top) {
+        picture = h("ul", { class: "top-values" }, c.top.map(([v, n]) => {
+          const t = v === null ? "null" : String(v);
+          return h("li", {}, h("span", { title: t }, t.length > 24 ? `${t.slice(0, 23)}…` : t), h("b", {}, n.toLocaleString()));
+        }));
+      }
+      return h("div", { class: "inspect-col" }, h("div", { class: "inspect-name" }, c.name, h("span", {}, c.type)),
+        picture, h("dl", {}, stats.map(([k, v]) => [h("dt", {}, k), h("dd", {}, v)])));
+    })), h("div", { class: "more" }, (p.sampled ? `Profile of a random sample of ${p.profiled_rows.toLocaleString()} of ${p.rows.toLocaleString()} rows`
+      : `Profile of all ${p.rows.toLocaleString()} row${p.rows === 1 ? "" : "s"}`) +
+      (p.more_columns ? `. ${p.more_columns} more column${p.more_columns === 1 ? " isn't" : "s aren't"} profiled; select fewer columns to see them.` : "")));
+  };
+  if (o.profile) { show(o.profile); return box; }
+  box.append(renderInspect(o, numeric), h("div", { class: "more", role: "status" }, `Summary of ${count.toLowerCase()}. Profiling every row...`));
+  rpc("notebook_frame_profile", { frame: o.frame }).then((p) => {
+    if (p.gone) {
+      o.profileGone = true;
+      box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Run the cell again to profile every row.`;
+    } else { o.profile = p; show(p); }
+  }, (err) => { box.querySelector(".more").textContent = `Summary of ${count.toLowerCase()}. Could not profile every row: ${friendlyError(err)}`; });
+  return box;
 }
 
 function renderInspect(o, numeric) {

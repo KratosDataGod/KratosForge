@@ -84,16 +84,24 @@ def pandas_plan(df: Any) -> tuple[list[str] | None, list[str] | None]:
     A named index (a groupby or set_index result) is data and shows as leading columns, as Jupyter
     shows it; an unnamed one is row numbers and is left out. An index name that a column already has
     gets "_index" added, so both show. Multi-level columns (``agg({'v': ['sum', 'max']})``) join their
-    levels with "_" (``v_sum``)."""
-    cols = None
-    if getattr(df.columns, "nlevels", 1) > 1:
-        cols = ["_".join(str(p) for p in c if str(p) != "") for c in df.columns]
-    names = list(getattr(df.index, "names", []) or [])
-    if not any(n is not None for n in names):
+    levels with "_" (``v_sum``). A repeated column name gets "_2", "_3" so every column shows."""
+    multi = getattr(df.columns, "nlevels", 1) > 1
+    names = ["_".join(str(p) for p in c if str(p) != "") if multi else str(c) for c in df.columns]
+    seen: set[str] = set()
+    flat = []
+    for base in names:  # a repeated name (columns=["x", "x"], or joined levels that meet) gets _2, _3
+        name, k = base, 2
+        while name in seen:
+            name, k = f"{base}_{k}", k + 1
+        seen.add(name)
+        flat.append(name)
+    cols = flat if multi or flat != names else None
+    levels = list(getattr(df.index, "names", []) or [])
+    if not any(n is not None for n in levels):
         return None, cols
-    taken = {str(c) for c in (cols if cols is not None else df.columns)}
+    taken = set(flat)
     index = []
-    for i, n in enumerate(names):
+    for i, n in enumerate(levels):
         base = str(n) if n is not None else f"level_{i}"
         name, k = base, 1
         while name in taken:

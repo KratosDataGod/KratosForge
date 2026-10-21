@@ -457,9 +457,21 @@ class VariableLibrary:
 _REFERENCE = re.compile(r"^\$\(/\*\*/([^/]+)/([^)]+)\)$")
 
 
+# Set by the app on a library read from Fabric: the workspace it came from (never a variable name,
+# which starts with a letter).
+FROM_KEY = "__fd_from__"
+
+
 def _make_variable_library(host: Host) -> types.SimpleNamespace:
+    told: set[str] = set()
+
     def getLibrary(variableLibraryName: str) -> VariableLibrary:  # noqa: N802, N803
         values = host.variables(variableLibraryName) if host.variables else None
+        source = values.pop(FROM_KEY, None) if values else None
+        if source and variableLibraryName not in told:
+            told.add(variableLibraryName)
+            print(f"Read {variableLibraryName} from workspace {source}, the attached lakehouse's. In Fabric a notebook "
+                  f"reads its own workspace's library, so attach a lakehouse in that workspace to read the same values.")
         if values is None:
             raise LookupError(f"Attach a lakehouse to read the variable library {variableLibraryName} from its workspace. "
                               "VL_Sources also comes from the metadata project (Data mesh > Design > Source systems).")

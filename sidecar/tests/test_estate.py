@@ -370,9 +370,14 @@ def test_any_variable_library_reads_its_active_value_set():
     assert varlib.read(_vl_parts(), "Prod") == {"server": "prod-sql", "batch_size": 2000, "full_load": False, "ratio": 0.5}
     with pytest.raises(LookupError, match="Test"):
         varlib.read(_vl_parts(), "Test")
+    bad = _vl_parts() | {"valueSets/Prod.json": json.dumps({"name": "Prod", "variableOverrides": [
+        {"name": "batch_size", "value": "secret-ish text"}]})}
+    with pytest.raises(ValueError) as err:
+        varlib.read(bad, "Prod")
+    assert "batch_size is Integer" in str(err.value) and "secret-ish" not in str(err.value)
 
 
-def test_other_variable_libraries_come_from_the_attached_lakehouse_workspace(svc, monkeypatch):
+def test_other_variable_libraries_come_from_the_attached_lakehouse_workspace(svc, monkeypatch, capsys):
     from fabric_desktop import lakehouse
     calls = []
 
@@ -386,9 +391,13 @@ def test_other_variable_libraries_come_from_the_attached_lakehouse_workspace(svc
     with pytest.raises(LookupError, match="Attach a lakehouse"):
         nbu.variableLibrary.getLibrary("VL_App")
     assert calls == []
-    monkeypatch.setattr(lakehouse, "_attached", types.SimpleNamespace(workspace_id="ws-1"))
+    monkeypatch.setattr(lakehouse, "_attached", types.SimpleNamespace(workspace_id="ws-1", workspace_name="Sales Landing"))
     assert nbu.variableLibrary.get("$(/**/VL_App/batch_size)") == 2000
-    assert nbu.variableLibrary.getLibrary("VL_App").server == "prod-sql"
+    lib = nbu.variableLibrary.getLibrary("VL_App")
+    assert lib.server == "prod-sql" and "__fd_from__" not in dir(lib)
+    # It says once which workspace it read, since Fabric reads the notebook's own.
+    said = capsys.readouterr().out
+    assert said.count("Read VL_App from workspace Sales Landing, the attached lakehouse's") == 1
     with pytest.raises(LookupError, match="no variable library named VL_Missing"):
         nbu.variableLibrary.getLibrary("VL_Missing")
     assert calls[0] == ("ws-1", "VL_App")

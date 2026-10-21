@@ -87,4 +87,10 @@ def read(parts: dict[str, str], value_set: str | None) -> dict[str, Any]:
         if overrides is None:
             raise LookupError(f"The active value set {value_set} isn't in the library's definition")
         out.update({o["name"]: o.get("value") for o in overrides.get("variableOverrides") or [] if o.get("name") in out})
-    return {k: (None if v is None else _TYPES.get(kinds[k], str)(v)) for k, v in out.items()}
+    typed: dict[str, Any] = {}
+    for k, v in out.items():
+        try:
+            typed[k] = None if v is None else _TYPES.get(kinds[k], str)(v)
+        except (TypeError, ValueError):
+            raise ValueError(f"Variable {k} is {kinds[k]}, but its value in the library isn't one.") from None
+    return typed

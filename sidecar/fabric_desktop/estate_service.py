@@ -31,6 +31,7 @@ from .meta import impact
 from .meta import restore as restore_mod
 from .meta import testing as testing_mod
 from .meta import varlib as varlib_mod
+from .notebookutils_local import FROM_KEY
 from .meta.engine import _wm_text
 from .meta.project import ENVIRONMENTS
 from .meta.store import OneLakeStore
@@ -562,4 +563,5 @@ class EstateMixin:
         found = self.fabric.read_variable_library(ws, library)  # type: ignore[attr-defined]
         if found is None:
             raise LookupError(f"The workspace of the attached lakehouse has no variable library named {library}.")
-        return varlib_mod.read(*found)
+        # Says where it read from: Fabric reads the notebook's own workspace, this PC the lakehouse's.
+        return varlib_mod.read(*found) | {FROM_KEY: lakehouse._attached.workspace_name or ws}

@@ -88,3 +88,16 @@ def test_leaves_the_sidecars_own_settings_alone(dirs, tmp_path):
     own.write_text(json.dumps({"project": "C:/metadata", "teams_webhook": "https://x"}))
     app_settings.save({"channel": "preview", "show_preview": False})
     assert json.loads(own.read_text()) == {"project": "C:/metadata", "teams_webhook": "https://x"}
+
+
+def test_save_refuses_a_client_id_the_environment_overrides(dirs, monkeypatch):
+    """UX-006: no "Saved" for a value that wouldn't apply; the file stays as it was."""
+    app_settings.save({"channel": "preview"})
+    before = app_settings.user_path().read_text(encoding="utf-8")
+    monkeypatch.setenv("FABRIC_DESKTOP_CLIENT_ID", APP)
+    for value in (OTHER, ""):
+        with pytest.raises(ValueError, match="FABRIC_DESKTOP_CLIENT_ID environment variable sets client_id"):
+            app_settings.save({"client_id": value})
+    assert app_settings.user_path().read_text(encoding="utf-8") == before
+    assert app_settings.load()["client_id"] == {"value": APP, "source": "environment"}
+    assert app_settings.save({"channel": "stable"})["channel"]["value"] == "stable"  # other settings still save

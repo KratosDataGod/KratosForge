@@ -20,7 +20,7 @@ before(async () => {
   if (skip) return;
   app = await openApp({
     viewport: { width: 1440, height: 900 },
-    engine: ["start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "notebook_frame_page", "notebook_frame_download"],
+    engine: ["start_cell", "poll_cell", "interrupt_cell", "kernel_variables", "notebook_frame_page", "notebook_frame_download", "notebook_frame_wrangle"],
     mocks: { save_notebook: () => ({ saved: true }), notebook_dependencies: () => ({ cells: [] }) },
   });
   await page().evaluate((cells) => { loadIntoState({ name: "Viewer test", cells }); go("notebook"); }, CELLS);
@@ -64,5 +64,24 @@ test("Download saves the whole result as a new file each time", { skip }, async 
   assert.match(paths[0], /Viewer test result .*\.csv$/);
   assert.ok(paths[1].endsWith(" (2).csv") || paths[1] > paths[0], paths[1]);
   assert.ok(fs.existsSync(paths[0]) && fs.existsSync(paths[1]), "both files are there");
+  assert.deepStrictEqual(app.errors, []);
+});
+
+test("Clean filters every row in the engine and adds the Polars code as a new cell", { skip }, async () => {
+  const out = page().locator(".table-output").first();
+  await out.getByRole("button", { name: "Clean" }).click();
+  await out.getByText("2,500 rows before, 2,500 rows after.").waitFor({ timeout: 60000 });
+  await out.getByRole("combobox", { name: "Add a step" }).selectOption("filter");
+  const form = out.locator(".wrangle-add");
+  await form.getByRole("combobox", { name: "Column" }).selectOption("n");
+  await form.getByRole("combobox", { name: "Keep rows where it" }).selectOption("ge");
+  await form.getByRole("textbox", { name: "Value" }).fill("2490");
+  await form.getByRole("button", { name: "Add step" }).click();
+  await out.getByText("2,500 rows before, 10 rows after.").waitFor();
+  assert.match(await out.locator(".wrangle-code").innerText(), /df = df\.filter\(pl\.col\('n'\) >= 2490\)/);
+  await out.getByRole("button", { name: "Add code to notebook" }).click();
+  const cells = await page().evaluate(() => state.notebook.cells.map((c) => c.source));
+  assert.strictEqual(cells.length, 2);
+  assert.match(cells[1], /^import polars as pl[\s\S]*df_clean = clean_data\(df\)\ndisplay\(df_clean\)\n$/);
   assert.deepStrictEqual(app.errors, []);
 });

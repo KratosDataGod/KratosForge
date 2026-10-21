@@ -14,6 +14,7 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | Set it up in Azure and Fabric for my organization | [Configure Azure and Fabric](azure-setup.md), then [Permissions](permissions.md) |
 | Learn what every page does | [User guide](user-guide.md) |
 | Write and run notebooks and SQL on my PC | [Notebooks and SQL](notebooks.md) |
+| Know which engine runs my code, and set up Fabric, Databricks or both | [Engines and connection profiles](engines.md) (Preview) |
 | Query a folder of data files with SQL on my PC | [Local data projects](local-data.md) |
 | Compare a run on my PC with the same run in Fabric, or benchmark both | [Side by side](side-by-side.md) |
 | Know where a CU or cost figure comes from and how far to trust it | [Capacity and cost evidence](finops/cost-evidence.md) |
@@ -44,6 +45,7 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [hardening/README.md](hardening/README.md) | Security reviewers, platform owners | The enterprise hardening audit: scorecard, [findings](hardening/findings.md), [backlog](hardening/backlog.md) and [release gates](hardening/readiness-checklist.md) |
 | [user-guide.md](user-guide.md) | Everyone | Every page: Home, Create, Workspaces, OneLake (catalog, shortcuts, access), Data mesh, Fabric, Monitor, Settings, the command bar and the bell |
 | [notebooks.md](notebooks.md) | Engineers, analysts | Notebooks on your PC, Fabric code that works here, publishing, Run in Fabric, schedules, SQL query |
+| [notebook-spark-on-this-pc.md](notebook-spark-on-this-pc.md) | Engineers | Which PySpark methods and Spark settings work on this PC |
 | [sql-compatibility.md](sql-compatibility.md) | Engineers, analysts | Checking SQL against Fabric Warehouse, SQL analytics endpoint, SQL database and Spark before running it; the rules and their sources |
 | [sql-execution.md](sql-execution.md) | Engineers, analysts, IT | How SQL page queries run on this PC: Stop, time and memory limits, paging, CSV/Parquet export, what a query may change, audit |
 | [local-data.md](local-data.md) | Engineers, analysts | Local data projects (Preview): folders of files as SQL tables on your PC, naming rules, limits, where it is kept |
@@ -53,11 +55,17 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [finops/usage-import.md](finops/usage-import.md) | Engineers, capacity admins, FinOps | Import a Capacity Metrics app export as measured CU and compare it with this app's estimates; import an Azure Cost Management export for what each capacity was billed |
 | [optimize/README.md](optimize/README.md) | Engineers, platform owners, admins | The central lakehouse (Preview): setting it up, permissions, what each installation writes, who can see what, the policy key |
 | [finops/cost-evidence.md](finops/cost-evidence.md) | Engineers, platform owners | Optimize > Cost and savings figures: measured, estimated, scenario and unknown, what is counted, units, and the measurement schema |
+| [notebook-resources.md](notebook-resources.md) | Engineers, analysts | Notebook resources: files beside a notebook, read in cells as `builtin/<file>`, and where they go |
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [validate-notebook.md](validate-notebook.md) | Engineers, analysts | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up (Preview) |
+| [notebook-import-export.md](notebook-import-export.md) | Engineers, analysts | Fabric and Databricks notebook formats: importing their source and .dbc archives, and exporting as .ipynb, Fabric or Databricks source or HTML (Preview) |
+| [notebook-versions.md](notebook-versions.md) | Engineers, analysts | Notebook version history: versions, checkpoints, Compare and Restore |
 | [forge-animations.md](forge-animations.md) | Engineers, analysts, IT | Motion and effects: intensity levels, every effect, performance, and the motion engine for developers |
 | [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
+| [engines.md](engines.md) | Engineers | Execution engines and what each can do, remote compute approval, usage figures, connection profiles for Fabric, Databricks or both (Preview) |
+| [notebook-comments.md](notebook-comments.md) | Engineers, analysts | Comments on notebook cells: threads, replies, resolve, and where they are kept |
+| [notebook-editor/find-and-replace.md](notebook-editor/find-and-replace.md) | Engineers, analysts | Find and replace across every cell of a notebook, with Replace all and undo |
 | [notebook-editor/load-data-items.md](notebook-editor/load-data-items.md) | Engineers, analysts | Drag tables and files into cells; Load with Polars, Spark or SQL |
 | [prove/how-proofs-work.md](prove/how-proofs-work.md) | Engineers, analysts | Proving a notebook: pinned inputs, sandboxed outputs, how results are verified, the scorecard and receipts (Preview) |
 | [metadata-guide.md](metadata-guide.md) | Engineers | The metadata framework step by step, from a new project to Prod, and a reference for every setting |
@@ -123,9 +131,11 @@ KratosForge is new, and it's honest about what has been proven.
 | Side by side | Notebook ribbon (this PC vs Fabric, and the TPC-H benchmark) |
 | Prove this notebook | Notebook ribbon (isolated PC vs Fabric runs, verification, receipts) |
 | Validate notebook | Notebook ribbon |
+| Notebook runs | Notebook ribbon > Recent runs ([notebooks.md](notebooks.md#recent-runs-preview)) |
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | New notebook wizard | Create > Notebook from a template |
+| Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
 | Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
@@ -151,6 +161,8 @@ KratosForge is new, and it's honest about what has been proven.
 | Run as | Monitor > Operations > Run as |
 | External AI tools | Settings > Integrations |
 | Release records | Data mesh > Deploy, each environment's Last release card |
+| Chart builder | Notebook > a table output > Chart ([notebooks.md](notebooks.md)) |
+| Data Wrangler | Notebook > a table output > Clean ([notebooks.md](notebooks.md)) |
 | Result downloads | Notebook > a table output > Download ([notebooks.md](notebooks.md)) |
 | Column lineage | Entity page, Columns |
 | Roll back a release | Data mesh > Deploy, Roll back... on a Test or Prod Last release card |

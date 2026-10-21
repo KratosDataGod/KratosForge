@@ -980,7 +980,7 @@ async function moveNotebookDialog(nb) {
   const select = h("select", { "aria-label": "Move to" }, places.map((p) => h("option", { value: p.root || "" }, p.root ? p.label : "This PC")));
   showDialog(`Move ${nb.name}`, h("div", { class: "git-form" },
     h("label", { class: "field" }, "Move to", select),
-    h("p", { class: "muted-text small" }, "The file moves; nothing is committed. If a notebook with this name is already there, nothing moves.")),
+    h("p", { class: "muted-text small" }, "The file and its resources folder move; nothing is committed. If a notebook or folder with this name is already there, nothing moves.")),
   [btn("Cancel", null, closeDialog, "tool outline"), btn("Move", null, async () => {
     const out = await attempt(() => rpc("move_notebook", { name: nb.name, place: select.value || null }), "Couldn't move the notebook");
     if (!out) return;
@@ -988,6 +988,7 @@ async function moveNotebookDialog(nb) {
     delete gitNotebookCache[nb.name];
     await nbReloadLocations(nb);
     toast(out.place ? `${nb.name} is now in ${out.place.label}. Commit it there to keep it.` : `${nb.name} is now in the app's notebooks folder.`);
+    if (out.note) toast(out.note, true);
   }, "tool primary")]);
 }
 

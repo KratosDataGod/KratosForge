@@ -693,6 +693,7 @@ async function renderHome() {
     envSection,
     h("section", { class: "row wrap home-start" }, h("h2", {}, "Start something"),
       btn("New notebook", "notebook", newNotebook, "tool outline"),
+      btn("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"),
       btn("New lakehouse", "lakehouse", () => newLakehouse(), "tool outline"),
       btn("OneLake catalog", "onelake", () => go("onelake"), "tool outline")),
     foldable("home.notebooks", h("h2", {}, "Recent notebooks"), h("div", {}, list,

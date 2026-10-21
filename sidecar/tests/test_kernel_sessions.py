@@ -198,6 +198,25 @@ def test_a_switch_while_the_sweep_has_a_session_out_hands_it_over_to_close():
     assert sessions.kernel("nb") is not held  # a fresh kernel after the switch, not one from before it
 
 
+def test_opening_a_notebook_with_no_session_leaves_the_others_variables(svc):
+    class Kept(FakeKernel):
+        def variables(self):
+            return [{"name": "x", "value": "1"}]
+
+    made = []
+    svc.sessions = KernelSessions(lambda _p: made.append(Kept()) or made[-1], lambda: True, max_sessions=lambda: 2)
+    a, b = svc.sessions.kernel("A"), svc.sessions.kernel("B")  # the cap is reached
+    # What the app asks when it opens notebook C, which has never run a cell.
+    assert call(svc, "kernel_variables", notebook="C") == []
+    assert call(svc, "poll_cell", notebook="C")["status"] == "idle"
+    assert call(svc, "interrupt_cell", notebook="C") == {"interrupted": False}
+    with pytest.raises(Exception, match="No cell is running under the debugger"):
+        call(svc, "debug_cell", action="continue", notebook="C")
+    assert made == [a, b] and not a.closed and not b.closed  # no session made, none stopped for room
+    assert call(svc, "kernel_variables", notebook="A") == [{"name": "x", "value": "1"}]
+    assert svc.sessions.take_notes() == []
+
+
 def test_settings_limits_are_checked(svc):
     with pytest.raises(Exception, match="between 0 and 20"):
         call(svc, "save_app_settings", changes={"kernel_max_sessions": 50})

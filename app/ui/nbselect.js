@@ -216,7 +216,7 @@ function mergeSelected() {
   // A SQL or HTML cell's first line is its magic (%%sql, Databricks' %sql, %%html), and a Python cell can
   // name its language (%%pyspark, %python): only the first cell keeps that line.
   const tails = rest.map((c) => (MAGIC[cellLang(c)] ? c.source.trimStart().replace(/^[^\n]*\n?/, "")
-    : c.source.replace(/^\s*(%%pyspark|%%python|%python)[ \t]*(\n|$)/, "")));
+    : c.source.replace(/^\s*(%%pyspark|%%python|%python)\b[^\n]*(\n|$)/, "")));
   setSource(head, [head.source.replace(/\n$/, ""), ...tails.map((t) => t.replace(/\n$/, ""))].join("\n"));
   undo.merge.after = head.source;
   for (const c of rest) { all.splice(all.indexOf(c), 1); dropEditor(c); }

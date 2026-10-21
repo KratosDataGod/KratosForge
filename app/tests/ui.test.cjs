@@ -4226,3 +4226,9 @@ test("the Spark on this PC page names the NOT NULL error and verifySchema", () =
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
   assert.match(doc, /`\[FIELD_NOT_NULLABLE_WITH_NAME\]` error; `verifySchema=False` skips the check/);
 });
+
+// Spark on this PC: NOT NULL covers array elements and map values.
+test("the Spark on this PC page says NOT NULL covers array elements and map values", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /for array elements or map values a `StructType` declares\nnon-nullable/);
+});

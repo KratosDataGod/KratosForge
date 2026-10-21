@@ -577,12 +577,31 @@ def ddl_schema(text: str) -> Any:
     return T.StructType(fields)
 
 
-def check_not_null(data: Any, schema: Any) -> None:
-    """Spark refuses a null in a NOT NULL field when it makes a DataFrame from Python rows; DuckDB
-    would keep it, so the rows are checked here first (fields inside a struct too)."""
+def _refuses_null(kind: Any) -> bool:
+    """Whether a type has a NOT NULL anywhere in it: a struct field, an array element, a map value."""
     from duckdb.experimental.spark.sql import types as T
-    if not isinstance(schema, T.StructType):
-        return
+    if isinstance(kind, T.StructType):
+        return any(not f.nullable or _refuses_null(f.dataType) for f in kind.fields)
+    if isinstance(kind, T.ArrayType):
+        return not kind.containsNull or _refuses_null(kind.elementType)
+    if isinstance(kind, T.MapType):
+        return not kind.valueContainsNull or _refuses_null(kind.valueType)
+    return False
+
+
+def _not_nullable(where: str) -> Exception:
+    from duckdb.experimental.spark.errors import PySparkValueError
+    return PySparkValueError(  # PySpark 3.4+'s error, a ValueError
+        message=f"[FIELD_NOT_NULLABLE_WITH_NAME] field {where}: This field is not nullable, but got None.")
+
+
+def check_not_null(data: Any, schema: Any) -> None:
+    """Spark refuses a null where the schema says NOT NULL when it makes a DataFrame from Python
+    rows; DuckDB would keep it, so the rows are checked here first: struct fields, array elements
+    (containsNull=False) and map values (valueContainsNull=False), at any depth."""
+    from duckdb.experimental.spark.sql import types as T
+    if not isinstance(schema, T.StructType) or not _refuses_null(schema):
+        return  # nothing to check, so large frames don't pay for a walk over every row
 
     def check(value: Any, struct: Any, path: str) -> None:
         if value is None:
@@ -592,22 +611,24 @@ def check_not_null(data: Any, schema: Any) -> None:
             v = items.get(field.name) if isinstance(items, dict) else (items[i] if i < len(items) else None)
             where = f"{path}{field.name}"
             if v is None and not field.nullable:
-                from duckdb.experimental.spark.errors import PySparkValueError
-                raise PySparkValueError(  # PySpark 3.4+'s error, a ValueError
-                    message=f"[FIELD_NOT_NULLABLE_WITH_NAME] field {where}: This field is not nullable, but got None.")
+                raise _not_nullable(where)
             inner(v, field.dataType, where)
 
     def inner(value: Any, kind: Any, where: str) -> None:
-        """Structs inside a field: the struct itself, or each one in an array or map value."""
-        if value is None:
+        """What's inside a field: a struct's fields, or each element of an array or value of a map."""
+        if value is None or not _refuses_null(kind):
             return
         if isinstance(kind, T.StructType):
             check(value, kind, where + ".")
         elif isinstance(kind, T.ArrayType) and isinstance(value, (list, tuple)):
             for item in value:
+                if item is None and not kind.containsNull:
+                    raise _not_nullable(where + ".element")
                 inner(item, kind.elementType, where + ".element")
         elif isinstance(kind, T.MapType) and isinstance(value, dict):
             for item in value.values():
+                if item is None and not kind.valueContainsNull:
+                    raise _not_nullable(where + ".value")
                 inner(item, kind.valueType, where + ".value")
 
     if isinstance(data, (list, tuple)):

@@ -161,6 +161,10 @@ nav = [
 
 extra_css = ["stylesheets/extra.css"]
 
+# Old page addresses keep working after a page is renamed.
+[project.plugins.redirects.redirect_maps]
+"why-fabric-desktop.md" = "why-kratosforge.md"
+
 [project.theme]
 language = "en"
 logo = "brand/wolf-forge-emblem.png"

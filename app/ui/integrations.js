@@ -49,7 +49,7 @@ function untestedTag(kind) {
 // ---------- the tab ----------
 
 async function renderIntegrationsTab(box) {
-  box.replaceChildren(h("p", { class: "muted-text" }, "Loading..."));
+  box.replaceChildren(loading());
   const [status, activity] = await Promise.all([
     rpc("integrations_status").catch((err) => ({ error: friendlyError(err).text })),
     rpc("integrations_activity", { limit: 50 }).catch(() => []),

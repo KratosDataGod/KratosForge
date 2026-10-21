@@ -41,6 +41,9 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
+# Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
+_ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 
@@ -519,6 +522,9 @@ class Kernel:
         name, value = m.groups()
         if name.upper().startswith("FABRIC_DESKTOP_"):
             raise ValueError(f"{name} is KratosForge's own setting and can't be changed from a notebook.")
+        if name.upper() in _ENV_NETWORK:
+            raise ValueError(f"{name} would change where KratosForge sends its signed-in Fabric calls, or which "
+                             "certificates it trusts, so %env can't set it. Set it before starting KratosForge.")
         os.environ[name] = value
         print(f"env: {name}={'hidden' if _SECRET_NAME.search(name) else value}")
         return None

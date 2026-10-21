@@ -313,3 +313,11 @@ def test_rows_to_write_only_ever_come_from_a_select(engine, rows_sql):
     assert rows(engine, "SELECT count(*), sum(a)::INT FROM plain") == [[3, 3]]
     assert not folder(engine, "dry1").exists() and not folder(engine, "dry2").exists()
     assert DeltaTable(str(folder(engine, "own"))).version() == 0
+
+
+def test_a_pivot_that_finds_its_columns_says_to_list_them(engine):
+    engine.execute("CREATE TABLE plain AS SELECT * FROM (VALUES ('EU', 1), ('US', 2)) t(region, amount)")
+    with pytest.raises(ValueError, match="List the values"):
+        engine.write_delta("wide", "PIVOT plain ON region USING sum(amount)")
+    r = engine.write_delta("wide", "PIVOT plain ON region IN ('EU', 'US') USING sum(amount)")
+    assert r["rows"] == 1 and [c["name"] for c in r["columns"]] == ["EU", "US"]

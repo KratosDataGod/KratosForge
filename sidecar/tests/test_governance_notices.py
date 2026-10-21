@@ -86,3 +86,13 @@ def test_a_notice_that_fails_never_undoes_the_request(svc, monkeypatch):
     out = svc.platform_request("key_table", "customer", "", {"business_key": "customer_id"})
     assert out["status"] == "waiting" and svc.platform_requests("waiting")[0]["id"] == out["id"]
     assert out["problems"][0].startswith("The Teams notice wasn't sent") and "webhookb2" not in out["problems"][0]
+
+
+def test_a_notice_that_cannot_be_built_never_fails_the_decision(svc, monkeypatch):
+    def bad(req, products):
+        raise KeyError("owner")
+    monkeypatch.setattr(notices, "request_closed", bad)
+    out = svc.platform_request("key_table", "customer", "", {"business_key": "customer_id"})
+    decided = svc.platform_decide(out["id"], False, "no")
+    assert decided["status"] == "declined" and svc.platform_requests("declined")[0]["id"] == out["id"]
+    assert decided["problems"][0].startswith("The Teams notice wasn't sent")

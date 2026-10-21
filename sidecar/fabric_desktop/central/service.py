@@ -547,9 +547,14 @@ class PlatformMixin:
         for the kinds that name one, so the others cost no extra catalog call."""
         if not req or not req.get("id"):
             return
-        products = (self._catalog().call("list_products") if req.get("kind") in ("access", "shortcut") else [])
-        event = build(req, products)
-        problem = self._governance_notify([event] if event else [])  # type: ignore[attr-defined]
+
+        def events() -> list[dict[str, Any]]:
+            kinds = ("access", "shortcut")
+            products = self._catalog().call("list_products") if req.get("kind") in kinds else []
+            event = build(req, products)
+            return [event] if event else []
+
+        problem = self._governance_notify(events)  # type: ignore[attr-defined]
         if problem:
             req.setdefault("problems", []).append(problem)
 

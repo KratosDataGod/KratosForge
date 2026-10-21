@@ -9,6 +9,7 @@ never returned to the UI, recorded in the audit log, or written to a backup.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
@@ -51,14 +52,15 @@ class PlatformNotifyMixin:
         outbox, ledger = self._pn_paths()
         return send(checked, routing, outbox, ledger, post_teams)
 
-    def _governance_notify(self, events: list[dict[str, Any]]) -> str | None:
-        """Send governance's events (governance_notices.py) after the change they report is made.
-        A notice never undoes or fails that change: a problem is logged, without any webhook
-        address, and returned as one line; messages Teams didn't take wait in the outbox."""
-        if not events:
-            return None
+    def _governance_notify(self, build: Callable[[], list[dict[str, Any]]]) -> str | None:
+        """Build and send governance's events (governance_notices.py) after the change they report
+        is made. A notice never undoes or fails that change, building it included: a problem is
+        logged, without any webhook address, and returned as one line; messages Teams didn't take
+        wait in the outbox."""
         try:
-            self.platform_notify(events)
+            events = build()
+            if events:
+                self.platform_notify(events)
         except Exception as exc:  # noqa: BLE001 - the change is already made; say the notice wasn't sent
             problem = secrets(f"The Teams notice wasn't sent: {exc}")
             _log.warning(problem)

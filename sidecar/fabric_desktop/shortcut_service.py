@@ -152,7 +152,7 @@ class ShortcutMixin:
             results = list(pool.map(check, items))
         problems: list[str] = []
         changes = self._sc_call("record_shortcut_health", problems, [], results=results)
-        problem = self._governance_notify(notices.shortcut_events(changes))  # type: ignore[attr-defined]
+        problem = self._governance_notify(lambda: notices.shortcut_events(changes))  # type: ignore[attr-defined]
         if problem:
             problems.append(problem)
         return {"results": results, "changes": changes, "problems": problems}

@@ -474,6 +474,9 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def kernel_complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
 
+    def kernel_variable_detail(self, name: str) -> dict[str, Any]:
+        return self.kernel.variable_detail(str(name))
+
     # ---- the result viewer behind a cell's table output (frames.py)
 
     def notebook_frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,

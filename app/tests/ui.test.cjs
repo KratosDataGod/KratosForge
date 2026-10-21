@@ -3683,3 +3683,26 @@ test("a Data Wrangler step that can't run is marked with its reason and blocks a
   await new Promise((r) => setImmediate(r));
   assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });
+
+// The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
+test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
+  const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = variableRows;`, ctx);
+  const rows = [
+    { name: "sales", type: "DataFrame", memory: 50000 },
+    { name: "Count", type: "int", memory: 28 },
+    { name: "sdf", type: "DataFrame", memory: null },
+    { name: "cfg", type: "dict", memory: 400 },
+  ];
+  const names = (opts) => [...ctx.f(rows, opts).map((r) => r.name)];
+  assert.deepStrictEqual(names(), ["cfg", "Count", "sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: "frame" }), ["sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: " CO " }), ["Count"]);
+  assert.deepStrictEqual(names({ sort: "memory" }), ["sales", "cfg", "Count", "sdf"]);
+  assert.deepStrictEqual(names({ sort: "type" }), ["sales", "sdf", "cfg", "Count"]);
+  assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
+  assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
+});

@@ -572,7 +572,9 @@ function render() {
 }
 
 function setView(...children) {
-  document.getElementById("view").replaceChildren(...children);
+  const view = document.getElementById("view");
+  view.replaceChildren(...children);
+  viewTransition(view);  // motion.js: only when the page itself changed
 }
 
 // The shared look for a part of a page that is still being read (UX-020): a small spinner and the
@@ -601,9 +603,13 @@ function signInCallout() {
 // ---------- Home, Create, Monitor ----------
 
 // A section that folds to its header, remembered on this PC. head is what stays visible.
-function foldable(id, head, body, { cls = "card pad", always = null } = {}) {
-  let folded = false;
-  try { folded = localStorage.getItem(`fd.fold.${id}`) === "1"; } catch { /* unfolded */ }
+// start: whether it opens folded the first time; after that it opens as it was left on this PC.
+function foldable(id, head, body, { cls = "card pad", always = null, start = false } = {}) {
+  let folded = start;
+  try {
+    const saved = localStorage.getItem(`fd.fold.${id}`);
+    if (saved === "1" || saved === "0") folded = saved === "1";
+  } catch { /* as it starts */ }
   const box = h("section", { class: `${cls} foldable${folded ? " folded" : ""}` });
   const toggle = h("button", { class: "fold-toggle", "aria-expanded": String(!folded), title: folded ? "Show" : "Hide",
     onclick: () => {

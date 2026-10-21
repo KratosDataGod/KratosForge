@@ -2235,6 +2235,14 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+test("a replay notebook offers to delete what its replays wrote, with a danger confirm", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const fn = src.match(/function replayDeleteOutputs\([\s\S]*?\n}\n/)[0];
+  assert.match(fn, /confirmDialog\([\s\S]*\{ danger: true \}/);
+  assert.match(fn, /rpc\("replay_delete_outputs"/);
+  assert.match(src, /disabled: busy \|\| c\.live, title: c\.live \? "End the replay first\."/);
+});
+
 // Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
 test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
   const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });

@@ -15,6 +15,7 @@ from deltalake import DeltaTable, write_deltalake
 from fabric_desktop import benchmark, lakehouse
 from fabric_desktop import side_by_side as sbs
 from fabric_desktop import side_by_side_service
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
@@ -302,6 +303,16 @@ def test_side_by_side_end_to_end_same_results(svc, tables):
     assert svc.fabric_runs(refresh=False)[0]["side_by_side"] == out["id"]
 
 
+def test_side_by_side_names_the_code_it_ran_as_a_receipt_does(svc, tables):
+    from fabric_desktop import receipts
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    cells = [dict(c) | {"cell_id": f"c{i}"} for i, c in enumerate(CELLS)]  # the app sends the ids it was given
+    out = wait(svc, call(svc, "side_by_side_start", **payload(cells))["id"])
+    assert call(svc, "side_by_side_list", name="NB")[0]["code_revision"] == receipts.code_revision(cells)["revision"]
+    cells[1]["source"] += "\n# changed"  # so a comparison counts only while the notebook is unchanged
+    assert out["code_revision"] != receipts.code_revision(cells)["revision"]
+
+
 def test_side_by_side_reports_a_different_answer(svc, tables):
     svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [1, 3]}), "bench.q01"))
     out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
@@ -411,3 +422,16 @@ def test_benchmark_before_the_data_notebook_says_to_run_it_first(svc, tables):
     out = svc.kernel.run(cells[2]["source"])
     assert out["status"] == "error"
     assert "Run the TPC-H data notebook" in str(out["outputs"])
+
+
+def test_side_by_side_runs_its_own_notebooks_kernel_not_the_open_one(svc, tables):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(tables, lambda t: t.write(pa.table({"id": [2, 1]}), "bench.q01"))
+    out = wait(svc, call(svc, "side_by_side_start", **payload())["id"])
+    assert out["state"] == "done", out["message"]
+    assert svc.sessions.kernel("NB").run("print(x)")["outputs"][0]["text"] == "2\n"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook wasn't restarted

@@ -113,7 +113,7 @@ def test_restore_refuses_a_database_in_use_and_changes_nothing(app, tmp_path):
     with closing(sqlite3.connect(app / "workloads.sqlite", isolation_level=None)) as db:
         db.execute("begin exclusive")
         db.execute("insert into w values ('later')")
-        with pytest.raises(backup.BackupError, match="Close Fabric Desktop by KratosBI and stop the agent"):
+        with pytest.raises(backup.BackupError, match="Close KratosForge and stop the agent"):
             backup.restore(zip_path, app, apply=True, now=NOW)
         db.execute("commit")
     assert (app / "notebooks" / "sales.ipynb").read_text() == '{"cells": ["changed"]}'

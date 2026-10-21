@@ -1,5 +1,5 @@
 // Settings > Integrations: lets AI tools a developer already uses (Claude Code, Codex, Cursor, VS Code,
-// any MCP client) connect to Fabric Desktop by KratosBI over MCP or the local HTTP API. There is no AI
+// any MCP client) connect to KratosForge over MCP or the local HTTP API. There is no AI
 // in the app: no chat, no model picker, no AI keys. Everything here calls the engine's
 // integrations_* methods (sidecar integrations/app_service.py); approvals are decided only here.
 // Mockup: https://claude.ai/artifact/VbVijJzz6XRbdjg7sH1MRG
@@ -43,13 +43,13 @@ function permissionPills(ids) {
 }
 
 function untestedTag(kind) {
-  return TESTED_TOOLS.has(kind) ? null : h("span", { class: "pill-s neu", title: "Nobody has tried this tool with Fabric Desktop by KratosBI yet." }, "Untested");
+  return TESTED_TOOLS.has(kind) ? null : h("span", { class: "pill-s neu", title: "Nobody has tried this tool with KratosForge yet." }, "Untested");
 }
 
 // ---------- the tab ----------
 
 async function renderIntegrationsTab(box) {
-  box.replaceChildren(h("p", { class: "muted-text" }, "Loading..."));
+  box.replaceChildren(loading());
   const [status, activity] = await Promise.all([
     rpc("integrations_status").catch((err) => ({ error: friendlyError(err).text })),
     rpc("integrations_activity", { limit: 50 }).catch(() => []),
@@ -84,13 +84,13 @@ function switchCard(status, refresh) {
     h("div", { class: "row" }, h("h2", {}, "External AI tools"), previewTag()),
     settingRow("Let AI tools connect",
       status.enabled ? "AI tools you allow below can read your projects and, with your approval, run work on this PC."
-        : "Fabric Desktop by KratosBI works the same without it. Turn this on to let AI tools you already use read your projects and, with your approval, run work on this PC.",
+        : "KratosForge works the same without it. Turn this on to let AI tools you already use read your projects and, with your approval, run work on this PC.",
       toggle, locked ? "policy" : null),
     status.enabled ? null : h("dl", { class: "about" },
       h("dt", {}, "Works with"), h("dd", {}, "Claude Code, Claude Desktop, Codex, Cursor, VS Code with GitHub Copilot, and any MCP client (none tried yet)"),
       h("dt", {}, "How they connect"), h("dd", {}, "MCP on this PC, or a local HTTP API that only this PC can reach"),
       h("dt", {}, "What they can do"), h("dd", {}, "Only what you allow for each tool. Anything that runs code asks you here first.")),
-    h("p", { class: "muted-text small" }, "Fabric Desktop by KratosBI has no AI of its own and sends nothing to an AI service. Your tools talk to it, not the other way round. ",
+    h("p", { class: "muted-text small" }, "KratosForge has no AI of its own and sends nothing to an AI service. Your tools talk to it, not the other way round. ",
       learnMore("external-ai-tools")));
 }
 
@@ -108,7 +108,7 @@ function connectCard(status, refresh) {
         refresh();
       } }), h("span", {}, http.running ? "On" : "Off"));
   return h("section", { class: "card pad" }, h("h2", {}, "How tools connect"),
-    settingRow("MCP (stdio)", h("span", {}, "Tools start Fabric Desktop's MCP server themselves with this command. ",
+    settingRow("MCP (stdio)", h("span", {}, "Tools start KratosForge's MCP server themselves with this command. ",
       h("span", { class: "mono" }, status.launcher)),
       h("div", { class: "row" }, h("span", { class: "pill-s pass" }, "Ready"),
         btn("Copy", "copyArrowRight", () => copyText(status.launcher, "Command"), "tool outline small"))),
@@ -335,7 +335,7 @@ async function watchApprovals() {
     const res = await rpc("integrations_pending");
     wait = res.enabled ? 3000 : 30000;
     const fresh = res.pending.filter((a) => !integ.shown.has(a.id));
-    document.title = res.pending.length ? `(${res.pending.length}) Approval needed - Fabric Desktop by KratosBI` : "Fabric Desktop by KratosBI";
+    document.title = res.pending.length ? `(${res.pending.length}) Approval needed - KratosForge` : "KratosForge";
     if (fresh.length) {
       const busy = document.getElementById("dialog-root")?.children.length;
       if (busy) {
@@ -381,7 +381,7 @@ function activityCard(rows, status) {
         h("td", { class: "n" }, r.seconds >= 0.05 ? `${r.seconds.toFixed(1)} s` : ""))))))
       : h("p", { class: "muted-text" }, "Nothing yet."),
     h("p", { class: "muted-text small" }, "Every request a tool made, including refused ones. Code, queries and table data aren't kept. ",
-      "The full trail is in your Fabric Desktop folder under integrations\\audit."));
+      "The full trail is in KratosForge's data folder (%LOCALAPPDATA%\\FabricDesktop) under integrations\\audit."));
 }
 
 function troubleshootingCard(status) {
@@ -391,7 +391,7 @@ function troubleshootingCard(status) {
     item("HTTP requests are refused", `Check the local HTTP API is on and you're calling ${status.http?.url || "http://127.0.0.1:47615"}. `,
       "Send the token as Authorization: Bearer <token>. Requests from a web page are always refused."),
     item("The tool connects but sees nothing", "Check you're signed in, and the tool's permissions under Connected tools. A tool that isn't connected sees only the list of capabilities, which says why."),
-    item("No approval shows up", "Fabric Desktop by KratosBI must be open. A tool waits a minute, then gets an approval_required answer; it can ask again after you approve. Requests are dropped after 5 minutes."));
+    item("No approval shows up", "KratosForge must be open. A tool waits a minute, then gets an approval_required answer; it can ask again after you approve. Requests are dropped after 5 minutes."));
 }
 
 registerFeature({

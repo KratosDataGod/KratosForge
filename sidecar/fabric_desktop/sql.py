@@ -9,7 +9,8 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
-from typing import Callable
+import re
+from typing import Any, Callable, Iterator
 
 import duckdb
 import pyarrow as pa
@@ -26,10 +27,12 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     ``dialect="duckdb"`` reads DuckDB SQL only. T-SQL dialects don't run here (sql_dialects.py)."""
     chosen = sql_dialects.get(dialect)
     if not chosen["runs_here"]:
-        raise ValueError(f"{chosen['label']} can't run on this PC. Fabric Desktop by KratosBI checks and formats "
+        raise ValueError(f"{chosen['label']} can't run on this PC. KratosForge checks and formats "
                          "it here; run it in Fabric, or pick Spark SQL or DuckDB to run on this PC.")
     try:
         statements = sqlglot.parse(query, read=chosen["sqlglot"])
+        if chosen["id"] == "spark":
+            statements = [_spark_dates(s) for s in statements if s is not None]
     except ParseError as first_error:
         if chosen["id"] != "spark":
             raise ValueError(f"Could not read the query: {first_error}") from None
@@ -41,6 +44,27 @@ def parse(query: str, dialect: str = "spark") -> list[exp.Expression]:
     if not statements:
         raise ValueError("The query is empty.")
     return statements
+
+
+# Spark's date and time unit names that DuckDB doesn't know ('MM' is minutes to DuckDB if anything).
+_SPARK_UNITS = {"YYYY": "YEAR", "YY": "YEAR", "MON": "MONTH", "MM": "MONTH", "DD": "DAY"}
+
+
+def _spark_dates(statement: exp.Expression) -> exp.Expression:
+    """Keep Spark's date results where sqlglot's DuckDB SQL differs: date_add and date_sub return
+    a date (DuckDB's date + INTERVAL is a timestamp), trunc(date, 'MM') returns a date, and Spark's
+    unit spellings ('MM', 'YYYY') become ones DuckDB reads."""
+    for node in list(statement.find_all(exp.TsOrDsAdd, exp.DateTrunc, exp.TimestampTrunc)):
+        if isinstance(node, (exp.DateTrunc, exp.TimestampTrunc)):
+            unit = node.args.get("unit")
+            spark_trunc = isinstance(unit, exp.Literal)  # trunc(date, 'MM'); date_trunc('MM', ts) has a Var
+            name = unit.name.upper() if unit is not None else ""
+            if name in _SPARK_UNITS:
+                node.set("unit", exp.Literal.string(_SPARK_UNITS[name]) if spark_trunc else exp.var(_SPARK_UNITS[name]))
+            if not spark_trunc:
+                continue
+        node.replace(exp.cast(node.copy(), exp.DataType.Type.DATE))
+    return statement
 
 
 def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views: dict[str, str],
@@ -58,17 +82,59 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             continue  # a table function such as range(10)
         if table is made:
             continue
-        if not table.db and (table.name.lower() in ctes or is_local(table.name)):
+        if not table.db and (table.name.lower() in ctes or is_local(table.name) or table.name in views.values()):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
-        key = name.lower()
+        point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
+        key = name.lower() if point is None else f"{name.lower()}@{point}"
         if key not in views:
             views[key] = f"__lakehouse_table_{len(views)}"
-            con.register(views[key], lakehouse.open_table(name).to_pyarrow_dataset())
+            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def _time_travel(table: exp.Table) -> str | None:
+    """A table's time travel point as "v<n>" or "t<time>", taken off the table so DuckDB never
+    sees it; None to read the latest version."""
+    version = table.args.get("version")
+    if isinstance(version, exp.Version):
+        if str(version.args.get("kind", "")).upper() != "AS OF":
+            raise ValueError("Only VERSION AS OF and TIMESTAMP AS OF can be read on this PC.")
+        value = version.expression.name if isinstance(version.expression, exp.Literal) else version.expression.sql("spark")
+        table.set("version", None)
+        return f"v{value}" if str(version.this).upper() == "VERSION" else f"t{value}"
+    alias = table.args.get("alias")
+    if isinstance(alias, exp.TableAlias) and isinstance(alias.this, exp.Parameter):  # sales@v3 (Databricks)
+        value = alias.this.name
+        table.set("alias", None)
+        if re.fullmatch(r"[vV]\d+", value):
+            return f"v{value[1:]}"
+        if re.fullmatch(r"\d{14,17}", value):  # yyyyMMddHHmmssSSS
+            return f"t{value[:4]}-{value[4:6]}-{value[6:8]} {value[8:10]}:{value[10:12]}:{value[12:14]}"
+        raise ValueError(f"{table.name}@{value} isn't a version (@v3) or a time (@20261020130000000).")
+    return None
+
+
+def point_args(point: str) -> dict[str, str]:
+    return {"version": point[1:]} if point.startswith("v") else {"timestamp": point[1:]}
+
+
+def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
+                  views: dict[str, str]) -> exp.Expression:
+    """DESCRIBE HISTORY t becomes a query over the table's Delta log; any other statement is
+    returned as it is."""
+    if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
+        return statement
+    table = statement.this
+    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    view = f"__lakehouse_history_{len(views)}"
+    views[f"history:{name.lower()}:{len(views)}"] = view
+    con.register(view, lakehouse.table_history(name).to_arrow())
+    return sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb")
 
 
 READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)
@@ -86,8 +152,8 @@ def check_read_only(statements: list[exp.Expression]) -> exp.Expression:
     return statement
 
 
-def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
-    """Run every statement in ``query`` and return the last one's result.
+def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyConnection, Any]:
+    """Run every statement in ``query``; the connection and the last one's result (None for none).
 
     ``sandbox``: one read-only statement, and DuckDB's external access is turned off (and locked)
     once the lakehouse tables are registered, so the query can't read local files, load
@@ -100,15 +166,64 @@ def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
     result = None
     statements = parse(query, dialect)
     if sandbox:
-        statements = [check_read_only(statements)]
+        statements = [check_read_only([history_query(s, con, views) for s in statements])]
         bind_tables(statements[0], con, views)
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
         result = con.execute(statements[0].sql("duckdb"))
         statements = []
     for statement in statements:
+        statement = history_query(statement, con, views)
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
-    if not result.description:
+    return con, result
+
+
+def run(query: str, dialect: str = "spark", sandbox: bool = False) -> pa.Table:
+    """Run every statement in ``query`` and return the last one's whole result (see _execute)."""
+    _con, result = _execute(query, dialect, sandbox)
+    if result is None or not result.description:
         return pa.table({})
     return (getattr(result, "to_arrow_table", None) or result.fetch_arrow_table)()
+
+
+BATCH_ROWS = 50_000  # rows held in memory at a time when a result is streamed
+
+
+class Stream:
+    """The last statement's result, read in batches of at most ``batch_rows`` rows so a large
+    result is never held whole on this side (see _execute). ``schema`` is None when the last
+    statement returns no result set. Use it as a context manager so the connection is closed."""
+
+    def __init__(self, query: str, dialect: str = "spark", sandbox: bool = False, batch_rows: int = BATCH_ROWS):
+        self._con, result = _execute(query, dialect, sandbox)
+        reader = None
+        if result is not None and result.description:
+            reader = (getattr(result, "to_arrow_reader", None) or result.fetch_record_batch)(batch_rows)
+        self._reader = reader
+        self.schema: pa.Schema | None = self._reader.schema if self._reader is not None else None
+
+    def __iter__(self) -> Iterator[pa.RecordBatch]:
+        return iter(self._reader) if self._reader is not None else iter(())
+
+    def __enter__(self) -> "Stream":
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self._con.close()
+
+
+def head(query: str, dialect: str = "spark", sandbox: bool = False, limit: int = 1000) -> tuple[pa.Table, int]:
+    """The first ``limit`` rows and the result's full row count. Later rows are counted as they
+    stream past and dropped, so memory holds the first rows and one batch."""
+    with Stream(query, dialect, sandbox) as result:
+        if result.schema is None:
+            return pa.table({}), 0
+        kept: list[pa.RecordBatch] = []
+        have = total = 0
+        for batch in result:
+            total += batch.num_rows
+            if have < limit:
+                kept.append(batch.slice(0, limit - have))
+                have += kept[-1].num_rows
+        return pa.Table.from_batches(kept, schema=result.schema), total

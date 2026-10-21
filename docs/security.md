@@ -1,6 +1,6 @@
 # Security model
 
-How Fabric Desktop by KratosBI protects your sign-in, your data and your PC, what it trusts, and what is still open. This is the threat model for FD-102; the [enterprise backlog](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/product/enterprise-backlog.md) and the [hardening backlog](hardening/backlog.md) track the open items. It describes `main` as of 2026-10-17 (checked against commit 1248ccd by the [hardening audit](hardening/README.md)).
+How KratosForge protects your sign-in, your data and your PC, what it trusts, and what is still open. This is the threat model for FD-102; the [enterprise backlog](https://github.com/KratosDataGod/KratosForge/blob/main/docs/product/enterprise-backlog.md) and the [hardening backlog](hardening/backlog.md) track the open items. It describes `main` as of 2026-10-18 (a346145); the [hardening audit](hardening/README.md) checked it at 1248ccd and its fixes are reflected here. The [security evidence pack](evidence-pack.md) collects this page with the rest of what a reviewer needs.
 
 ## What it protects
 
@@ -26,7 +26,7 @@ How Fabric Desktop by KratosBI protects your sign-in, your data and your PC, wha
 3. **External AI tools to engine.** Only when a person turns on **Settings > Integrations**: an MCP server per tool (`fabric-desktop mcp --client <id>`) and, if switched on, a local HTTP API on `127.0.0.1` (port 47615 by default). The HTTP API answers only loopback addresses, requires a `Host` naming the loopback address and port (stopping DNS rebinding), refuses any request carrying an `Origin` (so no web page can call it), caps bodies at 1 MiB and rate-limits each tool. Each tool has a token stored only as its SHA-256 hash. Running code always asks the person first. The full model is in [AI integration security](product/ai-integration-security.md).
 4. **Engine to Microsoft.** HTTPS to Fabric, OneLake and Entra ID with your delegated token. The agent uses a service principal or managed identity instead.
 5. **Shell to GitHub.** Updates come from this repository's `stable` and `latest` releases.
-6. **Notebook code.** Code in a notebook runs as you, with your tokens, by design: it is your code. A notebook from someone else is code from someone else. Treat it like a script you were sent. It is **not sandboxed**: it can read your files, including the token cache. The same goes for Python an external AI tool runs after you approve it.
+6. **Notebook code.** Code in a notebook runs as you, with your tokens, by design: it is your code. A notebook from someone else is code from someone else, and that includes its shell commands (`!command`, `%sh` and `%%cmd`/`%%powershell` cells), which run in this PC's shell. Treat it like a script you were sent. It is **not sandboxed**: it can read your files, including the token cache. The same goes for Python an external AI tool runs after you approve it.
 
 ## Threats and what stops them
 
@@ -36,16 +36,36 @@ How Fabric Desktop by KratosBI protects your sign-in, your data and your PC, wha
 | Another program on the PC calls the engine | The pipe to the shell can't be reached from outside. The integrations API (off by default) needs a tool token, answers loopback only and refuses browser requests | In place. A program running as you can still read the token cache (below) |
 | A web page calls the local API | `Origin` refused, `Host` checked against loopback names | In place |
 | A tampered or mixed-up engine download | The engine zip's SHA-256 is checked against the release's `version.json` before it is unpacked, and the unpacked engine must be the build the release names | In place from FD-102a |
-| A tampered or mixed-up app update | The exe's SHA-256 is checked against `version.json` and the exe must carry its build commit | In place from FD-102a. A `version.json` with no checksum is still accepted for the exe (SH-3, HD-008); the engine refuses one after HD-008 |
-| A Stable PC getting an untested engine | The engine comes from the Stable release | **Open** until HD-008: any network error on Stable falls back to the Preview engine |
+| A tampered or mixed-up app update | The exe's SHA-256 is checked against `version.json` and the exe must carry its build commit | In place from FD-102a; a missing checksum is refused for both (HD-008, #158) |
+| A Stable PC getting an untested engine | The engine comes from the Stable release | In place: Stable falls back to another channel only when its release has no engine, never on a network error (HD-008, #158) |
 | Someone who can publish releases replaces every file | Checksums in the same release don't stop this. Code signing would (waiting on the Trusted Signing account); build provenance attestations are produced but nothing checks them yet | **Open** (SH-2, HD-021). Until signing exists, releases publish unsigned without failing |
 | A `curl.exe` or `tar.exe` saved next to the app runs instead of Windows' own | Windows tools run by full path from `%SystemRoot%\System32` | In place from FD-102a |
+| A spoofed Fabric response or a proxy steers the token to another site | A next-page or operation URL from Fabric is followed only over https on the same host or a Fabric, OneLake or Power BI host; anything else is refused before a request is sent | In place (HD-058) |
 | Tokens copied from the PC | Token cache is per user; written atomically; with Windows sign-in the broker holds the primary token | **Partly open**: the cache file isn't encrypted on any OS (FD-131b, decision D-C2), so any program or notebook running as you, including Python an AI tool runs, can read it (EN-2, EN-10) |
-| Tokens or personal data in logs, error messages or Report a problem | `redact.py` removes tokens, keys and passwords from every error the UI shows, the audit log and agent logs; Report a problem and support bundles also remove emails, user names in paths and ids (FD-131a, FD-138) | In place. The agent's JSON log missed secrets in quoted text until HD-007 (EN-5) |
-| Silent overwrites of OneLake data | Writes are version-checked; Save as table and CTAS refuse to replace a table unless asked (PR #51, #54); proofs write to sandboxes | In place. Open until fixed: a failure after the commit can write rows twice (DI-1, HD-001); `notebookutils.fs.rm` deletes OneLake folders recursively (DI-3, HD-003) |
-| Tests writing to production | The [live test](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/live-testing.md) refuses unmarked workspaces, production-looking names and Platform workspaces | In place from FD-101 |
+| Tokens or personal data in logs, error messages or Report a problem | `redact.py` removes tokens, keys, passwords and Teams / Office 365 webhook addresses (whole, or the path a failed post prints on its own) from every error the UI shows, the audit log and agent logs; Report a problem and support bundles also remove emails, user names in paths and ids (FD-131a, FD-138) | In place, including agent log fields (HD-007, #157) |
+| Silent overwrites of OneLake data | Writes are version-checked; Save as table and CTAS refuse to replace a table unless asked (PR #51, #54); proofs write to sandboxes | In place. A retry after a post-commit failure no longer writes rows twice (HD-001, #138); `notebookutils.fs` deletes need `recurse=True`, refuse managed `Tables/` and honour the external-run write guard (HD-003, #154) |
+| Someone on the PC loosens the organization's policy file | The file lives in `%ProgramData%`, which only administrators can change when IT pushes it ([Enterprise install](enterprise-install.md)). **Settings > Help and about** warns when the person using the PC can change it | Partly in place. The policy file stops mistakes, not someone set on getting round it: the engine is installed in the person's own profile, so they could change its code. To enforce which tenants people sign in to, use Microsoft Entra tenant restrictions or Conditional Access |
+| Tests writing to production | The [live test](https://github.com/KratosDataGod/KratosForge/blob/main/docs/live-testing.md) refuses unmarked workspaces, production-looking names and Platform workspaces | In place from FD-101 |
 | Secrets in project or agent files | Config validators refuse secret-looking fields; secrets come from Key Vault or environment variables | In place |
 | Command injection through schedules | Task Scheduler is called with argument lists, never a shell; XML values are escaped | In place |
+
+## Data copied to this PC
+
+Running on this PC means reading OneLake data into the PC: previews, notebook DataFrames, SQL results, local tables and exports. Fabric's own protections are checked when the data is read, and stop applying once it is here.
+
+| In Fabric | On this PC |
+| --- | --- |
+| OneLake data access roles decide which folders and tables a person can read | Checked once, when the app reads with your token. A copy on the PC has no roles: anyone or any program that can read your files can read it |
+| Row-level and column-level security (RLS, OLS) on a SQL analytics endpoint, Warehouse or semantic model filter what a query returns | Not applied. Notebooks and SQL on this PC read the Delta files in OneLake directly, the way Spark does, so they see every row and column your OneLake access allows |
+| Sensitivity labels and Purview policies stay attached to the item | Not carried onto local files or exports |
+| Data stays in the tenant's region and under its retention rules | Cached copies (previews, staged tables, download cache) are deleted after the `local_retention_days` policy (default 30 days, [Azure setup](azure-setup.md)). Local tables, notebook outputs and exports stay until someone deletes them. The tenant's retention rules don't reach them |
+| OneLake diagnostics can log who read what | The read is logged there like any other. What happens to the copy afterward is in the app's own audit log at most |
+
+What this means in practice:
+
+- Give people OneLake access only to the data they may hold on their PC. If a table must only ever be seen through RLS, keep it out of lakehouses those people can read directly, and query it through the SQL endpoint or the semantic model in Fabric instead.
+- The PC is the protection: BitLocker, a managed device and a per-user profile. KratosForge keeps local data under `%LOCALAPPDATA%\FabricDesktop` and project folders and doesn't encrypt it itself.
+- Running a notebook in Fabric (**Runs on: Fabric**) keeps the data in the tenant.
 
 ## Supply chain
 

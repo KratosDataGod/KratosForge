@@ -70,7 +70,7 @@ class PlatformNotifyMixin:
             route = routing.by_name(test)
             if route is None or not route.url:
                 raise ValueError(f"route {test} has no Teams webhook to test")
-            post_teams(route.url, "Fabric Desktop by KratosBI platform notices are on",
+            post_teams(route.url, "KratosForge platform notices are on",
                        ["Requests waiting on someone and broken shortcuts will be posted here, once each."])
         self._save_settings(**{SETTING: raw})  # type: ignore[attr-defined]
         return self.platform_notify_settings()

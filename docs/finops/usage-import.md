@@ -1,12 +1,12 @@
 # Measured usage from Capacity Metrics and Cost Management exports
 
-Fabric Desktop by KratosBI estimates what each Fabric run used from its run time ([Capacity and cost evidence](cost-evidence.md)). For the CU your capacity actually recorded, import a file exported from Microsoft's **Fabric Capacity Metrics app**. The app reads the file on this PC, keeps its rows as **Measured** figures, and sets them beside its own estimates.
+KratosForge estimates what each Fabric run used from its run time ([Capacity and cost evidence](cost-evidence.md)). For the CU your capacity actually recorded, import a file exported from Microsoft's **Fabric Capacity Metrics app**. The app reads the file on this PC, keeps its rows as **Measured** figures, and sets them beside its own estimates.
 
 **Optimize > Cost and savings > Measured usage** (Preview) > **Import usage file**.
 
 ## Why a file
 
-No supported Fabric API gives a developer the CU their runs used. The Capacity Metrics app has it, but only capacity admins can open it, and its semantic model is only supported for the app's own reports, so Fabric Desktop by KratosBI never queries it. A capacity admin can export a table from the app and hand you the CSV. You don't need admin rights to import it, and nothing is sent anywhere.
+No supported Fabric API gives a developer the CU their runs used. The Capacity Metrics app has it, but only capacity admins can open it, and its semantic model is only supported for the app's own reports, so KratosForge never queries it. A capacity admin can export a table from the app and hand you the CSV. You don't need admin rights to import it, and nothing is sent anywhere.
 
 [The usage source decision](plan.md#finops-003-usage-source-decision) records which sources are supported and why. For what a capacity was billed, import an [Azure Cost Management export](#billed-per-capacity-from-azure-cost-management) too.
 

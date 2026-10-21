@@ -30,8 +30,8 @@ function selectedCell() {
 function cellLang(cell) {
   if (cell.type === "markdown") return "markdown";
   const first = cell.source.trimStart().split("\n", 1)[0].trim();
-  if (first.startsWith("%%sql") || first === "%sql") return "sql";
-  if (first.startsWith("%%html")) return "html";
+  if (/^%%sql\b/.test(first) || first === "%sql") return "sql";
+  if (/^%%html\b/.test(first)) return "html";
   return "python";
 }
 
@@ -611,7 +611,7 @@ function setLanguage(cell, lang) {
   // The picker is disabled on a frozen cell; M and Y in command mode come here too.
   if (cell.meta?.frozen) { toast("This cell is frozen. Unfreeze it on the Edit tab to change it."); return; }
   // The old language's magic line goes, including Databricks' %md and %%markdown, so M on a %md cell keeps only its text.
-  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python|md|markdown)[^\n]*|%(sql|python|md)[ \t]*(?=\n|$))\n?/, "");
+  const body = cell.source.replace(/^\s*(%%(sql|html|pyspark|python|md|markdown)\b[^\n]*|%(sql|python|md)[ \t]*(?=\n|$))\n?/, "");
   const wasMarkdown = cell.type === "markdown";
   if (lang === "markdown") {
     cell.type = "markdown";

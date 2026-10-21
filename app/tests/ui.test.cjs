@@ -2883,6 +2883,14 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
+});
+
 // Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
 test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");

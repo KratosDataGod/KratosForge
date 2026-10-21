@@ -25,7 +25,7 @@ from duckdb.experimental.spark.sql import dataframe as _dataframe
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, sql as _sql
+from . import lakehouse, spark_compat, sql as _sql
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
@@ -49,6 +49,22 @@ _REFUSED = {
                               "whole table. Run the cell in Fabric.",
     "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
 }
+
+
+_OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
+
+
+def _refuse_dynamic_overwrite(session: Any) -> None:
+    """A dynamic partitionOverwriteMode set on the session (spark.conf, the builder) replaces only the
+    written partitions in Fabric. Tables here have no partitions, so an overwrite would replace the
+    whole table: refuse it, as the writer option is refused."""
+    try:
+        mode = session.conf.get(_OVERWRITE_MODE, "static")
+    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
+        return
+    if str(mode).strip().lower() == "dynamic":
+        raise NotImplementedError(_REFUSED["partitionoverwritemode"] + " Unset it first: "
+                                  f"spark.conf.unset({_OVERWRITE_MODE!r}).")
 
 
 def _true(value: Any) -> bool:
@@ -118,6 +134,8 @@ class LakehouseWriter:
         return "merge" if _true(self._options.get("mergeschema")) else None
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
+        if how == "overwrite":
+            _refuse_dynamic_overwrite(self._df.session)
         if schema_mode is None:
             current = _columns(name)
             extra = [c for c in data.column_names if c.lower() not in {x.lower() for x in current or []}]
@@ -465,6 +483,9 @@ class LocalSparkSession(SparkSession):
         return super().createDataFrame(data, schema, **kw)
 
 
+# What DuckDB's API leaves out (Window, agg, fillna, pivot, row_number...), on DuckDB SQL.
+spark_compat.install()
+
 # ``df.write`` goes to the lakehouse instead of a DuckDB table in memory.
 _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # type: ignore[assignment]
 
@@ -555,7 +576,9 @@ def _alias_pyspark() -> None:
     import duckdb.experimental.spark.sql.functions as functions
     import duckdb.experimental.spark.sql.types as types
     sys.modules.update({"pyspark": spark_pkg, "pyspark.sql": spark_sql,
-                        "pyspark.sql.functions": functions, "pyspark.sql.types": types})
+                        "pyspark.sql.functions": functions, "pyspark.sql.types": types,
+                        "pyspark.sql.window": spark_compat.window_module})
+    spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
     spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
     LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]
@@ -565,7 +588,10 @@ class _Builder:
     def appName(self, *_a: Any) -> _Builder:  # noqa: N802
         return self
 
-    def config(self, *_a: Any, **_kw: Any) -> _Builder:
+    def config(self, key: Any = None, value: Any = None, *_a: Any, **_kw: Any) -> _Builder:
+        """A ``key, value`` setting goes to spark.conf, so one the writer must honor isn't dropped."""
+        if isinstance(key, str) and value is not None:
+            session().conf.set(key, value)
         return self
 
     master = enableHiveSupport = appName

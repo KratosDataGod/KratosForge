@@ -8,15 +8,20 @@ never returned to the UI, recorded in the audit log, or written to a backup.
 
 from __future__ import annotations
 
+import datetime as dt
+import json
 from typing import Any
 from urllib.parse import urlparse
 
 from .dataops_service import post_teams
-from .workloads.notify import Outbox
-from .workloads.platform_notify import Ledger, PlatformRouting, send, validate
+from .workloads.notify import Outbox, transaction
+from .workloads.platform_notify import OPENS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"}
 SETTING = "platform_notify"
+# What the bell shows for each notice still open, beside the ledger in platform_outbox.sqlite.
+_NOTICE = ("CREATE TABLE IF NOT EXISTS notice (key TEXT PRIMARY KEY, kind TEXT, title TEXT, whom TEXT, "
+           "domain TEXT, env TEXT, detail TEXT, open TEXT)")
 
 
 class PlatformNotifyMixin:
@@ -46,7 +51,20 @@ class PlatformNotifyMixin:
                     "events": [{"dedupe": e["dedupe"], "result": "skipped", "reason": "no platform Teams route set"}
                                for e in checked]}
         outbox, ledger = self._pn_paths()
-        return send(checked, routing, outbox, ledger, post_teams)
+        out = send(checked, routing, outbox, ledger, post_teams)
+        self._pn_remember([e for e, r in zip(checked, out["events"]) if r["result"] != "skipped"])
+        return out
+
+    def _pn_remember(self, events: list[dict[str, Any]]) -> None:
+        """What the bell shows for a notice still open: its title, who it waits on and where it opens.
+        A request's detail isn't kept, as it isn't posted."""
+        with transaction(self.root / "platform_outbox.sqlite") as db:
+            db.execute(_NOTICE)
+            for e in events:
+                if e["kind"] in OPENS:
+                    db.execute("INSERT OR REPLACE INTO notice VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                               (e["dedupe"], e["kind"], e["title"], recipients(e["to"]), e["domain"], e["env"],
+                                e["detail"] if e["kind"].startswith("shortcut.") else "", json.dumps(e["open"])))
 
     def platform_notify_settings(self) -> dict[str, Any]:
         """The routes without their webhook addresses: whether one is set, and its host."""
@@ -76,6 +94,24 @@ class PlatformNotifyMixin:
         return self.platform_notify_settings()
 
     def platform_notify_open(self) -> dict[str, Any]:
-        """Requests still waiting and shortcuts still broken, as far as this PC's notices know."""
-        _, ledger = self._pn_paths()
-        return {"open": ledger.open_keys()}
+        """Requests still waiting and shortcuts still broken, as far as this PC's notices know,
+        newest first, plus the notices Teams hasn't taken yet and the last reason why."""
+        outbox, ledger = self._pn_paths()
+        with transaction(self.root / "platform_outbox.sqlite") as db:
+            db.execute(_NOTICE)
+            known = {r[0]: r for r in db.execute("SELECT * FROM notice").fetchall()}
+        rows = []
+        for k in reversed(ledger.open_keys()):
+            n = known.get(k["key"])
+            rows.append({"key": k["key"], "kind": k["kind"],
+                         "at": dt.datetime.fromtimestamp(k["at"], dt.timezone.utc).isoformat(),
+                         "title": n[2] if n else "", "whom": n[3] if n else "", "domain": n[4] if n else "",
+                         "env": n[5] if n else "", "detail": n[6] if n else "",
+                         "open": json.loads(n[7]) if n else ({"view": "platform", "tab": "requests"}
+                                                             if k["kind"] == "request.waiting"
+                                                             else {"view": "shortcuts", "tab": "health"})})
+        pending = outbox.pending()
+        failed = [p for p in pending if p["attempts"]]
+        return {"open": rows, "waiting": len(pending), "held": len(pending) - len(failed),
+                "error": failed[-1]["error"] if failed else "",
+                "routes": bool(self._pn_raw().get("routes"))}

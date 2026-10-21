@@ -25,7 +25,7 @@ from duckdb.experimental.spark.sql import dataframe as _dataframe
 from duckdb.experimental.spark.sql.dataframe import DataFrame
 from duckdb.experimental.spark.sql.session import SparkSession
 
-from . import lakehouse, sql as _sql
+from . import lakehouse, spark_api, spark_compat, sql as _sql
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
 _RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
@@ -49,6 +49,22 @@ _REFUSED = {
                               "whole table. Run the cell in Fabric.",
     "path": "Writing a table to its own path (an external table) runs in Fabric. Leave out the path option.",
 }
+
+
+_OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
+
+
+def _refuse_dynamic_overwrite(session: Any) -> None:
+    """A dynamic partitionOverwriteMode set on the session (spark.conf, the builder) replaces only the
+    written partitions in Fabric. Tables here have no partitions, so an overwrite would replace the
+    whole table: refuse it, as the writer option is refused."""
+    try:
+        mode = session.conf.get(_OVERWRITE_MODE, "static")
+    except (KeyError, NotImplementedError):  # a conf that can't answer has nothing set
+        return
+    if str(mode).strip().lower() == "dynamic":
+        raise NotImplementedError(_REFUSED["partitionoverwritemode"] + " Unset it first: "
+                                  f"spark.conf.unset({_OVERWRITE_MODE!r}).")
 
 
 def _true(value: Any) -> bool:
@@ -118,6 +134,8 @@ class LakehouseWriter:
         return "merge" if _true(self._options.get("mergeschema")) else None
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
+        if how == "overwrite":
+            _refuse_dynamic_overwrite(self._df.session)
         if schema_mode is None:
             current = _columns(name)
             extra = [c for c in data.column_names if c.lower() not in {x.lower() for x in current or []}]
@@ -359,6 +377,24 @@ class LocalSparkSession(SparkSession):
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
         self._views: dict[str, str] = {}
         self._snapshot = None
+        self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
+        self._local_context = spark_api.LocalSparkContext(self)
+        catalog = self.catalog
+        catalog.tableExists = lambda tableName, dbName=None: spark_api.table_exists(self, tableName, dbName)  # noqa: N803
+
+    @property
+    def sparkContext(self) -> spark_api.LocalSparkContext:  # noqa: N802
+        return self._local_context
+
+    @property
+    def version(self) -> str:
+        return spark_api.SPARK_VERSION
+
+    def range(self, start: int, end: int | None = None, step: int = 1, numPartitions: int | None = None) -> DataFrame:  # noqa: A003, N803, ARG002
+        """``spark.range``: one column ``id``, as in Spark."""
+        if end is None:
+            start, end = 0, start
+        return DataFrame(self.conn.sql(f"SELECT range AS id FROM range({int(start)}, {int(end)}, {int(step)})"), self)
 
     # Lakehouse tables are registered once per attached lakehouse; a new attach starts over.
     def _bound(self) -> dict[str, str]:
@@ -465,6 +501,9 @@ class LocalSparkSession(SparkSession):
         return super().createDataFrame(data, schema, **kw)
 
 
+# What DuckDB's API leaves out (Window, agg, fillna, pivot, row_number...), on DuckDB SQL.
+spark_compat.install()
+
 # ``df.write`` goes to the lakehouse instead of a DuckDB table in memory.
 _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # type: ignore[assignment]
 
@@ -555,7 +594,9 @@ def _alias_pyspark() -> None:
     import duckdb.experimental.spark.sql.functions as functions
     import duckdb.experimental.spark.sql.types as types
     sys.modules.update({"pyspark": spark_pkg, "pyspark.sql": spark_sql,
-                        "pyspark.sql.functions": functions, "pyspark.sql.types": types})
+                        "pyspark.sql.functions": functions, "pyspark.sql.types": types,
+                        "pyspark.sql.window": spark_compat.window_module})
+    spark_sql.Window = spark_compat.Window  # type: ignore[attr-defined]
     # ``SparkSession.builder.getOrCreate()`` in a cell returns the notebook's session.
     spark_sql.SparkSession = LocalSparkSession  # type: ignore[attr-defined]
     LocalSparkSession.builder = _Builder()  # type: ignore[attr-defined]
@@ -565,7 +606,15 @@ class _Builder:
     def appName(self, *_a: Any) -> _Builder:  # noqa: N802
         return self
 
-    def config(self, *_a: Any, **_kw: Any) -> _Builder:
+    def config(self, key: Any = None, value: Any = None, conf: Any = None, map: Any = None) -> _Builder:  # noqa: A002
+        """Settings given to the builder go to spark.conf, as in Spark."""
+        pairs = dict(map or {})
+        if conf is not None and hasattr(conf, "getAll"):
+            pairs.update(dict(conf.getAll()))
+        if key is not None:
+            pairs[key] = value
+        for k, v in pairs.items():
+            session().conf.set(k, v)
         return self
 
     master = enableHiveSupport = appName
@@ -596,6 +645,7 @@ def reset() -> None:
 
 
 def install(namespace: dict[str, Any]) -> None:
+    spark_api.install()
     _alias_pyspark()
     _alias_delta()
     namespace["spark"] = session()

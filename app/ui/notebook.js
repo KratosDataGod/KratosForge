@@ -14,6 +14,7 @@ const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
 let lastDKey = 0;
 let cancelRequested = false;
+let runningAll = false;  // inside runCells: cells show no spark of their own and say nothing alone
 
 const langComp = new CM.Compartment();
 const gutterComp = new CM.Compartment();
@@ -80,6 +81,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -1148,7 +1150,19 @@ async function runCell(cell, { timeLimit = true } = {}) {
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
+  cellFx(cell);  // after dbgAfterRun, which draws the results again
   return ok;
+}
+
+// Forge animations (motion.js): a spark when a cell succeeds on its own, an ember going out when
+// it fails, and one announcement for screen readers. Run all shows its progress track instead of
+// a spark per cell; Stop and Cancel show nothing.
+function cellFx(cell) {
+  if (cell.status !== "ok" && cell.status !== "error") return;
+  const n = (state.notebook?.cells.indexOf(cell) ?? -1) + 1;
+  if (!runningAll) announce(cell.status === "ok" ? `Cell ${n} succeeded` : `Cell ${n} failed`);
+  if (cell.status === "ok" && runningAll) return;
+  fx(document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`), cell.status === "ok" ? "spark" : "fail");
 }
 
 async function runCells(cells) {
@@ -1157,16 +1171,29 @@ async function runCells(cells) {
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy");
   renderNotebook();
-  for (const [i, cell] of code.entries()) {
-    const ok = await runCell(cell);
-    if (!ok || cancelRequested) {
-      code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
-      setKernel(stopRequested ? "stopped" : "idle");
-      return;
+  // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
+  const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell") : null;
+  track?.set(0, code.length);
+  runningAll = true;
+  try {
+    for (const [i, cell] of code.entries()) {
+      const ok = await runCell(cell);
+      if (!ok || cancelRequested) {
+        track?.stop();
+        code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
+        setKernel(stopRequested ? "stopped" : "idle");
+        announce(cell.status === "error" ? `Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed` : "Run stopped");
+        return;
+      }
+      track?.set(i + 1, code.length);
+      setKernel("busy");
     }
-    setKernel("busy");
+    track?.arrive();
+    if (code.length) announce(`Run finished: ${code.length} ${code.length === 1 ? "cell" : "cells"} succeeded`);
+    setKernel(stopRequested ? "stopped" : "idle");
+  } finally {
+    runningAll = false;
   }
-  setKernel(stopRequested ? "stopped" : "idle");
 }
 
 function runAll() {

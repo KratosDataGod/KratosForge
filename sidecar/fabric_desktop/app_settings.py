@@ -20,6 +20,8 @@ Keys:
                      organization that wants its own app registration
     channel          "stable" (default) or "preview": which release the app updates to
     show_preview     true to show features still in preview (default true)
+    forge_animations  true (default) to show the small wolf, forge and spark animations on notebook
+                     runs; Windows' reduced-motion setting turns them off either way
     kernel_process   true to run each notebook's cells in a Python process of its own, so Stop
                      and crashes end only that process (default false while in preview)
     cell_time_limit_minutes  with kernel_process: minutes a cell may run before it's interrupted;
@@ -90,7 +92,7 @@ DEFAULTS: dict[str, Any] = {"client_id": MICROSOFT_CLIENT_ID, "channel": "stable
                             "allow_replay_samples": True, "allowed_tenants": [], "local_retention_days": 30, "telemetry": False,
                             "telemetry_connection_string": "",
                             "cell_time_limit_minutes": 0, "kernel_memory_limit_gb": 0,
-                            "allow_optimize_lakehouse": True}
+                            "allow_optimize_lakehouse": True, "forge_animations": True}
 TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "show_preview": bool, "support_url": str,
                                             "platform": dict, "kernel_process": bool, "auto_update": bool,
                                             "allow_fabric_runs": bool, "allow_replay_samples": bool,
@@ -98,9 +100,9 @@ TYPES: dict[str, type | tuple[type, ...]] = {"client_id": str, "channel": str, "
                                             "local_retention_days": int, "telemetry": bool,
                                             "telemetry_connection_string": str,
                                             "cell_time_limit_minutes": (int, float), "kernel_memory_limit_gb": (int, float),
-                                            "allow_optimize_lakehouse": bool}
+                                            "allow_optimize_lakehouse": bool, "forge_animations": bool}
 USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetry",  # support_url is for IT only
-             "cell_time_limit_minutes", "kernel_memory_limit_gb")
+             "cell_time_limit_minutes", "kernel_memory_limit_gb", "forge_animations")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
 
@@ -413,7 +415,7 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             new = str(new or "").strip()
             if new and not valid_client_id(new):
                 raise ValueError("That isn't an app (client) ID. It looks like 00000000-0000-0000-0000-000000000000.")
-        if key in ("show_preview", "kernel_process", "telemetry"):
+        if key in ("show_preview", "kernel_process", "telemetry", "forge_animations"):
             new = bool(new)
         if key in LIMITS:
             new = _limit(key, new)

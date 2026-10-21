@@ -7,6 +7,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Notebooks and SQL](notebooks.md):** writing and running notebooks on your PC, Fabric code that works here, publishing, Run in Fabric and schedules, and the SQL query tab.
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
+- **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
 - **[Metadata framework](metadata-guide.md):** building and running medallion layers from config, step by step, with a reference for every setting.
 
@@ -19,6 +20,7 @@ New here? Install first ([install.md](install.md)). Setting it up for others? St
 | Part | Where | What it does |
 | --- | --- | --- |
 | **Left rail** | Left edge | The pages: Home, Create, Workspaces, OneLake, Data mesh, Platform (Preview), Fabric, Monitor, and Settings at the bottom. Below them are the items you opened recently (a workspace, a SQL query, a notebook), each with an **×** to close it. Closing a notebook saves it first. |
+| **Back and Forward** | Top bar, left | Go back to the page you were on before, tab included, and forward again (**Alt+Left** and **Alt+Right**). Back after **Open in Fabric** returns to the page you opened it from. When you start the app again, it opens on the page you were on last, or on Home if that page is hidden or gone. |
 | **Search box** | Top bar | Opens the command bar (below). When you pick **Show only items matching ...**, the current page is filtered by that text until you clear the box. |
 | **Environment picker** | Top bar, on Data mesh pages only | Dev, Test or Prod. Every Data mesh page shows the environment picked here. The pill next to it says where that environment runs, for example "Runs in Fabric · Sales - Test"; click it to change that. |
 | **Bell** | Top right | The activity tray (below). The number on it counts what is running plus new problems; it turns red when there's a problem you haven't seen. |
@@ -41,7 +43,25 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - A menu (your account, Publish options, Git) opens on its first item. The **Up** and **Down** arrows move through it, **Enter** picks, and **Esc** closes it and goes back to its button.
 - Rows and cards that open something when clicked, such as a notebook, lakehouse, run or workload, can be reached with **Tab** and opened with **Enter** or **Space**.
 - In a row of tabs, **Left** and **Right** move to the next tab, and **Home** and **End** to the first and last. Some pages' tabs don't support this yet.
+- **Alt+Left** goes back to the page before, and **Alt+Right** forward again, like the arrows at the top left. They don't while you're typing in a box or an editor, or while a dialog is open. **Go back** and **Go forward** are in the command bar too.
+- While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
+
+### Keyboard shortcuts
+
+Press **?** when you aren't typing in a box to see every shortcut. The list also opens from the command bar (**Keyboard shortcuts**) and from **Settings > Help and about > Keyboard shortcuts**. It is drawn from the same table the app reads its keys from, so it always matches what the keys do.
+
+| Keys | What they do |
+| --- | --- |
+| **Ctrl+K** | Open the command bar |
+| **?** | Show the list of shortcuts |
+| **Esc** | Close the command bar, a menu, a dialog or the activity tray |
+| **Tab**, **Shift+Tab** | Move to the next or previous control; in a dialog, focus stays inside it |
+| **Enter** or **Space** | Open the row or card that has focus |
+| **Up**, **Down**, **Home**, **End** | Move through an open menu |
+| **Left**, **Right**, **Home**, **End** | Move between tabs |
+
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. The notebook editor has more keys (run a cell, add, delete or move cells, command mode); they're in the [notebook guide](notebooks.md#editing).
 
 ### The bell: activity
 
@@ -76,7 +96,11 @@ Home shows a **Get started** list with these steps until you have a metadata pro
 
 ## Home
 
-Home answers "what happened since I was last here". From the top:
+Home answers "what happened since I was last here".
+
+Home shows as soon as the app opens. While KratosForge checks its components and looks for a newer build, Home reads "Starting the local engine..." with placeholders, and the **Start something** buttons wait. When the check is done, each section fills in. If the check takes more than a moment, or something needs updating or fixing, the **Checking components** window opens on top.
+
+From the top:
 
 | Section | What it shows |
 | --- | --- |
@@ -91,6 +115,10 @@ Home answers "what happened since I was last here". From the top:
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
+
+### All notebooks
+
+**All notebooks**, under **Recent notebooks**, lists every notebook on this PC and in your notebooks repositories, with search inside them. The [notebook files guide](notebook-files.md#all-notebooks) has the details.
 
 ### Ready to work
 
@@ -135,6 +163,10 @@ New items:
 
 In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Problems** lists what the code checks find, each with its cell and fix, and **Run clean check** runs every cell from the top in a fresh kernel on this PC, with table writes kept in a sandbox folder that is deleted afterwards. **Clean up** lists tidy-ups you tick and apply (unused or repeated imports, spacing, empty cells, print lines), which Undo puts back until you edit again, and suggestions such as a table read twice. See [Validate a notebook](validate-notebook.md).
 
+## Notebook files
+
+**All notebooks** (on Home, under Recent notebooks) lists every notebook, with a search that finds names and text inside cells. From there you can **Open a notebook file** from anywhere on this PC (a copy is added; the file isn't changed), **Save a copy**, **Rename**, **Move** and **Delete**, which keeps the notebook in **Recently deleted** for 30 days and turns its schedules on this PC off until you restore it. In Workspaces, **Edit on this PC** (Preview) copies a Fabric notebook here, linked to its item; Publish then shows any changes made in Fabric before it would replace them. See [Notebook files](notebook-files.md).
+
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
@@ -162,6 +194,10 @@ Previews only read; nothing is changed. They use the permissions sign-in already
 ### A lakehouse
 
 Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and file sizes) as a tree, with **Open in new notebook** and **New SQL query**. Click a table or file to [preview](#item-preview-preview) it beside the tree.
+
+### SQL queries
+
+**New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query).
 
 ## OneLake
 
@@ -290,7 +326,7 @@ Monitor has two halves.
 
 **From KratosForge** (top) has three tabs:
 
-- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
+- **Runs:** everything this app ran or started, in every environment, on this PC and in Fabric: metadata runs, notebook table writes, notebook runs in Fabric, scheduled runs on this PC, and table maintenance jobs. Filter by environment (All, Dev, Test, Prod) and by where it ran (Anywhere, This PC, Fabric). **Problems first** puts failures at the top. Each failed row says why. When a failed scheduled run on this PC couldn't post its Teams alert, the row says that too, and so does the schedule's last result in **Schedules**. The alert isn't lost: it waits on this PC (in `schedule_alerts.sqlite3`) and is posted, marked **Delayed**, after the next scheduled run here, oldest first; one still waiting after three days is dropped. If the metadata project can't be read (a broken `layers.toml`, say), Runs says so above the list instead of showing no metadata runs, Home says it couldn't check the metadata project, and the bell says freshness wasn't checked. Each metadata run says where it ran: **This PC**, **Agent** with the agent's name and server, or **Fabric**. Click a row for its details: a metadata run shows each step with rows and time, each check with how many rows failed, and the job it belongs to (the agent's job id, or the request id of a run in Fabric, which names its result file in `LH_Meta/Files/_fabric_desktop/results/`) and which try it was. Test and Prod runs show once you're signed in.
 - **Schedules** (Preview): every schedule, on this PC and in Fabric, in one list, with how its last run went, when it runs next, and **Run now**, **On/Off**, **Open** and **Remove**. **Remove** asks first and says what stops: on this PC it deletes the Windows task, in Fabric it deletes the schedule there, and past runs stay. To stop a schedule for a while, turn it Off instead. Schedules on this PC are started by Windows Task Scheduler even when the app is closed, as long as the PC is on and you are signed in to it. Fabric schedules run on capacity even when your PC is off. If this PC's schedules file is ever damaged (a crash mid-save, say), it is moved aside to `schedules.json.corrupt-<time>` in the app's folder, and a warning above the list says when and where. Schedules saved before then aren't listed, but Task Scheduler may still have tasks for them under **FabricDesktop**. Their runs fail and don't show here. The moved-aside file has the old schedules if you want to add them again. The warning goes away once that file is moved out of the folder or deleted.
 - **Operations** (Preview): the views for running workloads day to day. **Show** picks one, and Operations opens on the last one you used:
   - **Workloads**: everything you build and run, with its health, owner and what you can do with it. See [Workloads](#workloads-preview) below.
@@ -473,9 +509,9 @@ A channel change takes effect the next time KratosForge starts. More detail, inc
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. To hide them, turn off **Settings > Preview features**. A few are core steps, such as Promote and the [risk check before a run](finops/risk-check.md): they always show, with their Preview tag.
 
-The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
+The one list of Preview features, with where each one is, is on the [documentation home](README.md#what-is-tested-and-what-isnt), which also says what is tested and what isn't.
 
 ## Report a problem
 

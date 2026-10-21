@@ -69,3 +69,20 @@ def test_a_notebook_exported_with_outputs_keeps_altair_charts_for_jupyter():
     nb = json.loads(to_ipynb_text([{"type": "code", "source": "c", "outputs": [{"type": "vegalite", "spec": spec}]}], True))
     [out] = nb["cells"][0]["outputs"]
     assert out["data"]["application/vnd.vegalite.v6+json"] == spec
+
+
+def test_plotly_offline_plot_and_write_html_never_open_a_browser(tmp_path, monkeypatch):
+    import webbrowser
+    monkeypatch.setattr(webbrowser, "open", lambda *a, **k: pytest.fail("plotly opened a browser"))
+    monkeypatch.chdir(tmp_path)
+    out = Kernel().run("import plotly.graph_objects as go\nfrom plotly.offline import plot\n"
+                       "fig = go.Figure(go.Bar(x=[1, 2], y=[3, 4]))\n"
+                       "print(plot(fig))\n"  # auto_open is on by default: its tab becomes the cell's output
+                       "plot(fig, filename='quiet.html', auto_open=False)\n"
+                       "fig.write_html('saved.html', auto_open=True)\n"
+                       "div = plot(fig, output_type='div')\nprint('Plotly.newPlot' in div and '<html' not in div)")
+    assert out["status"] == "ok", out
+    chart, printed = out["outputs"]
+    assert chart["type"] == "html" and "Plotly.newPlot" in chart["html"]
+    assert printed == {"type": "stream", "text": "temp-plot.html\nTrue\n"}
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["quiet.html", "saved.html", "temp-plot.html"]

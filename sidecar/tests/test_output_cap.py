@@ -1,6 +1,8 @@
 """Per-cell output caps: printed text past STREAM_CHARS goes to a file, rich outputs past RICH_CHARS stop."""
 
+import os
 import re
+import time
 from pathlib import Path
 
 from fabric_desktop import notebook
@@ -15,7 +17,7 @@ def test_printed_output_past_the_cap_is_truncated_and_kept_in_a_file(monkeypatch
     stream, note = out["outputs"]
     assert stream["type"] == "stream" and len(stream["text"]) == 100 and stream["text"].startswith("line 0\n")
     assert note["type"] == "text" and note["text"].startswith("Output truncated: this cell printed more than 100 characters.")
-    path = Path(re.search(r"All of it is in (.+)\.$", note["text"]).group(1))
+    path = Path(re.search(r", is in (.+)\.$", note["text"]).group(1))
     full = "".join(f"line {i}\n" for i in range(50)) + "done\n"
     assert path.parent == tmp_path and path.read_text(encoding="utf-8") == full
 
@@ -64,3 +66,48 @@ def test_clearing_output_starts_the_count_again(monkeypatch, tmp_path):
     run.clear(wait=True)
     run.write("c" * 5)
     assert run.outputs == [{"type": "stream", "text": "c" * 5}]
+
+
+def test_the_file_stops_at_its_own_cap(monkeypatch, tmp_path):
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 10)
+    monkeypatch.setattr(notebook, "SPILL_CHARS", 25)
+    monkeypatch.setattr(notebook.tempfile, "tempdir", str(tmp_path))
+    run = _Run(1)
+    for _ in range(10):
+        run.write("x" * 8)
+    run.finish("ok")
+    [path] = tmp_path.glob("kratosforge-output-*.txt")
+    text = path.read_text(encoding="utf-8")
+    assert text.startswith("x" * 25 + "\n[KratosForge stopped keeping") and len(text) < 200
+
+
+def test_an_error_shows_after_the_rich_cap(monkeypatch):
+    monkeypatch.setattr(notebook, "RICH_CHARS", 1_000_000)
+    out = Kernel().run("for i in range(3):\n    displayHTML('x' * 600_000)\nraise ValueError('the real problem')")
+    assert out["status"] == "error"
+    assert [o["type"] for o in out["outputs"]] == ["html", "text", "error"]
+    assert out["outputs"][2]["evalue"] == "the real problem"
+
+
+def test_restart_and_clear_output_delete_the_files(monkeypatch, tmp_path):
+    monkeypatch.setattr(notebook, "STREAM_CHARS", 10)
+    monkeypatch.setattr(notebook.tempfile, "tempdir", str(tmp_path))
+    k = Kernel()
+    k.run("print('a' * 20)")
+    assert len(list(tmp_path.glob("kratosforge-output-*"))) == 1
+    k.restart()
+    assert not list(tmp_path.glob("kratosforge-output-*"))
+    k.run("from IPython.display import clear_output\nprint('b' * 20)\nclear_output()\nprint('after')")
+    assert not list(tmp_path.glob("kratosforge-output-*"))
+
+
+def test_the_engine_sweeps_files_left_by_closed_sessions(monkeypatch, tmp_path):
+    monkeypatch.setattr(notebook.tempfile, "tempdir", str(tmp_path))
+    old, new = tmp_path / "kratosforge-output-old.txt", tmp_path / "kratosforge-output-new.txt"
+    other = tmp_path / "someone-else.txt"
+    for p in (old, new, other):
+        p.write_text("x")
+    os.utime(old, (time.time() - 7200, time.time() - 7200))
+    os.utime(other, (time.time() - 7200, time.time() - 7200))
+    notebook.sweep_spills()
+    assert not old.exists() and new.exists() and other.exists()

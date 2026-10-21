@@ -39,7 +39,7 @@ REFUSED = {"pyspark": "spark here is the app's own local Spark API",
            "delta-spark": "Delta tables are read and written through the app's own Delta support"}
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,63}$")
 # Windows device names: a folder can't be called these, with or without an extension.
-_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$", re.IGNORECASE)
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[0-9]|lpt[0-9]) *(\..*)?$", re.IGNORECASE)
 
 
 def check_name(name: str) -> str:

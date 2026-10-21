@@ -71,7 +71,7 @@ def test_only_package_names_are_accepted():
 
 
 def test_windows_device_names_are_refused():
-    for bad in ["CON", "nul", "Com1", "lpt9.env", "aux.txt"]:
+    for bad in ["CON", "nul", "Com1", "lpt9.env", "aux.txt", "con .txt", "prn  .x"]:
         with pytest.raises(ValueError, match="Windows keeps for a device"):
             check_name(bad)
     assert check_name("Console tools") == "Console tools" and check_name("com10") == "com10"

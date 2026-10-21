@@ -56,6 +56,39 @@ PREVIEW_ROWS = 1000
 # and rich outputs (tables, charts, HTML) past RICH_CHARS are dropped, each with one line saying so.
 STREAM_CHARS = 1_000_000
 RICH_CHARS = 16_000_000
+# The file stops at SPILL_CHARS. Files go when the kernel restarts or the clear_output() that hides
+# them runs, and the engine sweeps ones left by a closed session when it starts (sweep_spills).
+SPILL_CHARS = 100_000_000
+SPILL_PREFIX = "kratosforge-output-"
+_spills: set[Path] = set()
+_spills_lock = threading.Lock()
+
+
+def _drop_spill(path: Path, handle: Any = None) -> None:
+    if handle is not None:
+        with contextlib.suppress(OSError):
+            handle.close()
+    with _spills_lock:
+        _spills.discard(path)
+    with contextlib.suppress(OSError):
+        path.unlink()
+
+
+def remove_spills() -> None:
+    """Delete the output files this process's cells wrote (a kernel restart)."""
+    with _spills_lock:
+        paths = list(_spills)
+    for path in paths:
+        _drop_spill(path)
+
+
+def sweep_spills(idle_seconds: float = 3600) -> None:
+    """At engine start: delete output files from earlier sessions, leaving any written to lately."""
+    cutoff = time.time() - idle_seconds
+    for path in Path(tempfile.gettempdir()).glob(f"{SPILL_PREFIX}*.txt"):
+        with contextlib.suppress(OSError):
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
 _CELL_FILE = "<cell>"
 # Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
 _ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
@@ -258,10 +291,13 @@ class _Run:
             self.version += 1
 
     def _reset(self) -> None:
+        if getattr(self, "spill", None) is not None:
+            _drop_spill(self.spill, self.spill_file)
         self.outputs, self.clear_pending = [], False
-        self.stream_chars = self.rich_chars = 0
+        self.stream_chars = self.rich_chars = self.spill_chars = 0
         self.spill: Path | None = None
-        self.spill_failed = self.rich_dropped = False
+        self.spill_file: Any = None
+        self.overflowed = self.rich_dropped = False
 
     def _note(self, text: str) -> None:
         self.outputs.append({"type": "text", "text": text})
@@ -272,7 +308,7 @@ class _Run:
         with self.lock:
             if self.clear_pending:
                 self._reset()
-            if self.spill is not None or self.spill_failed:
+            if self.overflowed:
                 self._spill(text)
                 return
             room = STREAM_CHARS - self.stream_chars
@@ -293,35 +329,44 @@ class _Run:
         """The first write past STREAM_CHARS: keep what fits, put all printed text in a file."""
         if room:
             self._stream(text[:room])
-        self.stream_chars = STREAM_CHARS
+        self.stream_chars, self.overflowed = STREAM_CHARS, True
         shown = "".join(o["text"] for o in self.outputs if o["type"] == "stream")
         try:
-            fd, name = tempfile.mkstemp(prefix="kratosforge-output-", suffix=".txt")
-            with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
-                f.write(shown[:len(shown) - min(room, len(text))] + text)
-            self.spill = Path(name)
-            where = f" All of it is in {name}."
+            fd, name = tempfile.mkstemp(prefix=SPILL_PREFIX, suffix=".txt")
+            self.spill, self.spill_file = Path(name), os.fdopen(fd, "w", encoding="utf-8", errors="replace")
+            with _spills_lock:
+                _spills.add(self.spill)
+            where = f" All of it, up to {SPILL_CHARS // 1_000_000} million characters, is in {name}."
         except OSError:
-            self.spill_failed = True
             where = " The rest wasn't kept."
         self._note(f"Output truncated: this cell printed more than {STREAM_CHARS:,} characters.{where}")
+        self._spill(shown[:len(shown) - room] + text)
 
     def _spill(self, text: str) -> None:
-        if self.spill is None:
+        """Printed text after the cap goes to the file, until it holds SPILL_CHARS."""
+        if self.spill_file is None:
             return
+        room = SPILL_CHARS - self.spill_chars
         try:
-            with self.spill.open("a", encoding="utf-8", errors="replace") as f:
-                f.write(text)
+            self.spill_file.write(text[:room])
+            self.spill_chars += min(len(text), room)
+            if len(text) > room:
+                self.spill_file.write(f"\n[KratosForge stopped keeping this cell's output at {SPILL_CHARS:,} characters.]\n")
+                self.spill_file.close()
+                self.spill_file = None
         except OSError:
-            self.spill = None
-            self.spill_failed = True
+            with contextlib.suppress(OSError):
+                self.spill_file.close()
+            self.spill_file = None
 
     def add(self, output: dict[str, Any]) -> None:
         size = len(json.dumps(output, default=str))
         with self.lock:
             if self.clear_pending:
                 self._reset()
-            if self.rich_chars + size > RICH_CHARS:
+            if output.get("type") == "error":  # an error always shows, whatever came before it
+                self.outputs.append(output)
+            elif self.rich_chars + size > RICH_CHARS:
                 if self.rich_dropped:
                     return
                 self.rich_dropped = True
@@ -344,6 +389,10 @@ class _Run:
 
     def finish(self, status: str) -> None:
         with self.lock:
+            if self.spill_file is not None:
+                with contextlib.suppress(OSError):
+                    self.spill_file.close()
+                self.spill_file = None
             self.status = status
             self.seconds = round(time.monotonic() - self.started, 2)
             self.version += 1
@@ -512,6 +561,8 @@ class Kernel:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
         self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
+        if hasattr(self, "namespace"):  # not the first start: another kernel in this process may own files
+            remove_spills()
         self._reset()
 
     def _handler_alive(self) -> bool:

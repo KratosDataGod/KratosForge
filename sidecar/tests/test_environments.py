@@ -3,6 +3,7 @@ installed into a folder of its own and seen only by notebooks attached to it."""
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -42,9 +43,13 @@ print("Successfully installed", " ".join(args[args.index("-c") + 2:]))
 def fake_python(tmp_path, monkeypatch):
     script = tmp_path / "fakepy.py"
     script.write_text(FAKE_PIP)
-    launcher = tmp_path / "fakepython"
-    launcher.write_text(f"#!/bin/sh\nexec {sys.executable} {script} \"$@\"\n")
-    launcher.chmod(0o755)
+    if os.name == "nt":  # Windows runs .cmd files, not shebang scripts
+        launcher = tmp_path / "fakepython.cmd"
+        launcher.write_text(f'@"{sys.executable}" "{script}" %*\n')
+    else:
+        launcher = tmp_path / "fakepython"
+        launcher.write_text(f"#!/bin/sh\nexec {sys.executable} {script} \"$@\"\n")
+        launcher.chmod(0o755)
     return str(launcher)
 
 

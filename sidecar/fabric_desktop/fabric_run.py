@@ -244,9 +244,11 @@ _FABRIC_ONLY = [
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse\.(create|update|delete|loadTable)|warehouse|"
+    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|warehouse|"
                 r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
+# Databricks' utilities: this PC has them, Fabric has notebookutils instead.
+_DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 _SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
@@ -286,6 +288,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             elif m := next((m for m in magics.find(source) if m.name == "sql" and _SQL_WRITE.search(m.rest)), None):
                 local.append({"cell": n, "text": "changes table rows in place (MERGE, UPDATE or DELETE), which runs in Fabric only",
                               "code": _snippet(source.split("\n", m.line - 1)[-1])})
+        if m := _DBUTILS.search(source):
+            fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "
+                                               "use notebookutils in Fabric", "code": _snippet(source, m)})
         if magics.cell(source).language == "configure":
             try:
                 configure_report(magics.cell(source).body)

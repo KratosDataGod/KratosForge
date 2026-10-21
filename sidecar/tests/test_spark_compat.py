@@ -98,6 +98,16 @@ def test_arrays_and_distincts(spark, F):
     assert len(set(ids)) == 3
 
 
+def test_format_number_rounds_half_even_and_ignored_arguments_say_so(spark, F, capsys):
+    n = spark.createDataFrame([(2.345,), (0.125,), (1234567.5,)], ["x"])
+    assert rows(n.select(F.format_number("x", 2))) == [("2.34",), ("0.12",), ("1,234,567.50",)]
+    assert rows(n.limit(1).select(F.format_number("x", 0))) == [("2",)]
+    F.percentile_approx("x", 0.5, 100)
+    F.to_json("x", {"timestampFormat": "yyyy"})
+    out = capsys.readouterr().out
+    assert "accuracy is ignored" in out and "timestampFormat" in out
+
+
 def test_describe_sample_subtract_unpivot_and_layout_calls(spark, df):
     d = {r[0]: r[1:] for r in df.describe("amount").collect()}
     assert d["count"] == ("3",) and d["max"] == ("10.0",) and d["min"] == ("5.0",)

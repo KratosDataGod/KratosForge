@@ -179,7 +179,9 @@ def monotonically_increasing_id() -> Column:
     return _sql("(row_number() OVER () - 1)")
 
 
-def percentile_approx(col: Any, percentage: Any, accuracy: int = 10000) -> Column:  # noqa: ARG001
+def percentile_approx(col: Any, percentage: Any, accuracy: int = 10000) -> Column:
+    if accuracy != 10000:
+        print("Note: percentile_approx's accuracy is ignored on this PC; DuckDB's approximation is used.")
     return _call(f"percentile_approx({{0}}, {_lit(percentage)})", col)
 
 
@@ -231,11 +233,13 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    # Spark: #,###,###.## rounded half-even to d places.
-    return _sql(f"printf('%,.{int(d)}f', {_col_sql(col)})")
+    # Spark: #,###,###.## rounded half-even to d places (2.345 -> 2.34, 0.125 -> 0.12).
+    return _sql(f"printf('%,.{int(d)}f', round_even({_col_sql(col)}, {int(d)}))")
 
 
-def to_json(col: Any, options: Any = None) -> Column:  # noqa: ARG001
+def to_json(col: Any, options: Any = None) -> Column:
+    if options:
+        print(f"Note: to_json options ({', '.join(options)}) are ignored on this PC.")
     return _call("to_json({0})", col)
 
 

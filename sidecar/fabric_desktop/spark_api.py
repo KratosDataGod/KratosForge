@@ -61,8 +61,8 @@ class LocalRuntimeConfig:
         if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
             # Kept and ignored, an overwrite with partitionBy would replace the whole table, where
             # Fabric replaces only the partitions it writes.
-            raise ValueError("Dynamic partition overwrite isn't supported on this PC, and ignoring it would replace "
-                             "the whole table. Run the cell in Fabric.")
+            raise ValueError("partitionOverwriteMode=dynamic isn't supported on this PC, and ignoring it would "
+                             "replace the whole table. Run the cell in Fabric.")
         if key == "spark.sql.session.timeZone":
             self._session.conn.execute("SET TimeZone = ?", [text])  # fails, with DuckDB's reason, for an unknown zone
         self._set[key] = text

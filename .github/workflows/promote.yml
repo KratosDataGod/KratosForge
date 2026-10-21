@@ -1,6 +1,8 @@
-# Moves the Stable channel to the build now on the Preview channel ("latest"). Everyone on
-# Stable (the default) updates to it at their next launch and sees these notes as What's new,
-# above the build's last 30 days of changes (version.json "history", written by CI).
+# Moves the Stable channel to the build now on the Preview channel ("latest"), or to a named
+# earlier build (its build-<sha> release, which CI keeps for each published build). Promoting an
+# earlier build is how Stable is rolled back. Everyone on Stable (the default) updates to it at
+# their next launch and sees these notes as What's new, above the build's last 30 days of changes
+# (version.json "history", written by CI).
 name: Promote to stable
 
 on:
@@ -9,6 +11,10 @@ on:
       notes:
         description: "What's new, as people will read it after updating (one line per change)"
         required: true
+      build:
+        description: "Build to promote: its commit (7 to 40 characters) or build-<sha> tag. Empty means the build now on Preview."
+        required: false
+        default: ""
 
 jobs:
   promote:
@@ -24,10 +30,44 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           NOTES: ${{ inputs.notes }}
+          BUILD: ${{ inputs.build }}
         run: |
-          gh release download latest --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
+          BUILD=$(printf '%s' "$BUILD" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+          WANT=""
+          if [ -z "$BUILD" ]; then
+            SOURCE=latest
+          elif [[ "$BUILD" =~ ^build-[0-9a-f]{12}$ ]]; then
+            SOURCE=$BUILD
+          elif [[ "$BUILD" =~ ^[0-9a-f]{7,40}$ ]]; then
+            WANT=$(gh api "repos/$GH_REPO/commits/$BUILD" --jq .sha) || { echo "No single commit $BUILD in this repository"; exit 1; }
+            SOURCE="build-${WANT::12}"
+          else
+            echo "build must be a commit (7 to 40 hex characters) or a build-<12 hex> tag, not \"$BUILD\""
+            exit 1
+          fi
+          gh release view "$SOURCE" > /dev/null || { echo "There is no $SOURCE release (CI keeps the newest builds and every Stable build)"; exit 1; }
+          gh release download "$SOURCE" --pattern fabric-desktop.exe --pattern fabric-desktop-engine.zip --pattern version.json
           COMMIT=$(jq -r .commit version.json)
-          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The latest release has no build commit"; exit 1; }
+          echo "$COMMIT" | grep -Eq '^[0-9a-f]{40}$' || { echo "The $SOURCE release has no build commit"; exit 1; }
+          if [ "$SOURCE" != latest ] && [ "build-${COMMIT::12}" != "$SOURCE" ]; then
+            echo "The $SOURCE release names build $COMMIT, not its own"
+            exit 1
+          fi
+          if [ -n "$WANT" ] && [ "$COMMIT" != "$WANT" ]; then
+            echo "The $SOURCE release names build $COMMIT, not $WANT"
+            exit 1
+          fi
+          # Stable only gets the exact files the build's version.json names.
+          for pair in "fabric-desktop.exe exe_sha256" "fabric-desktop-engine.zip engine_sha256"; do
+            read -r file key <<< "$pair"
+            expected=$(jq -r --arg k "$key" '.[$k] // ""' version.json)
+            actual=$(sha256sum "$file" | cut -d' ' -f1)
+            if [ "$actual" != "$expected" ]; then
+              echo "$file from $SOURCE has SHA-256 $actual, but its version.json gives \"$expected\". Nothing was promoted."
+              exit 1
+            fi
+          done
+          echo "Promoting build $COMMIT from $SOURCE"
           # Keep the build's checksums and its month of history; only the notes change.
           jq --arg notes "$NOTES" '.notes = $notes' version.json > version.new && mv version.new version.json
           if gh release view stable > /dev/null 2>&1; then
@@ -39,8 +79,15 @@ jobs:
             gh release edit stable --notes "$NOTES" --latest
           else
             gh release create stable fabric-desktop.exe fabric-desktop-engine.zip version.json \
-              --title "Fabric Desktop by KratosBI (stable)" \
+              --title "KratosForge (stable)" \
               --notes "$NOTES" \
               --target "$COMMIT" \
               --latest
+          fi
+          # CI never deletes a build that was on Stable, so Stable can always go back to it.
+          # Only the title changes; the build's files and version.json stay as CI published them.
+          if gh release view "build-${COMMIT::12}" > /dev/null 2>&1; then
+            gh release edit "build-${COMMIT::12}" --title "Fabric Desktop by KratosBI (build ${COMMIT::7}, promoted to Stable)"
+          else
+            echo "::warning::build-${COMMIT::12} has no release of its own (published before per-build releases), so it can't be kept for rollback."
           fi

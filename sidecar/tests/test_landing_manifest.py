@@ -90,10 +90,10 @@ def test_if_the_list_cannot_be_recorded_the_table_is_still_written(repo, monkeyp
     landing(repo.root, "landing/orders/orders_2026-10-02.csv", f"{ORDER_COLS}\n106,2,2026-10-02,30.00,,shipped,2026-10-02\n")
     real = repo.dev.meta_append
 
-    def no_manifest(table, rows):
+    def no_manifest(table, rows, **kw):
         if table == "loaded_files":
             raise OSError("OneLake said no")
-        return real(table, rows)
+        return real(table, rows, **kw)
     monkeypatch.setattr(repo.dev, "meta_append", no_manifest)
     res = repo.engine(DAY2).run("bronze.orders")
     assert res.status == "ok" and "the next run reads them again" in res.steps[-1].detail

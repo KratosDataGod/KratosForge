@@ -252,3 +252,19 @@ def test_drift_review_shows_renamed_new_and_retyped_columns_and_settles_them(svc
 def test_drift_on_an_entity_source_ignores_upstream_columns_it_does_not_use(svc):
     d = svc.meta_drift("silver.orders")
     assert d["checked"] and d["added"] == [] and d["dropped"] == [] and d["retyped"] == []
+
+
+def test_a_project_that_cant_be_read_says_so_instead_of_no_runs_and_nothing_late(svc, tmp_path):
+    # QA-027: a broken layers.toml used to read as an empty run list and no late tables.
+    svc.meta_set_freshness("gold.fact_sales", within_hours=26, envs=["dev"])
+    (tmp_path / "proj" / "layers.toml").write_text("[[layers]\nname = ", encoding="utf-8")
+    runs = svc.meta_runs_all()
+    assert runs["runs"] == [] and runs["project_error"].startswith("TOMLDecodeError: ")
+    fresh = svc.meta_freshness()
+    assert fresh["items"] == [] and fresh["project_error"] == runs["project_error"]
+
+
+def test_no_project_yet_is_still_just_empty(tmp_path):
+    s = Service(root=tmp_path / "app")
+    assert s.meta_runs_all() == {"runs": [], "unavailable": {}}
+    assert "project_error" not in s.meta_freshness()

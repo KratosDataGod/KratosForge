@@ -193,20 +193,28 @@ def build(name: str, cells: list[dict[str, Any]], failed: int, reads: dict[str, 
             "samples": [], "limitations": notes}
 
 
-def write(path: Path, bundle: dict[str, Any], samples: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Save ``bundle`` and its ``samples`` ({table: pyarrow table}) as a zip at ``path``."""
+def write(path: Path, bundle: dict[str, Any], samples: dict[str, Any] | None = None,
+          mode: str = "w") -> dict[str, Any]:
+    """Save ``bundle`` and its ``samples`` ({table: pyarrow table}) as a zip at ``path``. With
+    ``mode="x"`` the file is created exclusively: FileExistsError if one is already there."""
     import pyarrow.parquet as pq
     bundle = dict(bundle)
     bundle["samples"] = []
     path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-        for i, (table, arrow) in enumerate(sorted((samples or {}).items())):
-            buf = io.BytesIO()
-            pq.write_table(arrow.slice(0, SAMPLE_ROWS), buf)
-            member = f"samples/{i + 1}.parquet"
-            z.writestr(member, buf.getvalue())
-            bundle["samples"].append({"table": table, "file": member, "rows": min(arrow.num_rows, SAMPLE_ROWS)})
-        z.writestr("bundle.json", json.dumps(bundle, indent=1, default=str))
+    z = zipfile.ZipFile(path, mode, zipfile.ZIP_DEFLATED)  # mode "x" raises here, before anything is written
+    try:
+        with z:
+            for i, (table, arrow) in enumerate(sorted((samples or {}).items())):
+                buf = io.BytesIO()
+                pq.write_table(arrow.slice(0, SAMPLE_ROWS), buf)
+                member = f"samples/{i + 1}.parquet"
+                z.writestr(member, buf.getvalue())
+                bundle["samples"].append({"table": table, "file": member, "rows": min(arrow.num_rows, SAMPLE_ROWS)})
+            z.writestr("bundle.json", json.dumps(bundle, indent=1, default=str))
+    except BaseException:
+        if mode == "x":
+            path.unlink(missing_ok=True)  # the half-written zip this call created
+        raise
     return {"path": str(path), "bytes": path.stat().st_size, "samples": bundle["samples"]}
 
 
@@ -228,7 +236,7 @@ def read(path: Path) -> dict[str, Any]:
     if not isinstance(bundle, dict) or bundle.get("format") != FORMAT:
         raise ValueError(f"{path.name} isn't a replay bundle.")
     if int(bundle.get("version", 0)) > VERSION:
-        raise ValueError(f"{path.name} was saved by a newer Fabric Desktop. Update the app to open it.")
+        raise ValueError(f"{path.name} was saved by a newer KratosForge. Update the app to open it.")
     try:
         _check_names(bundle, members)
     except (TypeError, KeyError, AttributeError, ValueError) as exc:

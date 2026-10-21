@@ -47,6 +47,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
 | [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
+| [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |

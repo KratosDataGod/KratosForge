@@ -1397,6 +1397,10 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
   assert.match(how, /each asks first/);
+  assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
+  assert.match(xray, /function xrayShared\(shared\)/);
+  assert.match(how, /anyone who can read that lakehouse can read them/);
+  assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
@@ -2314,6 +2318,94 @@ test("Forge events: every event names a real effect, unknown ones play nothing, 
   assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /view\.replaceChildren\(\.\.\.children\);\n  viewTransition\(view\);/);
 });
 
+// Item 21: a table's whole lineage, hop by hop, both ways, out to the projects reading its products.
+function lineageHelper() {
+  const src = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function mfLineage\([\s\S]*?\n}\n/)[0]}; this.mfLineage = mfLineage;`, ctx);
+  return ctx.mfLineage;
+}
+
+test("lineage walks every hop both ways, to the products and the projects that read them", () => {
+  const mfLineage = lineageHelper();
+  const entities = [
+    { name: "bronze.customers", source: "landing crm/customers", reads: [] },
+    { name: "bronze.orders", source: "files orders/*.csv", reads: [] },
+    { name: "silver.customers", source: "bronze.customers", reads: ["bronze.customers"] },
+    { name: "silver.orders", reads: ["bronze.orders", "silver.customers"] },
+    { name: "gold.dim_customer", reads: ["silver.customers"] },
+    { name: "gold.fact_sales", reads: ["silver.orders", "gold.dim_customer", "sales.link_rates"] },
+  ];
+  const ports = [["Customer 360", "gold.dim_customer"], ["Orders", "bronze.orders"]];
+  const readers = { "Customer 360": ["finance", "marketing"] };
+  const cols = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "silver.customers")));
+  assert.deepStrictEqual(cols.map((c) => c.label), ["Source", "It reads", "This table", "Reads it", "Then", "Data products", "Other projects"]);
+  assert.deepStrictEqual(cols[0].items.map((x) => x.name), ["landing crm/customers"]);
+  assert.deepStrictEqual(cols[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  assert.deepStrictEqual(cols[4].items.map((x) => x.name), ["gold.fact_sales"]);
+  assert.deepStrictEqual(cols[5].items.map((x) => x.name), ["Customer 360"], "Orders is upstream, not something it ends up in");
+  assert.deepStrictEqual(cols[6].items.map((x) => `${x.name}:${x.note}`), ["finance:Customer 360", "marketing:Customer 360"]);
+  // Upstream of the fact: two hops, both roots, and the link it reads from another project.
+  const up = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "gold.fact_sales", "up")));
+  assert.deepStrictEqual(up.map((c) => c.label), ["Source", "Before that", "Before that", "It reads", "This table"]);
+  assert.deepStrictEqual(up[0].items.map((x) => x.name), ["files orders/*.csv", "landing crm/customers", "sales.link_rates"]);
+  assert.deepStrictEqual(up[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  // A cycle in hand-edited configs never loops.
+  const loop = [{ name: "a", reads: ["b"] }, { name: "b", reads: ["a"] }];
+  assert.strictEqual(mfLineage(loop, [], {}, "a").length, 3);
+  const flow = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  assert.match(flow, /pick\("both", "Whole lineage"\), pick\("up", "Only what it reads"\), pick\("down", "Only what reads it"\)/);
+  assert.match(flow, /preview\("lineage", btn\("Columns", "flow", \(\) => columnLineage\(e\.name\)/);
+});
+
+// UX-006: Advanced settings fold closed by default, and a value policy or the environment sets is read-only.
+test("a fold can start closed, and the choice made on this PC wins after that", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const store = new Map();
+  const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
+    append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+  const ctx = { h, localStorage };
+  vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
+  assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
+  const box = ctx.f("settings.advanced", "Advanced", [], { start: true });
+  assert.ok(box.classes.has("folded"));
+  const toggle = box.kids[0].kids[0];
+  assert.strictEqual(toggle.attrs["aria-expanded"], "false");
+  toggle.attrs.onclick();
+  assert.strictEqual(store.get("fd.fold.settings.advanced"), "0");
+  assert.ok(!ctx.f("settings.advanced", "Advanced", [], { start: true }).classes.has("folded"), "opened once, it opens next time");
+});
+
+test("Settings keeps App ID and engine limits in a folded Advanced section, read-only when policy or the environment sets them", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const SOURCE_TEXT = \{[\s\S]*?\n};\n/)[0]}; ${src.match(/function fixedBy\([\s\S]*?\n}\n/)[0]}; this.f = fixedBy; this.T = SOURCE_TEXT;`, ctx);
+  assert.strictEqual(ctx.f({ client_id: { source: "environment" } }, "client_id"), "environment");
+  assert.strictEqual(ctx.f({ sql_page_rows: { source: "policy" } }, "sql_page_rows"), "policy");
+  for (const source of ["user", "default", "built_in"]) assert.strictEqual(ctx.f({ k: { source } }, "k"), null);
+  assert.strictEqual(ctx.f({}, "kernel_process"), null);
+  assert.strictEqual(ctx.T.policy, "Set by your organization's policy");
+  assert.strictEqual(ctx.T.environment, "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable");
+  const render = src.slice(src.indexOf("async function renderSettings"), src.indexOf("// \"policy\" or \"environment\""));
+  const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
+  assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
+  assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
+  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
+  for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
+  assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
+  assert.match(adv, /readonly: idFixed \? true : null/);
+  assert.match(adv, /idFixed \? null : btn\("Save"/, "no Save for an ID that wouldn't apply");
+  const sql = src.match(/function sqlSettingsSection\([\s\S]*?\n}\n/)[0];
+  assert.match(sql, /readonly: locked\(key\)/);
+  assert.match(sql, /readonly: locked\("sql_temp_dir"\)/);
+  assert.match(sql, /fixedBy\(s, "sql_temp_dir"\)/);
+  assert.match(src, /learnMore\("settings"\)/, "the page keeps its guide link");
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8"), /^### Advanced settings$/m);
+});
+
 // UX-019: the Preview list in the docs is the app's own list, once.
 test("the documentation's Preview list matches PREVIEW_FEATURES", () => {
   const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
@@ -2769,4 +2861,45 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
+});
+
+// notebookutils.fs.ls entries carry modifyTime, as in Fabric.
+test("notebook docs list the fs.ls entry fields with modifyTime", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`isFile` and `modifyTime` \(milliseconds since 1970, UTC; Databricks' `modificationTime` works too\)/);
+});
+
+test("Profile opens from the account menu and the command bar, and Validate passes on what it earned (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
+  assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+    assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
+  }
+  assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
+  assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
+  assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
+  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
+  assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{r\.summary \|\| r\.state\}`, r\.state === "failed"\);\n  profileEarned\(r\.earned\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="profile.js"') > html.indexOf('src="features.js"'), "profile.js must load after features.js");
+});
+
+test("the profile report preview renders headings, bullets and source tags without HTML from the text (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("function markdownBlocks"), p.indexOf("// ---------- Settings"));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, kids: kids.flat(), append(k) { this.kids.push(k); } }) };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.markdownBlocks = markdownBlocks;`, ctx);
+  const out = ctx.markdownBlocks("# Title\n\n## Key contributions\n\n- Validated <b>x</b> *(Verified, E1)*\n- Two\n\nText");
+  assert.strictEqual(out.map((b) => b.tag).join(","), "h2,h3,ul,p");
+  assert.strictEqual(out[2].kids.length, 2);
+  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em"]));
+  const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
+  assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
+  assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });

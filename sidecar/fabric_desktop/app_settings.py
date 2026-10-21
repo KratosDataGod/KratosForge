@@ -3,7 +3,7 @@
 Three places, strongest first:
 
     policy    %ProgramData%\\FabricDesktop\\policy.json, pushed by IT (Intune, Group Policy files).
-              Anything set here wins and shows as "Set by your organization".
+              Anything set here wins and shows as "Set by your organization's policy".
     user      %LOCALAPPDATA%\\FabricDesktop\\app-settings.json, written by the Settings page (the
               sidecar's settings.json, beside it, holds other things).
     built in  engine.json next to the engine's python.exe (written by CI), or
@@ -111,6 +111,8 @@ USER_KEYS = ("client_id", "channel", "show_preview", "kernel_process", "telemetr
              "cell_time_limit_minutes", "kernel_memory_limit_gb", "forge_animations")
 LIMITS = {"cell_time_limit_minutes": 7 * 24 * 60, "kernel_memory_limit_gb": 1024}  # the largest each accepts
 GUID_CHARS = set("0123456789abcdefABCDEF-")
+# Settings an environment variable can set, between policy and user (load() reads them).
+ENV_VARS = {"client_id": "FABRIC_DESKTOP_CLIENT_ID"}
 
 
 # The SQL page's run limits (SQL-003, sql_exec.py): the smallest and largest each accepts.
@@ -393,8 +395,8 @@ def load() -> dict[str, Any]:
             out[key] = {"value": RESTRICTED[key], "source": "policy"}
             continue
         candidates = [("policy", policy.get(key))]
-        if key == "client_id":
-            candidates.append(("environment", os.environ.get("FABRIC_DESKTOP_CLIENT_ID")))
+        if key in ENV_VARS:
+            candidates.append(("environment", os.environ.get(ENV_VARS[key])))
         if key in USER_KEYS:
             candidates.append(("user", user.get(key)))
         if key == "client_id":
@@ -430,6 +432,10 @@ def save(changes: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"{key} is not a setting you can change")
         if current[key]["source"] == "policy":
             raise ValueError(f"Your organization sets {key}, so it can't be changed here")
+        if current[key]["source"] == "environment":
+            # Saving would say Saved for a value that never applies: the variable wins over this file.
+            raise ValueError(f"The {ENV_VARS[key]} environment variable sets {key} on this PC, so a value saved "
+                             f"here wouldn't be used. Remove the variable and restart KratosForge to set it here")
         if key == "channel" and new not in CHANNELS:
             raise ValueError(f"channel must be one of {', '.join(CHANNELS)}")
         if key in SQL_RANGES:

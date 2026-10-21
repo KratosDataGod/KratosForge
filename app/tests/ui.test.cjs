@@ -732,7 +732,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -2238,6 +2238,37 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
+  const { dbgBpMap, dbgStackText, dbgKeyAction } = dbgHelpers();
+  // Two lines inserted above line 3; line 5 deleted onto line 4; line 9 is past the end now.
+  const moved = { 1: 1, 3: 5, 4: 6, 5: 6, 9: 11 };
+  assert.deepStrictEqual([...dbgBpMap([1, 3, 4, 5, 9], (n) => moved[n] ?? null, 10)], [1, 5, 6]);
+  assert.strictEqual(dbgStackText([{ function: "(cell)", line: 5 }, { function: "double", line: 3 }]), "(cell) line 5 › double line 3");
+  const key = (k, extra = {}) => dbgKeyAction({ key: k, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...extra });
+  assert.strictEqual(key("F5"), "continue");
+  assert.strictEqual(key("F10"), "next");
+  assert.strictEqual(key("F11"), "step");
+  assert.strictEqual(key("F11", { shiftKey: true }), "out");
+  assert.strictEqual(key("F5", { ctrlKey: true }), null);
+  assert.strictEqual(key("Enter"), null);
+});
+
+test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    assert.ok(nb.includes(hook), hook);
+  }
+  assert.match(dbg, /rpc\("debug_cell"/);
+  // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
+  assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
+  // The debugger keys are in the Keyboard shortcuts dialog, only while the Preview feature is shown.
+  assert.match(dbg, /registerShortcuts\("Notebook debugger", \[[\s\S]*keys: \["F9"\][\s\S]*keys: \["Shift\+F11"\][\s\S]*\]\);/);
+  assert.strictEqual((dbg.match(/when: \(\) => state\.view === "notebook" && dbgOn\(\)/g) || []).length, 5);
+});
+
 // Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
 // Workloads and Agents, linked to their own section of the guide.
 test("Queue, Incidents and Run as say how they work beside the list", () => {
@@ -3180,7 +3211,7 @@ test("several selected cells: the notebook hooks are in place", () => {
   assert.match(nb, /if \(selectionClick\(cell, e\)\) return;/);
   assert.match(nb, /if \(last\.group\) return undoDeleteGroup\(last\);/);
   assert.match(nb, /if \(code == null\) depsRan\(cell, ok\);/);
-  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : \{\}\) \}\);/);
+  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : dbgStartArgs\(cell, debug\)\) \}\);/);
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
   assert.ok(html.indexOf('src="nbselect.js"') > html.indexOf('src="notebook.js"'));
 });
@@ -3672,4 +3703,57 @@ test("notebookutils.notebook item reads are documented", () => {
 test("notebookutils docs mark the live Fabric reads Preview", () => {
   const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
   assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
+});
+
+// Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
+test("Databricks dbutils snippets and docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Databricks widget", 'dbutils\.widgets\.text\("run_date"/);
+  assert.match(nb, /\["Databricks secret \(Key Vault scope\)", 'secret = dbutils\.secrets\.get\("<vault-name>"/);
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
+  assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});
+
+// Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
+test("notebook.run timeouts and validateDAG are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /`run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds`/);
+  assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
+  assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
+});
+
+// notebook.run timeouts land between Python steps; the docs say so.
+test("notebook.run docs say where the timeout lands", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /The timeout lands between Python steps, so a single long call such as `time\.sleep\(4\)` finishes before it stops/);
+});
+
+// The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
+test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
+  const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = variableRows;`, ctx);
+  const rows = [
+    { name: "sales", type: "DataFrame", memory: 50000 },
+    { name: "Count", type: "int", memory: 28 },
+    { name: "sdf", type: "DataFrame", memory: null },
+    { name: "cfg", type: "dict", memory: 400 },
+  ];
+  const names = (opts) => [...ctx.f(rows, opts).map((r) => r.name)];
+  assert.deepStrictEqual(names(), ["cfg", "Count", "sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: "frame" }), ["sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: " CO " }), ["Count"]);
+  assert.deepStrictEqual(names({ sort: "memory" }), ["sales", "cfg", "Count", "sdf"]);
+  assert.deepStrictEqual(names({ sort: "type" }), ["sales", "sdf", "cfg", "Count"]);
+  assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
+  assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });

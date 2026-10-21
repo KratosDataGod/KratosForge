@@ -4143,3 +4143,16 @@ test("a move that leaves something behind names it and says what to do", () => {
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
 });
+
+test("Format code (nbformat.js): the engine call, its hooks in notebook.js and the shortcut", () => {
+  const src = fs.readFileSync(path.join(ui, "nbformat.js"), "utf8");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbformat.js"') > html.indexOf('src="notebook.js"'));
+  assert.match(src, /rpc\("notebook_format", \{ sources: sent \}\)/);
+  assert.match(src, /c\.source === sent\[i\]/, "a cell typed in while formatting keeps what was typed");
+  assert.match(nb, /\{ key: "Shift-Alt-f", run: \(\) => \{ formatCells\(\[cell\]\); return true; \} \}/);
+  assert.match(nb, /btn\("Format notebook", "code", formatNotebook/);
+  assert.match(nb, /label: "Format cell"/);
+  assert.match(src, /registerShortcuts\("Notebook", \[\s*\{ keys: \["Shift\+Alt\+F"\]/);
+});

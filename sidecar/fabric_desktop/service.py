@@ -533,6 +533,13 @@ class Service(AccessCacheMixin, NotebookResourcesMixin, PipelineMixin, PipelineR
         from .intellisense import syntax_problems
         return syntax_problems(source)
 
+    def notebook_format(self, sources: list[str]) -> list[dict[str, Any]]:
+        """Format cells (Python with ruff, %%sql with the SQL formatter) without running them."""
+        from .code_format import format_cells
+        if not isinstance(sources, list):
+            raise ValueError("sources must be a list of cell sources")
+        return format_cells(sources)
+
     def kernel_variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(str(name))
 

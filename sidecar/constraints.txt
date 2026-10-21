@@ -54,6 +54,7 @@ PyYAML==6.0.3
 referencing==0.37.0
 requests==2.34.2
 rpds-py==2026.9.1
+ruff==0.17.1
 seaborn==0.13.2
 six==1.17.0
 sqlglot==30.23.0

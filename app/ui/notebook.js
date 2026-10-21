@@ -101,6 +101,7 @@ function renderNotebook() {
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
       btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
+      btn("Format notebook", "code", formatNotebook, "tool", { title: "Format every code cell: Python in Black's style, SQL in the SQL page's style (nbformat.js)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
@@ -407,6 +408,7 @@ function cellMenu(cell) {
     items.push({ label: isParams(cell) ? "Remove parameter tag" : "Toggle parameter cell", icon: "braces", action: () => toggleParams(cell) });
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
+    items.push({ label: "Format cell", icon: "code", action: () => formatCells([cell]) });  // nbformat.js
     if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
       items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
     }
@@ -860,6 +862,7 @@ function cellKeymap(cell) {
     { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
     { key: "F9", run: () => dbgToggleAtCursor(cell) },
+    { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },
   ];
 }
 

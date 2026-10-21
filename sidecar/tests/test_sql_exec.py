@@ -646,6 +646,14 @@ def test_local_replace_asks_and_outside_files_stay_unread(local_runs, tmp_path):
     assert not profile.exists()
 
 
+def test_local_target_runs_t_sql_under_the_same_policy(local_runs):
+    done = wait(local_runs, start_local(local_runs, "SELECT TOP 1 id FROM orders ORDER BY id", dialect="tsql")["id"])
+    assert done["state"] == "completed"
+    refused = wait(local_runs, start_local(local_runs, "DELETE FROM orders", dialect="tsql")["id"])
+    assert refused["state"] == "failed" and refused["refused"]["confirm_required"]
+    assert count(local_runs) == 2500
+
+
 def test_a_dry_run_changes_nothing(local_runs, runs, lake):
     before = local_runs.recent()
     plan = start_local(local_runs, "INSERT INTO orders VALUES (9999, 1); DROP TABLE orders", dry_run=True)

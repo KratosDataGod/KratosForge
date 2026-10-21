@@ -68,7 +68,7 @@ LOCAL_BATCH_ROWS = 65_536
 # What each target may ever allow. A local run allows all of its classes unless the caller narrows it.
 TARGET_ALLOWS = {"lakehouse": ("read_only", "local_mutation"),
                  "local": ("read_only", "local_mutation", "local_project_write")}
-LOCAL_DIALECTS = ("duckdb", "spark")
+LOCAL_DIALECTS = ("duckdb", "spark", "tsql")
 
 
 class RerunNeeded(Exception):
@@ -227,7 +227,7 @@ class SqlExecutions:
     def _plan(self, query: str, dialect: str, target: str, allowed: tuple[str, ...], confirm: bool) -> dict[str, Any]:
         """A dry run: what each statement is and whether the run would be refused or need
         confirming. Nothing runs and no run is kept."""
-        verdicts = sql_policy.classify(sql.parse(query, dialect), target)
+        verdicts = sql_policy.classify(_policy_statements(query, dialect), target)
         stop = sql_policy.refused(verdicts, allowed, bool(confirm))
         return {"dry_run": True, "target": target, "dialect": dialect,
                 "permission": sql_policy.strongest(verdicts),
@@ -444,7 +444,7 @@ class SqlExecutions:
         state, kind, error, refused = "completed", "", "", None
         rows, batches, columns = 0, [], []
         try:
-            verdicts = sql_policy.classify(sql.parse(run.query, run.dialect), "local")
+            verdicts = sql_policy.classify(_policy_statements(run.query, run.dialect), "local")
             stop = sql_policy.refused(verdicts, run.allow, run.confirm)
             if stop is not None:
                 refused = _refusal(stop)
@@ -631,6 +631,16 @@ class SqlExecutions:
 
 class _Stopped(Exception):
     pass
+
+
+def _policy_statements(query: str, dialect: str) -> list[Any]:
+    """The statements the policy classes. T-SQL (local target only) is classed as the DuckDB SQL it
+    is translated to, which is what runs."""
+    if dialect != "tsql":
+        return sql.parse(query, dialect)
+    from .localdata import tsql
+    texts, _notes = tsql.translate(query)
+    return [st for text in texts for st in sql.parse(text, "duckdb")]
 
 
 def _refusal(stop: sql_policy.Verdict) -> dict[str, Any]:

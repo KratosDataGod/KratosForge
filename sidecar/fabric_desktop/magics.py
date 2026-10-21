@@ -146,7 +146,7 @@ SHELL_HEADERS = {"%%sh": "sh", "%%bash": "bash", "%%cmd": "cmd", "%%powershell":
 # IPython's cell magics that wrap Python (the body runs as Python, timed or captured), and the
 # ones whose body isn't code at all.
 PYTHON_WRAPPERS = {"%%time", "%%timeit", "%%capture"}
-OTHER_HEADERS = {"%%writefile": "writefile", "%%javascript": "javascript", "%%js": "javascript"}
+OTHER_HEADERS = {"%%writefile": "writefile", "%%javascript": "javascript", "%%js": "javascript", "%%tsql": "tsql"}
 _ALONE_ONLY = {"%sql", "%python"}
 # What Fabric calls the languages it runs, for publishing (markdown becomes a Markdown cell).
 _TO_FABRIC = {"sql": "%%sql", "scala": "%%spark", "r": "%%sparkr", "shell": "%%sh"}

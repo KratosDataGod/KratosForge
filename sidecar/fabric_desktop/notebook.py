@@ -406,6 +406,8 @@ class Kernel:
             return "ok"
         if cell.language == "shell":
             return self._run_script(cell, run)
+        if cell.language == "tsql":
+            return self._tsql(cell, run)
         if cell.language == "writefile":
             return self._writefile(cell, run)
         if cell.language == "javascript":
@@ -503,6 +505,25 @@ class Kernel:
             if output["type"] == "error":
                 self._emit(run, output)
         return status
+
+    def _tsql(self, cell: Any, run: _Run | None) -> str:
+        """``%%tsql`` (Fabric Python notebooks): T-SQL against a Warehouse, SQL analytics endpoint or
+        SQL database. That engine is in Fabric, so here the cell is checked against its rules
+        (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
+        from . import sqlcompat
+        kind = (re.search(r"-type\s+(\w+)", cell.args) or [None, "Warehouse"])[1].lower()
+        target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
+                  "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
+        report = sqlcompat.analyze(cell.body, target)
+        found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
+                 for d in report["diagnostics"] if d["severity"] in ("error", "warning")]
+        artifact = (re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args) or [None, "the item named in -artifact"])[1].strip('"')
+        print(f"Checked against {report['target']['label']} rules: {report['outcome']['text']}"
+              + ("\n" + "\n".join(found) if found else ""))
+        self._emit(run, {"type": "error", "ename": "RunsInFabric", "traceback": "", "evalue":
+                         f"%%tsql runs in {artifact} in Fabric, which reads it with capacity there. Switch Runs on to "
+                         "Fabric to run it, or check it on the SQL query page."})
+        return "error"
 
     def _writefile(self, cell: Any, run: _Run | None) -> str:
         """``%%writefile [-a] path``: the cell's text into a file on this PC (``-a`` appends)."""

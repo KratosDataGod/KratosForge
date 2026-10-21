@@ -25,6 +25,7 @@ A program that can already run commands as you on this PC. It can read your file
 | Client reads local files through SQL | External SQL is one read-only statement and runs with DuckDB external access off and configuration locked | Executions |
 | Code reaches Fabric or writes OneLake | Code gets only a storage token; table writes through the engine are refused; workspace-limited tools can't run code | Executions, permissions |
 | Client reads data it shouldn't | Rows need `READ_DATA`; resources are schema-only; Fabric enforces the person's own access on every OneLake read | Permissions, resources |
+| A workspace-limited client reaches another workspace | Every capability declares which workspaces it reaches and one check enforces it before any approval: by argument, by the notebook, proof, receipt or execution it names, or by filtering lists; one that can't tell is refused | Permissions, `scope.py` |
 | Client writes to OneLake or changes Fabric | Not offered in the first release | Registry |
 | Client approves its own request | Approvals are decided only through the app's RPC; no MCP tool or REST endpoint changes permissions or approvals | Permissions |
 | Approval reused for other arguments | Single-use, bound to a SHA-256 of the canonical arguments, expires; a notebook run's arguments include its code cells and their SHA-256, read before asking | Permissions |

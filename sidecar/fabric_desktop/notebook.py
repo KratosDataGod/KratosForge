@@ -34,6 +34,7 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from . import notebook_resources
 from . import magics
 from .frames import Frames, type_name
 
@@ -42,8 +43,10 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 PREVIEW_ROWS = 1000
 _CELL_FILE = "<cell>"
+# Proxy and certificate settings the engine's own HTTP calls (with your Fabric token) read.
+_ENV_NETWORK = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+                "SSL_CERT_FILE", "SSL_CERT_DIR"}
 _SECRET_NAME = re.compile(r"(pass(word)?|pwd|secret|token|key|credential)", re.I)
-_SPARK_ONLY = re.compile(r"^\s*%%(spark|sparkr|csharp)\b")
 _SQL_IN_PLACE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.IGNORECASE)
 
 
@@ -234,6 +237,7 @@ class Kernel:
         self.load_notebook = load_notebook
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
+        self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
         self._local = threading.local()
         self._secrets: set[str] = set()
@@ -247,7 +251,7 @@ class Kernel:
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display}
         utils = notebookutils_local.build(notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
-            variables=self.variable_libraries))
+            variables=self.variable_libraries, resources=lambda: self.resources_dir))
         get_secret = utils.credentials.getSecret
 
         def remembered_secret(*args: Any, **kwargs: Any) -> str:
@@ -287,6 +291,15 @@ class Kernel:
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
                    desc: bool = False, q: str = "") -> dict[str, Any]:
         return self.frames.page(frame, offset, limit, sort, desc, q)
+
+    def frame_chart(self, frame: str, **spec: Any) -> dict[str, Any]:
+        return self.frames.chart(frame, **spec)
+
+    def frame_profile(self, frame: str) -> dict[str, Any]:
+        return self.frames.profile(frame)
+
+    def frame_wrangle(self, frame: str, steps: list[dict[str, Any]], name: str = "df") -> dict[str, Any]:
+        return self.frames.wrangle(frame, steps, name)
 
     def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
         return self.frames.download(frame, format, path)
@@ -430,30 +443,55 @@ class Kernel:
         """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
         code compiled here (not %run notebooks), so its line numbers are the cell's own."""
         from .notebookutils_local import NotebookExit
-        head = code.lstrip()
-        if head.startswith("%%sql"):
-            return self._run_sql(head[len("%%sql"):], run, namespace)
-        if head.startswith("%%html"):
-            self._emit(run, {"type": "html", "html": head[len("%%html"):]})
+        cell = magics.cell(code)
+        if cell.language == "sql":
+            return self._run_sql(cell.body, run, namespace)
+        if cell.language == "html":
+            self._emit(run, {"type": "html", "html": cell.body})
             return "ok"
-        if head.startswith("%%configure"):
-            print("Note: %%configure sets Spark session options in Fabric. On this PC it has nothing to set.")
+        if cell.language == "markdown":
+            self._emit(run, {"type": "markdown", "text": cell.body.strip("\n").removeprefix(" ")})
             return "ok"
-        if _SPARK_ONLY.match(head):
+        if cell.language == "shell":
+            return self._run_script(cell, run)
+        if cell.language == "tsql":
+            return self._tsql(cell, run)
+        if cell.language == "writefile":
+            return self._writefile(cell, run)
+        if cell.language == "javascript":
+            self._emit(run, {"type": "error", "ename": "NotSupported", "traceback": "", "evalue":
+                             "%%javascript doesn't run here: cell output is shown in a sandboxed frame without scripts. "
+                             "Use %%html for markup, or display() a chart."})
+            return "error"
+        if cell.language == "configure":
+            return self._guarded(run, lambda: print(configure_report(cell.body)))
+        if cell.language != "python":
             self._emit(run, {"type": "error", "ename": "RunsInFabric", "evalue":
                              "Scala, R and .NET cells need Fabric's Spark. Switch Runs on to Fabric to run them.",
                              "traceback": ""})
             return "error"
-        if re.match(r"%%(pyspark|python)\b", head):
-            # Blank lines keep each line's number, for tracebacks and breakpoints.
-            code = "\n" * (code[:len(code) - len(head)].count("\n") + 1) + (head.split("\n", 1)[1] if "\n" in head else "")
-        code = magics.rewrite(code)
+        code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
         self._patch_pyplot(run)
+        if cell.header == "%%time":
+            started = time.monotonic()
+            status = self._exec_python(code, namespace, run, debugger)
+            print(f"Wall time: {_duration(time.monotonic() - started)}")
+            return status
+        if cell.header == "%%timeit":
+            return self._guarded(run, lambda: self._timeit(cell.args, code, namespace))
+        if cell.header == "%%capture":
+            return self._capture(cell.args, code, namespace, run, debugger)
+        return self._exec_python(code, namespace, run, debugger)
+
+    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
+        from .notebookutils_local import NotebookExit
         try:
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*non-interactive.*")
                 tree = ast.parse(code, _CELL_FILE)
+                if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
+                    tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
                 body = compile(tree, _CELL_FILE, "exec")
                 tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
@@ -476,6 +514,122 @@ class Kernel:
             self._emit(run, self._error(exc))
             return "error"
         return "ok"
+
+    def _guarded(self, run: _Run | None, fn: Callable[[], Any]) -> str:
+        try:
+            fn()
+        except (Exception, SystemExit) as exc:  # a cell must never take the kernel down
+            self._emit(run, self._error(exc))
+            return "error"
+        return "ok"
+
+    def _timeit(self, args: str, code: str, namespace: dict[str, Any]) -> None:
+        """``%timeit`` / ``%%timeit``: runs the code many times and prints IPython's summary.
+        ``-n N`` loops per run and ``-r R`` runs; by default enough loops for 0.2 s, 7 runs."""
+        import statistics
+        import timeit
+        flags = dict(re.findall(r"-([nr])\s*(\d+)", args))
+        timer = timeit.Timer(stmt=code, globals=namespace)
+        number = int(flags["n"]) if "n" in flags else timer.autorange()[0]
+        times = [t / number for t in timer.repeat(repeat=int(flags.get("r", 7)), number=number)]
+        spread = statistics.stdev(times) if len(times) > 1 else 0.0
+        print(f"{_duration(statistics.mean(times))} ± {_duration(spread)} per loop (mean ± std. dev. of "
+              f"{len(times)} run{'s' * (len(times) != 1)}, {number} loop{'s' * (number != 1)} each)")
+
+    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
+        """``%%capture [name]``: the cell's output is kept instead of shown; ``name.show()`` shows it.
+        An error still shows, so a failing cell isn't silent."""
+        captured = _Run(0)
+        out, err = _routers()
+        ident = threading.get_ident()
+        before = out.targets.get(ident), err.targets.get(ident), getattr(self._local, "run", None)
+        out.targets[ident] = err.targets[ident] = self._local.run = captured
+        try:
+            status = self._exec_python(code, namespace, captured, debugger)
+            self._flush_figures(captured)
+        finally:
+            for router, target in ((out, before[0]), (err, before[1])):
+                if target is None:
+                    router.targets.pop(ident, None)
+                else:
+                    router.targets[ident] = target
+            self._local.run = before[2]
+        name = next((w for w in args.split() if not w.startswith("-")), None)
+        if name:
+            namespace[name] = CapturedOutput(captured.outputs, self)
+        for output in captured.outputs:
+            if output["type"] == "error":
+                self._emit(run, output)
+        return status
+
+    def _tsql(self, cell: Any, run: _Run | None) -> str:
+        """``%%tsql`` (Fabric Python notebooks): T-SQL against a Warehouse, SQL analytics endpoint or
+        SQL database. That engine is in Fabric, so here the cell is checked against its rules
+        (sqlcompat, nothing sent anywhere) and stops, as a Scala cell does."""
+        from . import sqlcompat
+        kind = (re.search(r"-type\s+(\w+)", cell.args) or [None, "Warehouse"])[1].lower()
+        target = {"warehouse": "warehouse", "lakehouse": "endpoint", "sqlanalyticsendpoint": "endpoint",
+                  "sqldatabase": "sqldb", "sqldb": "sqldb"}.get(kind, "warehouse")
+        report = sqlcompat.analyze(cell.body, target)
+        found = [f"- line {d['line']}: {d['title']}. {d.get('action') or ''}".rstrip()
+                 for d in report["diagnostics"] if d["severity"] in ("error", "warning")]
+        artifact = (re.search(r"-artifact\s+(\"[^\"]+\"|\S+)", cell.args) or [None, "the item named in -artifact"])[1].strip('"')
+        print(f"Checked against {report['target']['label']} rules: {report['outcome']['text']}"
+              + ("\n" + "\n".join(found) if found else ""))
+        self._emit(run, {"type": "error", "ename": "RunsInFabric", "traceback": "", "evalue":
+                         f"%%tsql runs in {artifact} in Fabric, which reads it with capacity there. Switch Runs on to "
+                         "Fabric to run it, or check it on the SQL query page."})
+        return "error"
+
+    def _writefile(self, cell: Any, run: _Run | None) -> str:
+        """``%%writefile [-a] path``: the cell's text into a file on this PC (``-a`` appends)."""
+        words = cell.args.split()
+        append = "-a" in words or "--append" in words
+        target = next((w for w in words if not w.startswith("-")), None)
+        if target is None:
+            self._emit(run, {"type": "error", "ename": "ValueError", "traceback": "",
+                             "evalue": "%%writefile needs a file name, like: %%writefile helpers.py"})
+            return "error"
+        path = Path(os.path.expandvars(os.path.expanduser(target.strip("\"'")))).resolve()
+        text = cell.body.removeprefix("\n")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            existed = path.exists()
+            with path.open("a" if append else "w", encoding="utf-8") as f:
+                f.write(text if text.endswith("\n") else text + "\n")
+        except OSError as exc:
+            self._emit(run, self._error(exc))
+            return "error"
+        print(f"{'Appending to' if append else 'Overwriting' if existed else 'Writing'} {path}")
+        return "ok"
+
+    @staticmethod
+    def _env(line: str) -> Any:
+        """``%env`` lists environment variables (values of secret-looking names hidden), ``%env NAME``
+        reads one, and ``%env NAME=value`` sets one for the kernel's process."""
+        line = line.strip()
+        if not line:
+            return {k: "hidden" if _SECRET_NAME.search(k) else v for k, v in sorted(os.environ.items())}
+        m = re.match(r"([A-Za-z_]\w*)(?:\s*=\s*|\s+)(.*)$", line)
+        if m is None:
+            return os.environ.get(line)
+        name, value = m.groups()
+        if name.upper().startswith("FABRIC_DESKTOP_"):
+            raise ValueError(f"{name} is KratosForge's own setting and can't be changed from a notebook.")
+        if name.upper() in _ENV_NETWORK:
+            raise ValueError(f"{name} would change where KratosForge sends its signed-in Fabric calls, or which "
+                             "certificates it trusts, so %env can't set it. Set it before starting KratosForge.")
+        os.environ[name] = value
+        print(f"env: {name}={'hidden' if _SECRET_NAME.search(name) else value}")
+        return None
+
+    def _line_magic_help(self) -> str:
+        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
+                "%load_ext, %autoreload and %config (skipped)\n"
+                "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
+                "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
+                "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
 
     def _emit(self, run: _Run | None, output: dict[str, Any]) -> None:
         if run is not None:
@@ -528,21 +682,78 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
-            target, _, rest = line.strip().partition(" ")
-            args = ast.literal_eval(rest.strip()) if rest.strip() else {}
-            return self._run_notebook_in(target.strip("\"'"), self.namespace, args)
+            target, args = _run_target(line)
+            return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
             return self._sql_value(line)
+        if name in ("system", "sx", "sh"):
+            from . import shell
+            code, lines = shell.system(shell.expand(line, self.namespace),
+                                       echo=None if name != "sx" else (lambda _line: None))
+            self.namespace["_exit_code"] = code
+            return lines if name == "sx" else None
+        if name == "fs":
+            return _fs_magic(self.namespace["notebookutils"].fs, line)
         if name in ("pip", "conda"):
             print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
                   f"are fixed, so this line was skipped.")
             return None
         if name == "time":
             started = time.monotonic()
-            value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
-            print(f"Wall time: {time.monotonic() - started:.3f} s")
+            try:
+                value = eval(compile(line, _CELL_FILE, "eval"), self.namespace) if line.strip() else None
+            except SyntaxError:  # a statement, such as x = f()
+                exec(compile(line, _CELL_FILE, "exec"), self.namespace)
+                value = None
+            print(f"Wall time: {_duration(time.monotonic() - started)}")
             return value
-        raise ValueError(f"%{name} isn't supported on this PC. Supported: %run, %sql, %pip (skipped), %time.")
+        if name == "timeit":
+            m = re.match(r"((?:\s*-[nr]\s*\d+)*)\s*(.*)$", line)
+            return self._timeit(m.group(1), m.group(2), self.namespace)
+        if name == "lsmagic":
+            print(self._line_magic_help())
+            return None
+        if name == "pwd":
+            return os.getcwd()
+        if name == "cd":
+            raise ValueError("%cd isn't supported here: the kernel shares its working folder with the app. "
+                             "Use full paths, or os.path.join with a folder of your own.")
+        if name == "env":
+            return self._env(line)
+        if name in ("who", "whos"):
+            rows = self.variables()
+            if name == "who":
+                print("  ".join(r["name"] for r in rows) or "No variables yet.")
+            else:
+                print("\n".join(f"{r['name']:<20} {r['type']:<16} {r['size'] or r['value']}" for r in rows) or "No variables yet.")
+            return None
+        if name == "reset":
+            if "-f" not in line.split():
+                raise ValueError("%reset asks before clearing in IPython, which a notebook here can't. Use %reset -f.")
+            keep = set(self._base_namespace_keys())
+            for key in [k for k in self.namespace if not k.startswith("__") and k not in keep]:
+                del self.namespace[key]
+            return None
+        if name in ("matplotlib",):
+            return None  # charts are always shown in the cell
+        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
+            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+            return None
+        raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _run_script(self, cell: Any, run: _Run | None) -> str:
+        """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
+        A non-zero exit code fails the cell, as a %sh cell does in Databricks."""
+        from . import magics, shell
+        try:
+            code = shell.script(magics.SHELL_HEADERS[cell.header], cell.body.lstrip(" \t"))
+            self.namespace["_exit_code"] = code
+            if code != 0:
+                raise shell.ShellError(f"The script ended with exit code {code}.")
+        except (OSError, shell.ShellError) as exc:
+            self._emit(run, self._error(exc))
+            return "error"
+        return "ok"
 
     @staticmethod
     def _sql_value(query: str) -> Any:
@@ -706,6 +917,236 @@ class Kernel:
 _MISSING = object()
 
 
+class _BuiltinPaths(ast.NodeTransformer):
+    """``"builtin/x.csv"`` in a cell's code becomes the path of x.csv in the notebook's resources
+    folder, as Fabric's working folder makes it. Rewriting the cell's string literals, rather than
+    changing the working folder, keeps the engine's own folder (and other notebooks, when cells run
+    inside the engine) as they were, and works the same for open(), pandas, polars and DuckDB.
+
+    An allowlist: a string (or f-string) that starts with ``builtin/`` (or ``./builtin/``) changes
+    only when it is the leftmost piece of the whole value it sits in, found by walking up through
+    ``+``, ``/`` and f-strings, and that value is used on its own, as a call argument, or as the
+    first argument of a join. Anything else stays as written: text after another base (which may
+    be a OneLake path), ``%`` formatting, ``.format(...)``, ``str.join`` and later join arguments,
+    and dict keys. The expressions inside an f-string's braces are code and are visited as such."""
+
+    _JOINS = ("join", "joinpath")
+
+    def __init__(self, folder: str):
+        self.folder = folder
+        self._parents: dict[int, ast.AST] | None = None
+
+    def visit(self, node: ast.AST) -> Any:
+        if self._parents is None:  # the tree being rewritten: where each node sits
+            self._parents = {id(c): n for n in ast.walk(node) for c in ast.iter_child_nodes(n)}
+        return super().visit(node)
+
+    def _parent(self, node: ast.AST) -> ast.AST | None:
+        return (self._parents or {}).get(id(node))
+
+    @staticmethod
+    def _call_name(node: ast.AST) -> str:
+        if not isinstance(node, ast.Call):
+            return ""
+        return node.func.attr if isinstance(node.func, ast.Attribute) else getattr(node.func, "id", "")
+
+    def _starts_a_path(self, node: ast.AST) -> bool:
+        """``node`` is the leftmost leaf of its whole value, and that value is a path on its own."""
+        cur, up = node, self._parent(node)
+        while isinstance(up, ast.BinOp):
+            if not isinstance(up.op, (ast.Add, ast.Div)) or up.left is not cur:
+                return False  # % formatting, or something comes before it
+            cur, up = up, self._parent(up)
+        if isinstance(up, ast.Dict):
+            return all(k is not cur for k in up.keys)
+        if isinstance(up, ast.Attribute):
+            return up.attr != "format"  # "builtin/{}".format(...)
+        if isinstance(up, ast.Call):
+            name = self._call_name(up)
+            if name == "format":
+                return False
+            if name in self._JOINS:
+                return bool(up.args) and up.args[0] is cur
+            return True
+        if isinstance(up, (ast.List, ast.Tuple, ast.Set)):
+            outer = self._parent(up)
+            if isinstance(outer, ast.BinOp) and isinstance(outer.op, ast.Mod):
+                return False
+            return self._call_name(outer) not in self._JOINS + ("format",)
+        return True
+
+    def visit_Constant(self, node: ast.Constant) -> ast.AST:  # noqa: N802 - ast's name
+        if isinstance(node.value, str):
+            path = notebook_resources.resolve(node.value, self.folder)
+            if path is not None and self._starts_a_path(node):
+                return ast.copy_location(ast.Constant(path), node)
+        return node
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:  # noqa: N802 - ast's name
+        for part in node.values:
+            if isinstance(part, ast.FormattedValue):
+                part.value = self.visit(part.value)  # the code in the braces; not its format spec
+        first = node.values[0] if node.values else None
+        if isinstance(first, ast.Constant) and isinstance(first.value, str) and self._starts_a_path(node):
+            path = notebook_resources.resolve(first.value, self.folder)
+            if path is not None:
+                node.values[0] = ast.copy_location(ast.Constant(path), first)
+        return node
+
+
+def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+    """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
+    ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
+    ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
+    A name may have spaces and be quoted; a folder path or .ipynb ending is dropped."""
+    text = line.strip()
+    if text[:1] in ("'", '"') and (end := text.find(text[0], 1)) > 0:
+        name, rest = text[1:end], text[end + 1:]
+    else:
+        m = re.search(r"\s+(?=\{|\$\w+\s*=)", text)
+        name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
+    if not name:
+        raise ValueError("%run needs a notebook name, like: %run Load sales")
+    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    rest = rest.strip()
+    if not rest:
+        return name, {}
+    if rest.startswith("{"):
+        try:
+            args = json.loads(rest)
+        except json.JSONDecodeError:
+            try:
+                args = ast.literal_eval(rest)
+            except (ValueError, SyntaxError) as exc:
+                raise ValueError(f"%run couldn't read the arguments {rest!r}: they're neither JSON nor a Python dict.") from exc
+        if not isinstance(args, dict):
+            raise ValueError("%run arguments are a {name: value} object.")
+        return name, args
+    pairs = re.findall(r"""\$(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+))""", rest)
+    if not pairs:
+        raise ValueError(f"%run couldn't read the arguments {rest!r}. Use {{\"name\": value}} or $name=\"value\".")
+    return name, {k: a or b or c for k, a, b, c in pairs}
+
+
+# What Fabric's %%configure takes (Livy session settings), and what each means on this PC.
+_CONFIGURE_KEYS = {
+    "driverMemory": "memory", "driverCores": "cores", "executorMemory": "memory", "executorCores": "cores",
+    "numExecutors": "cores", "conf": "conf", "defaultLakehouse": "lakehouse", "mountPoints": "mounts",
+    "sessionTimeoutInSeconds": "timeout", "useStarterPool": "pool", "useWorkspacePool": "pool",
+    "environment": "environment", "jars": "packages", "pyFiles": "packages", "files": "packages", "archives": "packages",
+    "name": "pool", "kind": "pool", "proxyUser": "pool", "heartbeatTimeoutInSecond": "timeout",
+}
+
+
+def configure_report(body: str) -> str:
+    """A %%configure cell on this PC: its JSON is checked as Fabric would, and the report says what
+    each setting does in Fabric and why nothing changes here. Nothing on this PC is changed."""
+    text = body.strip()
+    flags = re.match(r"^(-f|--force)?\s*", text)
+    text = text[flags.end():] if flags else text
+    if not text:
+        raise ValueError("%%configure needs a JSON object, like: %%configure\n{\"driverMemory\": \"28g\"}")
+    try:
+        settings = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"%%configure isn't valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg}). "
+                         "Fabric would stop the session start on it too.") from exc
+    if not isinstance(settings, dict):
+        raise ValueError("%%configure takes a JSON object of settings.")
+    lines = ["%%configure checked: the JSON is valid. These settings take effect when the notebook runs in Fabric:"]
+    unknown = []
+    for key, value in settings.items():
+        kind = _CONFIGURE_KEYS.get(key)
+        if kind is None:
+            unknown.append(key)
+        elif kind == "conf" and isinstance(value, dict):
+            lines.append(f"- conf: {', '.join(sorted(value)) or 'none'} (Spark settings for Fabric's session; "
+                         "this PC's spark is DuckDB and doesn't read them)")
+        elif kind == "lakehouse" and isinstance(value, dict):
+            from . import lakehouse
+            wanted = value.get("name") or value.get("id") or "?"
+            here = lakehouse.name()
+            same = "the same one is attached here" if here and here == value.get("name") else \
+                f"this PC uses {'the attached lakehouse, ' + here if here else 'no attached lakehouse'}; attach {wanted} with Add data items to match"
+            lines.append(f"- defaultLakehouse: {wanted} ({same})")
+        elif kind in ("memory", "cores"):
+            lines.append(f"- {key}: {value} (Fabric's Spark nodes; on this PC the limits in Settings apply)")
+        else:
+            lines.append(f"- {key}: {json.dumps(value)[:80]}")
+    if unknown:
+        lines.append(f"Fabric doesn't know {', '.join(unknown)}; check the spelling (names are case-sensitive).")
+    return "\n".join(lines)
+
+
+def _duration(seconds: float) -> str:
+    """A time the way IPython prints it: 3 significant figures in ns, µs, ms or s."""
+    for unit, scale in (("s", 1.0), ("ms", 1e-3), ("µs", 1e-6), ("ns", 1e-9)):
+        if seconds >= scale or unit == "ns":
+            return f"{seconds / scale:.3g} {unit}"
+    return f"{seconds:.3g} s"
+
+
+class CapturedOutput:
+    """What a ``%%capture`` cell printed and showed. ``show()`` (or calling it) shows it again."""
+
+    def __init__(self, outputs: list[dict[str, Any]], kernel: Kernel):
+        self.outputs = [o for o in outputs if o["type"] != "error"]
+        self._kernel = kernel
+
+    @property
+    def stdout(self) -> str:
+        return "".join(o["text"] for o in self.outputs if o["type"] == "stream")
+
+    stderr = ""
+
+    def show(self) -> None:
+        run = getattr(self._kernel._local, "run", None)
+        for output in self.outputs:
+            if output["type"] == "stream":
+                print(output["text"], end="")
+            elif run is not None:
+                run.add(output)
+
+    __call__ = show
+
+    def __repr__(self) -> str:
+        return f"<CapturedOutput: {len(self.outputs)} output{'s' * (len(self.outputs) != 1)}>"
+
+
+def _fs_magic(fs: Any, line: str) -> Any:
+    """Databricks' ``%fs`` on notebookutils.fs: ``%fs ls Files/raw``, ``head``, ``cp [-r]``,
+    ``mv``, ``rm [-r]``, ``mkdirs``, ``put [-f] path "text"``. Same paths and safety rules as fs."""
+    import shlex
+    words = shlex.split(line, posix=True)
+    if not words:
+        raise ValueError("%fs needs a command: ls, head, cp, mv, rm, mkdirs or put.")
+    command, flags = words[0], {w for w in words[1:] if w in ("-r", "-f")}
+    args = [w for w in words[1:] if w not in ("-r", "-f")]
+    usage = {"ls": 1, "head": 1, "cp": 2, "mv": 2, "rm": 1, "mkdirs": 1, "put": 2}
+    if command not in usage:
+        raise ValueError(f"%fs {command} isn't a command here. Use ls, head, cp, mv, rm, mkdirs or put.")
+    if len(args) < usage[command] - (command == "ls"):
+        raise ValueError(f"%fs {command} needs {usage[command]} path{'s' if usage[command] > 1 else ''}.")
+    if command == "ls":
+        import polars as pl
+        found = fs.ls(args[0] if args else "Files")
+        return pl.DataFrame({"name": [f.name for f in found], "path": [f.path for f in found],
+                             "size": [f.size for f in found], "isDir": [f.isDir for f in found]},
+                            schema={"name": pl.Utf8, "path": pl.Utf8, "size": pl.Int64, "isDir": pl.Boolean})
+    if command == "head":
+        print(fs.head(args[0], int(args[1]) if len(args) > 1 else 65536))
+        return None
+    if command == "cp":
+        return fs.cp(args[0], args[1], recurse="-r" in flags)
+    if command == "mv":
+        return fs.mv(args[0], args[1])
+    if command == "rm":
+        return fs.rm(args[0], recurse="-r" in flags)
+    if command == "mkdirs":
+        return fs.mkdirs(args[0])
+    return fs.put(args[0], args[1], overwrite="-f" in flags)
+
+
 def _size(value: Any) -> str:
     module = type(value).__module__
     if module.startswith("duckdb.experimental.spark") and hasattr(value, "columns"):
@@ -786,7 +1227,8 @@ COMPUTE = ("default", "local", "fabric")
 
 def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """A cell's settings as Jupyter and Fabric store them: the parameters tag, hidden input or
-    output, and frozen (can't be edited or run)."""
+    output, and frozen (can't be edited or run); a collapsed heading section as JupyterLab stores it,
+    and a cell title where Databricks keeps it, so both read them back."""
     md: dict[str, Any] = {}
     tags = [t for t in meta.get("tags", []) if isinstance(t, str)]
     if tags:
@@ -796,7 +1238,30 @@ def _cell_metadata(meta: dict[str, Any]) -> dict[str, Any]:
         md["jupyter"] = hidden
     if meta.get("frozen"):
         md.update(editable=False, deletable=False, run_control={"frozen": True})
+    if meta.get("heading_collapsed"):
+        md[_HEADING_COLLAPSED] = True
+    title = meta.get("title")
+    if isinstance(title, str) and title.strip():
+        md[_DATABRICKS_CELL] = {"title": title.strip()[:200]}
+    chart = _chart_meta(meta.get("chart"))
+    if chart:
+        md["fabric_desktop"] = {"chart": chart}
     return md
+
+
+_HEADING_COLLAPSED = "jp-MarkdownHeadingCollapsed"
+_DATABRICKS_CELL = "application/vnd.databricks.v1+cell"
+
+
+_CHART_KEYS = ("kind", "x", "y", "agg", "series", "title")
+
+
+def _chart_meta(chart: Any) -> dict[str, Any] | None:
+    """The chart a cell's table output shows (charts.js), by column name: plain short strings only."""
+    if not isinstance(chart, dict):
+        return None
+    out = {k: chart[k][:200] for k in _CHART_KEYS if isinstance(chart.get(k), str)}
+    return out if out.get("kind") else None
 
 
 def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
@@ -808,6 +1273,14 @@ def _cell_meta(md: dict[str, Any]) -> dict[str, Any]:
             meta[k] = True
     if (md.get("run_control") or {}).get("frozen"):
         meta["frozen"] = True
+    if md.get(_HEADING_COLLAPSED) is True:
+        meta["heading_collapsed"] = True
+    title = (md.get(_DATABRICKS_CELL) or {}).get("title") if isinstance(md.get(_DATABRICKS_CELL), dict) else None
+    if isinstance(title, str) and title.strip():
+        meta["title"] = title.strip()
+    chart = _chart_meta((md.get("fabric_desktop") or {}).get("chart") if isinstance(md.get("fabric_desktop"), dict) else None)
+    if chart:
+        meta["chart"] = chart
     return meta
 
 
@@ -851,13 +1324,17 @@ _OWN_FD_KEYS = ("compute", "workspace", "lakehouse")
 
 
 def _merge_cell_metadata(ours: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
-    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable")}
+    keep = {k: v for k, v in before.items() if k not in ("tags", "editable", "deletable", _HEADING_COLLAPSED)}
+    if isinstance(keep.get(_DATABRICKS_CELL), dict):  # the title is ours; Databricks' other keys aren't
+        keep[_DATABRICKS_CELL] = {k: v for k, v in keep[_DATABRICKS_CELL].items() if k != "title"}
     if isinstance(keep.get("jupyter"), dict):
         rest = {k: v for k, v in keep["jupyter"].items() if k not in ("source_hidden", "outputs_hidden")}
         keep["jupyter"] = rest
     if isinstance(keep.get("run_control"), dict):
         keep["run_control"] = {k: v for k, v in keep["run_control"].items() if k != "frozen"}
-    for k in ("jupyter", "run_control"):
+    if isinstance(keep.get("fabric_desktop"), dict):
+        keep["fabric_desktop"] = {k: v for k, v in keep["fabric_desktop"].items() if k != "chart"}
+    for k in ("jupyter", "run_control", _DATABRICKS_CELL, "fabric_desktop"):
         if k in keep and not keep[k]:
             del keep[k]
     for k, v in ours.items():
@@ -940,6 +1417,10 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
 
 
 class NotebookStore:
+    # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
+    # doesn't write over the other's change (the local API and MCP tools call in from other threads).
+    _write_lock = threading.RLock()
+
     def __init__(self, folder: Path):
         self.folder = folder
 
@@ -964,6 +1445,11 @@ class NotebookStore:
 
         Cells keep their ``cell_id``; a cell without one gets one, returned in ``cell_ids`` so the
         app can keep it. Metadata other tools wrote into the file is kept."""
+        with self._write_lock:
+            return self._save(name, cells, lakehouse, compute, workspace)
+
+    def _save(self, name: str, cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None,
+              compute: str | None, workspace: dict[str, Any] | None) -> dict[str, Any]:
         path = self.path(name)
         before: dict[str, Any] = {}
         if path.exists():
@@ -997,18 +1483,27 @@ class NotebookStore:
     def set_extra(self, name: str, key: str, value: Any) -> None:
         """Set (or, with None, remove) ``fabric_desktop.<key>`` in the saved notebook. Saves from the
         notebook screen keep it (merge_saved)."""
+        self.update_extra(name, key, lambda _old, _nb: value)
+
+    def update_extra(self, name: str, key: str, change: Callable[[Any, dict[str, Any]], Any]) -> Any:
+        """Read ``fabric_desktop.<key>`` from the file as it is now, set it to ``change(old, nb)``
+        (None removes it) and replace the file in one step, under the write lock. ``nb`` is the
+        whole notebook as read, for checks. Returns the new value."""
         if key in ("compute", "workspace", "lakehouse"):
             raise ValueError(f"{key} is saved with the notebook, not set on its own.")
-        path = self.path(name)
-        nb = json.loads(path.read_text(encoding="utf-8"))
-        fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
-        if value is None:
-            fd.pop(key, None)
-        else:
-            fd[key] = value
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        with self._write_lock:
+            path = self.path(name)
+            nb = json.loads(path.read_text(encoding="utf-8"))
+            fd = nb.setdefault("metadata", {}).setdefault("fabric_desktop", {})
+            value = change(fd.get(key), nb)
+            if value is None:
+                fd.pop(key, None)
+            else:
+                fd[key] = value
+            tmp = path.with_suffix(".ipynb.tmp")
+            tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+            os.replace(tmp, path)
+            return value
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
         taken = {n["name"] for n in self.list()}
@@ -1019,15 +1514,23 @@ class NotebookStore:
         self.save(name, [{"type": "code", "source": ""}])
         return self.load(name)
 
+    def resources(self, name: str) -> Path:
+        """The notebook's resources folder, ``<name>.resources`` beside it (notebook_resources)."""
+        return notebook_resources.folder_for(self.path(name))
+
     def rename(self, name: str, new_name: str) -> dict[str, Any]:
         target = self.path(new_name)
         if target.exists():
             raise ValueError(f"A notebook named {new_name!r} already exists.")
-        self.path(name).rename(target)
-        return {"name": new_name}
+        return _rename_with_resources(self.path(name), target, new_name)
 
-    def delete(self, name: str) -> None:
-        self.path(name).unlink(missing_ok=True)
+    def delete(self, name: str) -> dict[str, Any]:
+        """Deletes the notebook's file. Its resources folder is never deleted here: it stays where it
+        is (named in ``resources_kept``), and a new notebook of the same name picks it up again."""
+        path = self.path(name)
+        folder = notebook_resources.folder_for(path)
+        path.unlink(missing_ok=True)
+        return {"resources_kept": str(folder) if folder.is_dir() else None}
 
 
 class NotebookShelf(NotebookStore):
@@ -1111,13 +1614,12 @@ class NotebookShelf(NotebookStore):
         if self._taken(new_name):
             raise ValueError(f"A notebook named {new_name!r} already exists.")
         src = self.path(name)
-        src.rename(src.with_name(f"{check_notebook_name(new_name)}.ipynb"))
-        return {"name": new_name}
+        return _rename_with_resources(src, src.with_name(f"{check_notebook_name(new_name)}.ipynb"), new_name)
 
     def move(self, name: str, place: str | None) -> dict[str, Any]:
-        """Moves the notebook's file to another place (a repository root, or None for the app's
-        own folder). The copy is written and checked before the original is removed, and a
-        notebook already there is never replaced."""
+        """Moves the notebook's file, and its resources folder, to another place (a repository root,
+        or None for the app's own folder). The copies are written and checked before the originals
+        are removed, and a notebook or folder already there is never replaced."""
         src = self.path(name)
         if not src.is_file():
             raise ValueError(f"There's no notebook named {name!r}.")
@@ -1128,6 +1630,9 @@ class NotebookShelf(NotebookStore):
         data = src.read_bytes()
         folder.mkdir(parents=True, exist_ok=True)
         where = target_place["label"] if target_place else "the app's notebooks folder"
+        res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
+        if res_src.is_dir() and res_dest.exists():
+            raise ValueError(f"A folder named {res_dest.name!r} is already in {where}. Nothing was moved.")
         try:
             out = open(dest, "xb")  # refuses when a file of that name is already there
         except FileExistsError:
@@ -1140,8 +1645,32 @@ class NotebookShelf(NotebookStore):
         except OSError as e:
             dest.unlink(missing_ok=True)  # never leave a partial copy that blocks a retry
             raise OSError(f"Couldn't copy {name} to {where} ({e}). The notebook is still where it was.") from None
+        try:
+            notebook_resources.copy_folder(res_src, res_dest)
+        except (OSError, ValueError) as e:
+            dest.unlink(missing_ok=True)
+            raise OSError(f"Couldn't copy {name}'s resources to {where} ({e}). The notebook is still where it was.") from None
         src.unlink()
-        return {"name": name, "place": self.place_of(name), "moved": True}
+        out = {"name": name, "place": self.place_of(name), "moved": True}
+        try:
+            notebook_resources.remove_folder(res_src)
+        except OSError as e:  # a file held open: the moved copy is whole, the old folder stays
+            out["note"] = f"The resources were copied, but the old folder {res_src} couldn't be removed ({e}). Delete it by hand."
+        return out
+
+
+def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, Any]:
+    """Renames the notebook's file and its resources folder together; a failed file rename puts the
+    folder back."""
+    res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
+    moved = notebook_resources.rename_folder(res_src, res_dest)
+    try:
+        src.rename(dest)
+    except OSError:
+        if moved:
+            res_dest.rename(res_src)
+        raise
+    return {"name": new_name}
 
 
 def _resolved(p: Path) -> str:

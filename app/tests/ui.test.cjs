@@ -2009,3 +2009,9 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
+
+// notebookutils.fs.ls entries carry modifyTime, as in Fabric.
+test("notebook docs list the fs.ls entry fields with modifyTime", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`isFile` and `modifyTime` \(milliseconds since 1970, UTC; Databricks' `modificationTime` works too\)/);
+});

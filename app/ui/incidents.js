@@ -220,7 +220,7 @@ function resolveIncident(i, reload) {
 // ---------- one incident ----------
 
 async function renderIncident() {
-  setView(h("div", { class: "page wl-page" }, h("p", { class: "muted-text" }, "Loading...")));
+  setView(h("div", { class: "page wl-page" }, loading()));
   const list = await attempt(() => rpc("incidents_list", { env: incPage.env_of }), "Couldn't read the incident");
   if (state.view !== "incident") return;
   const inc = (list?.incidents || []).find((x) => x.id === incPage.id);
@@ -241,7 +241,7 @@ async function renderIncident() {
         h("h1", {}, inc.title, " ", incStatePill(inc), inc.escalated_at ? h("span", { class: "pill-s wrn" }, "Escalated") : null,
           preview("incidents", h("span", {}))),
         h("p", { class: "sub" }, [inc.kind_label, inc.criticality ? inc.criticality[0].toUpperCase() + inc.criticality.slice(1) : "",
-          envName(inc.env), opened, seen].filter(Boolean).join(" · "))),
+          envName(inc.env), opened, seen].filter(Boolean).join(" · "), " ", learnMore("incidents-preview"))),
       h("div", { class: "row" },
         inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary") : null,
         inc.state !== "resolved" ? btn("Assign", "person", () => assignIncident(inc, reload), "tool outline") : null,

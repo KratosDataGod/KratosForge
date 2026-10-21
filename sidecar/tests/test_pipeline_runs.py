@@ -602,3 +602,25 @@ def test_cli_run(capsys, tmp_path):
     with pytest.raises(SystemExit) as done:
         cli_main(["pipeline", "run", str(REFERENCE)])
     assert done.value.code == 2 and "refused: not_local [Ingest orders]" in capsys.readouterr().out
+
+
+def test_notebook_cleanup_runs_before_the_run_reports_its_end():
+    # The flaky cancel test after #319: the run said "cancelled" while its folder was still being deleted.
+    seen = []
+
+    class Notebooks:
+        def check(self, a):
+            return []
+
+        def run(self, a, parameters, cancelled, deadline):
+            return {"result": {"runStatus": "Succeeded", "exitValue": None}}
+
+        def notes(self):
+            return []
+
+        def finish(self):
+            seen.append(r.state)
+
+    r = PipelineRun(loads(pipeline(act("N", "TridentNotebook", notebookId="x"))), wait_scale=0, notebooks=Notebooks())
+    r.run()
+    assert seen == ["running"] and r.state == "succeeded"

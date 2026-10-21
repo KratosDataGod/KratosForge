@@ -58,6 +58,7 @@ const PREVIEW_FEATURES = {
   xray: "Estate X-ray",
   optimize: "Optimize",
   itemPreview: "Item preview",
+  resultViewer: "Result downloads",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",
@@ -75,6 +76,7 @@ const PREVIEW_FEATURES = {
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
+  profile: "Profile",
 };
 
 function previewShown() {

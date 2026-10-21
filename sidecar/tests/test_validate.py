@@ -13,6 +13,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, validate
+from fabric_desktop.fabric_run import compute_check
 from fabric_desktop.server import handle
 from fabric_desktop.service import Service
 
@@ -103,11 +104,29 @@ def test_the_run_plan_refuses_writes_it_cannot_contain_and_lists_what_it_cannot_
                                                  "text": "A clean run really makes the call."}]
 
 
-def test_spark_notebooks_get_code_checks_only_for_now():
+def test_spark_notebooks_get_a_clean_run_on_this_pcs_spark():
     out = validate.check([code("df = spark.read.table('dbo.orders')\ndisplay(df)")], LH, "pc")
-    [f] = findings(out, "spark_code_checks_only")
-    assert f["severity"] == "info" and f["cell"] == 1 and not out["run"]["ok"]
-    assert any("doesn't run Spark cells yet" in t for t in out["limits"])
+    [f] = findings(out, "spark_local")
+    assert f["severity"] == "info" and f["cell"] == 1 and out["run"]["ok"]
+    assert any("PySpark-compatible engine (DuckDB)" in t for t in out["limits"])
+    # A proof still can't take a Spark notebook to Fabric, and pipelines keep their own rule.
+    assert not validate.run_plan([code("spark.read.table('dbo.orders')")], LH)["ok"]
+
+
+def test_spark_features_this_pc_lacks_stop_a_pc_run():
+    stops = lambda src: [r["text"] for r in compute_check([code(src)], LH)["local"]["reasons"]]
+    assert "in place with spark.sql" in stops("spark.sql('MERGE INTO dbo.t USING s ON t.id = s.id')")[0]
+    assert stops('spark.sql("""\n  DELETE FROM dbo.t WHERE x = 1""")')
+    assert stops("spark.sql(f\"UPDATE dbo.t SET x = 1\")")
+    assert "replaceWhere" in stops("df.write.option('replaceWhere', 'd > 1').saveAsTable('dbo.t')")[0]
+    assert stops("spark.sql('SELECT * FROM dbo.t')") == [] and stops("df.write.mode('overwrite').saveAsTable('dbo.t')") == []
+
+
+def test_spark_file_writes_outside_the_lakehouse_are_listed():
+    effects = lambda src: [f["title"] for f in findings(validate.check([code(src)], None), "side_effect")]
+    assert effects("df.write.mode('overwrite').parquet('C:/out/orders')")
+    assert effects("df.write.csv(path)")
+    assert effects("df.write.parquet('Files/out/orders')") == [] and effects("df.write.saveAsTable('dbo.t')") == []
 
 
 def test_local_files_and_keys_the_code_checks_find():
@@ -220,9 +239,18 @@ def test_the_clean_run_asks_first_and_refuses_what_it_cannot_contain(svc):
     assert "can't contain cell 1" in refused(svc, "notebook_validate_start", name="Direct", cells=direct, lakehouse_ref=LH)
 
 
-def test_a_spark_notebook_is_told_it_gets_code_checks_only(svc):
-    cells = [code("df = spark.read.table('dbo.orders')\ndf.write.saveAsTable('dbo.copy')")]
-    assert "code checks only" in refused(svc, "notebook_validate_start", name="Spark", cells=cells, lakehouse_ref=LH)
+def test_a_spark_notebook_gets_a_clean_run_with_its_writes_in_the_sandbox(svc):
+    before = DeltaTable(str(svc.lh / "Tables" / "dbo" / "orders")).version()
+    cells = [code("df = spark.read.table('dbo.orders')"),
+             code("df.filter(df.amount > 0).write.mode('overwrite').saveAsTable('dbo.copy')"),
+             code("print(spark.table('dbo.copy').count())")]
+    st = done(svc, call(svc, "notebook_validate_start", name="Spark", cells=cells, lakehouse_ref=LH, runs_on="pc")["id"])
+    assert st["run"]["status"] == "ok", st
+    assert [c["status"] for c in st["cells"]] == ["ok", "ok", "ok"]
+    assert st["run"]["sandbox_tables"] == ["dbo.copy"]
+    assert not (svc.lh / "Tables" / "dbo" / "copy").exists()  # never the lakehouse's own tables
+    assert DeltaTable(str(svc.lh / "Tables" / "dbo" / "orders")).version() == before
+    assert any(f["code"] == "spark_local" for f in st["findings"])
 
 
 def test_one_validation_at_a_time_and_cancel_ends_it(svc):

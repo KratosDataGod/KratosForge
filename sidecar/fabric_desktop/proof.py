@@ -41,7 +41,9 @@ _WARNINGS = [
      "calls a network service; the proof can't contain or compare what that does"),
     (re.compile(r"\bopen\s*\((?:[^,()]|\([^()]*\))*,\s*(?:mode\s*=\s*)?[\"'][rbt]*[wax+]|\bopen\s*\([^)]*\bmode\s*=\s*[\"'][rbt]*[wax+]"
                 r"|\.write_(text|bytes)\s*\(|\bos\.(remove|unlink|rename|makedirs)\b|\bshutil\."
-                r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"),
+                r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"
+                # Spark's df.write...parquet(path) or csv(path) to a path outside the lakehouse.
+                r"|\.write(?:\.\w+\([^()]*\))*\.(?:parquet|csv)\s*\(\s*(?![rfu]?[\"'](?:Files/|Tables/|abfss://|/lakehouse/))[^)\s]"),
      "writes or changes files on the machine running it; those aren't compared"),
     (re.compile(r"\b(notebookutils|mssparkutils|dbutils)\.notebook\.(run|runMultiple)\b|^\s*%run\b", re.M),
      "runs another notebook, which isn't checked or contained by the proof"),

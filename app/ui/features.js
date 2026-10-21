@@ -41,11 +41,13 @@ const PREVIEW_FEATURES = {
   sideBySide: "Side by side",
   prove: "Prove this notebook",
   validate: "Validate notebook",
+  notebookRuns: "Notebook runs",
   fabricEdit: "Edit Fabric notebooks on this PC",
   wizard: "New notebook wizard",
   deps: "Cell dependencies",
-  debug: "Variable history and watches",
+  debug: "Breakpoints, variable history and watches",
   replay: "Failure replay bundles",
+  inputs: "Parameters and widgets bar",
   cost: "Cost",
   capacity: "Capacity status",
   usage: "Measured usage import",
@@ -78,6 +80,7 @@ const PREVIEW_FEATURES = {
   varlib: "Variable library",
   quarantineReplay: "Quarantine replay",
   risk: "Risk check before a run",
+  nbFormats: "Notebook import and export formats",
   profile: "Profile",
 };
 

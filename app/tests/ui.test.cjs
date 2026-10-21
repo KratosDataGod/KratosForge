@@ -732,7 +732,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -1477,7 +1477,7 @@ test("a notebook's data: its own lakehouse first, then its repository's location
 test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(state\.notebook\)/);
   assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
@@ -2238,6 +2238,37 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
+  const { dbgBpMap, dbgStackText, dbgKeyAction } = dbgHelpers();
+  // Two lines inserted above line 3; line 5 deleted onto line 4; line 9 is past the end now.
+  const moved = { 1: 1, 3: 5, 4: 6, 5: 6, 9: 11 };
+  assert.deepStrictEqual([...dbgBpMap([1, 3, 4, 5, 9], (n) => moved[n] ?? null, 10)], [1, 5, 6]);
+  assert.strictEqual(dbgStackText([{ function: "(cell)", line: 5 }, { function: "double", line: 3 }]), "(cell) line 5 › double line 3");
+  const key = (k, extra = {}) => dbgKeyAction({ key: k, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...extra });
+  assert.strictEqual(key("F5"), "continue");
+  assert.strictEqual(key("F10"), "next");
+  assert.strictEqual(key("F11"), "step");
+  assert.strictEqual(key("F11", { shiftKey: true }), "out");
+  assert.strictEqual(key("F5", { ctrlKey: true }), null);
+  assert.strictEqual(key("Enter"), null);
+});
+
+test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    assert.ok(nb.includes(hook), hook);
+  }
+  assert.match(dbg, /rpc\("debug_cell"/);
+  // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
+  assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
+  // The debugger keys are in the Keyboard shortcuts dialog, only while the Preview feature is shown.
+  assert.match(dbg, /registerShortcuts\("Notebook debugger", \[[\s\S]*keys: \["F9"\][\s\S]*keys: \["Shift\+F11"\][\s\S]*\]\);/);
+  assert.strictEqual((dbg.match(/when: \(\) => state\.view === "notebook" && dbgOn\(\)/g) || []).length, 5);
+});
+
 // Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
 // Workloads and Agents, linked to their own section of the guide.
 test("Queue, Incidents and Run as say how they work beside the list", () => {
@@ -2895,6 +2926,33 @@ test("Home draws at once while the component check runs, and calls nothing until
   assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
 });
 
+// L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
+// red, and the Resources tab keeps its snippets under the files.
+test("notebook resource names, sizes and the Resources tab", () => {
+  const src = fs.readFileSync(path.join(ui, "nbresources.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
+${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+  for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
+  for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
+    assert.notStrictEqual(ctx.problem(bad), "", bad);
+  }
+  assert.strictEqual(ctx.size(17), "17 B");
+  assert.strictEqual(ctx.size(2048), "2.0 KB");
+  assert.strictEqual(ctx.size(5 * 1024 * 1024), "5.0 MB");
+  assert.match(src, /confirmDialog\(`Delete \$\{file\.name\}\?`,[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /copyText\(`builtin\/\$\{file\.name\}`, "Path"\)/);
+  assert.match(src, /const NB_RES_MAX_FILES = 100;/);
+  assert.match(src, /const NB_RES_MAX_BYTES = 50 \* 1024 \* 1024;/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /content\.append\(nbResourcesSection\(state\.notebook\), h\("div", \{ class: "nb-res-head" \}, h\("b", \{\}, "Code snippets"\)\)/);
+  assert.ok(nb.includes("...SNIPPETS.map("), "the snippets stay");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbresources.js"') > html.indexOf('src="replay.js"'), "replayBase64 loads first");
+});
+
 // Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
 test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
   const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
@@ -3128,6 +3186,243 @@ test("the profile report preview renders headings, bullets and source tags witho
   const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
   assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
+});
+
+// Running part of a cell (nbselect.js): the selected text, or the cursor's line dedented, in the
+// cell's language.
+test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
+  const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
+  ctx.cellLang = (c) => c.lang;
+  const py = { lang: "python" };
+  const code = "for i in range(3):\n    x = i\n    print(x)";
+  assert.strictEqual(ctx.f(py, code, 25, 25), "x = i");  // cursor on line 2, nothing selected
+  assert.strictEqual(ctx.f(py, code, 23, code.length), "x = i\nprint(x)");
+  assert.strictEqual(ctx.f(py, "a = 1\n\nb", 6, 6), null);  // a blank line has nothing to run
+  const sql = { lang: "sql" };
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+});
+
+test("several selected cells: the notebook hooks are in place", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(selectionClick\(cell, e\)\) return;/);
+  assert.match(nb, /if \(last\.group\) return undoDeleteGroup\(last\);/);
+  assert.match(nb, /if \(code == null\) depsRan\(cell, ok\);/);
+  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : dbgStartArgs\(cell, debug\)\) \}\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbselect.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Organising cells (nbcells.js): which cells a collapsed heading hides, and the hooks in notebook.js.
+test("a collapsed heading hides the cells up to the next heading of the same or a higher level", () => {
+  const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
+  const ctx = { document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  const { collapsedCells, headingLevel, visibleCells } = ctx.f;
+  const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
+  const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
+  assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
+  assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
+  assert.strictEqual(headingLevel(code(1)), 0);
+  const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
+  const { hidden, counts } = collapsedCells(cells);
+  assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
+  assert.strictEqual(counts.get(1), 3);
+  assert.strictEqual(counts.get(7), 1);
+  assert.deepStrictEqual([...visibleCells(cells).map((c) => c.id)], [1, 5, 6, 7]);
+  assert.strictEqual(visibleCells(cells.slice(4, 6)).length, 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /\.\.\.cellHeadExtras\(cell\)/);
+  assert.match(nb, /return \[\.\.\.items, \.\.\.cellMenuExtras\(cell\)\];/);
+  assert.match(nb, /cell\.status === "error" && state\.notebook\?\.cells\.includes\(cell\) && revealCell\(cell\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>(\n {2}<script src="[\w.-]+"><\/script>)*\n {2}<script src="nbcells\.js"><\/script>/);
+});
+
+// Tables and files from the notebook's Explorer (nbdrag.js): what a drop inserts and the ways to load.
+test("dropping a table or file inserts its load code on an empty line, else its name for the cell's language", () => {
+  const src = fs.readFileSync(path.join(ui, "nbdrag.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, readSnippet: (p) => `df = lakehouse.read_csv("${p}")\ndf` };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { dataItemDropText, dataItemLoads };`, ctx);
+  const { dataItemDropText, dataItemLoads } = ctx.f;
+  const table = { kind: "table", schema: "dbo", table: "sales" };
+  assert.strictEqual(dataItemDropText(table, "python", { blankLine: true }), 'df = lakehouse.read_table("dbo.sales")\ndf');
+  assert.strictEqual(dataItemDropText(table, "python"), '"dbo.sales"');
+  assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL"]);
+  const odd = { kind: "file", path: "Files/notes/readme.txt" };
+  assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
+  assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+  // Names are quoted wherever they go into code, so a quote in a file name can't end the string.
+  const ctx2 = { document: { addEventListener() {} } };
+  vm.createContext(ctx2);
+  vm.runInContext(`${/function readSnippet\([\s\S]*?\n}\n/.exec(app)[0]}\n${src}\nthis.f = { dataItemLoads, dataItemDropText };`, ctx2);
+  const evil = { kind: "file", path: 'Files/x"); import os; os.system("calc"); (".csv' };
+  assert.strictEqual(ctx2.f.dataItemLoads(evil)[0][1], `df = lakehouse.read_csv(${JSON.stringify(evil.path)})\ndf`);
+  assert.match(app, /onInsert\(`df = lakehouse\.read_table\(\$\{JSON\.stringify\(`\$\{schema\}\.\$\{t\}`\)\}\)\\ndf`\)/);
+  const odd2 = { kind: "table", schema: "dbo", table: "my `odd` table" };
+  assert.strictEqual(ctx2.f.dataItemDropText(odd2, "sql"), "dbo.`my ``odd`` table`");
+  assert.match(ctx2.f.dataItemLoads(odd2)[2][1], /FROM dbo\.`my ``odd`` table` LIMIT/);
+});
+
+// Notebook find and replace (nbfind.js): matches across cells with the bar's flags, regex groups in
+// the replacement, and edits applied from the end of a cell.
+test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
+  const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
+  const { findMatches, findReplacement, findApply } = ctx.f;
+  const cells = [{ type: "markdown", source: "# Sales" }, { type: "code", source: "sales = 1\nsales_count = sales" }];
+  assert.strictEqual(findMatches(cells, "sales").matches.length, 4);
+  assert.strictEqual(findMatches(cells, "sales", { matchCase: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { word: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { markdown: false }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
+  assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
+  assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
+  assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
+  assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
+  // Lookarounds and anchors see the whole cell, as when they matched.
+  const xa = [{ type: "code", source: "xa ya xa" }];
+  const found = findMatches(xa, "(?<=x)a", { regex: true }).matches;
+  assert.strictEqual(found.length, 2);
+  assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
+  assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
+  const lines = [{ type: "code", source: "a1\nb2" }];
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
+  assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
+  assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");
+});
+
+test("the notebook keeps its matches marked and the bar over the cells", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /nbFindBar\(\), h\("div", \{ class: "cells-inner" \}/);
+  assert.match(nb, /findHighlighter\(cell\),/);
+  assert.match(nb, /findCellChanged\(\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbfind.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
+// selection, and the panel lists threads in cell order with deleted cells' threads last.
+test("cell comments: mentions, selected lines and the panel's rows", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["commentParts", "commentLines", "commentRows", "commentAuthor", "ownComment"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(ctx.commentParts("ask @bob.smith, <b>now</b>. me@")), [
+    { text: "ask ", mention: false }, { text: "@bob.smith", mention: true }, { text: ", <b>now</b>. me@", mention: false }]);
+  const code = "a = 1\nb = 2\nc = 3";
+  assert.strictEqual(ctx.commentLines(code, 3, 3), null, "no selection: the whole cell");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 7, 1)), [1, 2]);
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 6, 12)), [2, 2], "ending at a line's start leaves that line out");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 0, code.length)), [1, 3]);
+  const cells = [{ cell_id: "a" }, { cell_id: "b" }];
+  const threads = [
+    { id: "t1", cell_id: "b", resolved: false, comments: [{ at: "2026-10-20T10:00:00+00:00" }] },
+    { id: "t2", cell_id: "gone", resolved: false, comments: [{ at: "2026-10-20T09:00:00+00:00" }] },
+    { id: "t3", cell_id: "a", resolved: false, comments: [{ at: "2026-10-20T11:00:00+00:00" }] },
+    { id: "t4", cell_id: "a", resolved: true, comments: [{ at: "2026-10-20T08:00:00+00:00" }] },
+  ];
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // "You" only for the current account's (or this PC's) id; others keep their stored name.
+  const me = { name: "ann@contoso.com", id: "aad:1" };
+  assert.strictEqual(ctx.commentAuthor("ann@contoso.com", "aad:1", me), "You");
+  assert.strictEqual(ctx.commentAuthor("bob@contoso.com", "aad:2", me), "bob@contoso.com");
+  assert.strictEqual(ctx.commentAuthor("", "pc:other", me), "Someone on this PC");
+  assert.strictEqual(ctx.commentAuthor("", "", { name: "", id: "" }), "Someone on this PC", "no id is never you");
+  assert.strictEqual(ctx.ownComment({ author: "ann@contoso.com", author_id: "aad:9" }, me), false, "the name alone isn't ownership");
+  assert.strictEqual(ctx.ownComment({ author_id: "aad:1" }, me), true);
+  assert.strictEqual(ctx.ownComment({}, { name: "", id: "" }), false);
+  // Comment text only ever becomes text nodes, and deleting asks first, in red.
+  assert.doesNotMatch(src, /innerHTML/);
+  assert.match(src, /"Delete", \{ danger: true \}/);
+  assert.match(src, /nobody is notified/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+});
+
+// Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
+test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
+  const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function fabricStatus\([\s\S]*?\n}\n/)[0]}
+    ${src.slice(0, src.indexOf("// ---------- state"))}
+    Object.assign(this, { NB_RUN_TRIGGERS, nbRunStatus, nbRunWhere, nbRunsUnfinished, nbRunsSummary, nbRunKey });`, ctx);
+  const pcOk = { source: "pc", status: "ok", trigger: "schedule", started: "2026-10-20T06:00:00+00:00", schedule_id: "s1" };
+  const pcBad = { source: "pc", status: "failed", trigger: "manual" };
+  const going = { source: "fabric", status: "InProgress", trigger: "fabric", workspace_name: "Sales", job_id: "j1" };
+  const done = { source: "fabric", status: "Completed", trigger: "run_now" };
+  assert.deepStrictEqual([pcOk, pcBad, going, done, { source: "pc", status: "skipped" }].map(ctx.nbRunStatus),
+    ["ok", "failed", "running", "ok", "skipped"]);
+  assert.deepStrictEqual([pcOk, going, done].map(ctx.nbRunWhere), ["This PC", "Fabric: Sales", "Fabric"]);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, going, done]), 1);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, done]), 0, "nothing to ask Fabric about");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk, pcBad, going, done]), "4 runs, 1 failed, 1 still going");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk]), "1 run");
+  assert.strictEqual(ctx.nbRunsSummary([]), "No runs yet");
+  assert.strictEqual(ctx.nbRunKey(pcOk), "pc:2026-10-20T06:00:00+00:00:s1");
+  for (const t of ["schedule", "manual", "fabric", "run_now", "prove", "side_by_side"]) assert.ok(ctx.NB_RUN_TRIGGERS[t], t);
+  // Wired into the ribbon and the notebook body, tagged Preview, and the engine call is read-only.
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/runsToggle\(nb\)/g).length, 2, "Home and Run tabs");
+  assert.match(nb, /runsPanel\(nb\), provePanel\(nb\)/);
+  assert.match(src, /preview\("notebookRuns", btn\("Recent runs"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /\n  notebookRuns: "Notebook runs",/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="runs.js"><\/script>/);
+  assert.match(src, /rpc\("notebook_runs", \{ name: nb\.name, limit: NB_RUNS_LIMIT, refresh \}\)/);
+  const audit = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "audit.py"), "utf8");
+  assert.match(audit, /\bnotebook_runs\b/);
+  // How this works names the one write, and no other panel stays open beside it.
+  assert.match(src, /saves the answer in fabric_runs\.jsonl on this PC/);
+  assert.match(src, /anchor: "notebook-runs-preview"/);
+  for (const f of ["prove.js", "validate.js"]) assert.match(fs.readFileSync(path.join(ui, f), "utf8"), /if \(nb\.runs\?\.open\) nb\.runs\.open = false;/);
+});
+
+// Notebook parity L5: export and import formats (notebook-formats.js, notebook_formats.py).
+test("notebook export sends the cells with their outputs, and says where the file goes", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+  vm.createContext(ctx);
+  vm.runInContext(`${src.match(/const NBF_EXPORTS = [\s\S]*?\];/)[0]}
+${src.match(/function nbfExportPayload\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfExportMenu\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfBase64\([\s\S]*?\n}\n/)[0]}
+this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64;`, ctx);
+  const nb = { name: "Sales", lakehouse: null, cells: [
+    { type: "markdown", source: "# T", meta: {}, cell_id: "m", outputs: [{ type: "text", text: "x" }], count: null },
+    { type: "code", source: "1", meta: {}, cell_id: "c", outputs: [{ type: "text", text: "1" }], count: 4 }] };
+  const p = JSON.parse(JSON.stringify(ctx.payload(nb, "ipynb_outputs")));
+  assert.deepStrictEqual(p.cells.map((c) => [c.outputs.length, c.count]), [[0, null], [1, 4]]);
+  assert.strictEqual(p.format, "ipynb_outputs");
+  const items = ctx.menu();
+  assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
+  assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
 });
 
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
@@ -3405,4 +3700,119 @@ test("Markdown and JSON cell outputs render without new HTML sinks", () => {
   assert.strictEqual(t, '{2}a: [3]0: 11: "<b>x</b>"2: nullb: {1}c: true');
   assert.strictEqual(tree.attrs.open, true);
   assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
+});
+
+// IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
+// completions carry lazy docs; other languages get none of it.
+test("Python cells get hover, signature help, syntax errors and completion docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /CM\.autocompletion\(\{ override: \[pythonCompletions\], activateOnTypingDelay: 150 \}\),\n\s+\.\.\.intelExtensions\(\)\]/);
+  assert.match(nb, /info: intelCompletionInfo\(base, i\.label\)/);
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true \}\)/);
+  assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
+  assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
+test("notebookutils.lakehouse and isValidToken are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
+  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
+});
+
+// Notebook utilities: notebookutils.notebook reads Fabric notebook items; changes go through Publish.
+test("notebookutils.notebook item reads are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `notebook` items \(Preview\) \| `get`, `list` and `getDefinition` read Fabric notebook items as you/);
+  assert.match(docs, /use \*\*Publish to OneLake\*\*, which shows what it replaces first/);
+});
+
+// notebookutils rows that read Fabric live are marked Preview until they run on a tenant.
+test("notebookutils docs mark the live Fabric reads Preview", () => {
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
+});
+
+// notebookutils.variableLibrary reads any library from the attached lakehouse's workspace, read only.
+test("notebook docs say any variable library is read from the lakehouse's workspace", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace/);
+  assert.match(doc, /Read only \(Preview, not yet run on a tenant\)/);
+});
+
+// Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
+test("Databricks dbutils snippets and docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Databricks widget", 'dbutils\.widgets\.text\("run_date"/);
+  assert.match(nb, /\["Databricks secret \(Key Vault scope\)", 'secret = dbutils\.secrets\.get\("<vault-name>"/);
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
+  assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// Parameters and widgets bar (Preview): above the cells, values added after their cell when it runs.
+test("parameters and widgets bar sits above the cells and adds its values to the run", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /computeNote\(nb\), inputsBar\(nb\), visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
+  const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
+  assert.match(bar, /previewMarked\("inputs"/);
+  assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('<script src="nbinputs.js"></script>') > html.indexOf('<script src="notebook.js"></script>'));
+});
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});
+
+// Widget values from the bar apply from the start of every cell, even the one that creates the widget.
+test("the inputs bar docs say widget values apply in the creating cell", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`dbutils\.widgets\.get` returns them from the start of every cell, including the cell that creates the widget/);
+});
+
+// Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
+test("notebook.run timeouts and validateDAG are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /`run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds`/);
+  assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
+  assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
+});
+
+// notebook.run timeouts land between Python steps; the docs say so.
+test("notebook.run docs say where the timeout lands", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /The timeout lands between Python steps, so a single long call such as `time\.sleep\(4\)` finishes before it stops/);
+});
+
+// The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
+test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
+  const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = variableRows;`, ctx);
+  const rows = [
+    { name: "sales", type: "DataFrame", memory: 50000 },
+    { name: "Count", type: "int", memory: 28 },
+    { name: "sdf", type: "DataFrame", memory: null },
+    { name: "cfg", type: "dict", memory: 400 },
+  ];
+  const names = (opts) => [...ctx.f(rows, opts).map((r) => r.name)];
+  assert.deepStrictEqual(names(), ["cfg", "Count", "sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: "frame" }), ["sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: " CO " }), ["Count"]);
+  assert.deepStrictEqual(names({ sort: "memory" }), ["sales", "cfg", "Count", "sdf"]);
+  assert.deepStrictEqual(names({ sort: "type" }), ["sales", "sdf", "cfg", "Count"]);
+  assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
+  assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });

@@ -89,8 +89,8 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
-      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions),
-      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)), btn("Versions", "history", nbVersions), nbfExportButton(),
+      preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")), runsToggle(nb),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
       h("button", { class: "tool primary split-more", "aria-label": "Publish options", title: "Publish options",
@@ -102,14 +102,16 @@ function renderNotebook() {
       h("div", { class: "sep" }),
       toggleBtn("Parameter cell", "braces", isParams(sel), () => toggleParams(sel), { disabled: sel.type !== "code" }),
       toggleBtn("Freeze", "shield", sel.meta?.frozen, () => toggleFreeze(sel)),
-      btn("Find and replace", "search", () => findInCell(sel)),
+      btn("Find and replace", "search", () => openFind(true), "tool", { title: "Find and replace in every cell (Ctrl+H)" }),
       h("div", { class: "sep" }), btn("Clear all outputs", "clear", clearOutputs)],
     run: [runAllBtn, btn("Run cell", "play", () => runCell(selectedCell()), "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run all above", "up", runAbove, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
       btn("Run cell and below", "down", runBelow, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
+      btn("Run selected cells", "play", runSelectedCells, "tool", localOnlyAttrs({ disabled: busy, "data-run": true,
+        title: "Run the cells you selected with Shift+click or Shift+Up/Down, in order" })),
       depsRunButton(nb, localOnlyAttrs({ disabled: busy, "data-run": true })), cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }),
       btn("Restart kernel", "restart", restartKernel), btn("Restart and run all", "restart", async () => { await restartKernel(); runAll(); }, "tool", localOnlyAttrs({ disabled: busy, "data-run": true })),
-      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook))],
+      h("div", { class: "sep" }), preview("schedules", btn("Schedule", "history", scheduleNotebook)), runsToggle(nb)],
     view: [toggleBtn("Explorer", "panel", state.showExplorer, () => { state.showExplorer = !state.showExplorer; renderNotebook(); }),
       toggleBtn("Outline", "documentTable", state.showExplorer && state.explorerTab === "outline", () => {
         const on = state.showExplorer && state.explorerTab === "outline";
@@ -117,17 +119,20 @@ function renderNotebook() {
         if (!on) state.explorerTab = "outline";
         renderNotebook();
       }),
-      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(),
+      toggleBtn("Variables", "braces", state.showVariables, toggleVariables), depsToggle(), commentsToggle(nb),
       h("div", { class: "sep" }),
       btn("Collapse all inputs", "up", () => setAll("source_hidden", true)), btn("Expand all inputs", "down", () => setAll("source_hidden", false)),
       btn("Collapse all outputs", "up", () => setAll("outputs_hidden", true)), btn("Expand all outputs", "down", () => setAll("outputs_hidden", false)),
+      nb.cells.some((c) => c.meta?.heading_collapsed && headingLevel(c))
+        ? btn("Expand all sections", "chevronDown", () => setAllSections(false))
+        : btn("Collapse all sections", "chevronRight", () => setAllSections(true)),
       h("div", { class: "sep" }), toggleBtn("Line numbers", "code", state.lineNumbers, toggleLineNumbers)],
   };
 
   const cells = h("section", { class: "cells", "aria-label": "Notebook cells", onmousedown: (e) => {
     if (e.target === e.currentTarget || e.target.classList.contains("cells-inner")) enterCommandMode();
   } },
-  h("div", { class: "cells-inner" }, replayBanner(nb), sbsPanel(nb), computeNote(nb), nb.cells.map(renderCell),
+  nbFindBar(), h("div", { class: "cells-inner" }, selectionBar(), replayBanner(nb), sbsPanel(nb), computeNote(nb), inputsBar(nb), visibleCells(nb.cells).map(renderCell),
     h("div", { class: "add-cell" }, btn("Code", "add", () => addCell("code", true), "tool outline"),
       btn("Markdown", "add", () => addCell("markdown", true), "tool outline"))));
 
@@ -136,11 +141,12 @@ function renderNotebook() {
     h("div", { class: "ribbon" }, h("div", { class: "ribbon-tabs", role: "tablist", "aria-label": "Ribbon" }, tabs),
       h("div", { class: "toolbar" }, toolbars[state.ribbonTab])),
     h("div", { class: "nb-body" }, state.showExplorer ? renderExplorer() : null, cells,
-      state.showVariables ? renderVariables() : null, provePanel(nb), validatePanel(nb)),
+      state.showVariables ? renderVariables() : null, commentsPanel(nb), runsPanel(nb), provePanel(nb), validatePanel(nb)),
     h("footer", { class: "statusbar" },
       h("span", {}, h("span", { class: `dot ${state.kernel}` }), kernelLabel()),
       h("span", { class: "mode-hint" }, modeHint()),
       h("span", {}, `Attached: ${lh ? lh.name : "none"}`),
+      h("span", { class: "last-run" }, nbLastRunText(nb.lastRun)),
       h("span", {}, fabricMode ? `Compute: Fabric capacity in ${publishWorkspaceName(nb)}`
         : `Compute: Python ${state.python || "3"} on this PC, no Fabric job`),
       nb.fabricRun ? h("span", {}, `Last Fabric run: ${nb.fabricRun.status === "NotStarted" ? "starting" : nb.fabricRun.status}`) : null));
@@ -155,7 +161,7 @@ function kernelLabel() {
 
 function modeHint() {
   return state.mode === "edit" ? "Edit mode: Esc for command mode, Shift+Enter to run"
-    : "Command mode: Enter to edit, A above, B below, DD delete, M markdown, Y code, Z undo";
+    : "Command mode: Enter to edit, A above, B below, DD delete, M markdown, Y code, Z undo, Shift+Down select more";
 }
 
 function setMode(mode) {
@@ -192,7 +198,8 @@ function renderExplorer() {
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
   } else if (state.explorerTab === "resources") {
-    content.append(h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
+    content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
+      h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
       ...SNIPPETS.map(([title, code]) => h("button", { class: "snippet", onclick: () => insertCell(code) },
         h("div", { class: "t" }, title), h("code", {}, code))));
   } else if (lh) {
@@ -232,13 +239,14 @@ function renderOutline() {
     } else if (isParams(cell)) {
       items.push({ cell, level: 1, text: "Parameters" });
     }
+    if (cell.type === "code" && cell.meta?.title) items.push({ cell, level: 4, text: cell.meta.title, titled: true });
   });
   if (!items.length) {
     return h("div", { class: "muted-text", style: "padding:8px 4px" }, "Add Markdown headings (# Title) to build an outline.");
   }
   return h("nav", { class: "nb-outline", "aria-label": "Outline" }, items.map((it) => h("button", {
-    class: `outline-item l${it.level}${it.cell.id === state.selected ? " active" : ""}`,
-    onclick: () => { selectCell(it.cell); document.querySelector(`[data-cell="${it.cell.id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }); },
+    class: `outline-item l${it.level}${it.titled ? " titled" : ""}${it.cell.id === state.selected ? " active" : ""}`,
+    onclick: () => { revealCell(it.cell); selectCell(it.cell); document.querySelector(`[data-cell="${it.cell.id}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" }); },
   }, it.text)));
 }
 
@@ -260,6 +268,8 @@ const SNIPPETS = [
   ["List files", 'notebookutils.fs.ls("Files")'],
   ["Get a Key Vault secret", 'secret = notebookutils.credentials.getSecret("https://<vault>.vault.azure.net/", "<secret-name>")'],
   ["Run another notebook", 'result = notebookutils.notebook.run("Other notebook", 600, {"run_date": "2026-01-01"})'],
+  ["Databricks widget", 'dbutils.widgets.text("run_date", "2026-01-01", "Run date")\nrun_date = dbutils.widgets.get("run_date")'],
+  ["Databricks secret (Key Vault scope)", 'secret = dbutils.secrets.get("<vault-name>", "<secret-name>")'],
   ["Plot with matplotlib", 'import matplotlib.pyplot as plt\nplt.bar(["East", "West"], [960, 1350])\nplt.show()'],
 ];
 
@@ -279,14 +289,7 @@ function renderVariables() {
       : h("div", { class: "var-list" }, state.variables ? variableTable(state.variables) : h("div", { class: "muted-text" }, "Loading...")));
 }
 
-function variableTable(rows) {
-  if (!rows.length) return h("div", { class: "muted-text", style: "padding:8px" }, "No variables yet. Run a cell to see them here.");
-  return h("table", { class: "vars" },
-    h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Size"), h("th", {}, "Value"))),
-    h("tbody", {}, rows.map((r) => h("tr", { title: "Click to display it in a new cell", class: "click",
-      onclick: () => insertCell(`display(${r.name})`) },
-    h("td", { class: "name" }, r.name), h("td", {}, r.type), h("td", {}, r.size), h("td", { class: "val" }, r.value)))));
-}
+// variableTable is in nbvars.js.
 
 async function refreshVariables() {
   if (!state.showVariables || nbWhere(state.notebook).fabric) return;
@@ -304,9 +307,12 @@ function renderCell(cell) {
   const selected = cell.id === state.selected;
   const meta = cell.meta || (cell.meta = {});
   const node = h("div", {
-    class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}`, "data-cell": cell.id, tabindex: "-1",
+    class: `cell ${cell.type}${selected ? " selected" : ""}${meta.frozen ? " frozen" : ""}${multiSelected() && nbSel.ids.has(cell.id) ? " multi" : ""}`,
+    "data-cell": cell.id, tabindex: "-1",
     onmousedown: (e) => {
+      if (selectionClick(cell, e)) return;  // nbselect.js: Shift or Ctrl+click
       if (state.selected !== cell.id) selectCell(cell);
+      else if (multiSelected()) clearSelection();
       if (!e.target.closest(".cm-editor, input, select, textarea, button")) {
         setMode("command");
         setTimeout(() => { if (!document.activeElement?.closest?.(".cm-editor, input, select")) node.focus({ preventScroll: true }); });
@@ -320,6 +326,8 @@ function renderCell(cell) {
     isParams(cell) ? h("span", { class: "tag" }, "Parameters") : null,
     meta.frozen ? h("span", { class: "tag frozen-tag" }, icon("shield", 12), "Frozen") : null,
     cell.type === "code" ? depsHead(cell) : null,
+    ...cellHeadExtras(cell),
+    commentBadge(cell),  // notebook-comments.js
     h("span", { class: "spacer" }),
     cell.type === "code" ? h("button", { class: "tool small", title: meta.source_hidden ? "Show code" : "Hide code",
       "aria-label": meta.source_hidden ? "Show code" : "Hide code", onclick: () => setMeta(cell, "source_hidden", !meta.source_hidden) },
@@ -337,7 +345,7 @@ function renderCell(cell) {
     } else {
       body = h("div", { class: "md-view", ondblclick: () => enterEditMode(cell) }, markdown(cell.source));
     }
-    node.append(h("div", { class: "gutter" }), h("div", { class: "cell-box" }, head, body));
+    node.append(h("div", { class: "gutter" }, cellGrip(cell), sectionToggle(cell)), h("div", { class: "cell-box" }, head, body, sectionHiddenBar(cell)));
     return node;
   }
 
@@ -363,12 +371,13 @@ function renderGutter(cell) {
     : h("button", { class: "tool small", "aria-label": "Run cell", title: "Run cell (Shift+Enter)",
       disabled: state.kernel === "busy" || cell.meta?.frozen || null, "data-run": true, onclick: () => runCell(cell) }, icon("play", 14));
   runBtn.querySelector("svg")?.classList.add("play");
-  return h("div", { class: "gutter" }, runBtn, running ? "[*]" : `[${cell.count ?? " "}]`);
+  return h("div", { class: "gutter" }, cellGrip(cell), runBtn, running ? "[*]" : `[${cell.count ?? " "}]`);
 }
 
 function cellResults(cell) {
   const parts = [];
   if (cell.status) parts.push(statusLine(cell));
+  if (cell.paused) parts.push(dbgPausedPanel(cell));  // debugging.js
   if (!cell.outputs.length) return cell.hidden?.length ? [...parts, dbgCellWarning(cell)].filter(Boolean) : parts;
   if (cell.meta?.outputs_hidden) {
     parts.push(h("button", { class: "hidden-input", onclick: () => setMeta(cell, "outputs_hidden", false) },
@@ -397,23 +406,27 @@ function cellMenu(cell) {
     items.push({ label: isParams(cell) ? "Remove parameter tag" : "Toggle parameter cell", icon: "braces", action: () => toggleParams(cell) });
     items.push({ label: cell.meta.outputs_hidden ? "Show output" : "Hide output", icon: "panel", action: () => setMeta(cell, "outputs_hidden", !cell.meta.outputs_hidden) });
     items.push({ label: "Clear output", icon: "clear", action: () => { cell.outputs = []; cell.status = null; updateCell(cell); } });
+    if (dbgOn() && !nbWhere(state.notebook).fabric) {  // debugging.js
+      items.push({ label: "Debug cell (pause at the first line)", icon: "play", action: () => debugCell(cell) });
+    }
   }
   items.push({ label: cell.meta.frozen ? "Unfreeze cell" : "Freeze cell", icon: "shield", action: () => toggleFreeze(cell) });
   items.push({ label: "Split cell at cursor", icon: "code", action: () => splitCell(cell) });
   items.push({ label: "Merge with cell below", icon: "down", action: () => mergeBelow(cell) });
   items.push({ label: "Copy cell", icon: "copyArrowRight", action: () => copyCell(cell) });
   items.push({ label: "Paste cell below", icon: "add", action: () => pasteCell(cell, 1) });
-  items.push({ label: "Find and replace", icon: "search", action: () => findInCell(cell) });
-  return items;
+  items.push({ label: "Find in this cell", icon: "search", action: () => findInCell(cell) });
+  items.push(...commentMenuItems(cell));  // notebook-comments.js
+  return [...items, ...cellMenuExtras(cell)];
 }
 
 function statusLine(cell) {
   const s = cell.status;
-  const label = { queued: ["busy", "Queued"], running: ["busy", "Running"], ok: ["ok", "Succeeded"],
+  const label = { queued: ["busy", "Queued"], running: cell.paused ? ["busy", "Paused"] : ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
-    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, "Ran on this PC") : null,
+    s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
 }
@@ -428,6 +441,7 @@ function updateCell(cell, focus = false) {
 }
 
 function selectCell(cell) {
+  if (nbSel.ids.size) clearSelection();  // nbselect.js: a plain move ends a multi-cell selection
   const prev = state.selected;
   state.selected = cell.id;
   document.querySelector(`[data-cell="${prev}"]`)?.classList.remove("selected");
@@ -447,7 +461,7 @@ function renderToolbar() {
 }
 
 function selectRelative(delta) {
-  const cells = state.notebook.cells;
+  const cells = visibleCells(state.notebook.cells);
   const i = cells.indexOf(selectedCell());
   const next = cells[Math.max(0, Math.min(cells.length - 1, i + delta))];
   selectCell(next);
@@ -458,8 +472,9 @@ function selectRelative(delta) {
 
 function focusNext(cell, edit = true) {
   const cells = state.notebook.cells;
+  const { hidden } = collapsedCells(cells);
   const i = cells.indexOf(cell);
-  let next = cells[i + 1];
+  let next = cells.slice(i + 1).find((c) => !hidden.has(c.id));
   if (!next) {
     next = cellFrom({ type: "code" });
     cells.push(next);
@@ -509,6 +524,7 @@ function moveCell(delta, cell = selectedCell()) {
   [cells[i], cells[j]] = [cells[j], cells[i]];
   state.selected = cell.id;
   markDirty();
+  revealCell(cell);  // moved into a collapsed section: open it rather than hide the cell
   renderNotebook();
   refreshOutline();
 }
@@ -530,6 +546,7 @@ function deleteCell(cell) {
 function undoDelete() {
   const last = deletedCells.pop();
   if (!last) return;
+  if (last.group) return undoDeleteGroup(last);  // nbselect.js
   const cell = cellFrom(last.cell);
   if (cell.type === "markdown") cell.editing = false;
   state.notebook.cells.splice(Math.min(last.index, state.notebook.cells.length), 0, cell);
@@ -547,10 +564,14 @@ function copyCell(cell) {
 function pasteCell(cell, offset) {
   if (!cellClipboard) return;
   const cells = state.notebook.cells;
-  const copy = cellFrom({ ...cellClipboard, meta: structuredClone(cellClipboard.meta) });
-  if (copy.type === "markdown") copy.editing = false;
-  delete copy.meta.tags;
-  cells.splice(cells.indexOf(cell) + (offset > 0 ? 1 : 0), 0, copy);
+  const copies = [cellClipboard].flat().map((c) => {  // several cells after a multi-cell copy (nbselect.js)
+    const copy = cellFrom({ ...c, meta: structuredClone(c.meta) });
+    if (copy.type === "markdown") copy.editing = false;
+    delete copy.meta.tags;
+    return copy;
+  });
+  cells.splice(cells.indexOf(cell) + (offset > 0 ? 1 : 0), 0, ...copies);
+  const copy = copies[0];
   state.selected = copy.id;
   markDirty();
   renderNotebook();
@@ -576,18 +597,10 @@ function splitCell(cell) {
   enterEditMode(fresh);
 }
 
+// Same as Shift+M on one cell (nbselect.js): refuses cells in different languages, and Z undoes it.
 function mergeBelow(cell) {
-  const cells = state.notebook.cells;
-  const next = cells[cells.indexOf(cell) + 1];
-  if (!next || cell.meta?.frozen || next.meta?.frozen) return;
-  let tail = next.source;
-  const magic = MAGIC[cellLang(cell)];
-  if (magic && tail.trimStart().startsWith(magic)) tail = tail.trimStart().slice(magic.length).replace(/^\n/, "");
-  setSource(cell, `${cell.source.replace(/\n$/, "")}\n${tail}`);
-  cells.splice(cells.indexOf(next), 1);
-  dropEditor(next);
-  markDirty();
-  renderNotebook();
+  if (state.selected !== cell.id) selectCell(cell);
+  mergeSelected();
 }
 
 function setLanguage(cell, lang) {
@@ -694,7 +707,8 @@ const editorTheme = CM.EditorView.theme({
 });
 
 function gutters(cell) {
-  return state.lineNumbers && cell.type === "code" ? [CM.lineNumbers(), CM.foldGutter()] : [];
+  return state.lineNumbers && cell.type === "code"
+    ? [CM.lineNumbers({ domEventHandlers: { mousedown: (view, line) => dbgGutterClick(cell, view, line) } }), CM.foldGutter()] : [];
 }
 
 function readOnly(cell) {
@@ -712,7 +726,8 @@ function languageFor(cell) {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
     return [CM.sql({ dialect: CM.StandardSQL, schema, upperCaseKeywords: true }), CM.autocompletion()];
   }
-  return [CM.python(), CM.autocompletion({ override: [pythonCompletions], activateOnTypingDelay: 150 })];
+  return [CM.python(), CM.autocompletion({ override: [pythonCompletions], activateOnTypingDelay: 150 }),
+    ...intelExtensions()];  // nbintel.js: hover, signature help, syntax errors
 }
 
 function currentTables() {
@@ -759,7 +774,9 @@ async function pythonCompletions(ctx) {
   }
   if (ctx.aborted) return null;
   const from = line.from + result.from;
-  const options = result.items.map((i) => ({ label: i.label, type: CM_TYPES[i.type] || "variable" }));
+  const base = (word?.text || "").includes(".") ? word.text.slice(0, word.text.lastIndexOf(".") + 1) : "";
+  const options = result.items.map((i) => ({ label: i.label, type: CM_TYPES[i.type] || "variable",
+    info: intelCompletionInfo(base, i.label) }));  // nbintel.js
   if (!(word?.text || "").includes(".")) {
     const seen = new Set(options.map((o) => o.label));
     for (const m of ctx.state.doc.toString().matchAll(/(?:^|\s)(?:def\s+|class\s+)?([A-Za-z_]\w*)\s*(?==[^=]|\()/gm)) {
@@ -778,11 +795,14 @@ function editorFor(cell) {
       doc: cell.source,
       extensions: [
         gutterComp.of(gutters(cell)),
+        dbgEditorMarks(cell),  // debugging.js: breakpoints and the paused line
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
+        findHighlighter(cell),  // nbfind.js
+        dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
         CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
@@ -798,8 +818,9 @@ function editorFor(cell) {
               if (select) select.value = cellLang(cell);
             }
             markDirty();
+            findCellChanged();  // nbfind.js
             if (cell.type === "markdown") refreshOutline();
-            else depsChanged();
+            else { depsChanged(); dbgEdited(cell, u); }
           }
           if (u.focusChanged && u.view.hasFocus) {
             if (state.selected !== cell.id) selectCell(cell);
@@ -837,6 +858,7 @@ function cellKeymap(cell) {
     { key: "Escape", run: () => { editors.get(cell.id)?.contentDOM.blur(); enterCommandMode(cell); return true; } },
     { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
     { key: "Mod-/", run: CM.toggleComment },
+    { key: "F9", run: () => dbgToggleAtCursor(cell) },
   ];
 }
 
@@ -1254,7 +1276,9 @@ function renderInspect(o, numeric) {
 
 // ---------- running cells ----------
 
-async function runCell(cell, { timeLimit = true } = {}) {
+// `code` runs part of the cell (Ctrl+Shift+Enter, nbselect.js): its output replaces the cell's, and
+// the cell isn't marked as run for dependencies, since the rest of it didn't run.
+async function runCell(cell, { timeLimit = true, code = null, debug = false } = {}) {
   if (cell.type !== "code") return true;
   if (nbWhere(state.notebook).fabric) {
     toast("This notebook runs in Fabric, which runs the whole notebook. Use Run all, or switch Runs on to This PC to run one cell.");
@@ -1277,14 +1301,16 @@ async function runCell(cell, { timeLimit = true } = {}) {
   let last = null;
   try {
     const watches = await dbgWatches(state.notebook);  // debugging.js
-    let snap = await rpc("start_cell", { code: cell.source, lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
-      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}) });
+    let snap = await rpc("start_cell", { code: cell.source + nbInputSuffix(cell), lakehouse_ref: nbLakehouse(state.notebook), notebook: state.notebook.name,
+      ...(timeLimit ? {} : { time_limit: false }), ...(watches.length ? { watches } : {}), ...(code != null ? { code } : dbgStartArgs(cell, debug)) });
     for (;;) {
       if (snap.outputs) cell.outputs = snap.outputs;
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
+      const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
       if (snap.status !== "running") break;
-      if (state.notebook?.cells.includes(cell)) updateResults(cell);
+      // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
+      if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);
       snap = await rpc("poll_cell", { version: snap.version, wait: 0.4 });
     }
     cell.status = snap.status;
@@ -1304,10 +1330,16 @@ async function runCell(cell, { timeLimit = true } = {}) {
     }
     cell.seconds = (performance.now() - started) / 1000;
   }
+  if (cell.paused) dbgSnapshot(cell, null);
   cell.finishedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  cell.partial = code != null;
   setKernel(stopRequested ? "stopped" : "idle");
-  depsRan(cell, ok);
+  if (code == null) depsRan(cell, ok);
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
+  // A failed cell inside a collapsed section: open the section so the error can be seen.
+  if (cell.status === "error" && state.notebook?.cells.includes(cell) && revealCell(cell)) {
+    document.querySelector(`[data-cell="${cell.id}"]`)?.scrollIntoView({ block: "nearest" });
+  }
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
   cellFx(cell);  // after dbgAfterRun, which draws the results again
@@ -1331,6 +1363,13 @@ function cellFx(cell) {
 async function runCells(cells) {
   const code = cells.filter((c) => c.type === "code" && c.source.trim() && !c.meta?.frozen);
   cancelRequested = false;
+  const started = performance.now();
+  const done = (ran) => {
+    if (code.length < 2 || !state.notebook) return;
+    state.notebook.lastRun = { ran, of: code.length, seconds: (performance.now() - started) / 1000 };
+    const el = document.querySelector(".statusbar .last-run");
+    if (el) el.textContent = nbLastRunText(state.notebook.lastRun);
+  };
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy");
   renderNotebook();
@@ -1347,6 +1386,7 @@ async function runCells(cells) {
         code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
         setKernel(stopRequested ? "stopped" : "idle");
         announce(cell.status === "error" ? `Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed` : "Run stopped");
+        done(ok ? i + 1 : i);
         return;
       }
       track?.set(i + 1, code.length);
@@ -1358,6 +1398,11 @@ async function runCells(cells) {
   } finally {
     runningAll = false;
   }
+  done(code.length);
+}
+
+function nbLastRunText(r) {
+  return r ? `Last run: ${r.ran === r.of ? `${r.of} cells` : `${r.ran} of ${r.of} cells`} in ${r.seconds.toFixed(1)} s` : "";
 }
 
 function runAll() {

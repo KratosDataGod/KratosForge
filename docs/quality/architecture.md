@@ -53,10 +53,10 @@ The interface is consistent; its use isn't (QA-014): the private `_token(scopes)
 
 | Surface | Module | Retry and errors |
 | --- | --- | --- |
-| Fabric REST (`api.fabric.microsoft.com`) | `fabric_api.FabricClient`, 41 methods; also `central/client.py` with its own `API` constant | 429 with `Retry-After`; no 5xx retry; `FabricError(code, status)` |
-| OneLake DFS | `onelake.FileStore`; `leases.py` builds its own headers | none in `FileStore` |
+| Fabric REST (`api.fabric.microsoft.com`) | `fabric_api.FabricClient`, 41 methods; also `central/client.py` with its own `API` constant | `retrying.send_with_retry`: 429 on any method; 5xx and dropped connections on GETs only; `Retry-After` in seconds or as an HTTP date, capped at 60 s (HD-039); `FabricError(code, status)`. `central/client.py` posts once |
+| OneLake DFS | `onelake.FileStore`; `leases.py` builds its own headers | reads (list, read, download, lease and mailbox reads) through `retrying.send_with_retry`; uploads, deletes and lease writes are sent once |
 | Delta tables | delta-rs via `storage_options`, opened directly in five mixins | Delta optimistic concurrency, `retrying.py` |
-| Power BI and Graph | raw `requests` in `estate_service.py:355,389,393` | none |
+| Power BI and Graph | raw `requests` in `estate_service.py` | Graph user lookups (GET) through `retrying.send_with_retry`; the Power BI role POST is sent once |
 | Fabric portal | the shell's Fabric view | n/a |
 
 ### Tests
@@ -80,7 +80,7 @@ These hold almost everywhere and new work should keep them.
 | Writes to OneLake | Stage locally, check the Fabric-safe Delta profile, write with delta-rs, record in run history | `lakehouse.write_table`, `publish.py` |
 | Dependencies | Pinned in `constraints.txt`, moved only by their own PR | `CONTRIBUTING.md` |
 | Docs | User docs in `docs/`, linked from both READMEs; permissions in `docs/permissions.md` | `CONTRIBUTING.md` |
-| Words | "Fabric Desktop by KratosBI" in text; plain-language errors | memory, `CONTRIBUTING.md` |
+| Words | "KratosForge" in text; plain-language errors | memory, `CONTRIBUTING.md` |
 
 ## Where the standards contradict each other
 

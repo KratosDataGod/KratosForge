@@ -17,6 +17,7 @@ import base64
 import datetime as dt
 import hashlib
 import json
+import re
 import threading
 import time
 import uuid
@@ -30,9 +31,11 @@ from .kernel_proc import ProcessKernel
 from .measure import RunMeter
 from .onelake import DFS_HOST, FileStore, TableRef, check_name, storage_options
 from .proof_runtime import PROOF_ROOT
+from .redact import describe
 from .side_by_side import machine
 
 NOTEBOOK_JOB = "RunNotebook"
+_GUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 POLL_SECONDS = 5
 MAX_FABRIC_SECONDS = 6 * 3600
 RUNNING = ("preparing", "pc", "fabric", "verifying")
@@ -126,9 +129,16 @@ class ProveMixin:
         folder = Path.home() / "Downloads"
         folder.mkdir(parents=True, exist_ok=True)
         ext = {"html": "html", "markdown": "md", "json": "json"}[out["format"]]
-        path = folder / f"receipt-{id[:12]}{'-redacted' if hide else ''}.{ext}"
-        path.write_text(out["text"], encoding="utf-8")
-        return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        base = f"receipt-{id[:12]}{'-redacted' if hide else ''}"
+        for n in range(1, 1000):  # never replaces a file: a name that is taken gets a number (HD-038)
+            path = folder / (f"{base}.{ext}" if n == 1 else f"{base} ({n}).{ext}")
+            try:
+                with open(path, "x", encoding="utf-8") as f:
+                    f.write(out["text"])
+            except FileExistsError:
+                continue
+            return {"path": str(path), "format": out["format"], "hidden": hide or []}
+        raise ValueError("Couldn't find a free file name in Downloads for the receipt.")
 
     # ---- failure replay bundles (replay.py): what someone needs to run a failed notebook again
 
@@ -136,7 +146,7 @@ class ProveMixin:
                        lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
         if self.proof_busy():
             raise RuntimeError("A proof is using the kernel. Wait for it, or cancel it.")
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
         if kernel.poll().get("status") == "running":
             raise RuntimeError("A cell is running. Save the bundle when it has finished.")
         where = {"process": hasattr(kernel, "limits")}
@@ -168,8 +178,10 @@ class ProveMixin:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(1, 100):
             path = folder / f"replay-{stem}-{stamp}{'' if n == 1 else f'-{n}'}.zip"
-            if not path.exists():
-                return replay.write(path, bundle, samples) | {"ids_included": include_ids}
+            try:  # created exclusively, so a file already there is never replaced
+                return replay.write(path, bundle, samples, mode="x") | {"ids_included": include_ids}
+            except FileExistsError:
+                continue
         raise ValueError("Couldn't find a free file name in Downloads for the bundle.")
 
     def _replay_sample(self, row: dict[str, Any]) -> Any:
@@ -238,7 +250,8 @@ class ProveMixin:
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""
         s = getattr(self, "_replay_session", None)
-        k = self.kernel  # type: ignore[attr-defined]
+        session = self.sessions.session(s["name"], create=False) if s else None  # type: ignore[attr-defined]
+        k = session.kernel if session else None
         if s and isinstance(k, ProcessKernel) and k.alive() and k.pid == s["pid"]:
             return s
         self._replay_session = None
@@ -275,7 +288,7 @@ class ProveMixin:
         (vacuumed or cleaned up), how this PC's environment differs from the bundle's, and what stops it."""
         info, bundle = self._replay_of(name)
         blockers, notes = [], []
-        if not isinstance(self.kernel, ProcessKernel):  # type: ignore[attr-defined]
+        if not isinstance(self.sessions.kernel(name), ProcessKernel):  # type: ignore[attr-defined]
             blockers.append("Replay runs in the notebook's own process. Turn on Run notebooks in their own process "
                             "in Settings > Preview features.")
         if not lakehouse_ref:
@@ -299,7 +312,8 @@ class ProveMixin:
         diffs = envprofile.differences(bundle.get("environment") or {}, envprofile.runtime(modules), ("Bundle", "This PC"))
         return {"bundle": {k: bundle.get(k) for k in ("notebook", "saved_at", "failed_cell", "error", "limitations")},
                 "tables": tables, "environment": diffs, "blockers": blockers, "notes": notes,
-                "live": bool((live := self._replay_live()) and live["name"] == name)}
+                "live": bool((live := self._replay_live()) and live["name"] == name),
+                "sandboxes": self.replay_sandboxes(name)}
 
     def _replay_table(self, t: dict[str, Any], root: str, options: Callable[[], dict[str, str]], flat: bool) -> dict[str, Any]:
         """A pinned table: whether its version can still be read, and its latest version."""
@@ -346,13 +360,46 @@ class ProveMixin:
         config = {"id": rid, "pins": pins, "flat": flat, "seed": 0, "seeded": [replay_key(t) for t in seeds]}
         if seeds:
             self._replay_seed(info, rid, root, options, seeds)
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = name
+        kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]
         kernel.bind_proof(config, "pc", root, options)
         self._replay_session = {"name": name, "id": rid, "pid": kernel.pid, "marked": marked}
+        # Remembered in the notebook (kept when it becomes a normal notebook), so its writes can be deleted later.
+        store = self.notebooks  # type: ignore[attr-defined]
+        store.set_extra(name, "replay_sandboxes", (store.extra(name, "replay_sandboxes") or []) + [
+            {"id": rid, "workspace_id": lakehouse_ref["workspace_id"], "lakehouse_id": lakehouse_ref["lakehouse_id"],
+             "lakehouse": lakehouse_ref.get("name") or "", "started_at": _now()}])
         return {"id": rid, "pins": pins, "marked": marked, "sandbox": f"{PROOF_ROOT}/{rid}/pc"}
+
+    def replay_sandboxes(self, name: str) -> list[dict[str, Any]]:
+        """The sandboxes this notebook's replays wrote to (Files/_fabric_desktop/proofs/replay-...)."""
+        return [dict(x, folder=f"{PROOF_ROOT}/{x.get('id') or '?'}") for x in self.notebooks.extra(name, "replay_sandboxes") or []]  # type: ignore[attr-defined]
+
+    def replay_delete_outputs(self, name: str) -> dict[str, Any]:
+        """Delete what this notebook's replays wrote: each replay's folder under Files/. The
+        lakehouse's tables aren't touched. A sandbox that can't be deleted stays listed."""
+        if (live := self._replay_live()) and live["name"] == name:
+            raise RuntimeError("End the replay first.")
+        deleted, left, problems = [], [], []
+        for box in self.notebooks.extra(name, "replay_sandboxes") or []:  # type: ignore[attr-defined]
+            # Never build a path or URL from anything else; an entry that isn't one stays listed.
+            if not (re.fullmatch(r"replay-[0-9]{8}-[0-9]{6}-[0-9a-f]{6}", str(box.get("id")))
+                    and all(_GUID.fullmatch(str(box.get(k))) for k in ("workspace_id", "lakehouse_id"))):
+                left.append(box)
+                problems.append("A remembered replay sandbox isn't a replay folder in a lakehouse, so it was left alone.")
+                continue
+            folder = f"{PROOF_ROOT}/{box['id']}"
+            try:
+                self._proof_delete_folder({"workspace_id": box["workspace_id"], "lakehouse_id": box["lakehouse_id"]}, folder)
+                deleted.append(folder)
+            except Exception as exc:  # noqa: BLE001 - reported, and the sandbox stays listed
+                left.append(box)
+                problems.append(f"{folder} in {box.get('lakehouse') or 'its lakehouse'}: {describe(exc)}")
+        self.notebooks.set_extra(name, "replay_sandboxes", left or None)  # type: ignore[attr-defined]
+        return {"deleted": deleted, "problems": problems}
 
     def _replay_seed(self, info: dict[str, Any], rid: str, root: str, options: Callable[[], dict[str, str]],
                      tables: list[str]) -> None:
@@ -382,7 +429,7 @@ class ProveMixin:
             raise RuntimeError("This replay has ended (the kernel restarted). Replay again from the banner.")
         _info, bundle = self._replay_of(name)
         out = replay.outcome(bundle, int(stopped_at), status, outputs or [])
-        out["inputs"] = replay.input_differences(bundle, self.kernel.proof_log(), live["marked"])  # type: ignore[attr-defined]
+        out["inputs"] = replay.input_differences(bundle, self.sessions.kernel(name).proof_log(), live["marked"])  # type: ignore[attr-defined]
         out["sandbox"] = f"{PROOF_ROOT}/{live['id']}/pc"
         return out
 
@@ -391,7 +438,7 @@ class ProveMixin:
         the notebook becomes a normal notebook (its cells then run as any other)."""
         live = self._replay_live()
         if live and live["name"] == name:
-            kernel = self.kernel  # type: ignore[attr-defined]
+            kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
             kernel.unbind_proof()
             kernel.restart()
             self._replay_session = None
@@ -588,7 +635,7 @@ class ProveMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "pc":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["state"] == "fabric" and record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -682,9 +729,10 @@ class ProveMixin:
         pc = record["pc"]
         pc["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = record["name"]
+        kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]
         kernel.bind_proof(config, "pc", root, options)
         status = "ok"
         try:

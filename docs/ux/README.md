@@ -1,6 +1,6 @@
 # UX and simplicity audit
 
-This folder is the user experience and simplicity oversight for Fabric Desktop by KratosBI. It holds the first full audit (October 2026), the scoring method, the backlog of simplification work and the usability gates a pull request passes before release.
+This folder is the user experience and simplicity oversight for KratosForge. It holds the first full audit (October 2026), the scoring method, the backlog of simplification work and the usability gates a pull request passes before release.
 
 | Document | What it holds |
 | --- | --- |

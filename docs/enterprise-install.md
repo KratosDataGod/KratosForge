@@ -1,6 +1,6 @@
 # Enterprise install
 
-This page is for IT teams that roll Fabric Desktop by KratosBI out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
+This page is for IT teams that roll KratosForge out to many Windows PCs with Intune, Configuration Manager or Group Policy. One person trying the app needs only [Install](install.md).
 
 > **What has been tested:** the policy keys on this page are covered by automated tests on every build. The deployment steps below have **not** been tried in an Intune or Configuration Manager tenant yet. Try them on a pilot group first.
 
@@ -9,7 +9,7 @@ This page is for IT teams that roll Fabric Desktop by KratosBI out to many Windo
 | Part | Where it goes | How it gets there |
 | --- | --- | --- |
 | `fabric-desktop.exe` | Any folder. It is one file; there is no installer or MSI | You copy it |
-| The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/security.md)) |
+| The local engine (Python and its packages, several hundred MB) | `%LOCALAPPDATA%\FabricDesktop\engine`, once per Windows user | The app downloads `fabric-desktop-engine.zip` from the release on its first start and checks its SHA-256 ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | `policy.json` (optional) | `%ProgramData%\FabricDesktop\policy.json` | You push it ([the keys](azure-setup.md#4-push-settings-to-everyone)) |
 
 Nothing needs admin rights at run time, and nothing is written to the registry. The engine is per user, so a shared PC downloads it once for each person who uses the app.
@@ -27,10 +27,10 @@ With `"auto_update": false` the startup window says "Your organization rolls out
 
 ## Deploy
 
-1. Download `fabric-desktop.exe` from the release you want: [Stable](https://github.com/KratosDataGod/fabric-desktop/releases/tag/stable) unless your pilot group follows Preview.
-2. Check the download before you package it ([Install: Check a download yourself](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/install.md#check-a-download-yourself)).
+1. Download `fabric-desktop.exe` from the release you want: [Stable](https://github.com/KratosDataGod/KratosForge/releases/tag/stable) unless your pilot group follows Preview.
+2. Check the download before you package it ([Install: Check a download yourself](https://github.com/KratosDataGod/KratosForge/blob/main/docs/install.md#check-a-download-yourself)).
 3. Package it as a Win32 app (Intune) or an application (Configuration Manager) that copies the exe into the folder from the table above and adds a Start menu shortcut. Detection rule: the file exists with the size you packaged.
-4. Push `policy.json` to `%ProgramData%\FabricDesktop\`. A typical managed file:
+4. Push `policy.json` to `%ProgramData%\FabricDesktop\` so that only administrators can change it. Intune and Group Policy write it as SYSTEM, which does that. Create the folder from the same push, because a folder someone made first themselves stays theirs. **Settings > Help and about** says when the person using the PC can change the file. A typical managed file:
 
    ```json
    {
@@ -46,18 +46,18 @@ With `"auto_update": false` the startup window says "Your organization rolls out
 
 ## Keep the exe and the engine in step
 
-The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a release only keeps its newest build. So in the managed model:
+The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a channel's release only holds its newest build. So in the managed model:
 
 - Deploy the exe that is the **current** release of the channel your policy names. After each **Promote to stable**, deploy the new Stable exe.
 - If the release has moved on and you haven't deployed the new exe yet, a person whose engine isn't installed yet (a new user or PC) is told the engine and app builds differ and to ask IT for the current exe. People whose engine is already installed are not affected.
 
-This is a known gap: releases don't keep older builds yet, so you can't pin a build indefinitely.
+Each build is also kept as its own release, `build-<first 12 characters of its commit>`, for a while (the newest 20, and every Stable build). You can download a specific exe from there ([pinning a build](release-management/README.md#pinning-a-build)). The app still downloads its engine from the channel's current release, so a pinned exe only runs on PCs whose engine for that build is already installed.
 
 ## Roll back
 
 There is no one-click rollback yet.
 
-- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer has to promote an older build to Stable again.
+- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
 - **Managed:** deploying an older exe works only while its engine is still installed on that PC. A PC that has to download the engine gets the release's current engine, which doesn't match. Keep a copy of each exe and engine zip you deploy; installing the engine from your own copy is not supported yet.
 
 ## If an update fails
@@ -66,7 +66,7 @@ There is no one-click rollback yet.
 | --- | --- |
 | "Could not replace ..." | The exe's folder isn't writable. Move the exe to a user folder, or set `"auto_update": false` and deploy builds yourself |
 | "The update didn't take" | Download `fabric-desktop.exe` again from the release and replace the file |
-| "The engine download doesn't match the checksum its release gives" | The download was changed or cut short on the way, or a new build was being published. Click **Retry**; if it keeps happening, a proxy may be rewriting downloads ([Security](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/security.md)) |
+| "The engine download doesn't match the checksum its release gives" | The download was changed or cut short on the way, or a new build was being published. Click **Retry**; if it keeps happening, a proxy may be rewriting downloads ([Security](https://github.com/KratosDataGod/KratosForge/blob/main/docs/security.md)) |
 | Any other startup error | **Settings > Help and about > Report a problem** gives a report to send ([Troubleshooting](troubleshooting.md)) |
 
 ## Network access

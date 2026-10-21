@@ -195,13 +195,21 @@ def test_a_paused_agent_that_comes_back_mid_run_stops_before_its_next_table(tmp_
     a = claimed_by_a(tmp_path, project)
     b = make(tmp_path, project, "etl-02")
     real = a.runtime.run_environment
+    stepped = threading.Event()
 
     def paused(*args, **kwargs):  # etl-01 freezes after starting; etl-02 takes the request over meanwhile
+        # Wait for etl-01's loop to finish its step: that step publishes etl-01's status, and a late
+        # publish (seen on Windows runners) would make etl-01 live again before etl-02 looks.
+        assert stepped.wait(60)
         lost(project, "etl-01")
         b.mailbox.poll()
         return real(*args, **kwargs)
     monkeypatch.setattr(a.runtime, "run_environment", paused)
-    run(a)
+    a._mailbox_at = 0
+    a.step()
+    stepped.set()
+    for f in list(a._running.values()):
+        f.result(timeout=120)
     [job] = a.queue.list()
     assert job["state"] == "cancelled" and "etl-02 took this request over" in job["error"]
     assert status(project, "r1")["agent"] == "etl-02"

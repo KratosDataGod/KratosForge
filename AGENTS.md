@@ -1,6 +1,6 @@
 # Repository guidance
 
-Read CONTRIBUTING.md before changing Fabric Desktop. Keep changes focused and
+Read CONTRIBUTING.md before changing KratosForge. Keep changes focused and
 include the relevant tests and user documentation.
 
 ## Code Review Rules

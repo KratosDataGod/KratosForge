@@ -46,7 +46,9 @@ function startEngine() {
   };
 }
 
-async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { width: 1440, height: 940 } } = {}) {
+// holdCheck: the component and update check doesn't answer until the test calls
+// page.evaluate(() => __fdReleaseCheck()), as a slow release check would (UX-020).
+async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { width: 1440, height: 940 }, holdCheck = false } = {}) {
   const browser = await playwright.chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined });
   const page = await browser.newPage({ viewport });
   const calls = [];
@@ -66,7 +68,9 @@ async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { wid
       return { error: String(err.message || err) };
     }
   });
-  await page.addInitScript(({ storage }) => {
+  // The one-time KratosForge announcement covers the window; only its own test wants it.
+  storage = { "fd.rename.kratosforge.seen": "1", ...storage };
+  await page.addInitScript(({ storage, holdCheck }) => {
     for (const [k, v] of Object.entries(storage)) localStorage.setItem(k, v);
     const shell = {
       check_components: { app: { version: "0.0.0-test", commit: "" }, sidecar: { version: "test", editable: true },
@@ -85,7 +89,15 @@ async function openApp({ mocks = {}, engine = [], storage = {}, viewport = { wid
       },
       event: { listen: async () => () => {} },
     };
-  }, { storage });
+    if (holdCheck) {
+      const held = new Promise((resolve) => { window.__fdReleaseCheck = resolve; });
+      const invoke = window.__TAURI__.core.invoke;
+      window.__TAURI__.core.invoke = async (cmd, args) => {
+        if (cmd === "check_components") await held;
+        return invoke(cmd, args);
+      };
+    }
+  }, { storage, holdCheck });
   const errors = [];
   page.on("pageerror", (err) => errors.push(String(err)));
   await page.goto(`file://${INDEX}`);

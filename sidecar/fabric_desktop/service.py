@@ -530,7 +530,11 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             raise
 
     def notebook_ipywidget_event(self, model: str, event: dict[str, Any] | None = None, root: str | None = None) -> dict[str, Any]:
-        """An ipywidgets control changed in a cell's output: set it and run its handlers in the kernel."""
+        """An ipywidgets control changed in a cell's output: set it and run its handlers in the kernel.
+        Handlers are user code, so they wait for a proof and a replay as a cell does."""
+        if self.proof_busy():
+            raise RuntimeError("A proof is running this notebook's kernel. Wait for it, or cancel it.")
+        self._replay_guard(None)
         return self.kernel.ipywidget_event(model=str(model), event=dict(event or {}), root=root)
 
     def notebook_frame_download(self, frame: str, format: str = "csv", name: str = "") -> dict[str, Any]:

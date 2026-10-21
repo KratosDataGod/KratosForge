@@ -380,6 +380,7 @@ class Kernel:
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
         self._widget_lock = threading.Lock()
+        self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -432,7 +433,11 @@ class Kernel:
     def restart(self) -> None:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
+        self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
         self._reset()
+
+    def _handler_alive(self) -> bool:
+        return self._widget_thread is not None and self._widget_thread.is_alive()
 
     def _reset(self) -> None:
         """A fresh namespace and spark session; restart() once nothing is running."""
@@ -484,8 +489,8 @@ class Kernel:
         from . import widgets
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is running. The control works again when it finishes.")
-        if not self._widget_lock.acquire(blocking=False):
-            raise RuntimeError("The last change is still running. Try again when it finishes.")
+        if self._handler_alive() or not self._widget_lock.acquire(blocking=False):
+            raise RuntimeError("The last change is still running. Try again when it finishes, or restart the kernel.")
         try:
             run = _Run(0)
             status = {"value": "ok"}
@@ -512,6 +517,7 @@ class Kernel:
                     stderr.targets.pop(ident, None)
                     self._local.run = None
             thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            self._widget_thread = thread
             thread.start()
             thread.join(WIDGET_SECONDS)
             if thread.is_alive():
@@ -520,7 +526,8 @@ class Kernel:
                 if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
                     status["value"] = "cancelled"
                     run.add({"type": "text", "text": f"Stopped waiting: the handler ran longer than {WIDGET_SECONDS} "
-                             "seconds. It stops when the native call it's in returns."})
+                             "seconds. It ends when the native call it's in returns; until then cells and controls "
+                             "wait, or restart the kernel."})
             if status["value"] == "gone":
                 return {"gone": True, "message": WIDGET_GONE}
             w = widgets.registry.get(root or model)
@@ -577,8 +584,8 @@ class Kernel:
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
-        if self._widget_lock.locked():
-            raise RuntimeError("A widget's handler is still running. Run the cell when it finishes.")
+        if self._widget_lock.locked() or self._handler_alive():
+            raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
         widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
         if widgets is not None:
             widgets.set_in_app = dict(self.widget_values)

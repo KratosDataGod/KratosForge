@@ -154,3 +154,41 @@ def test_the_process_kernel_runs_widget_events_in_the_cell_process():
     finally:
         k.stop()
     assert k.ipywidget_event(model, {"click": True})["gone"]
+
+
+def _slow_button(k):
+    return _widget(k.run("import ipywidgets as w, time\nb = w.Button()\nb.on_click(lambda _b: time.sleep(3))\nb"))["model"]
+
+
+def test_a_handler_stuck_in_native_code_holds_cells_and_controls_until_it_returns(monkeypatch):
+    import fabric_desktop.notebook as nb
+    monkeypatch.setattr(nb, "WIDGET_SECONDS", 0.3)
+    k = Kernel()
+    model = _slow_button(k)
+    assert k.ipywidget_event(model, {"click": True})["status"] == "cancelled"
+    with pytest.raises(RuntimeError, match="handler is still running"):
+        k.start("x = 1")
+    with pytest.raises(RuntimeError, match="still running"):
+        k.ipywidget_event(model, {"click": True})
+    k._widget_thread.join()
+    assert k.run("x = 1")["status"] == "ok"
+    # Restart is the way out: the new namespace doesn't share the stuck handler's.
+    model = _slow_button(k)
+    k.ipywidget_event(model, {"click": True})
+    k.restart()
+    assert k.run("y = 2")["status"] == "ok"
+
+
+def test_widget_events_wait_for_a_proof_and_a_replay(tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    s = Service(root=tmp_path / "app")
+    model = _widget(s.kernel.run("import ipywidgets as w\nb = w.Button()\nb"))["model"]
+    monkeypatch.setattr(Service, "proof_busy", lambda self: True)
+    with pytest.raises(RuntimeError, match="proof is running"):
+        s.notebook_ipywidget_event(model, {"click": True})
+    monkeypatch.setattr(Service, "proof_busy", lambda self: False)
+    monkeypatch.setattr(Service, "_replay_live", lambda self: {"name": "Sales replay"})
+    with pytest.raises(RuntimeError, match="replaying"):
+        s.notebook_ipywidget_event(model, {"click": True})
+    monkeypatch.setattr(Service, "_replay_live", lambda self: None)
+    assert s.notebook_ipywidget_event(model, {"click": True})["status"] == "ok"

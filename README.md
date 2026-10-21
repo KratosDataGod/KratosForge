@@ -2,15 +2,15 @@
 
 ![KratosForge](docs/brand/kratosforge-wordmark.png)
 
-*Formerly Fabric Desktop. [What changed and what didn't](docs/kratosforge.md).*
+*Some files, folders and settings keep a legacy name so nothing breaks: [which ones and why](docs/kratosforge.md).*
 
 Do your Microsoft Fabric data engineering on your own Windows PC: notebooks, Spark SQL queries, jobs and a metadata-driven medallion framework. Results are written straight into OneLake as Delta tables. A run on this PC starts no Fabric job, which cuts Fabric CU use; its OneLake reads and writes still use capacity.
 
-![KratosForge in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/fabric-desktop-solution.png)
+![KratosForge in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/kratosforge-solution.png)
 
 **Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.** The picture above is where the product is headed. Today the desktop app and a single-node [headless agent](docs/agent.md) are built; multiple workers, resource governance and pipeline hand-off are later milestones in the [enterprise roadmap](docs/enterprise-roadmap.md).
 
-**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. KratosForge brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-fabric-desktop.md)**.
+**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. KratosForge brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-kratosforge.md)**.
 
 ![KratosForge architecture](docs/architecture.svg)
 
@@ -30,7 +30,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 
 | Document | What it covers |
 | --- | --- |
-| [docs/kratosforge.md](docs/kratosforge.md) | Fabric Desktop is now KratosForge: what changed, and which names stay so nothing breaks |
+| [docs/kratosforge.md](docs/kratosforge.md) | Legacy names: which files, folders and settings keep an earlier name so nothing breaks |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [docs/backup.md](docs/backup.md) | Backing up and restoring what the app keeps only on your PC, without sign-in tokens |
 | [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, rollback, failed updates, network access |
@@ -48,6 +48,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
 | [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
 | [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
+| [docs/notebook-folders.md](docs/notebook-folders.md) | Notebook folders: group notebooks into folders, move a notebook into one, rename a folder, delete an empty one |
 | [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
 | [docs/notebook-import-export.md](docs/notebook-import-export.md) | Fabric and Databricks notebook formats: import Fabric or Databricks source and .dbc archives, export as .ipynb, Fabric or Databricks source or HTML (Preview) |
 | [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
@@ -83,7 +84,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
-| [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why KratosForge is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
+| [docs/why-kratosforge.md](docs/why-kratosforge.md) | Why KratosForge is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
 | [docs/architecture.md](docs/architecture.md) | How the app, the sidecar and OneLake fit together |
 | [docs/ai/README.md](docs/ai/README.md) | Connecting your own AI tool to KratosForge: setup for each tool, workflows and instructions to paste |
 | [docs/architecture/ai-integration.md](docs/architecture/ai-integration.md) | Using your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client) with KratosForge: architecture, permissions, plan |

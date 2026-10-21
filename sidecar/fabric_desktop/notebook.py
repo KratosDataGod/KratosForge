@@ -31,6 +31,7 @@ import threading
 import time
 import traceback
 import types
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -40,6 +41,7 @@ import pyarrow as pa
 from . import chart_output
 from . import notebook_resources
 from . import magics
+from . import history
 from .frames import Frames, type_name
 from .redact import describe
 
@@ -287,6 +289,7 @@ class _Run:
         self.done.set()
 
     def snapshot(self, known_version: int = -1) -> dict[str, Any]:
+        progress = _query_progress() if self.status == "running" else None
         with self.lock:
             changed = self.version != known_version
             snap = {"status": self.status, "execution_count": self.count, "version": self.version,
@@ -294,6 +297,8 @@ class _Run:
                     "outputs": list(self.outputs) if changed else None}
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if progress is not None:
+                snap["progress"] = progress
             if self.debugger is not None:
                 snap["paused"] = self.paused
             return snap
@@ -317,6 +322,12 @@ class _OutputSink:
 
 WIDGET_SECONDS = 60
 WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
+
+
+def _query_progress() -> float | None:
+    """The running ``spark`` query's progress, without importing the Spark API for a cell that never used it."""
+    module = sys.modules.get("fabric_desktop.spark_local")
+    return module.progress() if module is not None else None
 
 
 class _Router(io.TextIOBase):
@@ -377,6 +388,8 @@ class Kernel:
                  variable_libraries: Callable[[str], dict[str, str] | None] | None = None):
         self.token = token
         self.load_notebook = load_notebook
+        # Asks the engine for something (name, *args), when the kernel runs in its own process: %pip.
+        self.engine_call: Callable[..., Any] | None = None
         self.variable_libraries = variable_libraries
         self.notebook_name = ""
         # The Widgets bar's values for the open notebook; each cell run starts with them (start).
@@ -397,7 +410,7 @@ class Kernel:
     def _base_namespace(self) -> dict[str, Any]:
         from . import dbutils_local, notebookutils_local
         ns: dict[str, Any] = {"__name__": "__main__", "input": _no_input, "display": self._display,
-                              "displayHTML": self._display_html}
+                              "displayHTML": self._display_html, "In": [""], "Out": {}}
         from . import ipython_display
         ipython_display.install(ipython_display.build(self._display, self._clear_output))
         from . import widgets as ipywidgets_local
@@ -661,6 +674,7 @@ class Kernel:
         self._local.run = run
         status = "error"
         restart = False
+        history.record_input(self.namespace, run.count, code)
         try:
             try:
                 if run.debugger is not None:
@@ -744,6 +758,8 @@ class Kernel:
             return "error"
         code = magics.rewrite(cell.body)
         namespace.setdefault(magics.CALL, self._magic)
+        if getattr(self, "_autoreload", None) is not None:
+            self._autoreload.check(namespace)  # %autoreload: your edited modules, before the cell runs
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
@@ -777,8 +793,11 @@ class Kernel:
                 if tail is not None:
                     value = eval(tail, namespace)
                 if value is not None:
-                    namespace["_"] = value
-                    self._emit(run, self._show(value))
+                    self._emit(run, self._show(value))  # shown first, as IPython does, so Out isn't in itself
+                    if namespace is self.namespace and not getattr(self._local, "depth", 0):
+                        history.record_output(namespace, self.count, value)
+                    else:
+                        namespace["_"] = namespace[history.LAST] = value
         except NotebookExit as done:
             if not isinstance(done, RestartPython):
                 print(f"Notebook exited with value: {done.value}")
@@ -898,9 +917,10 @@ class Kernel:
         return None
 
     def _line_magic_help(self) -> str:
-        return ("Line magics: %sql, %run, %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
-                "%lsmagic, %matplotlib (charts are always inline), %pip and %conda (skipped), "
-                "%load_ext, %autoreload and %config (skipped)\n"
+        return ("Line magics: %sql, %run (-b for a resources file), %fs, %sh, !command, %time, %timeit, %pwd, %env, %who, %whos, %reset -f, "
+                "%history (with In, Out, _N and _iN), "
+                "%lsmagic, %matplotlib (charts are always inline), %pip (in the notebook's environment), "
+                "%autoreload and %aimport (with %load_ext autoreload), %config (skipped)\n"
                 "Cell magics: %%sql, %%pyspark, %%python, %%html, %%markdown, %%configure, %%sh, %%bash, %%cmd, "
                 "%%powershell, %%time, %%timeit, %%capture, %%writefile\n"
                 "Databricks cells: %sql, %python, %md, %sh, %fs, %run (%scala and %r run in Fabric)")
@@ -956,6 +976,8 @@ class Kernel:
 
     def _magic(self, name: str, line: str) -> Any:
         if name == "run":
+            if m := _RUN_SCRIPT.match(line):
+                return self._run_builtin(m["flags"], m["rest"])
             target, args = _run_target(line)
             return self._run_notebook_in(target, self.namespace, args)
         if name == "sql":
@@ -968,10 +990,13 @@ class Kernel:
             return lines if name == "sx" else None
         if name == "fs":
             return _fs_magic(self.namespace["notebookutils"].fs, line)
-        if name in ("pip", "conda"):
-            print(f"Note: %{name} installs packages in Fabric's session. On this PC the engine's packages "
-                  f"are fixed, so this line was skipped.")
+        if name == "pip":
+            from . import pip_magic
+            pip_magic.run(line, self.engine_call, lambda path: pip_magic.read_text(path, self.resources_dir))
             return None
+        if name == "conda":
+            raise ValueError("%conda isn't on this PC. Use %pip install, which installs into the notebook's "
+                             "own environment.")
         if name == "time":
             started = time.monotonic()
             try:
@@ -1007,13 +1032,38 @@ class Kernel:
             keep = set(self._base_namespace_keys())
             for key in [k for k in self.namespace if not k.startswith("__") and k not in keep]:
                 del self.namespace[key]
+            history.clear_output(self.namespace)
+            return None
+        if name in ("history", "hist"):
+            text = history.command(self.namespace, line)
+            if text:
+                print(text)
             return None
         if name in ("matplotlib",):
             return None  # charts are always shown in the cell
-        if name in ("load_ext", "reload_ext", "autoreload", "config", "aimport"):
-            print(f"Note: %{name} changes IPython itself, which this kernel isn't, so this line was skipped.")
+        if name in ("load_ext", "reload_ext") and line.strip() == "autoreload":
+            self._reloader()  # %autoreload and %aimport work with or without this, as a convenience
+            return None
+        if name == "autoreload":
+            self._reloader().command(line)
+            return None
+        if name == "aimport":
+            listed = self._reloader().aimport(line, self.namespace)
+            if listed:
+                print(listed)
+            return None
+        if name in ("load_ext", "reload_ext", "unload_ext", "config"):
+            what = f"the {line.strip()} extension" if name.endswith("_ext") and line.strip() else f"%{name}"
+            print(f"Note: {what} needs IPython's own shell, which this kernel isn't, so this line was skipped. "
+                  "%load_ext autoreload works.")
             return None
         raise ValueError(f"%{name} isn't supported on this PC. %lsmagic lists the magics that are.")
+
+    def _reloader(self) -> Any:
+        from .autoreload import Reloader
+        if getattr(self, "_autoreload", None) is None:
+            self._autoreload = Reloader()
+        return self._autoreload
 
     def _run_script(self, cell: Any, run: _Run | None) -> str:
         """A %sh, %%sh, %%bash, %%cmd or %%powershell cell: the cell runs as a script on this PC.
@@ -1048,6 +1098,37 @@ class Kernel:
         ns[magics.CALL] = self._magic
         with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
             return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
+
+    def _run_builtin(self, flags: str, rest: str) -> Any:
+        """Fabric's ``%run -b script.py`` (or ``.sql``): runs a file from the notebook's Built-in
+        resources in this session. A ``.py`` file runs in the notebook's variables, after any
+        ``{"name": value}`` arguments are set; a ``.sql`` file runs as a %%sql cell would."""
+        from . import notebook_resources
+        if "-c" in flags.split() or "--current" in flags.split():
+            if getattr(self._local, "depth", 0):
+                raise NotImplementedError("%run -c inside a notebook that another one runs isn't supported on "
+                                          "this PC yet: it would need that notebook's own resources. Use -b, "
+                                          "which reads the resources of the notebook you run.")
+        file, args = _run_target(rest, keep_path=True)
+        if not self.resources_dir:
+            raise FileNotFoundError(f"%run -b {file}: this notebook has no resources folder yet. Add the file "
+                                    "under Resources (Built-in) first.")
+        path = notebook_resources.resolve(f"builtin/{file}", self.resources_dir)
+        if path is None or not os.path.isfile(path):
+            raise FileNotFoundError(f"%run -b: {file} isn't in this notebook's Built-in resources.")
+        text = Path(path).read_text(encoding="utf-8")
+        kind = Path(path).suffix.lower()
+        if kind == ".sql":
+            if args:
+                raise ValueError("%run -b with a .sql file takes no arguments.")
+            if self._run_sql(text, getattr(self._local, "run", None), self.namespace) != "ok":
+                raise RuntimeError(f"{file} failed; its error is shown above.")
+            return None
+        if kind != ".py":
+            raise ValueError(f"%run -b runs .py and .sql files; {file} is neither.")
+        self.namespace.update(args)
+        exec(compile(text, f"builtin/{file}", "exec"), self.namespace)  # noqa: S102 - the notebook's own file
+        return None
 
     def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
                          cell_timeout: float | None = None) -> Any:
@@ -1429,7 +1510,10 @@ class _BuiltinPaths(ast.NodeTransformer):
         return node
 
 
-def _run_target(line: str) -> tuple[str, dict[str, Any]]:
+_RUN_SCRIPT = re.compile(r"^\s*(?P<flags>(?:(?:-b|--builtin|-c|--current)\s+)+)(?P<rest>.*)$", re.S)
+
+
+def _run_target(line: str, keep_path: bool = False) -> tuple[str, dict[str, Any]]:
     """The notebook and arguments of a ``%run`` line, in Fabric's or Databricks' form:
     ``%run Load sales {"day": "2026-01-01", "full": true}`` (JSON or a Python dict) or
     ``%run ./Load sales $day="2026-01-01" $full=true`` (Databricks widgets, always text).
@@ -1442,7 +1526,9 @@ def _run_target(line: str) -> tuple[str, dict[str, Any]]:
         name, rest = (text[:m.start()], text[m.end():]) if m else (text, "")
     if not name:
         raise ValueError("%run needs a notebook name, like: %run Load sales")
-    name = name.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].removesuffix(".ipynb")
+    name = name.replace("\\", "/").rstrip("/")
+    if not keep_path:  # a notebook is found by its name; a resources file keeps its folder
+        name = name.rsplit("/", 1)[-1].removesuffix(".ipynb")
     rest = rest.strip()
     if not rest:
         return name, {}
@@ -1716,11 +1802,86 @@ def check_watches(watches: Any) -> list[str]:
     return out
 
 
+# Folders for notebooks (notebook_folders.py): a name may carry up to MAX_FOLDER_DEPTH folders before
+# the notebook's own name, "Sales/Daily load", saved as Sales/Daily load.ipynb in the place's folder.
+MAX_FOLDER_DEPTH = 3
+FOLDER_SEP = "/"
+
+
+def _check_part(part: str, whole: str) -> str:
+    part = part.strip()
+    if not part or _SAFE_NAME.search(part) or part.endswith("."):
+        raise ValueError(f"Invalid notebook name {whole!r}: avoid < > : \" \\ | ? * and a trailing dot"
+                         " (a / only separates folders).")
+    if part.split(".")[0].strip().upper() in _WINDOWS_DEVICES:  # CON, con.txt, COM1...: Windows can't save these
+        raise ValueError(f"{part!r} is a name Windows keeps for devices, so it can't be a notebook or folder name. "
+                         "Pick another name.")
+    return part
+
+
+_WINDOWS_DEVICES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))})
+
+
+def check_folder_part(part: str, whole: str | None = None) -> str:
+    """One folder's name: the notebook name rule, and not hidden (.git) or a resources folder."""
+    part = _check_part(part, whole or part)
+    if part.startswith("."):
+        raise ValueError(f"A folder name can't start with a dot: {part!r}.")
+    if part.lower().endswith(notebook_resources.SUFFIX):
+        raise ValueError(f"A folder name can't end with {notebook_resources.SUFFIX}: that's where a notebook keeps its resources.")
+    return part
+
+
 def check_notebook_name(name: str) -> str:
-    name = name.strip()
-    if not name or _SAFE_NAME.search(name) or name.endswith("."):
-        raise ValueError(f"Invalid notebook name {name!r}: avoid < > : \" / \\ | ? * and a trailing dot.")
-    return name
+    """The notebook's name as saved: its folders (each checked, at most MAX_FOLDER_DEPTH) and its own
+    name, joined by "/". Raises ValueError saying what's wrong."""
+    whole = str(name).strip()
+    parts = whole.split(FOLDER_SEP)
+    if len(parts) - 1 > MAX_FOLDER_DEPTH:
+        raise ValueError(f"Folders go {MAX_FOLDER_DEPTH} levels deep at most: {whole!r} is in {len(parts) - 1}.")
+    folders = [check_folder_part(p, whole) for p in parts[:-1]]
+    return FOLDER_SEP.join([*folders, _check_part(parts[-1], whole)])
+
+
+def folder_of(name: str) -> str:
+    """The folders part of a notebook name, "" for one not in a folder."""
+    return name.rpartition(FOLDER_SEP)[0]
+
+
+def leaf_name(name: str) -> str:
+    """The notebook's own name, without its folders: what its Fabric item is called."""
+    return name.rpartition(FOLDER_SEP)[2]
+
+
+def is_notebook_folder(dirname: str) -> bool:
+    """Whether a directory in a notebooks folder is a folder of notebooks (not .git or X.resources)."""
+    try:
+        check_folder_part(dirname)
+    except ValueError:
+        return False
+    return True
+
+
+def notebook_files(folder: Path) -> list[tuple[str, Path]]:
+    """Every notebook in ``folder`` and its subfolders (to MAX_FOLDER_DEPTH), as (name, file). Hidden
+    folders (.git, .ipynb_checkpoints) and resources folders are skipped."""
+    out: list[tuple[str, Path]] = []
+
+    def walk(d: Path, prefix: str, depth: int) -> None:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError as exc:  # a folder that went away or can't be read lists nothing
+            _log.debug("Couldn't list %s: %s", d, exc)
+            return
+        for p in entries:
+            if p.suffix == ".ipynb" and p.is_file():
+                out.append((prefix + p.stem, p))
+            elif depth < MAX_FOLDER_DEPTH and is_notebook_folder(p.name) and p.is_dir():
+                walk(p, f"{prefix}{p.name}{FOLDER_SEP}", depth + 1)
+
+    if folder.is_dir():
+        walk(folder, "", 0)
+    return out
 
 
 COMPUTE = ("default", "local", "fabric")
@@ -1917,6 +2078,38 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
             "workspace": ours.get("workspace")}
 
 
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def _path_write_lock(path: Path) -> threading.Lock:
+    key = os.path.normcase(str(path.resolve()))
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.Lock())
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write through a temporary file of this write's own, so two writers never share one.
+
+    Saves of one notebook take turns: Windows refuses a second os.replace onto a file
+    another replace is still finishing, and briefly while a reader (or a virus scanner)
+    has it open, so a refused replace is tried a few more times before giving up."""
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        with _path_write_lock(path):
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 class NotebookStore:
     # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
     # doesn't write over the other's change (the local API and MCP tools call in from other threads).
@@ -1929,10 +2122,8 @@ class NotebookStore:
         return self.folder / f"{check_notebook_name(name)}.ipynb"
 
     def list(self) -> list[dict[str, Any]]:
-        if not self.folder.exists():
-            return []
-        files = sorted(self.folder.glob("*.ipynb"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return [{"name": p.stem, "modified": p.stat().st_mtime} for p in files]
+        files = sorted(notebook_files(self.folder), key=lambda f: f[1].stat().st_mtime, reverse=True)
+        return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
     def load(self, name: str) -> dict[str, Any]:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
@@ -1970,9 +2161,7 @@ class NotebookStore:
         nb = merge_saved(to_ipynb(cells, lakehouse, compute, workspace), before) if before else \
             to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        _write_atomic(path, json.dumps(nb, indent=1))
         return {"name": name, "cell_ids": ids}
 
     def extra(self, name: str, key: str) -> Any:
@@ -2001,9 +2190,7 @@ class NotebookStore:
                 fd.pop(key, None)
             else:
                 fd[key] = value
-            tmp = path.with_suffix(".ipynb.tmp")
-            tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-            os.replace(tmp, path)
+            _write_atomic(path, json.dumps(nb, indent=1))
             return value
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
@@ -2088,21 +2275,23 @@ class NotebookShelf(NotebookStore):
         an earlier place isn't listed (opening, saving or deleting by that name reaches the other)."""
         out, names = [], set()
         for place, folder in self._folders():
-            if not folder.is_dir():
-                continue
-            for p in folder.glob("*.ipynb"):
-                if p.stem in names:
+            for name, p in notebook_files(folder):  # its folders too (notebook_folders)
+                if name in names:
                     continue
                 where = {"root": place["root"], "label": place["label"]} if place else None
-                out.append({"name": p.stem, "modified": p.stat().st_mtime, "place": where})
-                names.add(p.stem)
+                out.append({"name": name, "modified": p.stat().st_mtime, "place": where})
+                names.add(name)
         return sorted(out, key=lambda n: n["modified"], reverse=True)
 
     def _taken(self, name: str) -> bool:
         return any((f / f"{check_notebook_name(name)}.ipynb").exists() for _, f in self._folders())
 
-    def new(self, prefix: str = "Notebook", place: str | None = None) -> dict[str, Any]:
+    def new(self, prefix: str = "Notebook", place: str | None = None, folder_name: str = "") -> dict[str, Any]:
+        """A new notebook in ``place``, inside ``folder_name`` ("Sales", "" for none) when given;
+        a folder that isn't there yet is made."""
         _, folder = self._place(place)
+        if folder_name:
+            prefix = check_notebook_name(f"{folder_name}{FOLDER_SEP}{prefix}")
         i = 1
         while self._taken(f"{prefix} {i}"):
             i += 1
@@ -2115,7 +2304,10 @@ class NotebookShelf(NotebookStore):
         if self._taken(new_name):
             raise ValueError(f"A notebook named {new_name!r} already exists.")
         src = self.path(name)
-        return _rename_with_resources(src, src.with_name(f"{check_notebook_name(new_name)}.ipynb"), new_name)
+        if not src.is_file():
+            raise ValueError(f"There's no notebook named {name!r}.")
+        folder = self._where(name)[1]  # stays in its place; a folder in the new name is made there
+        return _rename_with_resources(src, folder / f"{check_notebook_name(new_name)}.ipynb", new_name)
 
     def move(self, name: str, place: str | None) -> dict[str, Any]:
         """Moves the notebook's file, and its resources folder, to another place (a repository root,
@@ -2125,11 +2317,11 @@ class NotebookShelf(NotebookStore):
         if not src.is_file():
             raise ValueError(f"There's no notebook named {name!r}.")
         target_place, folder = self._place(place)
-        dest = folder / src.name
+        dest = folder / f"{check_notebook_name(name)}.ipynb"  # in the same folders there
         if _resolved(dest) == _resolved(src):
             return {"name": name, "place": self.place_of(name), "moved": False}
         data = src.read_bytes()
-        folder.mkdir(parents=True, exist_ok=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         where = target_place["label"] if target_place else "the app's notebooks folder"
         res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
         if res_src.is_dir() and res_dest.exists():
@@ -2164,12 +2356,21 @@ def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, An
     """Renames the notebook's file and its resources folder together; a failed file rename puts the
     folder back."""
     res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
-    moved = notebook_resources.rename_folder(res_src, res_dest)
+    if dest.exists():  # never replace a notebook (one made since the name was checked)
+        raise ValueError(f"A notebook named {new_name!r} already exists. Nothing was renamed.")
+    made = not dest.parent.is_dir()
+    dest.parent.mkdir(parents=True, exist_ok=True)  # moving into a folder that isn't there yet
     try:
-        src.rename(dest)
-    except OSError:
-        if moved:
-            res_dest.rename(res_src)
+        moved = notebook_resources.rename_folder(res_src, res_dest)
+        try:
+            src.rename(dest)
+        except OSError:
+            if moved:
+                res_dest.rename(res_src)
+            raise
+    except (OSError, ValueError):
+        if made:
+            dest.parent.rmdir()  # the folder made for it, still empty
         raise
     return {"name": new_name}
 

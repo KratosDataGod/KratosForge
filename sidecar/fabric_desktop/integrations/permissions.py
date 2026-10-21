@@ -8,7 +8,10 @@
 2. The caller is a connected tool that hasn't been disconnected.
 3. The capability's permission category is offered in this release, allowed by the organization
    (``integrations_max_permissions``) and granted to this tool.
-4. Its target is in the tool's scope (the workspaces the person limited it to, if any).
+4. Every workspace it reaches is in the tool's scope (the workspaces the person limited it to, if
+   any). Each capability declares how it is confined (scope.py): by its ``workspace_id``, by what
+   the notebook, proof, receipt or execution it names points at, or, for lists, by leaving out
+   what is elsewhere. One that can't be confined, or declares nothing, is refused to a limited tool.
 5. If the capability needs approval, the person approves this exact call in Fabric Desktop. The
    call waits a while for the answer; if none comes it fails with ``approval_required`` and the
    same call made again later uses the approval once it is given. An approval is single-use and
@@ -25,7 +28,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from . import policy
+from . import policy, scope
 from .core import CallContext, IntegrationError, redact_secrets
 from .registry import PERMISSIONS, Capability
 from .store import IntegrationStore, args_hash
@@ -91,6 +94,8 @@ class PermissionAuthorizer:
         if cap.permission == "EXECUTE_LOCAL_CODE" and client["workspaces"]:
             # Code runs with the person's sign-in, which reaches every workspace they can open.
             return False, "A tool limited to some workspaces can't run code: code would reach every workspace you can."
+        if client["workspaces"] and not scope.confinable(cap):
+            return False, scope.unconfined_reason(cap)
         return True, ""
 
     def _client(self, ctx: CallContext | None) -> dict[str, Any] | None:
@@ -114,7 +119,8 @@ class PermissionAuthorizer:
         return cap.status, cap.reason
 
     def check(self, cap: Capability, arguments: dict[str, Any], ctx: CallContext,
-              bind: Callable[[], dict[str, Any]] | None = None) -> None:
+              bind: Callable[[], dict[str, Any]] | None = None,
+              workspaces: Callable[[], set[str] | None] | None = None) -> None:
         on, why = self._enabled()
         if not on:
             if cap.public:
@@ -132,10 +138,9 @@ class PermissionAuthorizer:
         ok, why = self._category(cap, client)
         if not ok:
             raise IntegrationError("permission_denied", why, details={"permission": cap.permission})
-        scope = client["workspaces"]
-        if scope and "workspace_id" in arguments and arguments["workspace_id"] not in scope:
-            raise IntegrationError("permission_denied", "This tool is limited to other workspaces.",
-                                   hint=f"The person can change its workspaces in {WHERE}.")
+        limit = frozenset(client["workspaces"]) or None
+        ctx.workspaces = limit  # lists leave out what is outside it (scope.keep)
+        scope.enforce(cap, limit, workspaces or (lambda: scope.targets(cap, None, arguments, ctx)))
         self.store.touch(client["id"])
         if bind is not None:
             # Read only for a permitted caller, and before asking, so the person sees (and the

@@ -116,6 +116,35 @@ The column types come from the project, so the integer rules hold for its tables
 
 Only a single `SELECT`, `WITH ... SELECT`, `FROM` or `VALUES` query is explained, because `analyze` runs it: statements that change data, and scripts of several statements, are refused before anything runs. Profiling is switched off again afterwards, so later queries aren't slowed by it.
 
+## Transformations: SQL steps in order
+
+A project's transformations are SQL files in `transforms\<schema>\<name>.sql`, one query each (`SELECT ...` or `WITH ... SELECT`). Running them makes the table `<schema>.<name>` from each query's rows, replacing the one the last run made, so every step's output stays in the project to query, compare or write on.
+
+**Order.** A step that reads another step's table runs after it. The order comes from the tables each query reads, plus any `-- depends_on:` line; a cycle, or a `depends_on` naming no step, is refused before anything runs.
+
+**Settings** are comment lines at the top of a file:
+
+```sql
+-- dialect: spark
+-- materialize: delta
+-- depends_on: dbo.calendar
+-- default: region = "EU"
+SELECT region, sum(amount) AS amount FROM dbo.orders WHERE region = :region GROUP BY region
+```
+
+| Line | Means |
+| --- | --- |
+| `-- dialect: spark` | The query is Spark SQL (DuckDB SQL otherwise) |
+| `-- materialize: delta` | Make a Fabric-safe Delta table under `Tables\` instead of a database table |
+| `-- depends_on: a.b, c.d` | Run after these steps even if the query doesn't name them |
+| `-- default: name = <JSON>` | A parameter's value when the run doesn't give one |
+
+**Parameters** are `$name` in DuckDB SQL and `:name` or `${name}` in Spark SQL. They are bound as values, never pasted into the SQL, so a value can't change what a query does. A parameter with no value and no default stops the step and names it.
+
+**What a step replaces.** Only a table an earlier transformation made. A table or view with the same name that someone made another way, a registered folder's table, or a Delta table written another way is left alone, and the step fails saying so. Deleting a step's file leaves its table as it is.
+
+**Runs.** `local_transform_run` runs every step, or with `steps` only those and the steps that read their tables. It stops at the first failing step: later steps are reported as skipped, and the tables from earlier steps are kept. A dry run (`dry_run = true`) checks that each query compiles against the current tables and makes nothing; a step reading a table an earlier step hasn't made yet is reported as not checked. The last 50 runs are kept in `transforms\.runs\`, each step with its status, rows, time and error.
+
 ## Where it is kept
 
 Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or one you choose, for example inside a Git repository):
@@ -125,6 +154,7 @@ Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or on
 | `project.json` | Name, settings, registered folders, type overrides and the list of discovered tables |
 | `data.duckdb` | The database: your tables and views, and views over the discovered files |
 | `tmp\` | Data DuckDB spills to disk under a memory limit |
+| `transforms\<schema>\<name>.sql` | Transformation steps, and `transforms\.runs\` their last 50 runs |
 | `Tables\<schema>\<table>\` | The project's Delta tables. Tables copied in here are picked up when the project opens or is refreshed. |
 
 Only one program can write to a project's database at a time. If another KratosForge window or a notebook has it open, the project says so instead of risking the file; close it there (or close the project) and try again.
@@ -147,6 +177,9 @@ Only one program can write to a project's database at a time. If another KratosF
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |
 | `local_drop_delta(project, table, confirm)` | Delete one of the project's Delta tables with every version (only with `confirm`) |
+| `local_transform_plan(project)` | The project's transformation steps in run order, with what each reads, its settings and parameters, and any problems |
+| `local_transform_run(project, params, steps, dry_run)` | Run the steps in order, each making its table |
+| `local_transform_runs(project, limit)` | Earlier runs, newest first |
 | `local_close_project` / `local_forget_project` | Close the database / take the project off the list (its folder stays) |
 
 In Python, `LocalEngine.execute_reader(sql)` streams a query's whole result in Arrow batches with no row limit; the SQL page's managed execution reads results that way. Read the stream to the end or close it (`with engine.execute_reader(sql) as stream:`), because the project answers one request at a time until then.

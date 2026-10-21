@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from .localdata import LocalData
+from .localdata.transform import Transforms
 
 # Every call here works offline and never reaches Fabric or OneLake.
 METHODS = {"list_local_projects", "local_create_project", "local_forget_project", "local_close_project",
            "local_project_settings", "local_add_source", "local_remove_source", "local_refresh",
            "list_local_tables", "local_set_types", "local_query", "local_query_start", "local_query_status",
-           "local_query_cancel", "local_explain", "local_write_delta", "local_delta_history", "local_drop_delta"}
+           "local_query_cancel", "local_explain", "local_write_delta", "local_delta_history", "local_drop_delta",
+           "local_transform_plan", "local_transform_run", "local_transform_runs"}
 
 
 # A managed run's state, as local_query_status named it before KF-DE-027.
@@ -142,6 +144,19 @@ class LocalDataMixin:
         return self.local_data.engine(project).write_delta(table, query, mode=mode, dialect=dialect,
                                                            partition_by=partition_by, schema_mode=schema_mode,
                                                            dry_run=dry_run, timeout=timeout)
+
+    def local_transform_plan(self, project: str) -> dict[str, Any]:
+        """The project's SQL steps (transforms/<schema>/<name>.sql) in the order a run takes them."""
+        return Transforms(self.local_data.engine(project)).plan()
+
+    def local_transform_run(self, project: str, params: dict[str, Any] | None = None,
+                            steps: list[str] | None = None, dry_run: bool = False) -> dict[str, Any]:
+        """Run the project's SQL steps in order, each making its table. ``steps``: these and the steps
+        that read their tables. ``dry_run`` checks each query and makes nothing."""
+        return Transforms(self.local_data.engine(project)).run(params=params, only=steps, dry_run=dry_run)
+
+    def local_transform_runs(self, project: str, limit: int = 20) -> dict[str, Any]:
+        return {"runs": Transforms(self.local_data.engine(project)).runs(limit)}
 
     def local_delta_history(self, project: str, table: str, limit: int = 50) -> dict[str, Any]:
         return self.local_data.engine(project).delta_history(table, limit)

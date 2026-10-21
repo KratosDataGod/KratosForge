@@ -426,10 +426,12 @@ class LocalEngine:
     # Queries
 
     def execute(self, sql: str, dialect: str = "duckdb", limit: int = 1000, timeout: float | None = None,
-                query_id: str | None = None, count: bool = True) -> dict[str, Any]:
-        """Run every statement in ``sql``; return the last one's result with timings."""
+                query_id: str | None = None, count: bool = True,
+                params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Run every statement in ``sql``; return the last one's result with timings. ``params`` are
+        the values of ``$name`` (Spark SQL: ``:name`` or ``${name}``), bound, never pasted in."""
         limit = max(0, min(int(limit), 100_000))
-        with self._query(sql, dialect, timeout, query_id) as (result, run):
+        with self._query(sql, dialect, timeout, query_id, params=params) as (result, run):
             payload = _collect(result, limit, count)
         payload.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return payload
@@ -485,7 +487,8 @@ class LocalEngine:
 
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
-               write: "delta.Write | None" = None, dry_run: bool = False, explain: str | None = None):
+               write: "delta.Write | None" = None, dry_run: bool = False,
+               params: dict[str, Any] | None = None, explain: str | None = None):
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -525,8 +528,13 @@ class LocalEngine:
                         raise duckdb.InterruptException("cancelled")
                     step_started = time.monotonic()
                     as_of += self._make_as_of(con, step["as_of"])
-                    if step["write"] is not None:
-                        summary = self._write(con, step["write"], state, query_id, dry_run=dry_run)
+                    if step["write"] is not None and step["write"].mode == "table":
+                        summary = self._make_table(con, step["write"], params)
+                        run["write"] = summary
+                        result = con.execute('SELECT ?::VARCHAR AS "table", ?::BIGINT AS rows_written',
+                                             [summary["table"], summary["rows"]])
+                    elif step["write"] is not None:
+                        summary = self._write(con, step["write"], state, query_id, dry_run=dry_run, params=params)
                         run["write"] = summary
                         result = con.execute(
                             'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
@@ -537,7 +545,7 @@ class LocalEngine:
                     elif explain == "plan":
                         result = con.execute("EXPLAIN (FORMAT JSON) " + step["sql"])
                     else:
-                        result = con.execute(step["sql"])
+                        result = con.execute(step["sql"], _bound(con, step["sql"], params))
                     steps.append({"statement": i + 1, "type": step["kind"],
                                   "seconds": round(time.monotonic() - step_started, 3)})
                 yield result, run
@@ -731,7 +739,7 @@ class LocalEngine:
     def write_delta(self, table: str, query: str, mode: str = "create", dialect: str = "duckdb",
                     partition_by: list[str] | None = None, schema_mode: str | None = None,
                     dry_run: bool = False, timeout: float | None = None,
-                    query_id: str | None = None) -> dict[str, Any]:
+                    query_id: str | None = None, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Write ``query``'s rows to the project's Delta table ``table`` ("schema.table" or "table").
 
         ``mode``: create (it mustn't exist), append or overwrite (either makes it when it doesn't).
@@ -747,13 +755,40 @@ class LocalEngine:
         schema, name = delta.split_name(table or "")
         write = delta.Write(schema, name, mode, "", partition_by=list(partition_by or []),
                             replace=schema_mode == "overwrite", schema_mode=schema_mode)
-        with self._query(query, dialect, timeout, query_id, write=write, dry_run=dry_run) as (_result, run):
+        with self._query(query, dialect, timeout, query_id, write=write, dry_run=dry_run,
+                         params=params) as (_result, run):
             summary = run["write"]
         summary.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
         return summary
 
+    def make_table(self, table: str, query: str, dialect: str = "duckdb", params: dict[str, Any] | None = None,
+                   timeout: float | None = None, query_id: str | None = None) -> dict[str, Any]:
+        """Make (or replace) the table ``table`` in the project's database from ``query``'s rows.
+        The query must only read; the caller decides whether ``table`` may be replaced."""
+        schema, name = delta.split_name(table or "")
+        write = delta.Write(schema, name, "table", "")
+        with self._query(query, dialect, timeout, query_id, write=write, params=params) as (_result, run):
+            summary = run["write"]
+        summary.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
+        return summary
+
+    def _make_table(self, con: duckdb.DuckDBPyConnection, w: "delta.Write",
+                    params: dict[str, Any] | None) -> dict[str, Any]:
+        schema = w.schema or "dbo"
+        delta.check_name(schema, w.table)
+        name = f"{schema}.{w.table}"
+        entry = self.project.catalog.get(self._own_key(schema, w.table))
+        if entry is not None:
+            what = "one of the project's Delta tables" if entry.get("kind") == OWN else f"read from {entry.get('source')}"
+            raise ValueError(f"{name} is {what}, so it isn't replaced by a table. Pick another name.")
+        _only_reads(con, w.query)
+        con.execute(f"CREATE SCHEMA IF NOT EXISTS {q(schema)}")
+        con.execute(f"CREATE OR REPLACE TABLE {q(schema)}.{q(w.table)} AS {w.query}", _bound(con, w.query, params))
+        rows = con.execute(f"SELECT count(*) FROM {q(schema)}.{q(w.table)}").fetchone()[0]
+        return {"table": name, "mode": "table", "rows": int(rows), "version": None}
+
     def _write(self, con: duckdb.DuckDBPyConnection, w: "delta.Write", state: dict[str, Any], query_id: str,
-               dry_run: bool = False) -> dict[str, Any]:
+               dry_run: bool = False, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Run ``w``'s query and write its rows in one Delta commit. Holds the connection."""
         from deltalake import CommitProperties, DeltaTable, write_deltalake
 
@@ -793,7 +828,7 @@ class LocalEngine:
             out["version"] = current.version()
 
         _only_reads(con, w.query)  # before anything runs, dry run or not
-        result = con.execute(w.query)
+        result = con.execute(w.query, _bound(con, w.query, params))
         if not result.description:
             raise ValueError("The query returns no rows to write.")
         reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
@@ -959,6 +994,25 @@ _ONE_QUERY = ("The rows to write come from one query (SELECT, WITH ... SELECT, F
 
 
 _PIVOT = re.compile(r"\bPIVOT\b", re.IGNORECASE)
+
+
+def _bound(con: duckdb.DuckDBPyConnection, sql: str, params: dict[str, Any] | None) -> dict[str, Any] | None:
+    """The values of the ``$name`` parameters ``sql`` uses, from ``params``; refused by name when one is
+    missing, so a run never goes ahead with a parameter left out."""
+    try:
+        used: set[str] = set()
+        for statement in con.extract_statements(sql):
+            used |= set(statement.named_parameters)
+    except duckdb.Error:
+        return None  # DuckDB reports the error itself when the statement runs
+    if not used:
+        return None
+    given = params or {}
+    missing = sorted(used - set(given))
+    if missing:
+        raise ValueError(f"The query uses {', '.join('$' + m for m in missing)}; give "
+                         f"{'it a value' if len(missing) == 1 else 'them values'} (params).")
+    return {k: given[k] for k in used}
 
 
 def _only_reads(con: duckdb.DuckDBPyConnection, sql: str) -> None:

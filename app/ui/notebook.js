@@ -910,8 +910,25 @@ function renderOutput(o, cell) {
     return h("div", { class: "output" }, h("img", { class: "out-img", alt: "Chart from this cell", src: `data:${o.mime};base64,${o.data}` }));
   }
   if (o.type === "html") return h("div", { class: "output" }, htmlFrame(o.html));
+  // Markdown from %%md, IPython.display.Markdown or _repr_markdown_: the Markdown cell's escaping renderer.
   if (o.type === "markdown") return h("div", { class: "output md-view" }, markdown(o.text));
+  if (o.type === "json") return h("div", { class: "output json-output" }, jsonTree(o.data, null, 0));
   return h("div", { class: "output" }, h("pre", {}, JSON.stringify(o)));
+}
+
+// application/json output as a tree of text: objects and arrays fold, the first two levels open.
+function jsonTree(value, key, depth) {
+  const label = key === null ? null : h("span", { class: "json-key" }, `${key}: `);
+  if (value === null || typeof value !== "object") {
+    const cls = value === null ? "json-null" : typeof value === "string" ? "json-str" : "json-num";
+    return h("div", { class: "json-row" }, label, h("span", { class: cls }, value === null ? "null" : typeof value === "string" ? JSON.stringify(value) : String(value)));
+  }
+  const entries = Array.isArray(value) ? value.map((v, i) => [i, v]) : Object.entries(value);
+  const head = Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`;
+  return h("details", { class: "json-node", open: depth < 2 || null },
+    h("summary", {}, label, h("span", { class: "json-count" }, head)),
+    entries.slice(0, 500).map(([k, v]) => jsonTree(v, k, depth + 1)),
+    entries.length > 500 ? h("div", { class: "json-row muted-text" }, `${entries.length - 500} more`) : null);
 }
 
 // A cell stopped by a limit from Settings (kernel_proc.py): "time" (interrupted, variables kept)

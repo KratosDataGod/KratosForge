@@ -19,7 +19,7 @@ SHOWING = "bokeh.io.showing"
 ALTAIR_NOTE = ("Altair charts don't draw in a cell on this PC yet. chart.save('chart.html') saves it to open "
                "in a browser; plotly, bokeh, seaborn and matplotlib charts draw here.")
 
-_emit: Callable[[dict[str, Any]], bool] = lambda _output: False  # noqa: E731 - set by install()
+_emit: Callable[[dict[str, Any]], bool] = lambda _output: False  # set by install()
 
 
 def bokeh_html(obj: Any) -> dict[str, Any]:
@@ -68,19 +68,21 @@ class _PatchOnImport(importlib.abc.MetaPathFinder):
                 continue
             spec = finder.find_spec(name, path, target)
             if spec is not None and spec.loader is not None and hasattr(spec.loader, "exec_module"):
-                loader = spec.loader
-
-                class _Loader(importlib.abc.Loader):
-                    def create_module(self, spec: Any) -> Any:
-                        return loader.create_module(spec)
-
-                    def exec_module(self, module: Any) -> None:
-                        loader.exec_module(module)
-                        _patch(module)
-
-                spec.loader = _Loader()
+                spec.loader = _PatchAfter(spec.loader)
                 return spec
         return None
+
+
+class _PatchAfter(importlib.abc.Loader):
+    def __init__(self, loader: Any):
+        self.loader = loader
+
+    def create_module(self, spec: Any) -> Any:
+        return self.loader.create_module(spec)
+
+    def exec_module(self, module: Any) -> None:
+        self.loader.exec_module(module)
+        _patch(module)
 
 
 def install(emit: Callable[[dict[str, Any]], bool]) -> None:

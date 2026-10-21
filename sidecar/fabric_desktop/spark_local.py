@@ -503,6 +503,7 @@ class LocalSparkSession(SparkSession):
             return DataFrame(self.conn.from_arrow(arrow), self)
         if isinstance(schema, str) and _DDL.search(schema):  # "id int, name string", as in PySpark
             schema = ddl_schema(schema)
+        check_not_null(data, schema)
         return super().createDataFrame(data, schema, **kw)
 
 
@@ -517,9 +518,15 @@ _ATOMIC = {"int": "IntegerType", "integer": "IntegerType", "bigint": "LongType",
 
 
 def _split_top(text: str) -> list[str]:
-    """``text`` split at commas outside <> and ()."""
-    parts, depth, start = [], 0, 0
+    """``text`` split at commas outside <>, () and a COMMENT's quotes."""
+    parts, depth, start, quote, escaped = [], 0, 0, "", False
     for i, c in enumerate(text):
+        if quote:
+            escaped, quote = (False, quote) if escaped else (c == "\\", "" if c == quote else quote)
+            continue
+        if c in "'\"":
+            quote = c
+            continue
         depth += c in "<(" and 1 or (-1 if c in ">)" else 0)
         if c == "," and depth == 0:
             parts.append(text[start:i])
@@ -541,8 +548,15 @@ def _ddl_type(text: str) -> Any:
     if m := re.fullmatch(r"map\s*<(.*)>", t, re.I | re.S):
         key, value = (_split_top(m[1]) + ["", ""])[:2]
         return T.MapType(_ddl_type(key), _ddl_type(value))
+    if m := re.fullmatch(r"struct\s*<(.*)>", t, re.I | re.S):
+        return ddl_schema(m[1])
     raise ValueError(f"The schema type {t!r} isn't supported on this PC. Use a StructType, or types such as "
-                     "int, bigint, string, double, boolean, date, timestamp, decimal(p,s), array<...>, map<...>.")
+                     "int, bigint, string, double, boolean, date, timestamp, decimal(p,s), array<...>, map<...>, "
+                     "struct<...>.")
+
+
+_NOT_NULL = re.compile(r"\s+NOT\s+NULL\s*$", re.I)
+_COMMENT = re.compile(r"\s+COMMENT\s+(?:'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")\s*$", re.I | re.S)
 
 
 def ddl_schema(text: str) -> Any:
@@ -553,9 +567,35 @@ def ddl_schema(text: str) -> Any:
         m = re.fullmatch(r"(?:`([^`]+)`|([^`:\s]+))\s*(?::\s*|\s+)(.+)", part, re.S)
         if not m:
             raise ValueError(f"Couldn't read {part!r} in the schema {text!r}. Write it as \"name type\", like \"id int\".")
-        name, kind = m[1] or m[2], m[3]
-        fields.append(T.StructField(name, _ddl_type(kind), True))
+        name, kind = m[1] or m[2], _COMMENT.sub("", m[3])  # a column comment is for the catalog, not the data
+        nullable = not _NOT_NULL.search(kind)
+        fields.append(T.StructField(name, _ddl_type(_NOT_NULL.sub("", kind)), nullable))
     return T.StructType(fields)
+
+
+def check_not_null(data: Any, schema: Any) -> None:
+    """Spark refuses a null in a NOT NULL field when it makes a DataFrame from Python rows; DuckDB
+    would keep it, so the rows are checked here first (fields inside a struct too)."""
+    from duckdb.experimental.spark.sql import types as T
+    if not isinstance(schema, T.StructType) or all(f.nullable and not isinstance(f.dataType, T.StructType)
+                                                   for f in schema.fields):
+        return
+
+    def check(value: Any, struct: Any, path: str) -> None:
+        if value is None:
+            return
+        items = value.asDict() if hasattr(value, "asDict") else value
+        for i, field in enumerate(struct.fields):
+            v = items.get(field.name) if isinstance(items, dict) else (items[i] if i < len(items) else None)
+            where = f"{path}{field.name}"
+            if v is None and not field.nullable:
+                raise ValueError(f"field {where}: This field is not nullable, but got None.")
+            if isinstance(field.dataType, T.StructType):
+                check(v, field.dataType, where + ".")
+
+    if isinstance(data, (list, tuple)):
+        for row in data:
+            check(row, schema, "")
 
 
 # What DuckDB's API leaves out (Window, agg, fillna, pivot, row_number...), on DuckDB SQL.

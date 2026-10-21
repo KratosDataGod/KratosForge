@@ -189,7 +189,27 @@ def test_create_dataframe_reads_a_ddl_schema_string(live):
     assert live.createDataFrame([(5,)], "n: bigint").dtypes == [("n", "bigint")]
     assert live.createDataFrame([(5,)], "`my col` long").columns == ["my col"]
     with pytest.raises(ValueError, match="isn't supported on this PC"):
-        live.createDataFrame([(1,)], "s struct<x:int>")
+        live.createDataFrame([(1,)], "s geometry")
+
+
+def test_ddl_schema_reads_structs_comments_and_not_null(live):
+    df = live.createDataFrame([((1, ["x"]), 5)],
+                              "s STRUCT<a: INT, b: ARRAY<STRING>> COMMENT 'nested, kept', id bigint NOT NULL COMMENT \"key\"")
+    assert df.dtypes == [("s", "struct<a:integer,b:array<string>>"), ("id", "bigint")]
+    assert rows(df) == [({"a": 1, "b": ["x"]}, 5)]
+    assert live.createDataFrame([({"k": (1,)},)], "m map<string, struct<x:int>>").dtypes == [("m", "map<string,struct<x:integer>>")]
+    assert live.createDataFrame([(1, None)], "id int NOT NULL, name string").count() == 1
+    with pytest.raises(ValueError, match="field id: This field is not nullable, but got None"):
+        live.createDataFrame([(1, "a"), (None, "b")], "id int NOT NULL, name string")
+    with pytest.raises(ValueError, match="field s.a: This field is not nullable"):
+        live.createDataFrame([((None, "x"),)], "s struct<a int NOT NULL, b string>")
+
+
+def test_a_struct_type_with_a_non_nullable_field_is_checked_too(live):
+    from pyspark.sql.types import IntegerType, StructField, StructType
+    schema = StructType([StructField("id", IntegerType(), False)])
+    with pytest.raises(ValueError, match="not nullable"):
+        live.createDataFrame([{"id": None}], schema)
 
 
 def test_these_frames_leave_no_view_behind(live):

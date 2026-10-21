@@ -2991,6 +2991,7 @@ test("the profile report preview renders headings, bullets and source tags witho
   const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
   assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
+});
 
 // Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
 test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
@@ -3007,7 +3008,7 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
     { frame: "f", gone: true }];
   const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
   vm.createContext(ctx);
-  vm.runInContext(grab("renderProfile") + grab("renderInspect") + "this.p = renderProfile;", ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
   const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
   const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
   assert.match(texts(box), /Profiling every row\.\.\.$/);
@@ -3028,5 +3029,5 @@ test("Inspect profiles every row of a held result, and says so when the kernel n
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(o2.profileGone, true);
   assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
-  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderProfile\(o, numeric, count\)\);/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
 });

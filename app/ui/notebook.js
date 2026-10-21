@@ -956,7 +956,7 @@ function renderTableOutput(o) {
   } else if (o.view === "chart") {
     wrap.append(renderChart(o, numeric), h("div", { class: "more" }, `Chart of ${count.toLowerCase()}`));
   } else if (o.frame && !o.profileGone) {
-    wrap.append(renderProfile(o, numeric, count));
+    wrap.append(renderFrameProfile(o, numeric, count));
   } else {
     wrap.append(renderInspect(o, numeric), h("div", { class: "more" }, `Summary of ${count.toLowerCase()}`));
   }
@@ -1149,7 +1149,7 @@ function svgChart(points, cfg) {
 // Inspect over every row (frames.py profile), as display(df, summary=True) and Databricks' data
 // profile show it. Until the profile arrives, the preview's summary shows; after a kernel restart
 // the preview's summary stays, with a note.
-function renderProfile(o, numeric, count) {
+function renderFrameProfile(o, numeric, count) {
   const box = h("div", { class: "profile" });
   const show = (p) => {
     const fmt = (v) => (v === null || v === undefined ? "" : typeof v === "number" ? (Number.isInteger(v) ? v.toLocaleString() : +v.toPrecision(6)) : String(v));

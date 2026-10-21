@@ -57,6 +57,7 @@ from .validate_service import ValidateMixin
 from .environment_service import EnvironmentMixin
 from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
+from .notebook_folders_service import NotebookFoldersMixin
 from .notebook_formats_service import NotebookFormatsMixin
 from .notebook_versions_service import NotebookVersionsMixin
 from . import notebook_versions
@@ -80,7 +81,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
+class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookFoldersMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, EnvironmentMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -789,9 +790,10 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def list_notebooks(self) -> list[dict[str, Any]]:
         return self.notebooks.list()
 
-    def new_notebook(self, place: str | None = None) -> dict[str, Any]:
-        """A new notebook in the app's own folder, or in the notebooks repository at ``place``."""
-        nb = self.notebooks.new(place=place)
+    def new_notebook(self, place: str | None = None, folder: str = "") -> dict[str, Any]:
+        """A new notebook in the app's own folder, or in the notebooks repository at ``place``;
+        inside ``folder`` ("Sales") when given (notebook_folders)."""
+        nb = self.notebooks.new(place=place, folder_name=folder or "")
         self.sessions.active = nb["name"]
         return self._with_place(nb)
 
@@ -864,6 +866,11 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
+        return out | self._notebook_renamed(name, new_name)
+
+    def _notebook_renamed(self, name: str, new_name: str) -> dict[str, Any]:
+        """After a notebook's file was renamed (or moved into a folder, notebook_folders): what is kept
+        by its name follows it. Returns {"schedules_moved": [ids]}."""
         self.sessions.rename(name, new_name)  # its session (and variables) go with it
         self.environments.rename_notebook(name, new_name)
         self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
@@ -871,7 +878,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
         except OSError as exc:
             _log.warning("Couldn't move the versions of %r: %s", name, exc)
-        return out
+        return {"schedules_moved": self.pc_schedules.rename_notebook(name, new_name)}  # this PC's schedules run it by name
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
         """Kept for the API: the same as notebook_delete (to Recently deleted)."""

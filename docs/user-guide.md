@@ -9,6 +9,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Notebook resources](notebook-resources.md):** files kept beside a notebook and read in its cells as `builtin/<file>`, like Fabric's built-in resources.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
+- **[Notebook folders](notebook-folders.md):** grouping notebooks into folders, moving a notebook into one, renaming and deleting folders.
 - **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
 - **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
@@ -124,6 +125,10 @@ From the top:
 ### All notebooks
 
 **All notebooks**, under **Recent notebooks**, lists every notebook on this PC and in your notebooks repositories, with search inside them. The [notebook files guide](notebook-files.md#all-notebooks) has the details.
+
+### Notebook folders
+
+On **All notebooks**, **New folder** makes a folder, and a notebook's **⋯** menu has **Move to folder…**. Notebooks are grouped by folder, with counts, and each folder's menu can rename it or delete it when it's empty. A folder is part of the notebook's name (Sales/Daily load), so its resources, versions and this PC's schedules follow it. Publishing names the Fabric item without the folder (Preview). See [Notebook folders](notebook-folders.md).
 
 ### Ready to work
 

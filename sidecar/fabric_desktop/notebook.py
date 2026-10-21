@@ -31,6 +31,7 @@ import threading
 import time
 import traceback
 import types
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -364,7 +365,11 @@ def _to_running_cell(output: dict[str, Any]) -> bool:
     return True
 
 
-chart_output.install(_to_running_cell)  # bokeh's show() draws in the cell
+def _cell_running() -> bool:
+    return bool(_routers()[0].targets)
+
+
+chart_output.install(_to_running_cell, _cell_running)  # bokeh's show() draws in the cell
 
 
 class Kernel:
@@ -1776,11 +1781,86 @@ def check_watches(watches: Any) -> list[str]:
     return out
 
 
+# Folders for notebooks (notebook_folders.py): a name may carry up to MAX_FOLDER_DEPTH folders before
+# the notebook's own name, "Sales/Daily load", saved as Sales/Daily load.ipynb in the place's folder.
+MAX_FOLDER_DEPTH = 3
+FOLDER_SEP = "/"
+
+
+def _check_part(part: str, whole: str) -> str:
+    part = part.strip()
+    if not part or _SAFE_NAME.search(part) or part.endswith("."):
+        raise ValueError(f"Invalid notebook name {whole!r}: avoid < > : \" \\ | ? * and a trailing dot"
+                         " (a / only separates folders).")
+    if part.split(".")[0].strip().upper() in _WINDOWS_DEVICES:  # CON, con.txt, COM1...: Windows can't save these
+        raise ValueError(f"{part!r} is a name Windows keeps for devices, so it can't be a notebook or folder name. "
+                         "Pick another name.")
+    return part
+
+
+_WINDOWS_DEVICES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))})
+
+
+def check_folder_part(part: str, whole: str | None = None) -> str:
+    """One folder's name: the notebook name rule, and not hidden (.git) or a resources folder."""
+    part = _check_part(part, whole or part)
+    if part.startswith("."):
+        raise ValueError(f"A folder name can't start with a dot: {part!r}.")
+    if part.lower().endswith(notebook_resources.SUFFIX):
+        raise ValueError(f"A folder name can't end with {notebook_resources.SUFFIX}: that's where a notebook keeps its resources.")
+    return part
+
+
 def check_notebook_name(name: str) -> str:
-    name = name.strip()
-    if not name or _SAFE_NAME.search(name) or name.endswith("."):
-        raise ValueError(f"Invalid notebook name {name!r}: avoid < > : \" / \\ | ? * and a trailing dot.")
-    return name
+    """The notebook's name as saved: its folders (each checked, at most MAX_FOLDER_DEPTH) and its own
+    name, joined by "/". Raises ValueError saying what's wrong."""
+    whole = str(name).strip()
+    parts = whole.split(FOLDER_SEP)
+    if len(parts) - 1 > MAX_FOLDER_DEPTH:
+        raise ValueError(f"Folders go {MAX_FOLDER_DEPTH} levels deep at most: {whole!r} is in {len(parts) - 1}.")
+    folders = [check_folder_part(p, whole) for p in parts[:-1]]
+    return FOLDER_SEP.join([*folders, _check_part(parts[-1], whole)])
+
+
+def folder_of(name: str) -> str:
+    """The folders part of a notebook name, "" for one not in a folder."""
+    return name.rpartition(FOLDER_SEP)[0]
+
+
+def leaf_name(name: str) -> str:
+    """The notebook's own name, without its folders: what its Fabric item is called."""
+    return name.rpartition(FOLDER_SEP)[2]
+
+
+def is_notebook_folder(dirname: str) -> bool:
+    """Whether a directory in a notebooks folder is a folder of notebooks (not .git or X.resources)."""
+    try:
+        check_folder_part(dirname)
+    except ValueError:
+        return False
+    return True
+
+
+def notebook_files(folder: Path) -> list[tuple[str, Path]]:
+    """Every notebook in ``folder`` and its subfolders (to MAX_FOLDER_DEPTH), as (name, file). Hidden
+    folders (.git, .ipynb_checkpoints) and resources folders are skipped."""
+    out: list[tuple[str, Path]] = []
+
+    def walk(d: Path, prefix: str, depth: int) -> None:
+        try:
+            entries = sorted(d.iterdir())
+        except OSError as exc:  # a folder that went away or can't be read lists nothing
+            _log.debug("Couldn't list %s: %s", d, exc)
+            return
+        for p in entries:
+            if p.suffix == ".ipynb" and p.is_file():
+                out.append((prefix + p.stem, p))
+            elif depth < MAX_FOLDER_DEPTH and is_notebook_folder(p.name) and p.is_dir():
+                walk(p, f"{prefix}{p.name}{FOLDER_SEP}", depth + 1)
+
+    if folder.is_dir():
+        walk(folder, "", 0)
+    return out
 
 
 COMPUTE = ("default", "local", "fabric")
@@ -1977,6 +2057,38 @@ def from_ipynb(nb: dict[str, Any]) -> dict[str, Any]:
             "workspace": ours.get("workspace")}
 
 
+_WRITE_LOCKS: dict[str, threading.Lock] = {}
+_WRITE_LOCKS_GUARD = threading.Lock()
+
+
+def _path_write_lock(path: Path) -> threading.Lock:
+    key = os.path.normcase(str(path.resolve()))
+    with _WRITE_LOCKS_GUARD:
+        return _WRITE_LOCKS.setdefault(key, threading.Lock())
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write through a temporary file of this write's own, so two writers never share one.
+
+    Saves of one notebook take turns: Windows refuses a second os.replace onto a file
+    another replace is still finishing, and briefly while a reader (or a virus scanner)
+    has it open, so a refused replace is tried a few more times before giving up."""
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        with _path_write_lock(path):
+            for attempt in range(6):
+                try:
+                    os.replace(tmp, path)
+                    break
+                except PermissionError:
+                    if attempt == 5:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 class NotebookStore:
     # Held while a save or a metadata write reads, changes and replaces a notebook file, so one
     # doesn't write over the other's change (the local API and MCP tools call in from other threads).
@@ -1989,10 +2101,8 @@ class NotebookStore:
         return self.folder / f"{check_notebook_name(name)}.ipynb"
 
     def list(self) -> list[dict[str, Any]]:
-        if not self.folder.exists():
-            return []
-        files = sorted(self.folder.glob("*.ipynb"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return [{"name": p.stem, "modified": p.stat().st_mtime} for p in files]
+        files = sorted(notebook_files(self.folder), key=lambda f: f[1].stat().st_mtime, reverse=True)
+        return [{"name": name, "modified": p.stat().st_mtime} for name, p in files]
 
     def load(self, name: str) -> dict[str, Any]:
         nb = json.loads(self.path(name).read_text(encoding="utf-8"))
@@ -2030,9 +2140,7 @@ class NotebookStore:
         nb = merge_saved(to_ipynb(cells, lakehouse, compute, workspace), before) if before else \
             to_ipynb(cells, lakehouse, compute, workspace)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".ipynb.tmp")
-        tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        _write_atomic(path, json.dumps(nb, indent=1))
         return {"name": name, "cell_ids": ids}
 
     def extra(self, name: str, key: str) -> Any:
@@ -2061,9 +2169,7 @@ class NotebookStore:
                 fd.pop(key, None)
             else:
                 fd[key] = value
-            tmp = path.with_suffix(".ipynb.tmp")
-            tmp.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-            os.replace(tmp, path)
+            _write_atomic(path, json.dumps(nb, indent=1))
             return value
 
     def new(self, prefix: str = "Notebook") -> dict[str, Any]:
@@ -2148,21 +2254,23 @@ class NotebookShelf(NotebookStore):
         an earlier place isn't listed (opening, saving or deleting by that name reaches the other)."""
         out, names = [], set()
         for place, folder in self._folders():
-            if not folder.is_dir():
-                continue
-            for p in folder.glob("*.ipynb"):
-                if p.stem in names:
+            for name, p in notebook_files(folder):  # its folders too (notebook_folders)
+                if name in names:
                     continue
                 where = {"root": place["root"], "label": place["label"]} if place else None
-                out.append({"name": p.stem, "modified": p.stat().st_mtime, "place": where})
-                names.add(p.stem)
+                out.append({"name": name, "modified": p.stat().st_mtime, "place": where})
+                names.add(name)
         return sorted(out, key=lambda n: n["modified"], reverse=True)
 
     def _taken(self, name: str) -> bool:
         return any((f / f"{check_notebook_name(name)}.ipynb").exists() for _, f in self._folders())
 
-    def new(self, prefix: str = "Notebook", place: str | None = None) -> dict[str, Any]:
+    def new(self, prefix: str = "Notebook", place: str | None = None, folder_name: str = "") -> dict[str, Any]:
+        """A new notebook in ``place``, inside ``folder_name`` ("Sales", "" for none) when given;
+        a folder that isn't there yet is made."""
         _, folder = self._place(place)
+        if folder_name:
+            prefix = check_notebook_name(f"{folder_name}{FOLDER_SEP}{prefix}")
         i = 1
         while self._taken(f"{prefix} {i}"):
             i += 1
@@ -2175,7 +2283,10 @@ class NotebookShelf(NotebookStore):
         if self._taken(new_name):
             raise ValueError(f"A notebook named {new_name!r} already exists.")
         src = self.path(name)
-        return _rename_with_resources(src, src.with_name(f"{check_notebook_name(new_name)}.ipynb"), new_name)
+        if not src.is_file():
+            raise ValueError(f"There's no notebook named {name!r}.")
+        folder = self._where(name)[1]  # stays in its place; a folder in the new name is made there
+        return _rename_with_resources(src, folder / f"{check_notebook_name(new_name)}.ipynb", new_name)
 
     def move(self, name: str, place: str | None) -> dict[str, Any]:
         """Moves the notebook's file, and its resources folder, to another place (a repository root,
@@ -2185,11 +2296,11 @@ class NotebookShelf(NotebookStore):
         if not src.is_file():
             raise ValueError(f"There's no notebook named {name!r}.")
         target_place, folder = self._place(place)
-        dest = folder / src.name
+        dest = folder / f"{check_notebook_name(name)}.ipynb"  # in the same folders there
         if _resolved(dest) == _resolved(src):
             return {"name": name, "place": self.place_of(name), "moved": False}
         data = src.read_bytes()
-        folder.mkdir(parents=True, exist_ok=True)
+        dest.parent.mkdir(parents=True, exist_ok=True)
         where = target_place["label"] if target_place else "the app's notebooks folder"
         res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
         if res_src.is_dir() and res_dest.exists():
@@ -2224,12 +2335,21 @@ def _rename_with_resources(src: Path, dest: Path, new_name: str) -> dict[str, An
     """Renames the notebook's file and its resources folder together; a failed file rename puts the
     folder back."""
     res_src, res_dest = notebook_resources.folder_for(src), notebook_resources.folder_for(dest)
-    moved = notebook_resources.rename_folder(res_src, res_dest)
+    if dest.exists():  # never replace a notebook (one made since the name was checked)
+        raise ValueError(f"A notebook named {new_name!r} already exists. Nothing was renamed.")
+    made = not dest.parent.is_dir()
+    dest.parent.mkdir(parents=True, exist_ok=True)  # moving into a folder that isn't there yet
     try:
-        src.rename(dest)
-    except OSError:
-        if moved:
-            res_dest.rename(res_src)
+        moved = notebook_resources.rename_folder(res_src, res_dest)
+        try:
+            src.rename(dest)
+        except OSError:
+            if moved:
+                res_dest.rename(res_src)
+            raise
+    except (OSError, ValueError):
+        if made:
+            dest.parent.rmdir()  # the folder made for it, still empty
         raise
     return {"name": new_name}
 

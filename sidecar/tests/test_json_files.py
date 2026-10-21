@@ -256,3 +256,53 @@ def test_after_a_failed_repair_the_next_save_still_rewrites_the_file(svc, monkey
     assert [r["id"] for r in svc.side_by_side_list()] == ["a"]
     svc._sbs_save({"id": "d", "local": {}})
     assert [json.loads(line)["id"] for line in svc.side_by_side_file.read_text(encoding="utf-8").splitlines()] == ["a", "d"]
+
+
+def busy_reads(monkeypatch, path, times):
+    """Path.read_text fails ``times`` times for ``path``, as on Windows while a writer swaps it in."""
+    real, waits, failed = Path.read_text, [], []
+
+    def read_text(self, *a, **k):
+        if self == path and len(failed) < times:
+            failed.append(self)
+            raise PermissionError(13, "The process cannot access the file because it is being used by another process")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    monkeypatch.setattr(jsonfile.time, "sleep", waits.append)
+    return waits
+
+
+def test_read_waits_out_a_writer_swapping_the_file(tmp_path, monkeypatch):
+    path = tmp_path / "s.json"
+    jsonfile.write_json(path, {"a": 1})
+    waits = busy_reads(monkeypatch, path, 2)
+    assert jsonfile.read_json(path, None) == {"a": 1}
+    assert waits == [0.05, 0.1]
+    assert [p.name for p in tmp_path.iterdir()] == ["s.json"]  # not set aside as unreadable
+
+
+def test_read_gives_up_after_bounded_retries(tmp_path, monkeypatch):
+    path = tmp_path / "s.json"
+    jsonfile.write_json(path, {"a": 1})
+    waits = busy_reads(monkeypatch, path, 99)
+    with pytest.raises(PermissionError):
+        jsonfile.read_json(path, None)
+    assert waits == [0.05, 0.1, 0.2, 0.4, 0.8]
+
+
+def test_listing_comparisons_waits_out_a_comparison_being_saved(svc, monkeypatch):
+    """Windows CI: side_by_side_list read the file while the run's thread was swapping in its save."""
+    svc._sbs_save({"id": "a", "local": {}})
+    busy_reads(monkeypatch, svc.side_by_side_file, 2)
+    assert [r["id"] for r in svc.side_by_side_list()] == ["a"]
+
+
+def test_comparisons_saved_at_once_are_all_kept(svc):
+    import threading
+    threads = [threading.Thread(target=svc._sbs_save, args=({"id": str(i), "local": {}},)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert sorted(r["id"] for r in svc._sbs_saved()) == [str(i) for i in range(8)]

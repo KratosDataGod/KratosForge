@@ -13,7 +13,7 @@ KratosForge does Microsoft Fabric data engineering work on your own Windows PC a
 | Part | What it does | Code |
 | --- | --- | --- |
 | **App UI** | The Fabric-style pages: Home, Create, Workspaces, OneLake catalog, Fabric, notebooks, SQL query, Metadata and Monitor. Plain HTML and JavaScript with no build step. `activity.js` holds the environment picker, the activity tray and plain-language errors. Each data action is one `rpc` command to the shell. | `app/ui/` |
-| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Links that leave Fabric open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
+| **Fabric view** | A second WebView2 laid over the page, showing Fabric's own portal from `app.fabric.microsoft.com`: full page on the **Fabric** page, where item links across the app open, and the Monitoring hub on **Monitor**. It has its own WebView2 profile that uses Windows single sign-on. Its sign-in cookies are saved every few seconds, encrypted with Windows DPAPI, and restored before the next launch's first page load. Only Fabric and Microsoft sign-in pages open in it (the host list is in [security](security.md)); other links open in the default browser. | `fabric_view_show`, `mod signin` in `app/src-tauri/src/main.rs` |
 | **Startup check** | Before the engine starts: if GitHub Releases has a newer build, it downloads it, checks the file is that build, swaps the exe and restarts. It then checks Python 3.11 or later, and installs the sidecar from the commit the exe was built from, so the exe and the engine always match. | `check_components`, `app/src-tauri/src/updater.py` |
 
 ### Local engine (`sidecar/`)
@@ -70,6 +70,8 @@ A metadata project is a folder you choose and keep in Git.
 4. The result goes back as one JSON line. The shell returns it to the UI, which draws the grid.
 
 Every other action follows the same path. Only the work in step 3 changes.
+
+Several calls can be on the pipe at once. Each request carries an id, and the shell hands each reply only to the call with that id; a late reply nobody waits for is dropped. The sidecar runs the quick calls (the ones the shell gives a 60-second limit, such as polling a cell, opening a notebook and the SQL page's paging) in their own lane, so a long run, publish or sign-in doesn't hold them up. Every other call runs one at a time in the order it arrives. Saving, creating and renaming a notebook stay in that order with publish and delete, so a publish that waited can never write older cells over a newer save; while a long call runs, a save waits for it.
 
 ## Writing to OneLake
 

@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import app_settings, depgraph, envprofile, proof, receipts, replay, scorecard, verify, wizard
-from .notebook import check_watches
+from .notebook import check_watches, leaf_name
 from .fabric_run import TERMINAL, fabric_ipynb
 from .kernel_proc import ProcessKernel
 from .measure import RunMeter
@@ -603,7 +603,8 @@ class ProveMixin:
             "id": time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6], "name": name, "state": "preparing",
             "started_at": _now(), "finished_at": None, "message": "",
             "lakehouse": {k: lakehouse_ref.get(k, "") for k in ("name", "workspace_id", "workspace_name", "lakehouse_id")},
-            "workspace_name": ws["workspace_name"], "machine": machine(), "check": check, "rules": rules,
+            "workspace_id": ws["workspace_id"], "workspace_name": ws["workspace_name"], "machine": machine(),
+            "check": check, "rules": rules,
             "parameters": parameters or {}, "code": receipts.code_revision(cells),
             "pc": {"status": "pending", "cell": None, "cells_total": len(code), "cells": {}},
             "fabric": {"status": "pending", "engine": "python"},
@@ -778,7 +779,7 @@ class ProveMixin:
         started = time.monotonic()
         schemas = not config["flat"]
         ipynb = json.dumps(fabric_ipynb([first] + cells + [last], lakehouse_ref, schemas)).encode()
-        item_name = f"{record['name']}{PROOF_SUFFIX}"
+        item_name = f"{leaf_name(record['name'])}{PROOF_SUFFIX}"  # Fabric names have no folders
         item = self.fabric.save_notebook(ws["workspace_id"], item_name, ipynb)  # type: ignore[attr-defined]
         if not item.get("id"):
             item = next((n for n in self.fabric.list_notebooks(ws["workspace_id"])  # type: ignore[attr-defined]

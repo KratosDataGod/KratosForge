@@ -45,6 +45,7 @@ nav = [
     { "Organise notebook cells" = "notebook-editor/organise-cells.md" },
     { "Notebook variables" = "notebook-editor/variables.md" },
     { "Notebook files" = "notebook-files.md" },
+    { "Notebook folders" = "notebook-folders.md" },
     { "Fabric and Databricks notebook formats" = "notebook-import-export.md" },
     { "Notebook version history" = "notebook-versions.md" },
     { "Profile" = "profile.md" },
@@ -59,6 +60,7 @@ nav = [
     { "Capacity of each environment" = "finops/capacity.md" },
     { "Measured usage" = "finops/usage-import.md" },
     { "Risk check before a run" = "finops/risk-check.md" },
+    { "Where to run a notebook" = "finops/placement-advice.md" },
     { "Optimize lakehouse" = "optimize/README.md" },
     { "Metadata framework" = "metadata-guide.md" },
     { "Source control" = "source-control.md" },
@@ -85,8 +87,8 @@ nav = [
     { "Incidents and your service desk" = "incidents.md" },
   ] },
   { "Project" = [
-    { "Why KratosForge" = "why-fabric-desktop.md" },
-    { "Fabric Desktop is now KratosForge" = "kratosforge.md" },
+    { "Why KratosForge" = "why-kratosforge.md" },
+    { "Legacy names" = "kratosforge.md" },
     { "Submitting ideas" = "ideas.md" },
     { "Enterprise roadmap" = "enterprise-roadmap.md" },
     { "Local data engine plan" = "local-data-engine-plan.md" },
@@ -158,6 +160,10 @@ nav = [
 ]
 
 extra_css = ["stylesheets/extra.css"]
+
+# Old page addresses keep working after a page is renamed.
+[project.plugins.redirects.redirect_maps]
+"why-fabric-desktop.md" = "why-kratosforge.md"
 
 [project.theme]
 language = "en"

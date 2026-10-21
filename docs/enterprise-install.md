@@ -42,22 +42,24 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    }
    ```
 
+   If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
+
 5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric, Preview features, telemetry and AI tools until the file is fixed; people can still sign in and work on their PC ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
 
 ## Keep the exe and the engine in step
 
-The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a release only keeps its newest build. So in the managed model:
+The exe and the engine must come from the same build. Today the app downloads the engine from the channel's current release, and a channel's release only holds its newest build. So in the managed model:
 
 - Deploy the exe that is the **current** release of the channel your policy names. After each **Promote to stable**, deploy the new Stable exe.
 - If the release has moved on and you haven't deployed the new exe yet, a person whose engine isn't installed yet (a new user or PC) is told the engine and app builds differ and to ask IT for the current exe. People whose engine is already installed are not affected.
 
-This is a known gap: releases don't keep older builds yet, so you can't pin a build indefinitely.
+Each build is also kept as its own release, `build-<first 12 characters of its commit>`, for a while (the newest 20, and every Stable build). You can download a specific exe from there ([pinning a build](release-management/README.md#pinning-a-build)). The app still downloads its engine from the channel's current release, so a pinned exe only runs on PCs whose engine for that build is already installed.
 
 ## Roll back
 
 There is no one-click rollback yet.
 
-- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer has to promote an older build to Stable again.
+- **Self-updating:** the app always moves to the channel's current build. To go back, a maintainer promotes the earlier build to Stable again, and PCs move to it at their next start.
 - **Managed:** deploying an older exe works only while its engine is still installed on that PC. A PC that has to download the engine gets the release's current engine, which doesn't match. Keep a copy of each exe and engine zip you deploy; installing the engine from your own copy is not supported yet.
 
 ## If an update fails
@@ -77,9 +79,12 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
 | `login.microsoftonline.com` | Sign-in |
+| `login.microsoft.com`, `login.windows.net` | Sign-in redirects in the Fabric pages embedded in the app |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
+| `app.powerbi.com` | Older Fabric item and report links in the embedded Fabric pages, which redirect through it |
+| Your identity provider's hosts in `fabric_view_sign_in_hosts` | Only with federated sign-in in the Fabric view ([the key](azure-setup.md#4-push-settings-to-everyone)) |
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
 | `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |

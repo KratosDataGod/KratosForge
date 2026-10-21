@@ -525,7 +525,8 @@ async function renderSettings() {
   // Notifications
   const notify = h("section", { class: "card pad" }, h("h2", {}, "Notifications"),
     settingRow("Teams alerts", "Post late and failed tables to a Teams channel. The bell always shows them.",
-      btn("Set up", "alert", () => alertsDialog(), "tool outline")));
+      btn("Set up", "alert", () => alertsDialog(), "tool outline")),
+    await platformNoticesSection());
 
   // Help and about
   const about = h("section", { class: "card pad" }, h("h2", {}, "Help and about"),

@@ -245,7 +245,7 @@ class DataOpsMixin:
                 new = None if val is None or val == "" else str(val)
                 picked = picked.with_columns(pl.when(pl.col("_qid") == qid).then(pl.lit(new, dtype=pl.String))
                                              .otherwise(pl.col(col)).alias(col))
-        res, held = Engine(project, store).replay(name, picked)
+        res, held = Engine(project, store, table_lock=self._table_lock(project, env, store)).replay(name, picked)  # type: ignore[attr-defined]
         out = res.to_dict()
         out["held"] = 0
         if res.status == "ok":

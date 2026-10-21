@@ -54,7 +54,7 @@ Each cell keeps a stable id (the standard `id` of notebook format 4.5) through e
 | --- | --- |
 | `lakehouse.read_csv(path)`, `read_parquet(path)`, `read_json(path)` | Read a file. `Files/...` paths read from the attached lakehouse; any other path is a file on this PC. Returns a Polars DataFrame. |
 | `lakehouse.read_table("schema.table")` | Read a Delta table. The schema defaults to `dbo`. |
-| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. |
+| `lakehouse.write_table(df, "schema.table", mode="overwrite")` | Write a Delta table. `mode` is `"overwrite"` or `"append"`. While it writes, it holds the table's write lease, a small file in the lakehouse's `Files/_fabric_desktop/leases/`. If another notebook, job, metadata run or agent is writing the table, it waits up to 90 seconds, then stops with who is writing it ([agent.md](agent.md)). |
 | `lakehouse.sql("SELECT ...")` | Run Spark SQL over the attached lakehouse's tables, on this PC, and return a Polars DataFrame. |
 | `lakehouse.has_schemas()` | `False` when the attached lakehouse was created without schemas. |
 
@@ -136,7 +136,7 @@ Fabric has no `dbutils`, so **Where a notebook runs** says a notebook that uses 
 
 **pandas** is there as in Fabric: `import pandas as pd`, `df.toPandas()`, and pandas data frames show as tables and can be written with `lakehouse.write_table`. It's pandas 2, like Fabric's runtimes.
 
-**Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. plotly, seaborn and matplotlib charts draw in the cell. bokeh's `show(p)` draws in the cell too, with bokeh's JavaScript included so nothing is fetched, instead of writing a file and opening your browser. Altair charts don't draw in a cell yet: they need JavaScript from the internet, so `chart.save('chart.html')` saves one to open in a browser.
+**Chart libraries** plotly, bokeh, seaborn and altair ship with the app too, next to matplotlib, so chart code from Fabric and Databricks notebooks imports here. plotly, seaborn and matplotlib charts draw in the cell. bokeh's `show(p)` draws in the cell too, with bokeh's JavaScript included so nothing is fetched, instead of writing a file and opening your browser. Call it from the cell itself: from a thread the cell starts, it says so rather than opening a browser. Altair charts don't draw in a cell yet: they need JavaScript from the internet, so `chart.save('chart.html')` saves one to open in a browser.
 
 **Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip install` installs into the notebook's own environment when notebooks run in their own process (see [Notebook magics](notebook-magics.md#installing-packages-with-pip)). `%%configure` is checked and explained, not applied (see [Notebook magics](notebook-magics.md#configure)).
 

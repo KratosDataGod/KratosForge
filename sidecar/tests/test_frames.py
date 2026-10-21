@@ -3,6 +3,7 @@
 import datetime as dt
 import sys
 import zipfile
+from pathlib import Path
 
 import polars as pl
 import pyarrow as pa
@@ -125,7 +126,7 @@ def test_service_download_never_replaces_a_file(tmp_path, monkeypatch):
     b = svc.notebook_frame_download(out["frame"], "csv", "Sales")
     assert a["path"] != b["path"] and all(p.endswith(".csv") for p in (a["path"], b["path"]))
     assert sorted(p.name for p in (tmp_path / "Downloads").iterdir()) == sorted(
-        [a["path"].split("/")[-1], b["path"].split("/")[-1]])
+        [Path(a["path"]).name, Path(b["path"]).name])
     svc.kernel.restart()
     gone = svc.notebook_frame_download(out["frame"], "csv", "Sales")
     assert gone["gone"] and len(list((tmp_path / "Downloads").iterdir())) == 2

@@ -32,6 +32,27 @@ cargo run
 
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
 
+### Rust engine (phases 1–4, optional)
+
+The [`engine/`](engine/) crate speaks the same JSON-lines RPC as the Python sidecar. In Rust today:
+
+- **Phase 1:** `engine_health`, Python forward for everything else.
+- **Phase 2:** SQL page RPCs (`sql_start`, `sql_status`, `sql_executions`, `sql_page`, `sql_cancel`, `sql_export*`) run in Rust (`engine/src/sql/`): queue, worker subprocess (`fabric-desktop-sql-worker` → Python `sql_worker` today), Arrow paging/export, audit via `engine_audit_sql`. Classification uses [`sql_bridge.py`](sidecar/fabric_desktop/sql_bridge.py) (`classify` / `translate` on stdin/stdout).
+- **Phase 3:** OneLake Unity Catalog `list_tables`, `table_columns`, `preview_table`, and background `catalog_tables` in Rust (`deltalake-rs` + `engine/src/onelake/`); Delta profile checks in `engine/src/delta/`.
+- **Phase 4:** Fabric list APIs and `catalog` use `reqwest` with `engine_fabric_token`; `sign_in`, `sign_out`, and `environment` are Rust RPCs that call MSAL through `fabric_desktop.auth_bridge` (shared cache with the sidecar).
+- **SQL worker:** `fabric-desktop-sql-worker` runs DuckDB natively for local Delta fixtures and OneLake (`delta_scan` + engine token calls); Python `sql_worker` is fallback only.
+
+Releases still start Python unless you opt in:
+
+```bash
+cd engine && cargo build
+cd ../sidecar && python3 -m pip install -e ".[dev]"
+export FABRIC_DESKTOP_ENGINE=rust
+export FABRIC_DESKTOP_ENGINE_BIN="$(pwd)/../engine/target/debug/fabric-desktop-engine"
+export FABRIC_DESKTOP_PYTHON="$(command -v python3)"
+cd ../app/src-tauri && cargo run
+```
+
 ## Rules for changes
 
 - **Tests pass.** `python -m pytest -q` in `sidecar/` and `node --test app/tests/ui.test.cjs` before you push. CI also builds the exe and the engine on Windows. Pages with browser tests (`app/tests/browser/`, for example the SQL query page) open the real UI in Chromium with the shell stubbed: install Playwright (`npm install -g playwright`, then `npx playwright install chromium`) and run `node --test app/tests/browser/sql-editor.test.cjs app/tests/browser/sql-compat.test.cjs` with `NODE_PATH` set to `npm root -g`. They don't run in CI yet.

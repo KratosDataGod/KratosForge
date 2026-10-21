@@ -1,0 +1,30 @@
+[package]
+name = "fabric-desktop-engine"
+version = "0.2.0"
+edition = "2021"
+description = "Fabric Desktop engine: JSON-lines RPC with phased Rust handlers and Python fallback"
+
+[lib]
+name = "fabric_desktop_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fabric-desktop-engine"
+path = "src/main.rs"
+
+[[bin]]
+name = "fabric-desktop-sql-worker"
+path = "src/bin/sql_worker.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+arrow = { version = "54", default-features = false, features = ["ipc", "csv"] }
+duckdb = { version = "1.1", features = ["bundled"] }
+deltalake = { version = "0.23", default-features = false, features = ["datafusion"] }
+tokio = { version = "1.53.3", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+serde_json = "1"

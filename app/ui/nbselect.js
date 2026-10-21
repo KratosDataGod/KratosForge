@@ -272,6 +272,23 @@ function runSelectionText(cell) {
 
 // ---------- keys ----------
 
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook: several cells", [
+    { keys: ["Shift+Click"], label: "Select every cell from the current one to the one you click", when: inNotebook },
+    { keys: ["Ctrl+Click"], label: "Add a cell to the selection or take it out", when: inNotebook },
+    { keys: ["Shift+Down", "Shift+Up", "Shift+J", "Shift+K"], label: "In command mode: grow the selection down or up", when: inNotebook },
+    { keys: ["Ctrl+A"], label: "In command mode: select every cell (cells in folded sections are left out)", when: inNotebook },
+    { keys: ["Ctrl+Enter", "Shift+Enter"], label: "With several cells selected: run them in notebook order, stopping at the first failure", when: inNotebook },
+    { keys: ["C", "X"], label: "With several cells selected: copy or cut them", when: inNotebook },
+    { keys: ["Shift+M"], label: "Merge the selected cells into the first one (with one cell: merge the cell below)", when: inNotebook },
+    { keys: ["DD", "Delete"], label: "With several cells selected: delete them, except frozen ones (Z puts them back)", when: inNotebook },
+    { keys: ["Alt+Up", "Alt+Down"], label: "With several cells selected: move them up or down", when: inNotebook },
+    { keys: ["Ctrl+Shift+Enter"], label: "While editing a code cell: run only the selected text, or the line the cursor is on", when: inNotebook },
+  ]);
+}
+
 document.addEventListener("keydown", (e) => {
   if (state.view !== "notebook" || !state.notebook || document.getElementById("dialog-root").childElementCount) return;
   const t = e.target;

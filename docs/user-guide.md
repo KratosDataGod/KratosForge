@@ -67,7 +67,7 @@ Press **?** when you aren't typing in a box to see every shortcut. The list also
 | **Up**, **Down**, **Home**, **End** | Move through an open menu |
 | **Left**, **Right**, **Home**, **End** | Move between tabs |
 
-Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. The notebook editor has more keys (run a cell, add, delete or move cells, command mode); they're in the [notebook guide](notebooks.md#editing).
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. While a notebook is open the list also shows its own keys (run a cell, command mode, working on several selected cells, find and replace); the [notebook guide](notebooks.md#editing) explains them.
 
 ### The bell: activity
 

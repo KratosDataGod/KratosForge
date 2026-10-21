@@ -8,7 +8,8 @@ import pytest
 
 from fabric_desktop import logs, redact, server
 
-CASES = json.loads((Path(__file__).resolve().parents[2] / "app" / "tests" / "redact-cases.json").read_text())["cases"]
+CASES = [c | {"in": "".join(c["in"]) if isinstance(c["in"], list) else c["in"]}
+         for c in json.loads((Path(__file__).resolve().parents[2] / "app" / "tests" / "redact-cases.json").read_text())["cases"]]
 JWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
 
 

@@ -160,8 +160,8 @@ function trapFocus(e, root) {
 document.addEventListener("keydown", (e) => {
   const root = document.getElementById("dialog-root");
   if (!root?.childElementCount) return;
-  if (e.key === "Tab") trapFocus(e, root);
-  else if (e.key === "Escape" && root.querySelector(".overlay[data-dismiss]")) {
+  if (isShortcut(e, "focus")) trapFocus(e, root);
+  else if (isShortcut(e, "close") && root.querySelector(".overlay[data-dismiss]")) {
     closeDialog();
     e.stopImmediatePropagation();  // one Escape closes one thing, not the activity tray behind it too
   }
@@ -261,9 +261,9 @@ document.addEventListener("keydown", (e) => {
   if (!menu) return;
   const items = [...menu.querySelectorAll("[role=menuitem]")];
   const at = items.indexOf(document.activeElement);
-  const move = { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key];
-  if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
-  else if (e.key === "Tab") closeMenu(true);  // back on its button, so Tab goes on to the next control
+  const move = isShortcut(e, "menu") ? { ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: items.length - 1 }[e.key] : undefined;
+  if (isShortcut(e, "close")) { e.preventDefault(); e.stopImmediatePropagation(); closeMenu(true); }
+  else if (isShortcut(e, "focus")) closeMenu(true);  // back on its button, so Tab goes on to the next control
   else if (move !== undefined && items.length) {
     e.preventDefault();
     items[(move + items.length) % items.length].focus();
@@ -275,7 +275,7 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   const el = e.target;
   if (!(el instanceof Element) || e.altKey || e.ctrlKey || e.metaKey) return;
-  if ((e.key === "Enter" || e.key === " ") && el.classList.contains("click") && el === document.activeElement
+  if (isShortcut(e, "open") && el.classList.contains("click") && el === document.activeElement
       && !["BUTTON", "A", "INPUT", "SELECT", "TEXTAREA"].includes(el.tagName)) {
     e.preventDefault();
     el.click();
@@ -284,7 +284,7 @@ document.addEventListener("keydown", (e) => {
   if (el.getAttribute("role") !== "tab") return;
   const tabs = [...(el.closest("[role=tablist]")?.querySelectorAll("[role=tab]") || [])];
   const at = tabs.indexOf(el);
-  const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+  const next = isShortcut(e, "tabs") ? { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key] : undefined;
   if (next === undefined || at < 0) return;
   e.preventDefault();
   const tab = tabs[(next + tabs.length) % tabs.length];
@@ -673,7 +673,7 @@ async function renderHome() {
   const page = h("div", { class: "page home" },
     h("div", { class: "row home-head" },
       h("h1", { class: "grow" }, name ? `Welcome back, ${name}` : "Welcome to KratosForge"),
-      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small")),
+      stamp, btn("Refresh", null, () => { homeCache.done = false; render(); }, "tool link small"), learnMore("home")),
     summary,
     readinessCard(),
     signInCallout(),
@@ -1210,6 +1210,7 @@ async function renderWorkspace() {
   const ws = state.openWorkspace;
   const body = loading("Loading items...");
   setView(h("div", { class: "page" }, h("h1", {}, ws.displayName),
+    h("p", { class: "sub" }, "This workspace's lakehouses. ", learnMore("workspaces")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("New lakehouse", "add", () => newLakehouse(ws), "tool outline"),
       btn("New notebook", "add", newNotebook, "tool outline")),
@@ -1605,7 +1606,7 @@ function renderLakehouse() {
   const box = h("div", { class: "lakehouse-tree" }, tree,
     pick ? h("p", { class: "muted-text tree-hint" }, "Click a table or file to preview it.") : null);
   setView(h("div", { class: "page" }, h("h1", {}, ref.name),
-    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}`),
+    h("p", { class: "sub" }, `Lakehouse in ${ref.workspace_name}. `, learnMore("a-lakehouse")),
     h("div", { class: "toolbar", style: "padding:0;border:0;margin-bottom:16px" },
       btn("Open in new notebook", "notebook", () => newNotebook(ref), "tool primary"),
       btn("New SQL query", "code", () => openSqlQuery(ref), "tool outline")),
@@ -2319,7 +2320,7 @@ registerFeature({
 // ---------- startup ----------
 
 document.getElementById("bell").addEventListener("click", () => toggleTray());
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
+document.addEventListener("keydown", (e) => { if (isShortcut(e, "close") && activity.open && !document.getElementById("dialog-root").childElementCount) toggleTray(false); });
 document.getElementById("account").addEventListener("click", (e) => accountMenu(e.currentTarget));
 // The top bar's box opens the command bar; clearing it removes the page filter.
 const searchBox = document.getElementById("search");
@@ -2331,11 +2332,21 @@ searchBox.addEventListener("input", () => {
   if (!searchBox.value && state.query) { state.query = ""; render(); }
 });
 document.addEventListener("keydown", (e) => {
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); }
+  if (isShortcut(e, "palette")) { e.preventDefault(); openPalette(); }
+  // "?" lists the shortcuts, unless it's a character typed in a box or a dialog or the command bar is open.
+  else if (isShortcut(e, "shortcuts") && !e.ctrlKey && !e.metaKey && !e.altKey && !typingIn(e.target)
+      && !document.getElementById("dialog-root")?.childElementCount && !document.getElementById("palette")) {
+    e.preventDefault();
+    shortcutsDialog();
+  }
 });
 document.addEventListener("keydown", navKey);
 document.getElementById("nav-back").addEventListener("click", navBack);
 document.getElementById("nav-forward").addEventListener("click", navForward);
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled just below).
+registerShortcuts("Notebook", [
+  { keys: ["Ctrl+S"], label: "Save the notebook", when: () => state.view === "notebook" },
+]);
 document.addEventListener("keydown", (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s" && state.view === "notebook") {
     e.preventDefault();

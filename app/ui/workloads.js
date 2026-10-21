@@ -181,7 +181,7 @@ async function renderWorkload() {
     h("div", { class: "row wrap wl-head" },
       h("div", { class: "grow" },
         h("h1", {}, w.name, " ", healthPill(w.health, w.health_label), preview("workloads", h("span", {}))),
-        h("p", { class: "sub" }, workloadSubtitle(w)),
+        h("p", { class: "sub" }, workloadSubtitle(w), " ", learnMore("workloads-preview")),
         capabilityChips(w.capabilities)),
       h("div", { class: "row" },
         primary ? btn(`Retry${primary.env ? ` in ${ENV_LABEL[primary.env] || primary.env}` : ""}`,

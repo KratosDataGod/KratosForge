@@ -347,7 +347,7 @@ async function renderEntity() {
         h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
-          h("span", { class: "mono" }, e.path))),
+          h("span", { class: "mono" }, e.path), " ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
           if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
@@ -1129,6 +1129,12 @@ async function moveSourcesToPlatform(own, env, done) {
   } else toast(res.moved.length ? `Moved ${res.moved.join(", ")} to the platform` : "Already in the platform");
   done();
 }
+
+// The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
+registerShortcuts("Entity page", [
+  { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+]);
 
 registerFeature({
   id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },

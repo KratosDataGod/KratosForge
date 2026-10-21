@@ -885,6 +885,11 @@ window.addEventListener("focus", () => { if (gitCurrent() && !gitPage.loading) g
 setInterval(() => { if (gitCurrent() && document.hasFocus()) gitRefresh({ quiet: true }); }, 60000);
 setTimeout(() => { gitLoadInfo().then(() => gitRefresh({ quiet: true })).catch(() => {}); }, 1500);
 
+// Listed in the Keyboard shortcuts dialog on Source control (handled on the commit message box).
+registerShortcuts("Source control", [
+  { keys: ["Ctrl+Enter"], label: "In the commit message: commit", when: () => state.view === "source" },
+]);
+
 registerFeature({
   id: "sourceControl",
   preview: true,

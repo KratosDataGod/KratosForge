@@ -241,7 +241,7 @@ async function renderIncident() {
         h("h1", {}, inc.title, " ", incStatePill(inc), inc.escalated_at ? h("span", { class: "pill-s wrn" }, "Escalated") : null,
           preview("incidents", h("span", {}))),
         h("p", { class: "sub" }, [inc.kind_label, inc.criticality ? inc.criticality[0].toUpperCase() + inc.criticality.slice(1) : "",
-          envName(inc.env), opened, seen].filter(Boolean).join(" · "))),
+          envName(inc.env), opened, seen].filter(Boolean).join(" · "), " ", learnMore("incidents-preview"))),
       h("div", { class: "row" },
         inc.state === "open" ? btn("Acknowledge", null, () => acknowledgeIncident(inc, reload), "tool primary") : null,
         inc.state !== "resolved" ? btn("Assign", "person", () => assignIncident(inc, reload), "tool outline") : null,

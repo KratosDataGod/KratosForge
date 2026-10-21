@@ -47,6 +47,22 @@ Use the arrow keys and **Enter**, or click. **Esc** closes it. Actions for previ
 - While you're working inside the embedded Fabric page (**Workspaces > Fabric portal**), **Alt+Left** and **Alt+Right** may move within that page instead. Use the **Back** and **Forward** buttons at the top left to leave it.
 - If Windows is set to show fewer animations (**Settings > Accessibility > Visual effects > Animation effects** off), the app doesn't animate either.
 
+### Keyboard shortcuts
+
+Press **?** when you aren't typing in a box to see every shortcut. The list also opens from the command bar (**Keyboard shortcuts**) and from **Settings > Help and about > Keyboard shortcuts**. It is drawn from the same table the app reads its keys from, so it always matches what the keys do.
+
+| Keys | What they do |
+| --- | --- |
+| **Ctrl+K** | Open the command bar |
+| **?** | Show the list of shortcuts |
+| **Esc** | Close the command bar, a menu, a dialog or the activity tray |
+| **Tab**, **Shift+Tab** | Move to the next or previous control; in a dialog, focus stays inside it |
+| **Enter** or **Space** | Open the row or card that has focus |
+| **Up**, **Down**, **Home**, **End** | Move through an open menu |
+| **Left**, **Right**, **Home**, **End** | Move between tabs |
+
+Some pages add their own keys to the list while you're on them: **Ctrl+S** saves the notebook, and on an entity page saves the entity file (where **Tab** types four spaces instead of moving on); **Ctrl+Enter** in the commit message commits on Source control. The notebook editor has more keys (run a cell, add, delete or move cells, command mode); they're in the [notebook guide](notebooks.md#editing).
+
 ### The bell: activity
 
 The bell keeps a list of what happened in this app on this PC:
@@ -99,6 +115,10 @@ From the top:
 | **Start something** | New notebook, New lakehouse, OneLake catalog. |
 | **Recent notebooks** | Your last eight notebooks. Click to open. The section folds with its arrow. |
 | **Estate X-ray** (Preview) | See below. |
+
+### All notebooks
+
+**All notebooks**, under **Recent notebooks**, lists every notebook on this PC and in your notebooks repositories, with search inside them. The [notebook files guide](notebook-files.md#all-notebooks) has the details.
 
 ### Ready to work
 
@@ -174,6 +194,10 @@ Previews only read; nothing is changed. They use the permissions sign-in already
 ### A lakehouse
 
 Opening a lakehouse shows its **Tables** (by schema) and **Files** (folders and file sizes) as a tree, with **Open in new notebook** and **New SQL query**. Click a table or file to [preview](#item-preview-preview) it beside the tree.
+
+### SQL queries
+
+**New SQL query** on a lakehouse, or **SQL query** on a lakehouse row in OneLake or Workspaces, opens a query tab for it. Queries run on this PC with DuckDB, so no Fabric job starts, though reading OneLake still uses some capacity. Dialects, the compatibility check, the editor and formatting are in the [notebook and SQL guide](notebooks.md#sql-query).
 
 ## OneLake
 
@@ -485,9 +509,9 @@ A channel change takes effect the next time KratosForge starts. More detail, inc
 
 ## Preview features
 
-Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. Today they are Run in Fabric, Schedules, Side by side, Prove this notebook, New notebook from a template, Cost, Capacity status, Measured usage import, OneLake shortcuts, OneLake access, Table history and restore, Table health, Semantic model, Tests, the Estate X-ray, Item preview, Workloads and Source control. To hide them, turn off **Settings > Preview features**. Promote, Sync keys, the variable library, quarantine Replay and the [risk check before a run](finops/risk-check.md) are also in preview but are core steps, so they always show, with their Preview tag.
+Features marked **Preview** work but haven't been tried on many Fabric tenants yet, so they may change. To hide them, turn off **Settings > Preview features**. A few are core steps, such as Promote and the [risk check before a run](finops/risk-check.md): they always show, with their Preview tag.
 
-The [documentation home](README.md#what-is-tested-and-what-isnt) says what is tested and what isn't.
+The one list of Preview features, with where each one is, is on the [documentation home](README.md#what-is-tested-and-what-isnt), which also says what is tested and what isn't.
 
 ## Report a problem
 

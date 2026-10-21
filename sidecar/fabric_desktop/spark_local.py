@@ -375,6 +375,9 @@ class LocalSparkSession(SparkSession):
     def __init__(self) -> None:
         super().__init__(SparkContext("local"))
         self.conn.execute("SET TimeZone = 'UTC'")  # like Fabric's Spark sessions, not this PC's zone
+        # The running query's progress, for the line under a running cell (progress()); never printed.
+        self.conn.execute("SET enable_progress_bar = true")
+        self.conn.execute("SET enable_progress_bar_print = false")
         self._views: dict[str, str] = {}
         self._snapshot = None
         self._conf = spark_api.LocalRuntimeConfig(self)  # spark.conf (spark_compat's RuntimeConfig patches don't apply)
@@ -651,6 +654,18 @@ def install(namespace: dict[str, Any]) -> None:
     from . import spark_stream
     spark_stream.install()
     namespace["spark"] = session()
+
+
+def progress() -> float | None:
+    """How far ``spark``'s running DuckDB query is, 0-100, or None when none is running or DuckDB
+    can't tell (a query over a table function, or one that hasn't got going)."""
+    if _session is None:
+        return None
+    try:
+        p = _session.conn.query_progress()
+    except Exception:  # noqa: BLE001  # silent-ok: progress is a hint; a closed connection has none
+        return None
+    return round(p, 1) if p is not None and 0 < p <= 100 else None
 
 
 def interrupt() -> None:

@@ -779,6 +779,16 @@ table.vars td.name { font-weight: 600; font-family: var(--mono); }
 table.vars td.val { color: var(--muted); font-family: var(--mono); }
 table.vars tr.click { cursor: pointer; }
 table.vars tr.click:hover td { background: var(--hover); }
+.vars-filter { width: 100%; height: 28px; margin: 4px 0 6px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font: inherit; font-size: 12px; color: var(--text); }
+.vars-sort { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; color: inherit; cursor: pointer; }
+.vars-sort:hover { color: var(--text); }
+.vars-open, .vars-open-space { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 2px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--muted); vertical-align: -3px; cursor: pointer; }
+.vars-open:hover { background: var(--hover); color: var(--text); }
+table.vars tr.vars-detail td { padding: 0 0 6px 18px; white-space: normal; background: var(--surface-2, #fafafa); }
+table.vars.inner { margin-top: 2px; }
+table.vars.inner td { padding: 3px 4px; }
+.vars-note { padding: 4px 4px 2px; font-size: 12px; }
+.vars-foot { padding: 6px 4px; font-size: 12px; }
 .nb-outline { display: flex; flex-direction: column; gap: 2px; }
 .outline-item { padding: 5px 8px; border: 0; border-radius: 4px; background: none; text-align: left; font-size: 13px; color: var(--text-2); cursor: pointer; }
 .outline-item:hover { background: var(--hover); }
@@ -1554,6 +1564,12 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .splash-ring, .splash-spark, .splash-embers { display: none; }
   .splash-letters { filter: drop-shadow(0 0 6px rgba(248,153,28,0.25)); }
 }
+.cm-line.cm-bp { box-shadow: inset 3px 0 0 #c50f1f; background: rgba(197, 15, 31, 0.06); }
+.cm-line.cm-paused { background: rgba(255, 196, 0, 0.28); }
+.output.dbg-paused { background: #fffbea; border-left: 3px solid #c27c00; display: flex; flex-direction: column; gap: 8px; }
+.dbg-frame { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.dbg-eval { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.dbg-eval code { font-family: var(--mono); }
 
 /* Notebook result viewer (frames.py): column types, pager, Download menu */
 .th-type { display: block; font-weight: 400; font-size: 11px; color: var(--muted); }

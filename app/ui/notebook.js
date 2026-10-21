@@ -14,6 +14,7 @@ const deletedCells = [];       // for Z (undo delete)
 let cellClipboard = null;
 let lastDKey = 0;
 let cancelRequested = false;
+let runningAll = false;  // inside runCells: cells show no spark of their own and say nothing alone
 
 const langComp = new CM.Compartment();
 const gutterComp = new CM.Compartment();
@@ -80,6 +81,7 @@ function renderNotebook() {
   const toolbars = {
     home: [runAllBtn, cancelBtn, computeBtn, sbsToggle(nb), validateToggle(nb), proveToggle(nb), h("div", { class: "sep" }), btn("Add data items", "lakehouse", openDataItems),
       h("div", { class: "spacer" }), notebookDataChip(nb), gitNotebookChip(nb), btn("Save", "save", saveNotebook),
+      btn("Save a copy", "add", () => nbSaveCopyDialog(nb.name)),
       preview("schedules", btn("Schedule", "history", scheduleNotebook, "tool")),
       h("div", { class: "split" }, btn("Publish to OneLake", "publish", publishNotebook, "tool primary",
         { title: nb.workspace?.workspace_id ? `Publish to ${nb.workspace.workspace_name}` : "Publish to a Fabric workspace you pick" }),
@@ -242,6 +244,7 @@ const SNIPPETS = [
   ["Import the lakehouse", "import polars as pl\nfrom fabric_desktop import lakehouse"],
   ["Read a table with Spark", 'df = spark.read.table("dbo.my_table")\ndisplay(df)'],
   ["Spark SQL cell", "%%sql\nSELECT * FROM dbo.my_table LIMIT 100"],
+  ["Query into a DataFrame", "df = %sql SELECT * FROM dbo.my_table LIMIT 100\ndisplay(df)"],
   ["Write a table with Spark", 'df.write.mode("overwrite").saveAsTable("dbo.my_table")'],
   ["Read a CSV from Files", 'df = lakehouse.read_csv("Files/raw/data.csv")\ndf'],
   ["Read a table", 'df = lakehouse.read_table("dbo.my_table")\ndf'],
@@ -400,7 +403,7 @@ function statusLine(cell) {
   const s = cell.status;
   const label = { queued: ["busy", "Queued"], running: ["busy", "Running"], ok: ["ok", "Succeeded"],
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
-  return h("div", { class: "cell-status" }, h("span", { class: label[0] }, label[1]),
+  return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
@@ -933,7 +936,9 @@ function renderTableOutput(o) {
     ? (o.total_rows > o.rows.length ? `Showing the first ${o.rows.length} of ${o.total_rows} rows` : `${o.total_rows} row${o.total_rows === 1 ? "" : "s"}`)
     : `Showing the first ${o.rows.length} rows (${o.total_rows})`;
 
-  if (o.view === "table") {
+  if (o.view === "table" && o.frame) {
+    renderResultViewer(o, wrap, bar, numeric, count);
+  } else if (o.view === "table") {
     const search = h("input", { type: "search", class: "out-search", placeholder: "Search rows", value: o.q || "", "aria-label": "Search rows" });
     bar.append(h("span", { class: "spacer" }), search);
     const body = h("div", { class: "out-table-scroll" });
@@ -945,11 +950,7 @@ function renderTableOutput(o) {
         const { i, dir } = o.sort;
         rows = [...rows].sort((a, b) => (a[i] === b[i] ? 0 : a[i] === null ? 1 : b[i] === null ? -1 : a[i] < b[i] ? -dir : dir));
       }
-      body.replaceChildren(h("table", {},
-        h("thead", {}, h("tr", {}, o.columns.map((c, i) => h("th", { class: numeric[i] ? "n" : null },
-          h("button", { class: "th-sort", onclick: () => { o.sort = o.sort?.i === i ? { i, dir: -o.sort.dir } : { i, dir: 1 }; draw(); } },
-            c, o.sort?.i === i ? (o.sort.dir > 0 ? " ▲" : " ▼") : ""))))),
-        h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: numeric[i] ? "n" : null }, v === null ? "null" : v)))))));
+      body.replaceChildren(resultTable(o.columns, o.types, rows, numeric, o.sort, (i) => { o.sort = o.sort?.i === i ? { i, dir: -o.sort.dir } : { i, dir: 1 }; draw(); }));
       wrap.querySelector(".more").textContent = q ? `${rows.length} matching of ${count.toLowerCase()}` : count;
     };
     search.addEventListener("input", () => { o.q = search.value; draw(); });
@@ -961,6 +962,87 @@ function renderTableOutput(o) {
     wrap.append(renderInspect(o, numeric), h("div", { class: "more" }, `Summary of ${count.toLowerCase()}`));
   }
   return wrap;
+}
+
+// The table of a result: headers sort (▲ ▼), each with its column type, as Fabric and Databricks show.
+function resultTable(columns, types, rows, numeric, sort, onSort) {
+  return h("table", {},
+    h("thead", {}, h("tr", {}, columns.map((c, i) => h("th", { class: numeric[i] ? "n" : null },
+      h("button", { class: "th-sort", onclick: () => onSort(i) }, c, sort?.i === i ? (sort.dir > 0 ? " ▲" : " ▼") : ""),
+      types?.[i] ? h("span", { class: "th-type" }, types[i]) : null)))),
+    h("tbody", {}, rows.map((r) => h("tr", {}, r.map((v, i) => h("td", { class: numeric[i] ? "n" : null }, v === null ? "null" : v))))));
+}
+
+const RESULT_PAGE = 100;
+
+// The whole result behind a table output (frames.py): search and sort over every row, pages of
+// 100, Copy and Download. The kernel holds the result; after a restart the cell must run again.
+function renderResultViewer(o, wrap, bar, numeric, count) {
+  const v = o.viewer ||= { offset: 0, q: "", sort: null, page: null, gone: false, busy: false };
+  const search = h("input", { type: "search", class: "out-search", placeholder: "Search all rows", value: v.q, "aria-label": "Search all rows" });
+  const status = h("span", { class: "more result-range", role: "status" });
+  const prev = btn("Previous", null, () => load(v.offset - RESULT_PAGE), "tool outline small");
+  const next = btn("Next", null, () => load(v.offset + RESULT_PAGE), "tool outline small");
+  const body = h("div", { class: "out-table-scroll" });
+  const menu = h("details", { class: "sql-export result-download" },
+    h("summary", { class: "tool outline small", "aria-label": "Download the whole result" }, "Download ▾"),
+    h("div", { class: "sql-export-menu", role: "menu" },
+      [["csv", "CSV"], ["xlsx", "Excel"], ["parquet", "Parquet"]].map(([fmt, label]) =>
+        h("button", { role: "menuitem", onclick: (e) => { e.target.closest("details").open = false; downloadResult(o, fmt); } }, label))));
+  bar.append(h("span", { class: "spacer" }), search, btn("Copy", "document", () => copyResultPage(o), "tool outline small"), previewMarked("resultViewer", menu));
+  wrap.append(body, h("div", { class: "row result-pager" }, prev, next, status));
+
+  const draw = () => {
+    const p = v.page;
+    const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
+    const total = p ? p.total : (typeof o.total_rows === "number" ? o.total_rows : null);
+    body.replaceChildren(resultTable(o.columns, o.types, rows, numeric, v.sort, (i) => {
+      v.sort = v.sort?.i === i ? { i, dir: -v.sort.dir } : { i, dir: 1 };
+      return load(0);
+    }));
+    prev.disabled = v.busy || v.offset === 0;
+    next.disabled = v.busy || (total !== null ? v.offset + rows.length >= total : !p && rows.length < RESULT_PAGE);
+    status.textContent = v.gone ? "Run the cell again to page, search or download: the kernel no longer holds this result."
+      : !rows.length ? (v.q ? `No rows match "${v.q}"` : "No rows")
+        : `Rows ${(v.offset + 1).toLocaleString()} to ${(v.offset + rows.length).toLocaleString()} of ${total !== null ? total.toLocaleString() : count.toLowerCase()}${v.q ? " matching" : ""}`;
+  };
+  async function load(offset) {
+    const ask = (v.asked = (v.asked || 0) + 1);
+    v.busy = true;
+    draw();
+    try {
+      const p = await rpc("notebook_frame_page", { frame: o.frame, offset: Math.max(0, offset), limit: RESULT_PAGE,
+        sort: v.sort ? v.sort.i : null, desc: v.sort ? v.sort.dir < 0 : false, q: v.q });
+      if (ask !== v.asked) return; // a newer search or page was asked for while this one ran
+      if (p.gone) v.gone = true;
+      else { v.page = p; v.offset = p.offset; }
+    } catch (err) {
+      if (ask !== v.asked) return;
+      toast(`Could not load rows: ${friendlyError(err)}`, true);
+    }
+    v.busy = false;
+    draw();
+  }
+  let typing;
+  search.addEventListener("input", () => { clearTimeout(typing); typing = setTimeout(() => { v.q = search.value; load(0); }, 250); });
+  draw();
+}
+
+function copyResultPage(o) {
+  const p = o.viewer?.page;
+  const rows = p ? p.rows : o.rows.slice(0, RESULT_PAGE);
+  const text = [o.columns, ...rows].map((r) => r.map((v) => (v === null ? "" : String(v).replace(/[\t\n]/g, " "))).join("\t")).join("\n");
+  attempt(() => navigator.clipboard.writeText(text).then(() => toast(`Copied ${rows.length} row${rows.length === 1 ? "" : "s"}. Paste into Excel or a sheet.`)), "Could not copy");
+}
+
+// The whole result, written by the kernel to a new file in Downloads; a file there is never replaced.
+async function downloadResult(o, format) {
+  const label = { csv: "CSV", xlsx: "Excel", parquet: "Parquet" }[format];
+  toast(`Downloading the whole result as ${label}...`);
+  const out = await attempt(() => rpc("notebook_frame_download", { frame: o.frame, format, name: state.notebook?.name || "notebook" }), "Could not download");
+  if (!out) return;
+  if (out.gone) { toast(out.message, true); return; }
+  toast(`Saved ${out.rows.toLocaleString()} row${out.rows === 1 ? "" : "s"} to ${out.path}`);
 }
 
 function renderChart(o, numeric) {
@@ -1149,7 +1231,22 @@ async function runCell(cell, { timeLimit = true } = {}) {
   if (state.notebook?.cells.includes(cell)) updateResults(cell);
   if (state.notebook?.dirty) markDirty();
   if (!(last && await dbgAfterRun(cell, last))) refreshVariables();
+  cellFx(cell);  // after dbgAfterRun, which draws the results again
   return ok;
+}
+
+// Forge animations (motion.js): a spark when a cell succeeds on its own (the Wolf Run in the status
+// bar instead when it took LONG_RUN_SECONDS or more), an ember going out when it fails, and one
+// announcement for screen readers. Run all shows its progress track instead of a spark per cell;
+// Stop and Cancel show nothing.
+function cellFx(cell) {
+  if (cell.status !== "ok" && cell.status !== "error") return;
+  const n = (state.notebook?.cells.indexOf(cell) ?? -1) + 1;
+  if (!runningAll) announce(cell.status === "ok" ? `Cell ${n} succeeded` : `Cell ${n} failed`);
+  if (cell.status === "ok" && runningAll) return;
+  if (cell.status === "ok" && cell.seconds >= LONG_RUN_SECONDS && forgeEvent("notebook.long.succeeded", document.querySelector(".statusbar"))) return;
+  forgeEvent(cell.status === "ok" ? "notebook.cell.succeeded" : "notebook.cell.failed",
+    document.querySelector(`[data-cell="${cell.id}"] .cell-status > span`));
 }
 
 async function runCells(cells) {
@@ -1158,16 +1255,30 @@ async function runCells(cells) {
   code.forEach((c) => { c.status = "queued"; c.outputs = []; });
   setKernel("busy");
   renderNotebook();
-  for (const [i, cell] of code.entries()) {
-    const ok = await runCell(cell);
-    if (!ok || cancelRequested) {
-      code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
-      setKernel(stopRequested ? "stopped" : "idle");
-      return;
+  // Cells done of cells to run, in the status bar, with the wolf on it (motion.js).
+  const track = code.length > 1 ? wolfTrack(() => document.querySelector(".statusbar"), "Notebook run", "Cell", "on this PC") : null;
+  track?.set(0, code.length);
+  if (code.length > 1) forgeEvent("notebook.run.started", document.querySelector("button[data-run]"));
+  runningAll = true;
+  try {
+    for (const [i, cell] of code.entries()) {
+      const ok = await runCell(cell);
+      if (!ok || cancelRequested) {
+        track?.stop();
+        code.slice(i + 1).forEach((c) => { c.status = null; updateResults(c); });
+        setKernel(stopRequested ? "stopped" : "idle");
+        announce(cell.status === "error" ? `Run stopped: cell ${state.notebook.cells.indexOf(cell) + 1} failed` : "Run stopped");
+        return;
+      }
+      track?.set(i + 1, code.length);
+      setKernel("busy");
     }
-    setKernel("busy");
+    track?.arrive();
+    if (code.length) announce(`Run finished: ${code.length} ${code.length === 1 ? "cell" : "cells"} succeeded`);
+    setKernel(stopRequested ? "stopped" : "idle");
+  } finally {
+    runningAll = false;
   }
-  setKernel(stopRequested ? "stopped" : "idle");
 }
 
 function runAll() {

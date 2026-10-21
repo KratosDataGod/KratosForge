@@ -337,6 +337,23 @@ def test_keys_move_to_the_platform_with_their_numbers(svc):
         svc.meta_keys_to_lakehouse("dev")
 
 
+def test_no_lh_keys_merge_once_keys_come_from_the_platform(svc, monkeypatch):
+    assert svc.meta_entity("silver.customers")["keys_sql"].startswith("-- Surrogate keys")
+    assert svc.meta_entity("silver.customers")["keys_from"] == ""
+    svc.meta_keys_to_platform("dev")
+    ent = svc.meta_entity("silver.customers")
+    # A MERGE into LH_Keys would issue keys SQL_Platform never sees, so there is none to copy or start from.
+    assert ent["keys_sql"] is None and ent["keys_from"] == "SQL_Platform"
+    assert svc.meta_keys("dev")["lakehouse"] == "SQL_Platform"
+    with pytest.raises(GateError, match="come from SQL_Platform"):
+        svc.meta_key_notebook("silver.customers")
+    monkeypatch.setattr(svc, "_keys_config", lambda: {"shared": True})
+    assert svc.meta_entity("silver.customers")["keys_from"] == "SQL_Keys"
+    assert svc.meta_keys("dev")["lakehouse"] == "SQL_Keys"
+    # Test still issues keys in LH_Keys, so its MERGE stays.
+    assert svc.meta_entity("silver.customers", env="test")["keys_from"] == ""
+
+
 def test_teams_build_bronze_from_the_one_landing_zone(svc):
     landing = svc._landing_dir("dev") / "Files" / "erp" / "customers"
     landing.mkdir(parents=True)
@@ -605,14 +622,23 @@ def test_fabric_domains_are_locked_and_admin_only(platform):
 
 
 class _FakeFabric:
-    def __init__(self, domains=None, workspaces=None, status=200):
+    def __init__(self, domains=None, workspaces=None, status=200, roles=None, unreadable=()):
         self.domains, self.workspaces, self.status = domains or [], workspaces or {}, status
+        self.roles, self.unreadable, self.throttled = roles or {}, set(unreadable), set()
 
     def list_admin_domains(self):
         from fabric_desktop.fabric_api import FabricError
         if self.status != 200:
             raise FabricError(f"GET /admin/domains failed with {self.status}: Unauthorized")
         return self.domains
+
+    def list_admin_domain_role_assignments(self, domain_id):
+        from fabric_desktop.fabric_api import FabricError
+        if domain_id in self.unreadable:
+            raise FabricError(f"GET /admin/domains/{domain_id}/roleAssignments failed with 404: NotFound")
+        if domain_id in self.throttled:
+            raise FabricError("GET roleAssignments failed with 429: TooManyRequests", status=429)
+        return self.roles.get(domain_id, [])
 
     def get_workspace(self, wid):
         return {"id": wid, "displayName": f"WS {wid}", **({"domainId": self.workspaces[wid]} if wid in self.workspaces else {})}
@@ -637,6 +663,46 @@ def test_import_needs_a_fabric_admin_and_workspaces_suggest_the_domain(svc, monk
     assert got["unnamed"] == ["f-unknown"] and got["imported"]
     assert {(r["env"], r["designation"], r["domain"]) for r in got["workspaces"]} == {
         ("test", "", None), ("prod", "", "sales-emea"), ("prod", "ingest", None)}
+
+
+def _admin(name, kind="User", role="Admins"):
+    return {"id": f"ra-{name}", "role": role,
+            "principal": {"id": f"obj-{name}", "displayName": name, "type": kind,
+                          "userDetails": {"userPrincipalName": f"{name.lower()}@example.com"}}}
+
+
+def test_import_reads_each_domains_fabric_admins_as_owners_from_fabric(svc, monkeypatch):
+    roles = {"f-sales": [_admin("Ana"), _admin("Sales leads", "Group"), _admin("Bo", role="Contributors")]}
+    fake = _FakeFabric(FABRIC_DOMAINS, roles=roles, unreadable={"f-fin"})
+    monkeypatch.setattr(Service, "_fabric_admin", lambda self: fake)
+    out = svc.platform_import_fabric_domains()
+    assert out["owners_unread"] == ["Finance & Risk"]
+    got = {d["id"]: d for d in out["domains"]}
+    sales = got["sales"]
+    assert json.loads(sales["fabric_owners"]) == [{"name": "Ana", "type": "User"}, {"name": "Sales leads", "type": "Group"}]
+    assert "@" not in sales["fabric_owners"]  # names only: no email is stored
+    assert not sales["owners"] and not got["sales-emea"]["fabric_owners"]  # only Admins, and the platform's owners stay unset
+    # a later import that can't read a domain's admins keeps what it had; a change to the admins is an update
+    fake.unreadable = {"f-sales"}
+    again = svc.platform_import_fabric_domains()
+    assert again["result"]["unchanged"].count("sales") == 1
+    assert json.loads({d["id"]: d for d in svc._catalog().call("list_domains")}["sales"]["fabric_owners"])[0]["name"] == "Ana"
+    fake.unreadable, fake.roles = set(), {"f-sales": [_admin("Cy")]}
+    assert "sales" in svc.platform_import_fabric_domains()["result"]["updated"]
+    assert {d["id"]: d for d in svc.mesh_map()["domains"]}["sales"]["fabric_owners"] == '[{"name": "Cy", "type": "User"}]'
+    fake.throttled = {"f-sales"}
+    assert svc.platform_import_fabric_domains()["owners_unread"] == ["Sales (Fabric is busy: import again later)"]
+
+
+def test_fabric_owners_column_is_added_to_a_platform_made_before(platform):
+    with platform._db() as db:
+        db.run(f"ALTER TABLE {db.t('catalog', 'domain')} DROP COLUMN fabric_owners")
+        db.commit()
+        assert "fabric_owners" not in core._columns(db, "domain")
+    platform.call("import_fabric_domains", domains=[{**FABRIC_DOMAINS[0], "admins": [{"name": "Ana", "type": "User"}]}])
+    with platform._db() as db:
+        assert "fabric_owners" in core._columns(db, "domain")
+    assert platform.call("list_domains")[0]["fabric_owners"] == '[{"name": "Ana", "type": "User"}]'
 
 
 def test_mesh_map_lists_domains_projects_products_and_links(svc):

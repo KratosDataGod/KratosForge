@@ -4220,3 +4220,9 @@ test("the magics page says to quote paths with spaces and keeps backslashes", ()
   assert.match(doc, /Put a path with spaces in quotes/);
   assert.match(doc, /inside double quotes `\\"` is a quote/);
 });
+
+// Spark on this PC: the NOT NULL check names PySpark's error and verifySchema.
+test("the Spark on this PC page names the NOT NULL error and verifySchema", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-spark-on-this-pc.md"), "utf8");
+  assert.match(doc, /`\[FIELD_NOT_NULLABLE_WITH_NAME\]` error; `verifySchema=False` skips the check/);
+});

@@ -168,7 +168,7 @@ async function gitSwitchRepo(path) {
 
 async function renderSourceControl() {
   if (!gitPage.info) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Source control"), h("p", { class: "muted-text" }, "Loading…")));
+    setView(h("div", { class: "page" }, h("h1", {}, "Source control"), loading("Loading…")));
     const ok = await attempt(gitLoadInfo, "Couldn't read Git on this PC");
     if (!ok || state.view !== "source") return;
   }
@@ -176,11 +176,10 @@ async function renderSourceControl() {
   const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview"));
   gitPage.title = () => [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview")];
   if (!info.installed) {
-    setView(h("div", { class: "page narrow" }, head, h("div", { class: "empty" }, icon("branch", 32),
-      h("div", { class: "title" }, "Git isn't installed on this PC"),
-      h("div", { class: "text" }, "Source control uses Git for Windows. Install it from git-scm.com with Git Credential Manager (the default), then open this page again."),
-      btn("Get Git for Windows", "open", () => openLink("https://git-scm.com/download/win"), "tool primary"),
-      btn("Check again", "sync", async () => { gitPage.info = null; render(); }, "tool outline"))));
+    setView(h("div", { class: "page narrow" }, head, emptyState({ icon: "branch", title: "Git isn't installed on this PC",
+      text: "Source control uses Git for Windows. Install it from git-scm.com with Git Credential Manager (the default), then open this page again.",
+      action: [btn("Get Git for Windows", "open", () => openLink("https://git-scm.com/download/win"), "tool primary"),
+        btn("Check again", "sync", async () => { gitPage.info = null; render(); }, "tool outline")] })));
     return;
   }
   if (!gitCurrent()) {
@@ -200,14 +199,13 @@ async function renderSourceControl() {
     await gitRefresh();
     if (state.view !== "source") return;
     if (!gitPage.status) {
-      setView(h("div", { class: "page narrow" }, head, h("div", { class: "empty" },
-        h("div", { class: "title" }, "This repository can't be read"),
-        h("div", { class: "text" }, `${gitCurrent()} may have moved or been deleted.`),
-        h("div", { class: "row" }, btn("Choose another", "folderOpen", (e) => gitRepoMenu(e.currentTarget), "tool outline"),
+      setView(h("div", { class: "page narrow" }, head, emptyState({ title: "This repository can't be read",
+        text: `${gitCurrent()} may have moved or been deleted.`,
+        action: h("div", { class: "row" }, btn("Choose another", "folderOpen", (e) => gitRepoMenu(e.currentTarget), "tool outline"),
           btn("Take it off the list", "delete", async () => {
             await attempt(() => rpc("git_forget", { repo: gitCurrent() }), "Not removed");
             gitPage.repo = null; await gitLoadInfo(); render();
-          }, "tool link")))));
+          }, "tool link")) })));
       return;
     }
   }
@@ -887,6 +885,11 @@ window.addEventListener("focus", () => { if (gitCurrent() && !gitPage.loading) g
 setInterval(() => { if (gitCurrent() && document.hasFocus()) gitRefresh({ quiet: true }); }, 60000);
 setTimeout(() => { gitLoadInfo().then(() => gitRefresh({ quiet: true })).catch(() => {}); }, 1500);
 
+// Listed in the Keyboard shortcuts dialog on Source control (handled on the commit message box).
+registerShortcuts("Source control", [
+  { keys: ["Ctrl+Enter"], label: "In the commit message: commit", when: () => state.view === "source" },
+]);
+
 registerFeature({
   id: "sourceControl",
   preview: true,
@@ -1162,6 +1165,7 @@ async function gitPlatformDeploy(root) {
     if (out.deployed) {
       closeDialog();
       toast(`Deployed ${out.done.length} step${out.done.length === 1 ? "" : "s"}.`);
+      forgeEvent("deploy.succeeded", document.getElementById("toast"));  // Anvil Strike (motion.js)
       gitPlatformReload();
     } else if (out.failed) {
       const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} of ${out.total} steps applied; the rest didn't run.`;

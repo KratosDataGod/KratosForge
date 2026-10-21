@@ -215,7 +215,7 @@ class SideBySideMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "local":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -274,7 +274,7 @@ class SideBySideMixin:
         local = record["local"]
         local["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()  # a clean start, as Fabric has
         kernel.notebook_name = record["name"]
         started = time.monotonic()

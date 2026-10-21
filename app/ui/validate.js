@@ -97,6 +97,7 @@ async function openValidate(nb, tab) {
   nb.validate = { open: true, tab: tab || v.tab || "problems", filter: "all", check: null, record: v.record || null,
     snapshot: v.snapshot || null, plan: null, chosen: {}, undo: v.undo || null, problem: "" };
   if (nb.prove?.open) nb.prove.open = false;  // one panel beside the cells at a time
+  if (nb.runs?.open) nb.runs.open = false;
   renderNotebook();
   if (!nb.validate.record) {
     const last = (await rpc("notebook_validate_list", { name: nb.name, limit: 1 }).catch(() => []))[0];
@@ -176,6 +177,7 @@ async function followValidation(nb, id) {
   const ok = r.verdict === "ready" || r.verdict === "ready_with_warnings";
   logActivity({ id: `validate:${id}`, status: ok ? "ok" : "error", title: `${nb.name} · Validate`, text: r.summary || r.state });
   toast(`${nb.name}: ${r.summary || r.state}`, r.state === "failed");
+  profileEarned(r.earned);
 }
 
 async function cancelCleanRun(nb) {

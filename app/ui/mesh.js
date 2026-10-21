@@ -122,7 +122,7 @@ async function renderMeshDomainsTab(body) {
       d.fabric_domain ? h("span", { class: "badge", title: "Follows this domain in Fabric" }, "From Fabric") : null,
       h("div", { class: "muted-text small mono" }, d.id)),
     h("td", {}, d.description || h("span", { class: "muted-text" }, "")),
-    h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+    h("td", {}, domainOwnersCell(d)),
     h("td", {}, o.projects.filter((p) => p.domain_id === d.id || p.subdomain_id === d.id).length)));
   // Domains are edited in one place, Platform > Domains (UX-009); this list is for reading.
   const domainsCard = h("div", { class: "card pad" },
@@ -135,9 +135,33 @@ async function renderMeshDomainsTab(body) {
     o.domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Projects"].map((c) => h("th", {}, c)))),
       h("tbody", {}, domainRows))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "No domains yet"),
-        h("span", { class: "text" }, "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains.")));
+      : emptyState({ title: "No domains yet",
+        text: "A domain is an area of the business that owns its data, like Sales or Finance. Platform admins create them on Platform > Domains." }));
   body.replaceChildren(...[meshProblems(o), projectCard, workspacesCard, domainsCard].filter(Boolean));
+}
+
+// A domain's Fabric domain admins, read during Import from Fabric: names only, never used to grant anything.
+function fabricOwners(d) {
+  try { return (JSON.parse(d?.fabric_owners || "[]") || []).map((p) => p.name).filter(Boolean); } catch { return []; }
+}
+
+// The owners cell: the platform's owners, else Fabric's domain admins marked "From Fabric".
+function domainOwnersCell(d) {
+  const fabric = fabricOwners(d);
+  const tag = h("span", { class: "badge", title: "This domain's admins in Fabric (Admin portal > Domains), read by Import from Fabric" }, "From Fabric");
+  if (d.owners) {
+    return h("span", {}, d.owners, fabric.length ? h("div", { class: "muted-text small" }, "In Fabric: ", fabric.join(", ")) : null);
+  }
+  return fabric.length ? h("span", {}, fabric.join(", "), " ", tag) : h("span", { class: "muted-text" }, "not set");
+}
+
+// One line for Home's map: the first owner, and how many more.
+function domainOwnerLine(d) {
+  const own = String(d.owners || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const people = own.length ? own : fabricOwners(d);
+  if (!people.length) return null;
+  const more = people.length > 1 ? ` +${people.length - 1}` : "";
+  return h("div", { class: "muted-text small", title: people.join(", ") }, `Owner: ${people[0]}${more}${own.length ? "" : " (from Fabric)"}`);
 }
 
 function domainDialog(o, d, done) {
@@ -169,10 +193,11 @@ async function importFabricDomains(done) {
   if (!out) return;
   const r = out.result;
   const parts = [r.added.length && `${r.added.length} added`, r.linked.length && `${r.linked.length} matched by name`,
-    r.updated.length && `${r.updated.length} renamed or moved`].filter(Boolean);
+    r.updated.length && `${r.updated.length} renamed, moved or with new admins`].filter(Boolean);
   toast(`Imported ${out.fabric} Fabric domains${parts.length ? `: ${parts.join(", ")}` : ", nothing changed"}`);
   if (r.skipped.length) toast(`Skipped (deeper than one subdomain): ${r.skipped.join(", ")}`);
   if (r.gone.length) toast(`No longer in Fabric, kept here: ${r.gone.join(", ")}`);
+  if (out.owners_unread?.length) toast(`Domain admins couldn't be read for: ${out.owners_unread.join(", ")}. Their owners from Fabric stay as they were.`);
   done();
 }
 
@@ -236,9 +261,9 @@ async function renderMeshProductsTab(body, p) {
       mine.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Product", "Ports", "Open to", "Status", "In the catalog", "Teams reading it", "Owner"].map((c) => h("th", {}, c)))),
         h("tbody", {}, mine))
-        : h("div", { class: "empty" }, h("span", { class: "title" }, "No data products yet"),
-          h("span", { class: "text" }, "Make one from your Gold tables so other teams can link to them instead of copying."),
-          btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary"))),
+        : emptyState({ title: "No data products yet",
+          text: "Make one from your Gold tables so other teams can link to them instead of copying.",
+          action: btn("New data product", "add", () => productDialog(p, null, rerender), "tool primary") })),
     h("div", { class: "card pad" },
       h("b", {}, "Other teams' products"),
       platformNote(o),
@@ -319,8 +344,8 @@ async function renderMeshLinksTab(body) {
         "The catalog checks the product is open to you."),
       rows.length ? h("table", { class: "list" },
         h("thead", {}, h("tr", {}, ["Link", "Product · port", "Reads", "Used by", `Table in ${ENV_LABEL[env]}`, ""].map((c) => h("th", {}, c)))),
-        h("tbody", {}, rows.map((r) => r.row))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No links yet"),
-        h("span", { class: "text" }, "Find a product on the Data products tab and choose Link, or add one here.")),
+        h("tbody", {}, rows.map((r) => r.row))) : emptyState({ title: "No links yet",
+        text: "Find a product on the Data products tab and choose Link, or add one here." }),
       rows.length ? status : null)].filter(Boolean));
   if (!rows.length) return;
   const resolved = await attempt(() => rpc("mesh_resolve_links", { env })) || [];
@@ -417,7 +442,7 @@ function fillAbout(card, e, a) {
 // ---------- Platform > Settings ----------
 
 async function platformSection() {
-  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "Loading..."));
+  const section = h("section", { class: "card pad" }, h("h2", {}, "Platform"), loading());
   const s = await attempt(() => rpc("platform_status"));
   if (!s) { section.replaceChildren(h("h2", {}, "Platform"), h("p", { class: "muted-text" }, "The platform shows once the local engine is running.")); return section; }
   const policy = s.source === "policy";
@@ -427,7 +452,7 @@ async function platformSection() {
     return settingRow(`${ENV_LABEL[env]}: ${fabric ? c.workspace_name || c.workspace_id : "on this PC"}`,
       fabric ? "Catalog and run history for every team, in SQL_Platform and LH_Meta; keys too, until they move to the Keys workspace."
         : env === "prod" ? "Domains, products and catalog text are kept in a file on this PC until the Prod platform exists."
-          : "Keys stay in each project's LH_Keys until this environment has a platform.",
+          : "Keys stay in each project's LH_Keys until this environment has a platform or they move to the Keys workspace.",
       policy ? null : h("div", { class: "row" },
         btn(fabric ? "Finish or repair" : "Create", fabric ? "sync" : "add", () => platformSetupDialog(env, s), fabric ? "tool outline" : "tool primary"),
         fabric ? btn("Forget", null, async () => {

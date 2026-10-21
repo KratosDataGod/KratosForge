@@ -172,7 +172,7 @@ on quality.
 | [FEAT-META-05](#feat-meta-05) | Surrogate keys | Implemented | Partially Verified | Data mesh > Surrogate keys | Stop reading whole key tables on every keyed run (FD-115). |
 | [FEAT-META-15](#feat-meta-15) | Variable library and source systems | Implemented | Partially Verified | Data mesh > Source systems | Keep. |
 | [FEAT-MESH-01](#feat-mesh-01) | Central platform | Implemented | Partially Verified | Platform (Preview) | Verify setup, the UDF executing_user and T-SQL on a tenant (platform.md lists these unverified). |
-| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25) |
+| [FEAT-MESH-02](#feat-mesh-02) | Central business keys | Implemented | Partially Verified | Data mesh > Surrogate keys > Move keys, Platform > Business keys (Preview) | Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20) |
 | [FEAT-MESH-04](#feat-mesh-04) | Data mesh: domains, products, links, glossary | Implemented | Partially Verified | Data mesh > Domains, OneLake > Data products, Home (Preview) | Enterprise governance foundation plans a Purview-first glossary connector (item 27); check which Purview APIs the Fabric CLI sign-in can call |
 
 ### Data Governance and Quality
@@ -1472,9 +1472,9 @@ on quality.
 - **Source:** `sidecar/fabric_desktop/central/core.py`, `sidecar/fabric_desktop/central/client.py`, `sidecar/fabric_desktop/central/migrate.py`
 - **Tests:** `sidecar/tests/test_platform.py`
 - **Docs:** [docs/platform.md](../platform.md)
-- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision.
+- **Known limitations:** Moving back to LH_Keys refused once new keys are issued. Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform.
 - **Backlog:** [PB-052](PRODUCT_BACKLOG.md#pb-052)
-- **Recommended next action:** Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)
+- **Recommended next action:** Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)
 
 ### FEAT-MESH-03
 

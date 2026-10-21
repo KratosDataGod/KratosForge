@@ -112,7 +112,7 @@ def policy_record(p: dict[str, Any]) -> dict[str, Any]:
 
 def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
     """What a platform has deployed, as records. ``raw`` holds the platform's own reads:
-    domains, sources, key_tables ({env: list}), glossary, admins, shortcut_rules and policies
+    domains, sources, key_tables ({where: list}), glossary, admins, shortcut_rules and policies
     (get_policy results; None when the platform has no policy tables)."""
     out: dict[str, Any] = {"domains": {}, "sources": {}, "key_tables": {}, "glossary": {}, "policies": {},
                            "admins": sorted({_s(a.get("user_name")) for a in raw.get("admins") or []} - {""}, key=str.lower),
@@ -126,8 +126,9 @@ def from_platform(raw: dict[str, Any]) -> dict[str, Any]:
         out["domains"][_s(d.get("id"))] = domain_record(d)
     for s in raw.get("sources") or []:
         out["sources"][_s(s.get("name")) or _s(s.get("code")).lower()] = source_record(s)
-    # Key tables live in each environment: {env: list}, the catalog's environment first. Its
-    # fields win, and any environment that disagrees is listed rather than silently overruled.
+    # Key tables: {where: list}. Once keys have moved, one list from the shared keys database;
+    # before, each environment's, the catalog's first. Its fields win, and any environment that
+    # disagrees is listed rather than silently overruled.
     out["disagree"] = []
     first_env: dict[str, str] = {}
     for env, tables in (raw.get("key_tables") or {}).items():
@@ -431,6 +432,10 @@ def export(root: str | Path, defs: dict[str, Any], uncommitted: set[str], confir
 # and shown; nothing runs until the person confirms that exact plan.
 
 
+def _where(env: str) -> str:
+    return "the shared keys database" if env == "keys" else env
+
+
 def _step(kind: str, ident: str, action: str, op: str, args: dict[str, Any], env: str | None = None,
           what: str = "") -> dict[str, Any]:
     return {"kind": kind, "id": ident, "action": action, "op": op, "args": args, "env": env, "what": what}
@@ -505,7 +510,8 @@ def _depth(ident: str, parent_of: dict[str, str]) -> int:
 def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str, remove: set[tuple[str, str]],
          note: str) -> dict[str, Any]:
     """The steps that make the platform match the files. ``envs`` is each environment's deployed
-    records (the catalog's environment among them); ``remove`` the objects only deployed that an
+    records (the catalog's environment among them, and "keys", the shared keys database's admins and
+    key tables, once keys have moved there); ``remove`` the objects only deployed that an
     admin ticked to remove. Returns steps, blocked objects (with why), stops (which refuse the whole
     deploy before anything runs), removable objects and notes on what a deploy leaves as it is."""
     cat = envs[catalog_env]
@@ -521,17 +527,17 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
     if git.get("admins") is not None:
         for env in ordered:
             for who in sorted(set(git["admins"]) - set(envs[env]["admins"])):
-                steps.append(_step("admins", who, "create", "add_admin", {"user": who}, env, f"add as admin in {env}"))
+                steps.append(_step("admins", who, "create", "add_admin", {"user": who}, env, f"add as admin in {_where(env)}"))
             gone = sorted(set(envs[env]["admins"]) - set(git["admins"]))
             for who in gone:
                 removable.append({"kind": "admins", "id": who, "env": env})
             ticked = [w for w in gone if ("admins", w) in remove]
             if ticked and not (set(envs[env]["admins"]) | set(git["admins"])) - set(ticked):
-                stops.append(f"Removing {', '.join(ticked)} would leave {env} with no platform admin. "
+                stops.append(f"Removing {', '.join(ticked)} would leave {_where(env)} with no platform admin. "
                              "Keep one, or add another in admins.toml.")
             for who in ticked:
                 removals.append(_step("admins", who, "remove", "remove_admin", {"user": who}, env,
-                                      f"remove as admin in {env}"))
+                                      f"remove as admin in {_where(env)}"))
 
     # domains, parents first
     gd, dd = git.get("domains") or {}, cat["domains"]
@@ -608,20 +614,22 @@ def plan(git: dict[str, Any], envs: dict[str, dict[str, Any]], catalog_env: str,
         else:
             removals.append(_step("sources", ident, "remove", "delete_source", {"name": ident}))
 
-    # key tables: made in every environment; never renamed, changed or removed (they hold keys)
+    # key tables: in the shared keys database when there is one ("keys"), else in every environment;
+    # never renamed, changed or removed (they hold keys)
     gk = git.get("key_tables") or {}
-    for env in ordered:
+    for env in ["keys"] if "keys" in envs else ordered:
         dk = envs[env]["key_tables"]
         for ident, rec in sorted(gk.items()):
             if ident not in dk:
                 steps.append(_step("key_tables", ident, "create", "ensure_key_table", {
                     "name": ident, "business_key": rec["business_key"], "description": rec["description"],
-                    "domain_id": rec["domain"]}, env, f"create in {env}"))
+                    "domain_id": rec["domain"]}, env, f"create in {_where(env)}"))
             elif dk[ident] != rec:
-                notes.append(f"Key table {ident} in {env}: its fields differ from Git. A deploy doesn't change an "
-                             "existing key table.")
+                notes.append(f"Key table {ident} in {_where(env)}: its fields differ from Git. A deploy doesn't "
+                             "change an existing key table.")
         for ident in sorted(set(dk) - set(gk)):
-            notes.append(f"Key table {ident} is in {env} but not in Git. A deploy never removes a key table: its keys stay.")
+            notes.append(f"Key table {ident} is in {_where(env)} but not in Git. A deploy never removes a key "
+                         "table: its keys stay.")
 
     # glossary
     if git.get("glossary") is not None:

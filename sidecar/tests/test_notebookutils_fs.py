@@ -251,3 +251,14 @@ def test_filestore_list_with_max_results_reads_one_page():
     http = _Session()
     assert len(FileStore(lambda: "tok", session=http).list("ws", "lh", "Files", max_results=1)) == 1
     assert len(http.requests) == 1 and http.requests[0][2]["maxResults"] == "1"
+
+
+def test_ls_gives_modify_time_in_milliseconds(tmp_path):
+    import os
+    f = tmp_path / "a.txt"
+    f.write_text("x")
+    os.utime(f, (1_700_000_000, 1_700_000_000))
+    info = notebookutils_local._make_fs().ls(f"file:{tmp_path.as_posix()}")[0]
+    assert info.modifyTime == 1_700_000_000_000 and info.modificationTime == info.modifyTime
+    assert notebookutils_local._millis("2026-10-20T12:00:00+00:00") == 1_792_497_600_000
+    assert notebookutils_local._millis("") == 0 and notebookutils_local._millis("junk") == 0

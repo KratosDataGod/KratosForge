@@ -285,6 +285,9 @@ function runSelectionText(cell) {
     { keys: ["Shift+M"], label: "Merge the selected cells into the first one (with one cell: merge the cell below)", when: inNotebook },
     { keys: ["DD", "Delete"], label: "With several cells selected: delete them, except frozen ones (Z puts them back)", when: inNotebook },
     { keys: ["Alt+Up", "Alt+Down"], label: "With several cells selected: move them up or down", when: inNotebook },
+  ]);
+  // Works on one cell, so it's listed with the other run keys rather than under several cells.
+  registerShortcuts("Notebook", [
     { keys: ["Ctrl+Shift+Enter"], label: "While editing a code cell: run only the selected text, or the line the cursor is on", when: inNotebook },
   ]);
 }

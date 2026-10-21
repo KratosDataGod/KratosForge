@@ -205,6 +205,12 @@ def test_ddl_schema_reads_structs_comments_and_not_null(live):
         live.createDataFrame([((None, "x"),)], "s struct<a int NOT NULL, b string>")
 
 
+def test_an_empty_struct_says_so_instead_of_duckdbs_error(live):
+    for schema in ("s struct<>", "m map<string, struct< >>", "a array<STRUCT<>>"):
+        with pytest.raises(ValueError, match=r"An empty struct<> isn't supported on this PC"):
+            live.createDataFrame([], schema)
+
+
 def test_a_struct_type_with_a_non_nullable_field_is_checked_too(live):
     from pyspark.sql.types import IntegerType, StructField, StructType
     schema = StructType([StructField("id", IntegerType(), False)])

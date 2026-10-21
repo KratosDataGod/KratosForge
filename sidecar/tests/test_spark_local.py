@@ -1,9 +1,10 @@
 """The PySpark API this PC offers, pinned so a DuckDB upgrade can't change it unnoticed (KF-DE-008).
 
 ``spark`` in a notebook is DuckDB's experimental PySpark-compatible API (``spark_local.py``).
-SUPPORTED lists what notebooks may rely on: each must keep working. KNOWN_GAPS lists common
-PySpark calls DuckDB doesn't offer yet: if one starts working after an upgrade, the test says so,
-so the list in docs/notebooks.md is moved, not left stale. Both lists match that page."""
+SUPPORTED lists what notebooks may rely on: each must keep working. EXTENDED lists everyday calls
+DuckDB's API lacks and KratosForge adds on top (spark_api.py and friends, tested in depth in
+test_spark_api.py and test_spark_compat.py); here they are only smoke-checked through the same
+session, so an engine upgrade that breaks what they build on fails a test."""
 
 import importlib
 
@@ -66,20 +67,25 @@ SUPPORTED = {
         == [(1, 2), (2, 1), (3, 1)])[1],
 }
 
-# Common PySpark calls DuckDB's API lacks today (duckdb pinned in constraints.txt). In SQL, most
-# have an equivalent: ROW_NUMBER() OVER (...), UNNEST, CURRENT_TIMESTAMP, strftime.
-KNOWN_GAPS = {
-    "Window": lambda s, F, df: importlib.import_module("pyspark.sql.window").Window,
-    "F.row_number": lambda s, F, df: F.row_number,
-    "F.explode": lambda s, F, df: F.explode,
-    "F.current_timestamp": lambda s, F, df: F.current_timestamp,
-    "F.date_format": lambda s, F, df: F.date_format,
-    "F.count('*')": lambda s, F, df: df.groupBy("region").agg(F.count("*")).collect(),
-    "df.agg": lambda s, F, df: df.agg(F.max("amount")).collect(),
-    "df.selectExpr": lambda s, F, df: df.selectExpr("id * 2 AS d").collect(),
-    "df.fillna": lambda s, F, df: df.fillna(0).collect(),
-    "df.na": lambda s, F, df: df.na.drop().collect(),
-    "pivot": lambda s, F, df: df.groupBy("id").pivot("region").sum("amount").collect(),
+# Everyday PySpark that DuckDB's API lacks and KratosForge adds (#393, #409 and the compat layer).
+def _window(s, F, df):
+    w = importlib.import_module("pyspark.sql.window").Window.partitionBy("region").orderBy(F.col("amount").desc())
+    return _rows(df.withColumn("n", F.row_number().over(w)).select("id", "n").orderBy("id")) == [(1, 1), (2, 1), (3, 2)]
+
+
+EXTENDED = {
+    "Window and F.row_number": _window,
+    "F.explode": lambda s, F, df: sorted(r[0] for r in s.createDataFrame([(1, [1, 2])], ["id", "xs"])
+                                         .select(F.explode("xs")).collect()) == [1, 2],
+    "F.current_timestamp": lambda s, F, df: df.select(F.current_timestamp()).first()[0] is not None,
+    "F.date_format": lambda s, F, df: df.select(F.date_format(F.to_date(F.lit("2026-10-21")), "yyyy-MM-dd")).first()[0]
+                                      == "2026-10-21",
+    "F.count('*')": lambda s, F, df: _rows(df.groupBy("region").agg(F.count("*")).orderBy("region")) == [("EU", 2), ("US", 1)],
+    "df.agg": lambda s, F, df: _rows(df.agg(F.max("amount"))) == [(10.0,)],
+    "df.selectExpr": lambda s, F, df: _rows(df.selectExpr("id * 2 AS d").orderBy("d")) == [(2,), (4,), (6,)],
+    "df.fillna": lambda s, F, df: s.createDataFrame([(1, None), (2, 1.0)], ["id", "v"]).fillna(0).orderBy("id").first()[1] == 0,
+    "df.na.drop": lambda s, F, df: s.createDataFrame([(1, None), (2, 1.0)], ["id", "v"]).na.drop().count() == 1,
+    "pivot": lambda s, F, df: len(df.groupBy("id").pivot("region", ["EU", "US"]).sum("amount").columns) == 3,
 }
 
 
@@ -88,17 +94,6 @@ def test_supported_pyspark_api_keeps_working(name, spark, F, df):
     assert SUPPORTED[name](spark, F, df), f"{name} gives a different answer on this PC now"
 
 
-@pytest.mark.parametrize("name", sorted(KNOWN_GAPS))
-def test_known_gaps_are_still_gaps(name, spark, F, df):
-    try:
-        KNOWN_GAPS[name](spark, F, df)
-    except Exception:  # noqa: BLE001 - any failure means it's still a gap
-        return
-    pytest.fail(f"{name} works on this PC now: move it from KNOWN_GAPS to SUPPORTED and update docs/notebooks.md")
-
-
-def test_the_docs_list_the_same_gaps():
-    from pathlib import Path
-    page = (Path(__file__).resolve().parents[2] / "docs" / "notebooks.md").read_text(encoding="utf-8")
-    missing = [n for n in KNOWN_GAPS if f"`{n}`" not in page]
-    assert not missing, f"docs/notebooks.md doesn't mention: {missing}"
+@pytest.mark.parametrize("name", sorted(EXTENDED))
+def test_everyday_pyspark_added_on_top_keeps_working(name, spark, F, df):
+    assert EXTENDED[name](spark, F, df), f"{name} gives a different answer on this PC now"

@@ -32,9 +32,15 @@ ANSWERS = {
                     "output": "silver.orders"},
     "quality": {"source": "dbo.orders", "keys": "order_id", "required": "region", "allowed": "status: open|closed",
                 "ranges": "amount: 0..100", "output": "silver.orders", "rejects": "silver.orders_rejects"},
+    "scd1": {"source": "dbo.customers", "keys": "customer_id", "output": "gold.dim_customer"},
+    "scd2": {"source": "dbo.customers", "keys": "customer_id", "tracked": "city", "output": "gold.dim_customer"},
     "date_dimension": {"start": "2024-01-01", "end": "2025-12-31", "fiscal_start": "7", "output": "gold.dim_date"},
     "reconcile": {"source": "dbo.orders", "other": "silver.orders", "keys": "order_id", "sums": "amount"},
     "run_in_order": {"notebooks": "Load\nClean\nReport", "retries": "1"},
+    "latest_row": {"source": "dbo.changes", "keys": "order_id", "order_by": "modified_at", "output": "silver.orders"},
+    "flatten_json": {"json_file": "Files/raw/orders.json", "keys": "order_id", "output": "bronze.orders"},
+    "profile": {"source": "dbo.orders", "output": "gold.orders_profile"},
+    "snapshot": {"source": "dbo.orders", "keys": "order_id", "output": "silver.orders_history"},
 }
 
 
@@ -127,6 +133,70 @@ def test_incremental_load_appends_only_rows_past_the_watermark(monkeypatch):
     run_cells(built, monkeypatch, lake)  # nothing new: nothing written
     assert lake.writes == [("silver.orders", "append", 2), ("silver.orders", "append", 2)]
     assert lake.tables["silver.orders"]["order_id"].to_list() == [1, 2, 3, 4]
+
+
+CUSTOMERS = pl.DataFrame({"customer_id": [1, 2, 3], "city": ["Oslo", "Lima", None], "phone": ["1", "2", "3"]})
+
+
+def test_scd1_replaces_matching_keys_adds_new_ones_and_keeps_the_rest(monkeypatch):
+    lake = FakeLake({"dbo.customers": CUSTOMERS})
+    built = wizard.build("scd1", ANSWERS["scd1"])
+    run_cells(built, monkeypatch, lake)
+    assert lake.tables["gold.dim_customer"].equals(CUSTOMERS)
+    lake.tables["dbo.customers"] = pl.DataFrame({"customer_id": [2, 4], "city": ["Rome", "Pune"], "phone": ["9", "4"]})
+    run_cells(built, monkeypatch, lake)
+    assert lake.writes[-1][:2] == ("gold.dim_customer", "overwrite")
+    assert lake.tables["gold.dim_customer"].rows() == [(1, "Oslo", "1"), (2, "Rome", "9"), (3, None, "3"), (4, "Pune", "4")]
+    assert built["proof"]["tables"]["gold.dim_customer"] == {"keys": ["customer_id"], "ignore": []}
+
+
+def test_scd2_closes_the_old_version_and_adds_a_new_one_only_when_a_tracked_column_changes(monkeypatch):
+    lake = FakeLake({"dbo.customers": CUSTOMERS})
+    built = wizard.build("scd2", ANSWERS["scd2"])
+    run_cells(built, monkeypatch, lake)
+    first = lake.tables["gold.dim_customer"]
+    assert first["version"].to_list() == [1, 1, 1] and first["is_current"].all() and first["valid_to"].is_null().all()
+    # Lima -> Rome and null -> Bergen change the tracked city; a new phone alone doesn't; 4 is new; 1 left the source.
+    lake.tables["dbo.customers"] = pl.DataFrame({"customer_id": [2, 3, 4], "city": ["Rome", "Bergen", "Pune"],
+                                                 "phone": ["2", "33", "4"]})
+    run_cells(built, monkeypatch, lake)
+    out = lake.tables["gold.dim_customer"]
+    rows = out.select("customer_id", "version", "city", "phone", "is_current").rows()
+    assert rows == [(1, 1, "Oslo", "1", True), (2, 1, "Lima", "2", False), (2, 2, "Rome", "2", True),
+                    (3, 1, None, "3", False), (3, 2, "Bergen", "33", True), (4, 1, "Pune", "4", True)]
+    closed = out.filter(~pl.col("is_current"))
+    reopened = out.filter((pl.col("version") == 2))
+    assert closed["valid_to"].to_list() == reopened["valid_from"].to_list(), "a new version starts when the old one ends"
+    run_cells(built, monkeypatch, lake)  # nothing changed: same rows
+    assert lake.tables["gold.dim_customer"].drop("valid_from", "valid_to").equals(out.drop("valid_from", "valid_to"))
+    # An untracked column alone (4's phone) changes the current row in place, with no new version.
+    lake.tables["dbo.customers"] = lake.tables["dbo.customers"].with_columns(
+        pl.when(pl.col("customer_id") == 4).then(pl.lit("444")).otherwise(pl.col("phone")).alias("phone"))
+    run_cells(built, monkeypatch, lake)
+    after = lake.tables["gold.dim_customer"]
+    assert after.height == 6
+    assert after.filter(pl.col("customer_id") == 4).select("version", "phone", "is_current").rows() == [(1, "444", True)]
+    assert after.filter(pl.col("customer_id") == 4)["valid_from"].to_list() == out.filter(pl.col("customer_id") == 4)["valid_from"].to_list()
+    contract = built["proof"]["tables"]["gold.dim_customer"]
+    assert contract == {"keys": ["customer_id", "version"], "ignore": ["valid_from", "valid_to"]}
+
+
+def test_scd2_tracks_every_other_column_when_none_are_named(monkeypatch):
+    lake = FakeLake({"dbo.customers": CUSTOMERS})
+    built = wizard.build("scd2", {**ANSWERS["scd2"], "tracked": ""})
+    run_cells(built, monkeypatch, lake)
+    lake.tables["dbo.customers"] = CUSTOMERS.with_columns(pl.Series("phone", ["1", "22", "3"]))
+    run_cells(built, monkeypatch, lake)
+    assert lake.tables["gold.dim_customer"].filter(pl.col("is_current"))["version"].to_list() == [1, 2, 1]
+
+
+def test_scd2_stops_on_a_tracked_column_the_dimension_doesnt_have(monkeypatch):
+    lake = FakeLake({"dbo.customers": CUSTOMERS})
+    built = wizard.build("scd2", {**ANSWERS["scd2"], "tracked": ""})
+    run_cells(built, monkeypatch, lake)
+    lake.tables["dbo.customers"] = CUSTOMERS.with_columns(pl.lit("x").alias("segment"))
+    with pytest.raises(AssertionError, match=r"has no column \['segment'\]"):
+        run_cells(built, monkeypatch, lake)
 
 
 def test_standardize_renames_trims_and_stops_on_values_it_cant_read(monkeypatch):
@@ -233,11 +303,20 @@ def test_a_folder_name_with_quotes_stays_a_literal():
      "must look like"),
     ("quality", {"source": "dbo.a", "keys": "id", "output": "dbo.x", "rejects": "dbo.r", "allowed": "status"},
      "column: rule"),
+    ("scd1", {"source": "dbo.a", "output": "dbo.x"}, "identify a row"),
+    ("scd2", {"source": "dbo.a", "keys": "id", "tracked": "id, city", "output": "dbo.x"}, "can't also be a tracked"),
     ("date_dimension", {"start": "2025-01-02", "end": "2025-01-01", "output": "dbo.d"}, "on or after"),
     ("date_dimension", {"start": "soon", "end": "2025-01-01", "output": "dbo.d"}, "date like"),
     ("date_dimension", {"start": "2025-01-01", "end": "2025-01-01", "fiscal_start": "13", "output": "dbo.d"}, "fiscal"),
     ("run_in_order", {"notebooks": ""}, "one per line"),
     ("run_in_order", {"notebooks": "A\na"}, "each notebook once"),
+    ("latest_row", {"source": "dbo.a", "keys": "id", "order_by": "a, b", "output": "dbo.x"}, "one column"),
+    ("latest_row", {"source": "dbo.a", "keys": "id", "order_by": "id", "output": "dbo.x"}, "can't also identify"),
+    ("latest_row", {"source": "dbo.a", "order_by": "m", "output": "dbo.x"}, "identify a row"),
+    ("flatten_json", {"json_file": "Files/raw/x.csv", "keys": "id", "output": "dbo.x"}, "a .json file under Files/"),
+    ("flatten_json", {"json_file": "Files/../x.json", "keys": "id", "output": "dbo.x"}, "a .json file under Files/"),
+    ("profile", {"source": "dbo.a"}, "table name like"),
+    ("snapshot", {"source": "dbo.a", "output": "dbo.h"}, "identify a row"),
 ])
 def test_bad_answers_are_refused_with_a_reason(template, values, text):
     with pytest.raises(ValueError, match=text):
@@ -318,3 +397,126 @@ def test_a_new_template_runs_and_proves_the_same_in_both_engines(svc):  # noqa: 
     assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
     assert out["verdict"]["verdict"] == "same", out
     assert out["tables"][0]["table"] == "dbo.dim_date" and out["tables"][0]["keys"] == ["date"]
+
+
+def test_scd2_proves_the_same_in_both_engines_from_an_existing_history(svc):  # noqa: F811
+    from datetime import datetime, timezone
+
+    import pyarrow as pa
+    from deltalake import write_deltalake
+    then = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    write_deltalake(str(svc.lh_root / "Tables" / "dbo" / "dim_order"), pa.table({
+        "order_id": [1, 2], "region": ["north", "west"], "amount": [10.0, 20.5], "version": pa.array([1, 1], pa.int64()),
+        "valid_from": pa.array([then, then], pa.timestamp("us", "UTC")), "valid_to": pa.array([None, None], pa.timestamp("us", "UTC")),
+        "is_current": [True, True]}))
+    svc.fake = FakeFabric(svc)
+    nb = call(svc, "wizard_create", template="scd2", lakehouse_ref=LAKEHOUSE,
+              values={"source": "dbo.orders", "keys": "order_id", "tracked": "region", "output": "dbo.dim_order"})
+    rules = call(svc, "prove_rules_get", name=nb["name"])
+    out = wait(svc, call(svc, "prove_start", name=nb["name"], cells=nb["cells"], lakehouse_ref=LAKEHOUSE, rules=rules)["id"])
+    assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
+    assert out["verdict"]["verdict"] == "same", out
+    t = out["tables"][0]
+    assert t["table"] == "dbo.dim_order" and t["keys"] == ["order_id", "version"]
+    assert t["pc"]["rows"] == 4  # 1 changed region (two versions), 2 unchanged, 3 new
+
+
+def test_latest_row_keeps_the_newest_row_of_each_key_and_stops_on_a_tie(monkeypatch):
+    changes = pl.DataFrame({"order_id": [1, 1, 2, 2, 3], "status": ["new", "paid", "new", "old", "new"],
+                            "modified_at": [1, 5, 4, None, 2]})
+    lake = FakeLake({"dbo.changes": changes})
+    built = wizard.build("latest_row", ANSWERS["latest_row"])
+    run_cells(built, monkeypatch, lake)
+    out = lake.tables["silver.orders"].sort("order_id")
+    assert out.select("order_id", "status").rows() == [(1, "paid"), (2, "new"), (3, "new")]
+    tie = pl.concat([changes, pl.DataFrame({"order_id": [1], "status": ["late"], "modified_at": [5]})])
+    with pytest.raises(AssertionError, match="1 keys have two newest rows"):
+        run_cells(built, monkeypatch, FakeLake({"dbo.changes": tie}))
+    # A key whose rows all have no modified_at has two "newest" rows too.
+    empty = pl.concat([changes, pl.DataFrame({"order_id": [4, 4], "status": ["a", "b"], "modified_at": [None, None]},
+                                             schema=changes.schema)])
+    with pytest.raises(AssertionError, match="1 keys have two newest rows"):
+        run_cells(built, monkeypatch, FakeLake({"dbo.changes": empty}))
+
+
+def test_flatten_json_turns_nested_objects_into_columns(monkeypatch):
+    nested = pl.DataFrame({"order_id": [1, 2], "customer": [{"name": "Ann", "address": {"city": "Oslo"}},
+                                                            {"name": "Bo", "address": {"city": None}}],
+                           "lines": [[1, 2], []]})
+    lake = FakeLake(files={"Files/raw/orders.json": nested})
+    run_cells(wizard.build("flatten_json", ANSWERS["flatten_json"]), monkeypatch, lake)
+    out = lake.tables["bronze.orders"]
+    assert out.columns == ["order_id", "customer_name", "customer_address_city", "lines"]
+    assert out["customer_address_city"].to_list() == ["Oslo", None]
+    clash = nested.with_columns(pl.lit("x").alias("customer_name"))
+    with pytest.raises(AssertionError, match="clash with existing columns"):
+        run_cells(wizard.build("flatten_json", ANSWERS["flatten_json"]), monkeypatch,
+                  FakeLake(files={"Files/raw/orders.json": clash}))
+    # Delta column names ignore case.
+    upper = nested.with_columns(pl.lit("x").alias("Customer_Name"))
+    with pytest.raises(AssertionError, match="clash with existing columns"):
+        run_cells(wizard.build("flatten_json", ANSWERS["flatten_json"]), monkeypatch,
+                  FakeLake(files={"Files/raw/orders.json": upper}))
+
+
+@pytest.mark.parametrize("template", ["profile", "snapshot"])
+@pytest.mark.parametrize("output", ["dbo.orders", "DBO.Orders", "orders"])
+def test_profile_and_snapshot_refuse_to_write_over_the_table_they_read(template, output):
+    with pytest.raises(ValueError, match="different table than the one it reads"):
+        wizard.build(template, ANSWERS[template] | {"output": output})
+
+
+def test_profile_has_a_row_per_column(monkeypatch):
+    df = ORDERS.with_columns(pl.Series("tags", [["a"], [], None, ["b"]]))
+    lake = FakeLake({"dbo.orders": df})
+    built = wizard.build("profile", ANSWERS["profile"])
+    run_cells(built, monkeypatch, lake)
+    out = {r["column"]: r for r in lake.tables["gold.orders_profile"].iter_rows(named=True)}
+    assert list(out) == ["order_id", "region", "status", "amount", "tags"]
+    assert out["region"] | {} == {"column": "region", "type": "String", "rows": 4, "empty": 1, "empty_pct": 25.0,
+                                  "distinct": 2, "lowest": "n", "highest": "s"}
+    assert (out["amount"]["lowest"], out["amount"]["highest"]) == ("5.0", "500.0")
+    assert out["tags"]["empty"] == 1
+    assert built["proof"]["tables"]["gold.orders_profile"]["keys"] == ["column"]
+
+
+def test_snapshot_appends_once_a_day(monkeypatch):
+    lake = FakeLake({"dbo.orders": ORDERS})
+    built = wizard.build("snapshot", ANSWERS["snapshot"])
+    run_cells(built, monkeypatch, lake)
+    run_cells(built, monkeypatch, lake)  # a retry the same day writes nothing
+    out = lake.tables["silver.orders_history"]
+    assert out.height == 4 and out["snapshot_date"].n_unique() == 1
+    assert [w[:2] for w in lake.writes] == [("silver.orders_history", "append")]
+    assert built["proof"]["tables"]["silver.orders_history"]["keys"] == ["order_id", "snapshot_date"]
+
+
+@pytest.mark.parametrize("template, values, rows", [
+    ("latest_row", {"source": "dbo.orders", "keys": "region", "order_by": "order_id", "output": "dbo.latest"}, 2),
+    ("profile", {"source": "dbo.orders", "output": "dbo.orders_profile"}, 3),
+    ("snapshot", {"source": "dbo.orders", "keys": "order_id", "output": "dbo.orders_history"}, 3),
+    ("flatten_json", {"json_file": "Files/raw/orders.json", "keys": "order_id", "output": "dbo.orders_flat"}, 2),
+])
+def test_the_new_templates_prove_the_same_in_both_engines(svc, template, values, rows):  # noqa: F811
+    (svc.lh_root / "Files" / "raw" / "orders.json").write_text(json.dumps([
+        {"order_id": 1, "customer": {"name": "Ann", "address": {"city": "Oslo"}}},
+        {"order_id": 2, "customer": {"name": "Bo", "address": {"city": "Rome"}}}]), encoding="utf-8")
+    svc.fake = FakeFabric(svc)
+    nb = call(svc, "wizard_create", template=template, lakehouse_ref=LAKEHOUSE, values=values)
+    rules = call(svc, "prove_rules_get", name=nb["name"])
+    out = wait(svc, call(svc, "prove_start", name=nb["name"], cells=nb["cells"], lakehouse_ref=LAKEHOUSE, rules=rules)["id"])
+    assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["tables"][0]["table"] == values["output"] and out["tables"][0]["pc"]["rows"] == rows
+
+
+def test_incremental_runs_in_fabric_too_where_the_target_doesnt_exist_yet(svc):  # noqa: F811
+    # Fabric's lakehouse module had no table_exists, so this template failed there on its first cell that used it.
+    svc.fake = FakeFabric(svc)
+    nb = call(svc, "wizard_create", template="incremental", lakehouse_ref=LAKEHOUSE,
+              values={"source": "dbo.orders", "watermark": "order_id", "keys": "order_id", "output": "dbo.orders_copy"})
+    rules = call(svc, "prove_rules_get", name=nb["name"])
+    out = wait(svc, call(svc, "prove_start", name=nb["name"], cells=nb["cells"], lakehouse_ref=LAKEHOUSE, rules=rules)["id"])
+    assert svc.fake.ran.returncode == 0, svc.fake.ran.stderr
+    assert out["verdict"]["verdict"] == "same", out
+    assert out["tables"][0]["pc"]["rows"] == 3

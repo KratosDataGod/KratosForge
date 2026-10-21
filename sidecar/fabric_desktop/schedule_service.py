@@ -15,11 +15,19 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from .fabric_api import FabricClient
-from .fabric_run import describe_schedule
+from .fabric_run import TERMINAL, describe_schedule
 from .local_schedules import LocalSchedules, target_label
 from .redact import describe
+from .workloads.notify import Outbox, send, single
 
 _log = logging.getLogger(__name__)
+
+SCHEDULE_ALERTS = "schedule_alerts.sqlite3"
+ALERTS_LOCK = "_alerts"  # a schedule_locks name no schedule id takes
+
+
+class TeamsUnreachable(Exception):
+    """A waiting alert's post failed; the message is the original error without the webhook."""
 
 # Fabric item types that have schedules, and the job type each one runs.
 SCHEDULED_TYPES = {"Notebook": "RunNotebook", "DataPipeline": "Pipeline", "SparkJobDefinition": "sparkjob"}
@@ -92,6 +100,65 @@ class ScheduleMixin:
     def pc_schedule_runs(self, limit: int = 200) -> list[dict[str, Any]]:
         return self.pc_schedules.runs(limit)
 
+    def notebook_runs(self, name: str, limit: int = 50, refresh: bool = False) -> list[dict[str, Any]]:
+        """One notebook's recent runs, newest first: this PC's scheduled runs and the Fabric runs this app
+        started for it. Reads the two run logs; ``refresh`` asks Fabric for unfinished jobs' status, as
+        Monitor > Runs does (fabric_runs), and never starts a job."""
+        listing = self.pc_schedules.listing()
+        ours = {s["id"] for s in listing if s["target"]["kind"] == "notebook" and s["target"].get("name") == name}
+        meta = {s["id"] for s in listing if s["target"]["kind"] != "notebook"}
+        rows: list[dict[str, Any]] = []
+        for r in self.pc_schedules.runs(500):
+            # A removed schedule's runs still count: they carry the notebook's name as their label.
+            if r.get("schedule_id") in ours or (r.get("schedule_id") not in meta and r.get("label") == name):
+                rows.append({"source": "pc", "started": r.get("started"), "ended": r.get("ended"),
+                             "seconds": r.get("seconds"), "status": r.get("status", ""),
+                             "trigger": "manual" if r.get("trigger") == "manual" else "schedule",
+                             "message": r.get("message", ""), "alert_error": r.get("alert_error", ""),
+                             "cells": r.get("cells"), "schedule_id": r.get("schedule_id")})
+        mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=False))  # type: ignore[attr-defined]
+        if refresh:  # ask Fabric about this notebook's unfinished jobs only, never every open run
+            going = [r["job_id"] for r in mine if r.get("status") not in TERMINAL and r.get("job_id")]
+            if going:
+                mine = self._notebook_fabric_runs(name, self.fabric_runs(500, refresh=True, job_ids=going))  # type: ignore[attr-defined]
+        from .cloud_service import FABRIC_APP
+        for r in mine:
+            seconds = None
+            if r.get("finished_at") and r.get("started_at"):
+                seconds = round((dt.datetime.fromisoformat(r["finished_at"].replace("Z", "+00:00"))
+                                 - dt.datetime.fromisoformat(r["started_at"])).total_seconds(), 1)
+            url = r.get("url") or (f"{FABRIC_APP}/groups/{r['workspace_id']}/synapsenotebooks/{r['item_id']}"
+                                   "?experience=fabric-developer" if r.get("item_id") else "")
+            trigger = ("prove" if r.get("proof") else "side_by_side" if r.get("side_by_side")
+                       else "run_now" if r["kind"] == "Scheduled item run" else "fabric")
+            rows.append({"source": "fabric", "started": r.get("started_at"), "ended": r.get("finished_at"),
+                         "seconds": seconds, "status": r.get("status", ""), "trigger": trigger,
+                         "message": r.get("message", ""), "workspace_name": r.get("workspace_name", ""),
+                         "url": url, "job_id": r.get("job_id")})
+        rows.sort(key=lambda r: str(r["started"] or ""), reverse=True)
+        return rows[:limit]
+
+    def _notebook_fabric_runs(self, name: str, fabric: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """The Fabric runs that are this notebook's: by its Fabric item when the app knows it (the item it
+        was published to), so a renamed notebook or a same-named one in another workspace doesn't pick up
+        the wrong runs; else by name, in its publish workspace when it has one."""
+        kinds = ("Notebook run", "Scheduled item run")
+        link = self.workload_store.links().get(name)  # type: ignore[attr-defined]
+        if link:
+            return [r for r in fabric if r.get("kind") in kinds and r.get("item_id") == link["item_id"]]
+        try:
+            nb = self.notebooks.load(name)  # type: ignore[attr-defined]
+            ws = self._publish_workspace(name, nb.get("lakehouse"), nb.get("workspace"))["workspace_id"]  # type: ignore[attr-defined]
+        except (OSError, ValueError):  # not on this PC, or no workspace picked yet: by name alone
+            ws = None
+        mine = [r for r in fabric if r.get("name") == name and r.get("kind") == "Notebook run"
+                and (ws is None or r.get("workspace_id") == ws)]
+        items = {r.get("item_id") for r in mine}
+        # Run now on a Fabric schedule (Monitor > Schedules) logs no item type: count it when the item is
+        # one this notebook ran as, so a pipeline with the same name isn't listed.
+        return mine + [r for r in fabric if r.get("kind") == "Scheduled item run" and r.get("name") == name
+                       and r.get("item_id") in items]
+
     def sync_pc_schedules(self) -> dict[str, Any]:
         """Called when the app starts: point every task at this engine."""
         try:
@@ -136,16 +203,16 @@ class ScheduleMixin:
         finally:
             lock.unlink(missing_ok=True)
         row |= {"ended": _now(), "seconds": round(time.monotonic() - t0, 1)}
-        if row["status"] == "failed":
-            problem = self._alert_failed_schedule(row)
-            if problem:  # recorded with the run, so Monitor shows the alert didn't go out
-                row["alert_error"] = problem
+        problem = self._send_schedule_alerts(row)
+        if problem:  # recorded with the run, so Monitor shows the alert didn't go out
+            row["alert_error"] = problem
         schedules.log_run(row)
         return row
 
     def _run_notebook_here(self, name: str) -> dict[str, Any]:
         nb = self.notebooks.load(name)  # type: ignore[attr-defined]
         self._attach(nb["lakehouse"])  # type: ignore[attr-defined]
+        self.kernel.resources_dir = self._resources_dir(name)  # type: ignore[attr-defined]  # builtin/ paths
         # As Run all: code cells with something in them, and never a frozen one.
         code = [c for c in nb["cells"] if c.get("type") != "markdown" and c.get("source", "").strip()]
         frozen = sum(1 for c in code if (c.get("meta") or {}).get("frozen"))
@@ -171,20 +238,63 @@ class ScheduleMixin:
         return {"status": "ok", "tables": len(results), "rows": rows,
                 "message": f"{len(results)} tables, {rows:,} rows written"}
 
-    def _alert_failed_schedule(self, row: dict[str, Any]) -> str:
-        """Post the failed run to Teams. Returns why the alert didn't go out, or "" (sent, or no webhook)."""
+    def _send_schedule_alerts(self, row: dict[str, Any]) -> str:
+        """After every run: post the alerts Teams didn't take before, then this run's if it failed.
+        Returns why this run's alert didn't go out, or "" (sent, queued after a success, or no webhook)."""
         from .dataops_service import post_teams
+        failed = row["status"] == "failed"
         url = None
         try:
             url = self._settings().get("teams_webhook")  # type: ignore[attr-defined]
             if not url:
                 return ""
-            post_teams(url, f"Scheduled run failed on this PC: {row['label']}", [row.get("message") or "See Monitor > Schedules"])
-            return ""
+            self._send_waiting_schedule_alerts(url, post_teams)  # older alerts first
+            if not failed:
+                return ""
+            title = f"Scheduled run failed on this PC: {row['label']}"
+            lines = [row.get("message") or "See Monitor > Schedules"]
+            try:
+                post_teams(url, title, lines)
+                return ""
+            except Exception as exc:  # kept, and sent after the next run here
+                why = _without_webhook(describe(exc), url).rstrip(".")
+                self._schedule_alerts().add(title, lines, why)
+                problem = (f"Couldn't post the Teams alert: {why}. It waits on this PC and is sent, marked Delayed, "
+                           "after the next scheduled run here, for up to three days.")
         except Exception as exc:  # the run is still logged, with the webhook kept out of what it says
+            if not failed:
+                _log.warning("Couldn't send waiting schedule alerts: %s", _without_webhook(describe(exc), url))
+                return ""
             problem = f"Couldn't post the Teams alert: {_without_webhook(describe(exc), url)}"
-            _log.warning("%s (schedule %s)", problem, row.get("schedule_id"))
-            return problem
+        _log.warning("%s (schedule %s)", problem, row.get("schedule_id"))
+        return problem
+
+    def _schedule_alerts(self) -> Outbox:
+        return Outbox(self.root / SCHEDULE_ALERTS)  # type: ignore[attr-defined]
+
+    def _send_waiting_schedule_alerts(self, url: str, post: Any) -> None:
+        """Failed-run alerts Teams didn't take (no network, Teams down) wait in schedule_alerts.sqlite3
+        and go, marked Delayed, after the next run on this PC; one older than three days is dropped.
+        Each run is its own process, so one sends them at a time and the others leave them."""
+        if not (self.root / SCHEDULE_ALERTS).exists():  # type: ignore[attr-defined]
+            return
+        lock = self._lock(ALERTS_LOCK)
+        if lock is None:
+            return
+        def scrubbed(to: str, title: str, lines: list[str]) -> None:
+            # A legacy connector URL carries its secret in the path, which requests puts in its
+            # errors; what the outbox keeps of a failed post must not have it.
+            try:
+                post(to, title, lines)
+            except Exception as exc:
+                raise TeamsUnreachable(_without_webhook(describe(exc), to)) from None
+        try:
+            result = send([], single(url), self._schedule_alerts(), "this PC's schedules", scrubbed)
+        finally:
+            lock.unlink(missing_ok=True)
+        if result.get("error"):
+            _log.warning("Couldn't post waiting schedule alerts; they go after the next run: %s",
+                         _without_webhook(result["error"], url))
 
     # ---- every schedule, in one list
 

@@ -23,6 +23,7 @@ import functools
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -58,13 +59,22 @@ EXTERNAL_ENV_ALLOW = (
     "HOME",          # the same on Linux and macOS
     "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
     # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
-    # reads fail. A proxy address can carry the proxy's own password; that is the network's, not Fabric's.
+    # reads fail. A user name and password in a proxy address are removed (_without_credentials).
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
 )
 EXTERNAL_ENV_PREFIXES = ("LC_",)
 # Set by the engine itself, never copied from its environment (the library paths at each start).
 EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH", "FABRIC_DESKTOP_LIBRARY_PATHS")
+_PROXY_ENV = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+# Scheme (optional), then everything up to the last "@" before the host: the user name and password.
+_PROXY_USERINFO = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)?[^/]*@")
+
+
+def _without_credentials(proxy: str) -> str:
+    """``http://user:secret@proxy:8080`` as ``http://proxy:8080``: the tool's code gets the proxy's
+    address but not the password for it. A proxy that needs one refuses the tool's requests."""
+    return _PROXY_USERINFO.sub(lambda m: m["scheme"] or "", proxy, count=1)
 
 
 def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
@@ -73,6 +83,8 @@ def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]
     parent = dict(os.environ if parent is None else parent)
     allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
     env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    for name in [k for k in env if k.upper() in _PROXY_ENV]:
+        env[name] = _without_credentials(env[name])
     # The kernel imports the engine's own code from where this engine runs it (a source checkout in
     # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
     env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)

@@ -6,16 +6,16 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 | Field | Value |
 | --- | --- |
-| Last updated | 2026-10-18 |
-| Base | `main` after #146 (the folded FD-124, Queue, Run as, UX-010 and UX-014 stack) and Optimize #200 |
+| Last updated | 2026-10-20 |
+| Base | `main` after #336 (stability round: #281, #301, #310, #311, #312, #317, #324, #336) |
 | Stage | Stages 0 to 5, FD-124 parts 1 and 2 with labels, 9A (engine and Run as screen), UX-010 and UX-014 merged, plus #205 (platform notices to Teams), #208, #215 and #216. Monitor has three tabs: Runs, Schedules, Operations. Cost moved to Optimize > Cost and savings (testing item 36). |
 
 ## Active branches and PRs
 
 | Branch | PR | What | Status |
 | --- | --- | --- | --- |
-| `claude/workload-drop-monitor-cost-4su03b` | drop Cost | Monitor loses its Cost tab; old links and the X-ray "See cost" open Optimize > Cost and savings | Ready |
-| `claude/workload-agents-guide-4su03b` | #199 | Agents guidance panel (testing feedback) | To retarget to `main` |
+| `claude/workload-how-this-works-4su03b` | #331 | How this works beside Queue, Incidents and Run as | Quality PASS; draft for Chris |
+| `claude/workload-capacity-use-4su03b` | #353 | Capacity use card on the workload page (`workload_capacity_use`) | Draft; with quality |
 
 ## Completed backlog items
 
@@ -23,7 +23,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Work in progress
 
-- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Step 4 labels are built too (no "taken over from" label: it would need the app to read mailbox status files). Governance split agreed 2026-10-18: this program has items 71, 78 and 79; the governance thread has 72 to 75 and 80, and wants 71 and 78 as queryable data (`run_as_list`). Chris chose "In Operations" for Run as (2026-10-18), so this program owns UX-010, the Monitor restructure (UX thread mockup https://claude.ai/artifact/YDTVabyWUFLNLMDaNLWRJ3, artboard 2). Next action: cost allocation on FinOps #153's `cost_report.usage.by_run`.
+- Chris chose "Build now" for FD-124 (2026-10-18). Parts 1 and 2 are built. Step 4 labels are built too (no "taken over from" label: it would need the app to read mailbox status files). Governance split agreed 2026-10-18: this program has items 71, 78 and 79; the governance thread has 72 to 75 and 80, and wants 71 and 78 as queryable data (`run_as_list`). Chris chose "In Operations" for Run as (2026-10-18), so this program owns UX-010, the Monitor restructure (UX thread mockup https://claude.ai/artifact/YDTVabyWUFLNLMDaNLWRJ3, artboard 2). Cost allocation is #353.
 - The roadmap thread (owner of `agent_status.py`) agreed on 2026-10-17 to `owner`, `identity`, and each schedule's `entities` and `when`, all within contract 1. A schedule's empty `entities` means every table; a missing one means an older agent, shown as unknown.
 - Boards 7 and 8 shipped as built in #133; Chris hasn't commented on them. Changes he asks for go in a follow-up PR.
 - Known gap: an environment that isn't set up can show a "Can't check" incident in the harness; check on a real project whether the app should skip it.
@@ -64,9 +64,7 @@ The handoff note for the workload operations program ([plan.md](plan.md)). Every
 
 ## Next action
 
-Cost allocation on FinOps #153's `cost_report.usage.by_run`, then item 76 (audit trail for workload actions). Older notes:
-
-Keep #125, 2.3C and 5A green and merge main into them once #122 lands; when Chris reacts to boards 7 and 8, adjust 5A and mark it ready. Then the rest of stage 5 (overlap warnings, queue view across locations; the roadmap thread owns agent status records, so ask it before adding fields), FD-124 multi-worker, and governance views; check with the enterprise thread on FD-129/130 first. Cost allocation consumes the FinOps thread's measurements.
+Land #331 and #353 (#336, the PC schedule alert outbox, merged as 531107e). Then item 76 stage 2B (platform audit of workload actions; stage 1 exists as the action log and ownership history in `workloads.sqlite`), the bell and settings UI for platform notices (mockup first), and Chris's open cards: what counts as a workload, and whether Runs and Schedules merge. Notebook run history and job progress inside the notebook belong to the notebook threads, not this program.
 
 ## Resume prompt
 

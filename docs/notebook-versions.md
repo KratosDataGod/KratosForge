@@ -30,4 +30,4 @@ The command bar (Ctrl+K) also finds **Version history** and **Create a checkpoin
 | Restore | The version | The notebook's cells, and a Before a restore version first |
 | Delete a version | | Removes that version from this PC |
 
-Versions are kept in the app's data folder (`notebook-versions`), outside every notebooks repository. They're never added to Git, published to Fabric or written to OneLake. They follow a notebook you rename. A new notebook given the name of a deleted one sees the deleted one's versions.
+Versions are kept in the app's data folder (`notebook-versions`), outside every notebooks repository. They're never added to Git, published to Fabric or written to OneLake. They follow a notebook you rename. A new notebook given the name of a deleted one sees the deleted one's versions. Each version is one file. An `index.json` beside them lists every version without its cells, so saving and opening Versions stay quick however long the history grows; the app rebuilds it from the version files if it is damaged or out of step.

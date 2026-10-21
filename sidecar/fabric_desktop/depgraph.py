@@ -226,6 +226,10 @@ def analyze(source: str) -> dict[str, Any]:
             out["defines"].append("_sqldf")
     elif cell.language == "shell":
         out["effects"].append({"line": 1, "text": "runs shell commands"})
+    elif cell.language == "writefile":
+        target = next((w for w in cell.args.split() if not w.startswith("-")), "a file")
+        out["writes"].append({"kind": "file", "name": target, "line": 1})
+        out["effects"].append({"line": 1, "text": f"writes the file {target}"})
     elif code is not None:
         for line in lines:
             text = source.split("\n")[line - 1].strip()
@@ -240,6 +244,8 @@ def analyze(source: str) -> dict[str, Any]:
                 out["effects"].append({"line": line, "text": "installs packages"})
             elif magic.name in _SHELL:
                 out["effects"].append({"line": line, "text": "runs a shell command"})
+            elif magic.name == "reset":
+                out["dynamic"].append({"line": line, "text": "%reset clears every variable"})
             elif magic.name == "fs" and re.match(r"\s*(cp|mv|rm|mkdirs|put)\b", magic.rest):
                 out["effects"].append({"line": line, "text": "changes files with %fs"})
         try:
@@ -249,6 +255,8 @@ def analyze(source: str) -> dict[str, Any]:
             out["dynamic"].append({"line": exc.lineno or 1, "text": f"doesn't parse: {exc.msg}"})
             return out
         visitor = _Cell(out)
+        if cell.header == "%%capture" and (name := next((w for w in cell.args.split() if not w.startswith("-")), None)):
+            visitor.define(name)
         visitor.visit(tree)
         out["deferred"] = [n for n in out["uses"] if n not in visitor.now]  # used only inside function bodies
         for m in _NETWORK.finditer(code):

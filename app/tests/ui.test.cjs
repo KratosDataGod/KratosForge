@@ -2925,6 +2925,14 @@ test("notebook shell cells are recognised for the editor", () => {
   assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
 });
 
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
 // Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
 test("domain owners from Fabric show only until the platform sets its own", () => {
   const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");

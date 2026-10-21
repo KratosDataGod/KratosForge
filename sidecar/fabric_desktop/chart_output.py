@@ -15,6 +15,7 @@ the cell, as the figure does when it's a cell's last line.
 from __future__ import annotations
 
 import importlib.abc
+import inspect
 import json
 import os
 import sys
@@ -126,7 +127,44 @@ def _patch_plotly(module: Any) -> None:
         module.renderers.default = "kratosforge"
 
 
-_PATCHES: dict[str, Callable[[Any], None]] = {SHOWING: _patch, ALTAIR: _patch_altair, PLOTLY_RENDERERS: _patch_plotly}
+class _NoBrowser:
+    """plotly's ``webbrowser`` in the engine: ``write_html(auto_open=True)`` opens nothing."""
+
+    @staticmethod
+    def open(*_args: Any, **_kwargs: Any) -> bool:
+        return False
+
+
+def _patch_plotly_html(module: Any) -> None:
+    module.webbrowser = _NoBrowser
+
+
+def _patch_plotly_offline(module: Any) -> None:
+    """``plotly.offline.plot(fig)`` writes its file as asked, and the browser tab it would open
+    (auto_open, on by default) becomes the cell's output, as ``iplot`` draws."""
+    original = module.plot
+    if getattr(original, "_fabric_desktop", False):
+        return
+    signature = inspect.signature(original)
+
+    def plot(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        given = signature.bind(*args, **kwargs)
+        given.apply_defaults()
+        if given.arguments["output_type"] == "file" and given.arguments["auto_open"]:
+            with open(result, encoding="utf-8") as f:
+                page = f.read()
+            _draw(lambda: {"type": "html", "html": page}, "plotly.offline.plot()")
+        return result
+
+    plot._fabric_desktop = True  # type: ignore[attr-defined]
+    plot.__doc__ = original.__doc__
+    module.plot = plot
+
+
+_PATCHES: dict[str, Callable[[Any], None]] = {
+    SHOWING: _patch, ALTAIR: _patch_altair, PLOTLY_RENDERERS: _patch_plotly,
+    "plotly.io._html": _patch_plotly_html, "plotly.offline.offline": _patch_plotly_offline}
 
 
 class _PatchOnImport(importlib.abc.MetaPathFinder):

@@ -54,8 +54,13 @@ from .optimize_service import OptimizeMixin
 from .tenant_history_service import TenantHistoryMixin
 from .capacity_history_service import CapacityHistoryMixin
 from .validate_service import ValidateMixin
+from .notebook_resources_service import NotebookResourcesMixin
 from .notebook_files_service import NotebookFilesMixin
+from .notebook_formats_service import NotebookFormatsMixin
+from .notebook_versions_service import NotebookVersionsMixin
+from . import notebook_versions
 from .progress_service import ProgressMixin
+from .comments_service import CommentsMixin
 from .kernel_proc import ProcessKernel
 from .notebook import Kernel, NotebookShelf, check_watches
 from .onelake import FileStore, TableCatalog
@@ -72,7 +77,7 @@ def data_dir() -> Path:
     return Path(base) / "FabricDesktop"
 
 
-class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, ProgressMixin):
+class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, IncidentMixin, PlatformNotifyMixin, WorkloadMixin, ShortcutMixin, GovernanceMixin, PlatformMixin, MetaMixin, CloudMixin, DataOpsMixin, EstateMixin, ScheduleMixin, XRayMixin, PreviewMixin, SideBySideMixin, ProveMixin, IntegrationsMixin, LocalDataMixin, UsageMixin, RiskMixin, OptimizeMixin, TenantHistoryMixin, CapacityHistoryMixin, ValidateMixin, NotebookFilesMixin, NotebookVersionsMixin, NotebookFormatsMixin, ProgressMixin, CommentsMixin):
     def __init__(self, client_id: str | None = None, root: Path | None = None, headless: bool = False):
         self.headless = headless  # a scheduled run: never open a sign-in window
         self._client_id = client_id  # given by the agent; otherwise from app settings
@@ -440,6 +445,7 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
                 raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
+            self.kernel.resources_dir = self._resources_dir(notebook)
             if isinstance(self.kernel, ProcessKernel):
                 return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
             return self.kernel.start(code, check_watches(watches))
@@ -465,6 +471,35 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         """A page of a cell's whole result, searched and sorted over every row."""
         try:
             return self.kernel.frame_page(frame=frame, offset=offset, limit=limit, sort=sort, desc=desc, q=q)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_chart(self, frame: str, kind: str = "bar", x: int | None = None, y: int | None = None,
+                             agg: str = "sum", series: int | None = None, bins: int = 20) -> dict[str, Any]:
+        """The Chart view's numbers, aggregated over every row of a cell's result."""
+        try:
+            return self.kernel.frame_chart(frame=frame, kind=kind, x=x, y=y, agg=agg, series=series, bins=bins)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_profile(self, frame: str) -> dict[str, Any]:
+        """Inspect: a profile of every row of a cell's result (display(df, summary=True))."""
+        try:
+            return self.kernel.frame_profile(frame=frame)
+        except (FrameGone, RuntimeError) as exc:
+            if isinstance(exc, FrameGone) or str(exc) == GONE:
+                return {"frame": frame, "gone": True, "message": GONE}
+            raise
+
+    def notebook_frame_wrangle(self, frame: str, steps: list[dict[str, Any]] | None = None, name: str = "df") -> dict[str, Any]:
+        """Data Wrangler: Polars code for the cleaning steps and a preview of it on a cell's result.
+        Reads only; the notebook changes when the person adds the code as a cell and runs it."""
+        try:
+            return self.kernel.frame_wrangle(frame=frame, steps=list(steps or []), name=name)
         except (FrameGone, RuntimeError) as exc:
             if isinstance(exc, FrameGone) or str(exc) == GONE:
                 return {"frame": frame, "gone": True, "message": GONE}
@@ -577,7 +612,8 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         if getattr(self, "_sql_runs", None) is None:
             self._sql_runs = sql_exec.SqlExecutions(
                 self.root, token=lambda: self.auth.storage_token(), audit=self._audit_sql_run,
-                schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]))
+                schemas_enabled=lambda ref: self._schemas_enabled(ref["workspace_id"], ref["lakehouse_id"]),
+                local_engine=lambda project: self.local_data.engine(project))
         return self._sql_runs
 
     def _audit_sql_run(self, action: str, outcome: str, seconds: float, params: dict[str, Any]) -> None:
@@ -586,11 +622,17 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
         tenant = (auth.signed_in_tenant() or "") if auth is not None else ""
         self.audit.record(action, outcome, seconds, params, who=who, tenant=tenant)
 
-    def sql_start(self, query: str, lakehouse_ref: dict[str, Any], dialect: str = "spark",
-                  allow: list[str] | None = None) -> dict[str, Any]:
+    def sql_start(self, query: str, lakehouse_ref: dict[str, Any] | None = None, dialect: str = "spark",
+                  allow: list[str] | None = None, target: str = "lakehouse", project: str = "",
+                  confirm: bool = False, dry_run: bool = False) -> dict[str, Any]:
         """Queue a query on this PC. ``allow`` adds "local_mutation" after the person confirmed it;
-        lakehouse writes and Fabric changes are never allowed here (sql_policy.py)."""
-        return self.sql_runs.start(query, lakehouse_ref, dialect, allow)
+        lakehouse writes and Fabric changes are never allowed here (sql_policy.py).
+
+        ``target="local"`` runs it in local data project ``project``: it may change the project's
+        own tables, and ``confirm`` lets DROP, TRUNCATE and DELETE or UPDATE without WHERE run.
+        ``dry_run`` only says what each statement would do; nothing runs."""
+        return self.sql_runs.start(query, lakehouse_ref, dialect, allow, target=target, project=project,
+                                   confirm=confirm, dry_run=dry_run)
 
     def sql_status(self, execution: str) -> dict[str, Any]:
         return self.sql_runs.status(execution)
@@ -720,8 +762,9 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def save_notebook(self, name: str, cells: list[dict[str, Any]], lakehouse_ref: dict[str, str] | None = None,
                       compute: str | None = None, workspace: dict[str, str] | None = None) -> dict[str, Any]:
         """Save the notebook, and say whether it can run on this PC and in Fabric as it now stands."""
-        return (self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
-                | {"check": compute_check(cells, lakehouse_ref)})
+        out = self.notebooks.save(name, cells, lakehouse_ref, compute, workspace)
+        self._keep_version(name)
+        return out | {"check": compute_check(cells, lakehouse_ref)}
 
     def notebook_diff(self, name: str, other: str | None = None) -> dict[str, Any]:
         """How the notebook's cells differ, by source only, from ``other`` (another notebook) or,
@@ -741,6 +784,10 @@ class Service(PipelineMixin, PipelineRunMixin, GitMixin, IncidentDeskMixin, Inci
     def rename_notebook(self, name: str, new_name: str) -> dict[str, Any]:
         out = self.notebooks.rename(name, new_name)
         self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
+        try:
+            notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
+        except OSError as exc:
+            _log.warning("Couldn't move the versions of %r: %s", name, exc)
         return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:

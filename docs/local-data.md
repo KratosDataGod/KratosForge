@@ -11,6 +11,7 @@ This is the first part of the [local data engine program](local-data-engine-plan
 - Query with DuckDB SQL, Spark SQL or [T-SQL](#t-sql) (translated with sqlglot, as on the SQL page): joins, `GROUP BY`, CTEs, window functions, `CREATE TABLE ... AS SELECT`, `INSERT`, `UPDATE`, `DELETE`, views, and temporary tables that last until the project is closed.
 - Set a memory limit, a thread count, a time limit for queries, and how much may spill to disk. With a memory limit, DuckDB writes to the project's `tmp` folder instead of running out of memory, so a query can work through more data than fits in RAM.
 - Cancel a running query.
+- Run queries as [managed SQL runs](sql-execution.md#queries-in-a-local-data-project), with pages, export and a time limit. A `DROP`, `TRUNCATE`, `CREATE OR REPLACE`, `INSERT OVERWRITE`, or `DELETE` or `UPDATE` without a `WHERE`, runs there only when confirmed; reading other files on this PC and changing database settings are refused.
 - Write [Delta tables](#delta-tables) from SQL, add to them, replace them, and read earlier versions.
 
 ## How files become tables
@@ -141,7 +142,8 @@ Only one program can write to a project's database at a time. If another KratosF
 | `local_set_types(project, table, columns)` | Read a discovered table's columns as these types |
 | `local_query(project, query, dialect, limit, timeout)` | Run SQL (`dialect`: `duckdb`, `spark` or `tsql`) and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
 | `local_explain(project, query, dialect, analyze, timeout)` | How the engine runs one query that reads: its plan, or with `analyze` the plan as it ran (see [Why is a query slow](#why-is-a-query-slow)) |
-| `local_query_start` / `local_query_status` / `local_query_cancel` | The same, in the background, for long queries |
+| `sql_start(query, target="local", project, dialect, confirm, dry_run)` | The same, in the background, as a [managed SQL run](sql-execution.md#queries-in-a-local-data-project): `sql_status`, `sql_page`, `sql_cancel` and `sql_export` follow it. `DROP`, `TRUNCATE`, `CREATE OR REPLACE`, `INSERT OVERWRITE`, and `DELETE` or `UPDATE` without `WHERE` run only with `confirm`; file reads and `SET`/`PRAGMA` are refused; `dry_run` says what would run and runs nothing |
+| `local_query_start(project, query, dialect, limit, timeout, confirm)` / `local_query_status` / `local_query_cancel` | Deprecated: forward to `sql_start` and answer as before (`state` running, done, cancelled or error, and the first `limit` rows) |
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |
 | `local_delta_history(project, table, limit)` | A Delta table's versions: time, operation, rows and files added |
 | `local_drop_delta(project, table, confirm)` | Delete one of the project's Delta tables with every version (only with `confirm`) |

@@ -26,8 +26,6 @@ _CLI = "CLI or headless agent calls the same Service method in-process (cli.py, 
 _LOCAL = "local data projects: engine only, no screen yet (docs/local-data.md, QA-017, UX-004)"
 _INCIDENTS = "incident desk stage 1: engine released, screens are stage 2 (docs/incidents.md)"
 _NOTIFY = "governance Teams notices: engine only, no settings screen yet (platform_notify_service.py)"
-_TENANT = "tenant settings history: Preview, engine only so far (docs/optimize/README.md, docs/permissions.md)"
-_CAPACITY = "capacity settings history: Preview, engine only so far; the page waits on a mockup (docs/optimize/README.md)"
 _QA017 = "kept for API compatibility, no screen yet (QA-017)"
 _LOCAL_RUNS = "sharing this PC's notebook runs with Optimize: engine only, the button waits on a mockup (docs/optimize/README.md)"
 _SUPERSEDED = "superseded on screen but kept for API compatibility (QA-017)"
@@ -87,9 +85,6 @@ NO_UI_CALLER: dict[str, str] = {
     "platform_notify_open": _NOTIFY,
     "platform_notify_save": _NOTIFY,
     "platform_notify_settings": _NOTIFY,
-    "tenant_settings_read": _TENANT,
-    "tenant_settings_history": _TENANT,
-    "capacity_settings_read": _CAPACITY,
     "governance_version": _NO_SCREEN,
     "kernel_info": _NO_SCREEN,
     "meta_git_status": _NO_SCREEN,

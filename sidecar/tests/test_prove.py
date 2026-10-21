@@ -23,6 +23,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, proof, prove_service, verify
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.proof_runtime import ProofRuntime, ReadOnlyTable
 from fabric_desktop.receipts import receipt_id
 from fabric_desktop.server import handle
@@ -484,3 +485,22 @@ def test_verify_whole_rows_counts_duplicates_and_reports_levels():
     ts = verify.compare(pa.table({"t": pa.array([1_000_000_123], pa.timestamp("us"))}),
                         pa.table({"t": pa.array([1_000_000_999], pa.timestamp("us"))}), {"timestamps": "ms"})
     assert ts["result"] == "match"
+
+
+def test_a_proof_uses_its_own_notebooks_kernel_not_the_open_one(svc):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(svc)
+    cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
+    started = call(svc, "prove_start", **payload(cells))
+    for _ in range(200):
+        if call(svc, "prove_status", id=started["id"])["pc"].get("cell") == 2:
+            break
+        time.sleep(0.05)
+    assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+    assert wait(svc, started["id"])["state"] == "cancelled"
+    assert svc.sessions.kernel("Order values").notebook_name == "Order values"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook kept its variables

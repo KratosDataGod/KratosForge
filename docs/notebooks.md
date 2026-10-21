@@ -100,6 +100,7 @@ from pyspark.sql import functions as F
   `spark.read.option("versionAsOf", 3).table("dbo.sales")` (or `"timestampAsOf", "2026-10-20 13:00:00"`, in UTC), the same options on `spark.read.format("delta").load("Tables/dbo/sales")`, `SELECT * FROM dbo.sales VERSION AS OF 3`, `TIMESTAMP AS OF '...'` and `dbo.sales@v3` in SQL (also on the SQL query page), and `lakehouse.read_table("dbo.sales", version=3)`. `DESCRIBE HISTORY dbo.sales`, `lakehouse.table_history("dbo.sales")` and `from delta.tables import DeltaTable` (`forName`, `forPath`, `history`, `detail`, `toDF`) list a table's versions from its Delta log. Reading uses OneLake, so it uses capacity like any other read. `RESTORE` and `DeltaTable` changes (`restoreToVersion`, `merge`, `update`, `delete`, `vacuum`, `optimize`) run in Fabric; on this PC, read the old version and overwrite the table with it if you mean to. A version removed by `VACUUM` can't be read.
 - **Structured streaming (Preview)** runs as `trigger(availableNow=True)`, the incremental-load kind: each run takes what arrived since the last one, writes it, and stops. `spark.readStream.table("dbo.bronze")` (or `format("delta").load("Tables/...")`) takes the rows appended since the version it last read; a commit that updated or deleted rows stops the stream unless you set `skipChangeCommits`, which skips that commit whole, and OPTIMIZE commits are passed over, as in Fabric. `spark.readStream.format("csv"|"json"|"parquet").load("Files/landing/")` takes files it hasn't seen. `writeStream` writes to a lakehouse table (`toTable`, appended), `foreachBatch`, `console` or `memory`, and needs `checkpointLocation`, which moves on only after the write succeeds. Checkpoints at lakehouse paths are kept on this PC, apart from Fabric's at the same path, so a stream run here and in Fabric each keep their own place. Other triggers run as availableNow here and say so; continuous triggers, `outputMode("complete")` and `outputMode("update")` (they keep a running result), joins of two streams, Kafka or Event Hubs sources and Delta sources with deletion vectors run in Fabric. Writes go to OneLake like any table write, so they use capacity.
 - **Not available on this PC:** RDDs, UDFs, continuous streams and Kafka or Event Hubs sources, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
+- **Pinned against engine upgrades.** `sidecar/tests/test_spark_local.py` checks the answers of DuckDB's own PySpark calls and of the everyday calls KratosForge adds on top (windows, `agg`, `explode`, `fillna`, `pivot` and the like), so a DuckDB upgrade that changes one fails a test before it reaches a notebook.
 
 **`notebookutils` (and `mssparkutils`)** cover the areas below. Rows marked Preview read Fabric live as you and haven't been run on a tenant yet.
 
@@ -161,6 +162,19 @@ With that setting on, two more Preview settings appear under it.
 - **Notebook memory limit.** If the notebook's process uses more memory than this, it's ended, so one notebook can't slow the whole PC. Variables are cleared and every cell is marked stale. Memory is checked every second, so a sudden spike can briefly go past the limit before it's seen. KratosForge counts private bytes on Windows and resident memory on Linux, for that process only; processes it starts itself aren't counted.
 
 Your organization can set either limit in the policy file ([azure-setup.md](azure-setup.md)); Settings then shows it as set by your organization.
+
+### Notebook sessions (Preview)
+
+Each notebook has a session of its own, like a Fabric or Databricks session. With **Run notebooks in their own process** on, every notebook you run gets its own Python process: its own variables and its own `spark`, so cells in several notebooks run at the same time. Opening another notebook while a cell runs leaves it running; open the notebook again to see its live output. Cells you haven't changed keep their last output when you come back, since their session still has the variables they made. **Cancel**, **Restart kernel** and **Stop** act on the open notebook's session only.
+
+With the setting off, cells run inside the app's engine, which has one attached lakehouse and one `spark` session, so every notebook shares one kernel and one cell runs at a time. Running a cell while another notebook's cell runs says which notebook is busy.
+
+**Sessions** in the notebook's status bar lists each session: its state, its process and memory, how many cells it has run and when it was last used, with **Open** and **Stop**. Stop ends that notebook's process and clears its variables. Two more settings appear with the setting on:
+
+- **Notebooks with a session** (default 5). Running one more notebook stops the least recently used idle session and says so. A running session is never stopped to make room.
+- **Stop idle sessions after** (default never). A session you haven't used for this long, in a notebook you don't have open, is stopped to give back memory, like Fabric's session timeout.
+
+Renaming a notebook keeps its session. Scheduled runs and Validate still run in processes of their own and never touch these sessions.
 
 ### Cell dependencies and stale outputs (Preview)
 

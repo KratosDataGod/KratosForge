@@ -1477,7 +1477,7 @@ test("a notebook's data: its own lakehouse first, then its repository's location
 test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(nb\)/);
   assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
@@ -2070,7 +2070,7 @@ function cellFxHarness(runningAll) {
   const calls = [];
   const cells = [{ id: "a" }, { id: "b" }, { id: "c" }];
   const ctx = {
-    runningAll, state: { notebook: { cells } }, calls, cells,
+    state: { notebook: { cells, runningAll } }, calls, cells,
     document: { querySelector: (sel) => ({ sel }) },
     LONG_RUN_SECONDS: 10,
     forgeEvent: (name, anchor) => { calls.push(["fx", name, anchor.sel]); return {}; },
@@ -2112,13 +2112,13 @@ test("Forge animations in the notebook: spark on success, ember on failure, noth
 test("Forge animations in the notebook: runs of several cells use the wolf track and one announcement", () => {
   const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
   const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
+  assert.match(run, /if \(!ok \|\| nb\.cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
   assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell", "on this PC"\) : null/);
   assert.match(run, /if \(code\.length > 1\) forgeEvent\("notebook\.run\.started", document\.querySelector\("button\[data-run\]"\)\);/);
-  assert.match(run, /if \(!ok \|\| cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
   assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
   assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
   assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
-  assert.match(run, /\} finally \{\n\s+runningAll = false;/);
+  assert.match(run, /\} finally \{\n\s+nb\.runningAll = false;/);
   assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
 });
 
@@ -2236,6 +2236,48 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
   assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+// Notebook sessions: each open notebook keeps its own kernel state, a running notebook keeps
+// running when another is opened, and reopening shows its outputs (kernel_sessions.py).
+test("each notebook has its own kernel state, and in-engine notebooks share one busy kernel", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (src, name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0];
+  const ctx = { ownProcess: false };
+  vm.createContext(ctx);
+  vm.runInContext(`const state = {}; const openNotebooks = new Map(); const KEPT_NOTEBOOKS = 2;
+    function kernelInOwnProcess() { return ownProcess; }
+    ${/Object\.defineProperty\(state, "kernel", \{[\s\S]*?\n\}\);\n/.exec(a)[0]}
+    ${grab(n, "kernelBusy")}${grab(a, "nbRunning")}${grab(a, "keepOutputs")}${grab(a, "rememberNotebook")}
+    this.state = state; this.open = openNotebooks; this.keepOutputs = keepOutputs; this.remember = rememberNotebook;`, ctx);
+  const nb = (name, cells = []) => ({ name, cells, kernelStatus: "idle" });
+  const A = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [{ text: "1" }], count: 3, status: "ok" }]);
+  const B = nb("B");
+  ctx.state.notebook = A; ctx.remember(A);
+  ctx.state.notebook = B; ctx.remember(B);
+  A.kernelStatus = "busy";
+  assert.strictEqual(ctx.state.kernel, "busy");  // inside the engine, one shared kernel
+  ctx.ownProcess = true;
+  assert.strictEqual(ctx.state.kernel, "idle");  // B's own session is free
+  ctx.state.kernel = "stopped";
+  assert.strictEqual(B.kernelStatus, "stopped");
+  assert.strictEqual(A.kernelStatus, "busy");
+  // Reopened from disk: unchanged cells keep their outputs; changed ones don't.
+  const again = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [] }, { cell_id: "c2", source: "y", outputs: [] }]);
+  ctx.keepOutputs(A, again);
+  assert.strictEqual(again.cells[0].count, 3);
+  assert.deepStrictEqual(again.cells[1].outputs, []);
+  // Only idle notebooks are forgotten past the limit.
+  ctx.state.notebook = nb("C"); ctx.remember(ctx.state.notebook);
+  assert.deepStrictEqual([...ctx.open.keys()], ["A", "C"]);
+  // A cell keeps polling its own notebook's session after another notebook is opened.
+  assert.match(n, /async function runCell\(cell, \{ timeLimit = true, code = null, debug = false, nb = state\.notebook \} = \{\}\)/);
+  assert.match(n, /rpc\("poll_cell", \{ version: snap\.version, wait: 0\.4, notebook: nb\.name \}\)/);
+  assert.match(n, /rpc\("interrupt_cell", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /rpc\("stop_kernel_process", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /sessionsButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>/);
 });
 
 test("breakpoints follow their lines, and the debugger keys match VS Code", () => {

@@ -146,7 +146,7 @@ class ProveMixin:
                        lakehouse_ref: dict[str, str] | None) -> dict[str, Any]:
         if self.proof_busy():
             raise RuntimeError("A proof is using the kernel. Wait for it, or cancel it.")
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
         if kernel.poll().get("status") == "running":
             raise RuntimeError("A cell is running. Save the bundle when it has finished.")
         where = {"process": hasattr(kernel, "limits")}
@@ -250,7 +250,8 @@ class ProveMixin:
     def _replay_live(self) -> dict[str, Any] | None:
         """The replay holding the kernel, while its process (with the runtime bound) still runs."""
         s = getattr(self, "_replay_session", None)
-        k = self.kernel  # type: ignore[attr-defined]
+        session = self.sessions.session(s["name"], create=False) if s else None  # type: ignore[attr-defined]
+        k = session.kernel if session else None
         if s and isinstance(k, ProcessKernel) and k.alive() and k.pid == s["pid"]:
             return s
         self._replay_session = None
@@ -287,7 +288,7 @@ class ProveMixin:
         (vacuumed or cleaned up), how this PC's environment differs from the bundle's, and what stops it."""
         info, bundle = self._replay_of(name)
         blockers, notes = [], []
-        if not isinstance(self.kernel, ProcessKernel):  # type: ignore[attr-defined]
+        if not isinstance(self.sessions.kernel(name), ProcessKernel):  # type: ignore[attr-defined]
             blockers.append("Replay runs in the notebook's own process. Turn on Run notebooks in their own process "
                             "in Settings > Preview features.")
         if not lakehouse_ref:
@@ -359,7 +360,7 @@ class ProveMixin:
         config = {"id": rid, "pins": pins, "flat": flat, "seed": 0, "seeded": [replay_key(t) for t in seeds]}
         if seeds:
             self._replay_seed(info, rid, root, options, seeds)
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = name
@@ -428,7 +429,7 @@ class ProveMixin:
             raise RuntimeError("This replay has ended (the kernel restarted). Replay again from the banner.")
         _info, bundle = self._replay_of(name)
         out = replay.outcome(bundle, int(stopped_at), status, outputs or [])
-        out["inputs"] = replay.input_differences(bundle, self.kernel.proof_log(), live["marked"])  # type: ignore[attr-defined]
+        out["inputs"] = replay.input_differences(bundle, self.sessions.kernel(name).proof_log(), live["marked"])  # type: ignore[attr-defined]
         out["sandbox"] = f"{PROOF_ROOT}/{live['id']}/pc"
         return out
 
@@ -437,7 +438,7 @@ class ProveMixin:
         the notebook becomes a normal notebook (its cells then run as any other)."""
         live = self._replay_live()
         if live and live["name"] == name:
-            kernel = self.kernel  # type: ignore[attr-defined]
+            kernel = self.sessions.kernel(name)  # type: ignore[attr-defined]
             kernel.unbind_proof()
             kernel.restart()
             self._replay_session = None
@@ -634,7 +635,7 @@ class ProveMixin:
             return {"cancelled": False}
         record["_cancel"] = True
         if record["state"] == "pc":
-            self.kernel.interrupt()  # type: ignore[attr-defined]
+            self.sessions.kernel(record["name"]).interrupt()  # type: ignore[attr-defined]
         elif record["state"] == "fabric" and record["fabric"].get("job_id"):
             f = record["fabric"]
             try:
@@ -728,7 +729,7 @@ class ProveMixin:
         pc = record["pc"]
         pc["status"] = "running"
         self._attach(lakehouse_ref)  # type: ignore[attr-defined]
-        kernel = self.kernel  # type: ignore[attr-defined]
+        kernel = self.sessions.kernel(record["name"])  # type: ignore[attr-defined]
         kernel.restart()
         kernel.notebook_name = record["name"]
         kernel.resources_dir = self._resources_dir(record["name"])  # type: ignore[attr-defined]

@@ -144,6 +144,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
 | Parameters and widgets bar | Notebook, above the cells (parameter cell values and Databricks widgets) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |
+| Notebook sessions | Notebook status bar > Sessions (a session per notebook, several running at once; limits in Settings > Preview features) |
 | Cost | Monitor |
 | Capacity status | Optimize > Cost and savings, Data mesh > Environments |
 | Measured usage import | Optimize > Cost and savings |

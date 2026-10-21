@@ -55,8 +55,8 @@ def reader(value: Any, name: str) -> str:
     if module.startswith("polars"):
         return f"{name}.collect()" if hasattr(value, "collect") else name
     if module.startswith("pandas"):
-        from .frames import keeps_index
-        return f"pl.from_pandas({name}.reset_index())" if keeps_index(value) else f"pl.from_pandas({name})"
+        from .frames import pandas_reader
+        return f"pl.from_pandas({pandas_reader(value, name)})"
     if module.startswith(("pyspark", "duckdb.experimental.spark")):
         return f"pl.from_pandas({name}.toPandas())"
     if module.startswith("duckdb"):

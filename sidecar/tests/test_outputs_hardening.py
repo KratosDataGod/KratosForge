@@ -215,9 +215,9 @@ def test_a_named_pandas_index_shows_as_columns_and_wrangler_code_keeps_it():
     plain = k.run("d[d.v > 1]")["outputs"][0]
     assert plain["columns"] == ["k", "v"]  # an unnamed index is row numbers and stays out
     clash = k.run("d.set_index('k', drop=False)")["outputs"][0]
-    assert clash["columns"] == ["k", "v"]  # the index repeats a column: shown once
+    assert clash["columns"] == ["k_index", "k", "v"]  # as Jupyter, both show; the index gets a free name
     w = k.frame_wrangle(out["frame"], [{"op": "sort", "column": "v"}], "g")
-    assert "pl.from_pandas(g.reset_index())" in w["code"]
+    assert "pl.from_pandas(g.reset_index(names=['k']))" in w["code"]
     again = k.run(w["code"])["outputs"][0]
     assert again["columns"] == ["k", "v"] and again["rows"] == [["b", 2], ["a", 4]]
 
@@ -229,3 +229,13 @@ def test_a_control_handlers_error_shows_only_the_users_frames():
     error = k.ipywidget_event(shown["model"], {"value": 5})["outputs"][0]
     assert error["ename"] == "KeyError" and 'File "<cell>"' in error["traceback"]
     assert "widgets.py" not in error["traceback"] and "notebook.py" not in error["traceback"]
+
+
+def test_multi_level_columns_show_flat_and_wrangler_code_matches():
+    k = Kernel()
+    out = k.run("import pandas as pd\nd = pd.DataFrame({'k': ['a', 'b', 'a'], 'v': [1, 2, 3]})\n"
+                "a = d.groupby('k').agg({'v': ['sum', 'max']})\na")["outputs"][0]
+    assert out["columns"] == ["k", "v_sum", "v_max"] and out["rows"] == [["a", 4, 3], ["b", 2, 2]]
+    w = k.frame_wrangle(out["frame"], [{"op": "drop", "columns": ["v_max"]}], "a")
+    again = k.run(w["code"])["outputs"][0]
+    assert again["columns"] == ["k", "v_sum"] and again["rows"] == [["a", 4], ["b", 2]]

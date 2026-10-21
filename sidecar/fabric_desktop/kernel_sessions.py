@@ -57,6 +57,7 @@ class KernelSessions:
         self._prepare = prepare  # a new notebook kernel gets its environment (environment_service)
         self._lock = threading.RLock()
         self._sessions: dict[str, Session] = {}
+        self._reaping: dict[str, Session] = {}  # taken out by reap_idle, not closed yet
         self.active = SHARED  # the notebook the app has open; callers that name none get its kernel
         self.notes: list[str] = []  # sessions stopped to make room or for being idle, for the app to show
         self.in_process = bool(process())
@@ -71,6 +72,10 @@ class KernelSessions:
         with self._lock:
             key = self._key(notebook)
             found = self._sessions.get(key)
+            if found is None and key in self._reaping:
+                # reap_idle has it out but hasn't closed it: it comes back, rather than a second
+                # session (and process) being made for the notebook.
+                found = self._sessions[key] = self._reaping.pop(key)
             if found is not None:
                 # Looking it up is using it: reap_idle, under the same lock, won't close a kernel a
                 # caller has just been handed (a proof or replay about to start a cell in it).
@@ -136,7 +141,7 @@ class KernelSessions:
         if not self.in_process:
             return
         with self._lock:
-            session = self._sessions.pop(notebook, None)
+            session = self._sessions.pop(notebook, None) or self._reaping.pop(notebook, None)
         if session is not None:
             session.kernel.close()
 
@@ -163,21 +168,16 @@ class KernelSessions:
             stale = [s for s in self._sessions.values()
                      if s.notebook != self.active and s.last_used < cutoff and s.alive() and not s.running()]
             for s in stale:
-                del self._sessions[s.notebook]
+                self._reaping[s.notebook] = self._sessions.pop(s.notebook)
         for s in stale:
-            if s.running():  # a cell started in it from a kernel a caller already held: keep it
-                with self._lock:
-                    # A lookup meanwhile may have made a new session for the notebook. One stays
-                    # (the one with a running cell) and the other is closed, not left untracked.
-                    newer = self._sessions.get(s.notebook)
-                    if newer is None or not newer.running():
-                        self._sessions[s.notebook], s = s, newer
-                if s is None:
+            running = s.running()  # a cell started from a kernel a caller already held
+            with self._lock:
+                if self._reaping.get(s.notebook) is not s:
+                    continue  # looked up meanwhile: back in use
+                del self._reaping[s.notebook]
+                if running:
+                    self._sessions[s.notebook] = s
                     continue
-                s.kernel.close()
-                self.notes.append(f"Stopped a second session for {s.notebook} that started while its idle one "
-                                  "was being stopped. Its variables were cleared.")
-                continue
             s.kernel.close()
             self.notes.append(f"Stopped the session for {s.notebook}: idle for more than {minutes:g} minutes. "
                               "Its variables were cleared.")

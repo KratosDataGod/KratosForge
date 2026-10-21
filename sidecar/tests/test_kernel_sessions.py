@@ -157,25 +157,25 @@ def test_a_session_whose_cell_starts_after_the_idle_check_is_kept():
     assert sessions.take_notes() == []
 
 
-def test_a_kept_session_and_one_made_meanwhile_leave_one_process():
+@pytest.mark.parametrize("cell_started", [False, True])
+def test_a_lookup_while_the_sweep_has_a_session_out_gets_that_session_back(cell_started):
     sessions = KernelSessions(lambda _p: FakeKernel(), lambda: True, idle_minutes=lambda: 10)
-    held = sessions.kernel("held")
-    sessions.session("held").last_used = time.time() - 3600
-    made, checks = [], []
+    held = sessions.kernel("nb")
+    sessions.session("nb").last_used = time.time() - 3600
+    handed, checks = [], []
     checked = held.poll
 
-    def poll(*args, **kwargs):  # idle at the check; then the notebook is looked up and a cell starts
+    def poll(*args, **kwargs):  # idle at the sweep's check; then, before it closes, a lookup
         checks.append(1)
         if len(checks) == 2:
-            made.append(sessions.kernel("held"))  # taken out by the sweep: a new session is made
-            held.running = True
+            handed.append(sessions.kernel("nb"))
+            held.running = cell_started
         return checked(*args, **kwargs)
 
     held.poll = poll
     sessions.reap_idle()
-    assert sessions.kernel("held") is held and not held.closed
-    assert made[0] is not held and made[0].closed  # closed, not dropped with its process running
-    assert "second session for held" in sessions.take_notes()[0]
+    assert handed == [held] and not held.closed  # the same kernel, not a second process
+    assert sessions.kernels() == [held] and sessions.take_notes() == []
 
 
 def test_settings_limits_are_checked(svc):

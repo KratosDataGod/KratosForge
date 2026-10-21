@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from .dataops_service import post_teams
 from .workloads.notify import Outbox, transaction
-from .workloads.platform_notify import OPENS, Ledger, PlatformRouting, recipients, send, validate
+from .workloads.platform_notify import OPENS, VIEWS, Ledger, PlatformRouting, recipients, send, validate
 
 METHODS = {"platform_notify", "platform_notify_settings", "platform_notify_save", "platform_notify_open"}
 SETTING = "platform_notify"
@@ -107,11 +107,21 @@ class PlatformNotifyMixin:
                          "at": dt.datetime.fromtimestamp(k["at"], dt.timezone.utc).isoformat(),
                          "title": n[2] if n else "", "whom": n[3] if n else "", "domain": n[4] if n else "",
                          "env": n[5] if n else "", "detail": n[6] if n else "",
-                         "open": json.loads(n[7]) if n else ({"view": "platform", "tab": "requests"}
-                                                             if k["kind"] == "request.waiting"
-                                                             else {"view": "shortcuts", "tab": "health"})})
+                         "open": _target(k["kind"], n[7] if n else None)})
         pending = outbox.pending()
         failed = [p for p in pending if p["attempts"]]
         return {"open": rows, "waiting": len(pending), "held": len(pending) - len(failed),
                 "error": failed[-1]["error"] if failed else "",
                 "routes": bool(self._pn_raw().get("routes"))}
+
+
+def _target(kind: str, stored: str | None) -> dict[str, str]:
+    """Where a notice opens: what was recorded, or its kind's page when that's missing or unreadable,
+    so one damaged row doesn't hide the rest."""
+    try:
+        target = json.loads(stored) if stored else None
+    except ValueError:
+        target = None
+    if isinstance(target, dict) and target.get("view") in VIEWS and target.get("tab") in VIEWS[target["view"]]:
+        return target
+    return {"view": "platform", "tab": "requests"} if kind.startswith("request.") else {"view": "shortcuts", "tab": "health"}

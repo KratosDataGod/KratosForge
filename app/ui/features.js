@@ -59,6 +59,8 @@ const PREVIEW_FEATURES = {
   optimize: "Optimize",
   itemPreview: "Item preview",
   resultViewer: "Result downloads",
+  chartBuilder: "Chart builder",
+  dataWrangler: "Data Wrangler",
   mesh: "Data mesh",
   platform: "Platform",
   sourceControl: "Source control",

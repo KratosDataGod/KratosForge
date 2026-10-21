@@ -1010,6 +1010,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .plat-stat .plat-n { font-size: 24px; font-weight: 600; }
 .plat-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
 .plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
+.plat-subdomain { padding-left: 28px; border-left: 3px solid var(--border-input); }
 @media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }
 
 /* Shortcut command center (shortcuts.js). */
@@ -1389,7 +1390,7 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
   .rollback-entity { grid-template-columns: 1fr; gap: 4px; }
 }
 
-/* Monitor > Workloads and Agents: the list with How this works beside it */
+/* Monitor > Operations views (Workloads, Queue, Incidents, Agents, Run as): the list with How this works beside it */
 .mon-how { padding: 0 14px 14px 0; flex: 1; min-height: 0; overflow: auto; }
 .mon-how .wl-panel { overflow: visible; }
 
@@ -1510,6 +1511,32 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .result-pager .more { margin: 0; }
 .result-download .sql-export-menu { min-width: 110px; }
 
+/* Notebook chart builder (charts.js) */
+.chart-title-input { height: 26px; padding: 0 8px; border: 1px solid var(--border-input); border-radius: 4px; font-size: 12px; min-width: 140px; }
+.chart-title { font-weight: 600; font-size: 14px; margin: 4px 0; }
+.chart-area { min-height: 60px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; list-style: none; padding: 0; margin: 4px 0; font-size: 12px; color: var(--text-2); }
+.chart-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.chart-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+/* Data Wrangler (Clean view, wrangler.js) */
+.wrangle-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 8px; }
+.wrangle-name { height: 24px; width: 120px; font-family: var(--mono); font-size: 12px; border: 1px solid var(--border-input); border-radius: 4px; }
+.wrangle-body { display: flex; gap: 14px; align-items: flex-start; }
+.wrangle-side { width: 250px; flex: none; display: flex; flex-direction: column; gap: 8px; }
+.wrangle-preview { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.wrangle-label { font-weight: 600; font-size: 13px; }
+.wrangle-steps { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.wrangle-step { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 4px 4px 8px; border: 1px solid var(--border); border-radius: 4px; }
+.wrangle-step > span:first-child { flex: 1; }
+.wrangle-step.bad { border-color: var(--danger); }
+.wrangle-error { flex-basis: 100%; color: var(--danger); font-size: 12px; }
+.wrangle-add { display: flex; flex-direction: column; gap: 6px; }
+.wrangle-add .chart-opt { flex-direction: column; align-items: stretch; gap: 2px; }
+.wrangle-add input, .wrangle-add select { font-size: 12px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); }
+.wrangle-code { margin: 0; padding: 8px 10px; max-height: 240px; overflow: auto; font-family: var(--mono); font-size: 12px; background: var(--accent-soft); border-radius: 4px; white-space: pre; }
+.wrangle-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.wrangle table .changed { background: var(--accent-soft); }
+@media (max-width: 760px) { .wrangle-body { flex-direction: column; } .wrangle-side { width: 100%; } }
 /* Forge animations (motion.js): one aria-hidden element per effect, transform and opacity only */
 .fx-anchor { position: relative; }
 .fx { position: absolute; pointer-events: none; }
@@ -1656,6 +1683,17 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .nbf-diff .del { color: #8a0b16; background: #fdf3f4; }
 @media (max-width: 720px) { .nbf-search { min-width: 0; width: 100%; } .nbf-hit { grid-template-columns: 1fr; } }
 
+/* Version history (notebook-versions.js) */
+.nbv { display: flex; flex-direction: column; gap: 10px; min-width: min(640px, 80vw); max-height: 62vh; overflow: auto; }
+.nbv-h { margin: 6px 0 2px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.nbv-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); }
+.nbv-what { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex: 1; min-width: 0; }
+.nbv-acts { display: flex; gap: 6px; }
+.nbv-change { display: flex; flex-direction: column; gap: 4px; }
+.nbv-diff { margin: 0; padding: 8px 10px; border-radius: 6px; background: var(--canvas); font-family: var(--mono); font-size: 12px; overflow: auto; }
+.nbv-diff span { display: block; white-space: pre; }
+.nbv-diff .add { color: #0e5c2a; }
+.nbv-diff .del { color: #b10e1c; }
 /* Profile (profile.js): tokens only, so a dark theme picks it up. Badges and the level are static;
    their motion comes from the shared Forge animations work. */
 .profile-id { display: flex; align-items: center; gap: 16px; }
@@ -1686,3 +1724,12 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .profile-report p, .profile-report ul { margin: 0; }
 .profile-report em { color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) { .profile-grid, .profile-report-layout, .profile-skills { grid-template-columns: minmax(0, 1fr); } }
+
+/* Optimize > Settings history */
+.sh-stack { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sh-stack .card { display: flex; flex-direction: column; gap: 12px; }
+.sh-last { display: flex; flex-direction: column; gap: 2px; min-width: 220px; margin-right: 24px; }
+.sh-gap { background: #fdf0dc; border-color: #e8c48a; color: #5c3200; }
+.sh-gap p { margin: 0; }
+.sh-scroll { overflow-x: auto; }
+.sh-scope { min-height: 32px; border: 1px solid var(--border-input); border-radius: 4px; background: var(--surface); font: inherit; }

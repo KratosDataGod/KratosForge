@@ -9,6 +9,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
 - **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
+- **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
 - **[Metadata framework](metadata-guide.md):** building and running medallion layers from config, step by step, with a reference for every setting.
@@ -174,6 +175,10 @@ In a notebook, **Validate** (Home or Run tab) opens a panel with two tabs. **Pro
 
 **All notebooks** (on Home, under Recent notebooks) lists every notebook, with a search that finds names and text inside cells. From there you can **Open a notebook file** from anywhere on this PC (a copy is added; the file isn't changed), **Save a copy**, **Rename**, **Move** and **Delete**, which keeps the notebook in **Recently deleted** for 30 days and turns its schedules on this PC off until you restore it. In Workspaces, **Edit on this PC** (Preview) copies a Fabric notebook here, linked to its item; Publish then shows any changes made in Fabric before it would replace them. See [Notebook files](notebook-files.md).
 
+## Notebook version history
+
+In a notebook, **Versions** (Home tab) lists the notebook's earlier versions on this PC: one per save (one every 5 minutes while you edit, kept 30 days) and named checkpoints you create. **Compare** shows the cells that changed, and **Restore** puts a version's cells back after keeping the notebook as it is now as a version. See [Notebook version history](notebook-versions.md).
+
 ## Workspaces
 
 Every Fabric workspace you can open. Workspaces has two tabs: **Your workspaces**, below, and **Fabric portal**, which is [Fabric's own portal](#fabric) inside the app.
@@ -326,6 +331,7 @@ What your Fabric estate could do better, what was fixed and what it could save, 
 - **Overview:** how many problems were found and how many improvements are open, and the top recommended improvements.
 - **Opportunities:** every recommendation with its state. **Accept**, **Mark applied**, **Mark verified**, **Dismiss...** (asks why) and **Reopen** are shared: everyone on the lakehouse sees the change, who made it and why. A dismissed recommendation stays dismissed when the problem is found again. **Show dismissed and verified** brings back the closed ones. With read-only access to the lakehouse you see everything but can't change it.
 - **Cost and savings:** the capacity each run used in Fabric in capacity units (CU hours) and what that is at your price and, for runs on this PC, what they would have used in Fabric (estimated from Fabric runs of the same table, never from their time on this PC; Not known when the table hasn't run in Fabric in the last 90 days), over 7, 30 or 90 days, by item and by environment, with each environment's share of its capacity. Each figure has its evidence (Measured, Estimated, Scenario or Unknown); click a figure to see how it was worked out. A run whose time isn't known is left out of totals, not counted as 0. **Prices** sets your price per CU hour and currency, and when the [risk check](finops/risk-check.md) warns before a run. **Capacities** lists the capacity each environment is on and whether it is running, read only and marked stale after an hour; **Refresh** reads it again. See [Capacity of each environment](finops/capacity.md). **Measured usage** (Preview) imports a CSV exported from Fabric's Capacity Metrics app as measured CU, matches its rows to this app's runs and shows them beside the estimates. It also imports an Azure Cost Management cost details or FOCUS export and shows what each capacity was billed, in CU hours and money; see [Measured usage](finops/usage-import.md). See [Capacity and cost evidence](finops/cost-evidence.md). It works without a lakehouse. Fabric's Monitoring hub isn't shown here; it's under [Monitor](#monitor). This tab used to be Monitor > Cost.
+- **Settings history** (Preview): what your capacity and tenant settings were at each read, and what changed between two reads, kept in the central lakehouse. **Read capacities now** reads the capacities you can see; **Read tenant settings (administrators)** needs a Fabric administrator. The first read asks before it creates the tables. Who changed a setting, and exactly when, aren't known. See [Settings history tab](optimize/README.md#settings-history-tab).
 
 ## Monitor
 
@@ -389,6 +395,8 @@ Ownership, criticality, tags, links and the action log are kept on this PC in `w
 
 An incident is one record per problem in an environment: a table whose last run failed, a run waiting for a decision, a late table, a missed [reliability objective](metadata-guide.md#reliability-objectives-preview), an agent that stopped reporting, or an environment that couldn't be read. The list lives in the environment's `LH_Meta`, so everyone who can read the environment, and every agent that serves it, sees the same incidents. Two people or agents seeing the same failure open one incident, not two.
 
+**How this works**, beside the list, says what the page reads, which of its actions write to the shared list, when the app posts to Teams, and that an environment that can't be read is never counted as a failing workload. It folds to its title, and the app remembers that.
+
 **The list.** Pick the environment (each chip shows its active count, or why it can't be read) and **Active**, **Mine** (incidents assigned to you) or **Resolved**. Each row shows the state (**Open**, **Acknowledged**, **Recovered**, **Cleared** or **Resolved**), the problem with its evidence and a **Likely** category for failed runs, when it opened and who opened it, how often it was seen, its owner, and whether it was escalated.
 
 **Who keeps it current.** The line above the list names the agents that check the environment on a timer (from their status records) and whether they are live. When no running agent checks it, it says so: the app checks it itself every 10 minutes while it's open, and posts new incidents to its own Teams webhook if one is set (**Settings > Notifications**). **Check *environment* now** checks at once and never posts to Teams. Agents post to the routes their admin set ([agent guide](agent.md#incidents-preview)).
@@ -435,7 +443,7 @@ It also lists its last jobs. When the agent has stopped reporting or is older th
 
 ### Queue (Preview)
 
-Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything.
+Each place work runs has its own scheduler and queue: Windows Task Scheduler on this PC, each agent's own queue, and Fabric's scheduler. Monitor > Operations > Queue puts them in one list and says, on every row, which one owns it. It never starts, stops or reorders anything. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Missed** mean.
 
 The line at the top says how each source was read. **This PC** is its schedules. **Agents** come from their status records. **Fabric** is the jobs this app started, as last checked, and the Fabric schedules that Monitor > Schedules last read. The Queue page makes no Fabric call of its own. Until Schedules has read Fabric's schedules, the line says so, with a link.
 
@@ -448,7 +456,7 @@ A run Windows Task Scheduler started on this PC isn't listed while it runs; it s
 
 ### Run as (Preview)
 
-Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server.
+Monitor > Operations > Run as lists each place your workloads run and says which identity runs them there, the credential it uses, and where data and credentials go. It only reads: nothing here signs in, renews a certificate or changes access. Renewing a certificate or fixing an identity happens in Microsoft Entra and on the agent's server. **How this works**, beside the list, says what it reads, that it changes and stores nothing, and what **Unknown** and **Not visible** mean.
 
 - **This PC** and **Fabric jobs from this app** run as you. If you are signed out, they say so. Your organization's policy is shown where it applies: how long local run results are kept, which tenants you may sign in to, and whether this app may start jobs on Fabric capacity.
 - **Each agent** runs as the identity in its `agent.toml`: a service principal, a managed identity or a user sign-in. The app never sees its ids. Agents report facts about their credential in their [status record](agent.md#status-records): a certificate's end date, and when their last token request worked or failed. An agent never publishes the credential, its path or its thumbprint. A secret's or a managed identity's expiry isn't visible to the agent, so it isn't shown. An older agent that doesn't report these facts shows **Unknown**.

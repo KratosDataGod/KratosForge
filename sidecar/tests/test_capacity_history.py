@@ -159,3 +159,26 @@ def test_not_an_admin_is_recorded_and_the_capacities_are_still_read(admin, monke
     assert out["outcome"] == "read" and out["overrides"] == "unreadable" and len(out["changes"]) == 8
     row = next(r for r in admin.lake.rows("fdcap_read").to_dicts() if r["source"].endswith("(admin)"))
     assert row["outcome"] == "unreadable" and "Fabric administrator" in row["reason"]
+
+
+# Fabric's documented response for GET /v1/admin/capacities/delegatedTenantSettingOverrides puts
+# the list under "value" (quality's #351 probe): fed through the real client, not a mocked method.
+OVERRIDES_SAMPLE = {"value": [{"id": "f51b705f-a409-4d40-9197-c5d5f349e2ef", "tenantSettings": [
+    {"settingName": "TenantSettingForCapacityDelegatedSwitch", "title": "t", "enabled": True,
+     "tenantSettingGroup": "g", "delegatedFrom": "Tenant"}]}]}
+
+
+def test_overrides_come_from_the_documented_value_list(monkeypatch):
+    from fabric_desktop.fabric_api import FabricClient
+
+    class Resp:
+        def json(self):
+            return OVERRIDES_SAMPLE
+
+    client = FabricClient(lambda: "token")
+    monkeypatch.setattr(client, "_request", lambda method, url, **kw: Resp())
+    got = client.list_capacity_tenant_setting_overrides()
+    assert [o["id"] for o in got] == ["f51b705f-a409-4d40-9197-c5d5f349e2ef"]
+    snaps, changes = ch.compare_overrides(got, [], ME, "2026-10-21T08:00:00+00:00")
+    assert [c["setting"] for c in changes] == ["override:TenantSettingForCapacityDelegatedSwitch"]
+    assert snaps[0]["scope_id"] == "f51b705f-a409-4d40-9197-c5d5f349e2ef"

@@ -330,7 +330,7 @@ class FabricClient:
     def list_capacity_tenant_setting_overrides(self) -> list[dict[str, Any]]:
         """Tenant settings each capacity overrides: [{id (capacity id), tenantSettings: [...]}].
         Fabric administrators only (Tenant.Read.All); documented as paged (continuationUri)."""
-        return self._paged("/admin/capacities/delegatedTenantSettingOverrides", key="overrides")
+        return self._paged("/admin/capacities/delegatedTenantSettingOverrides")
 
     # ---- workspaces: who has access
 

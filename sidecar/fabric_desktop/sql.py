@@ -9,6 +9,7 @@ is ``lakehouse.write_table``.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable, Iterator
 
 import duckdb
@@ -81,17 +82,59 @@ def bind_tables(statement: exp.Expression, con: duckdb.DuckDBPyConnection, views
             continue  # a table function such as range(10)
         if table is made:
             continue
-        if not table.db and (table.name.lower() in ctes or is_local(table.name)):
+        if not table.db and (table.name.lower() in ctes or is_local(table.name) or table.name in views.values()):
             continue
         # lakehouse.table_ref checks the parts: a catalog is only allowed as the lakehouse's own name.
         name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
-        key = name.lower()
+        point = _time_travel(table)  # VERSION AS OF n, TIMESTAMP AS OF '...', or Databricks' sales@v3
+        key = name.lower() if point is None else f"{name.lower()}@{point}"
         if key not in views:
             views[key] = f"__lakehouse_table_{len(views)}"
-            con.register(views[key], lakehouse.open_table(name).to_pyarrow_dataset())
+            opened = lakehouse.open_table(name) if point is None else lakehouse.open_table(name, **point_args(point))
+            con.register(views[key], opened.to_pyarrow_dataset())
         # Keep the name the query used as the alias, so sales.Country still resolves.
         alias = table.args.get("alias") or exp.TableAlias(this=exp.to_identifier(table.name))
         table.replace(exp.Table(this=exp.to_identifier(views[key]), alias=alias))
+
+
+def _time_travel(table: exp.Table) -> str | None:
+    """A table's time travel point as "v<n>" or "t<time>", taken off the table so DuckDB never
+    sees it; None to read the latest version."""
+    version = table.args.get("version")
+    if isinstance(version, exp.Version):
+        if str(version.args.get("kind", "")).upper() != "AS OF":
+            raise ValueError("Only VERSION AS OF and TIMESTAMP AS OF can be read on this PC.")
+        value = version.expression.name if isinstance(version.expression, exp.Literal) else version.expression.sql("spark")
+        table.set("version", None)
+        return f"v{value}" if str(version.this).upper() == "VERSION" else f"t{value}"
+    alias = table.args.get("alias")
+    if isinstance(alias, exp.TableAlias) and isinstance(alias.this, exp.Parameter):  # sales@v3 (Databricks)
+        value = alias.this.name
+        table.set("alias", None)
+        if re.fullmatch(r"[vV]\d+", value):
+            return f"v{value[1:]}"
+        if re.fullmatch(r"\d{14,17}", value):  # yyyyMMddHHmmssSSS
+            return f"t{value[:4]}-{value[4:6]}-{value[6:8]} {value[8:10]}:{value[10:12]}:{value[12:14]}"
+        raise ValueError(f"{table.name}@{value} isn't a version (@v3) or a time (@20261020130000000).")
+    return None
+
+
+def point_args(point: str) -> dict[str, str]:
+    return {"version": point[1:]} if point.startswith("v") else {"timestamp": point[1:]}
+
+
+def history_query(statement: exp.Expression, con: duckdb.DuckDBPyConnection,
+                  views: dict[str, str]) -> exp.Expression:
+    """DESCRIBE HISTORY t becomes a query over the table's Delta log; any other statement is
+    returned as it is."""
+    if not (isinstance(statement, exp.Describe) and str(statement.args.get("style") or "").upper() == "HISTORY"):
+        return statement
+    table = statement.this
+    name = ".".join(p for p in (table.catalog, table.db, table.name) if p)
+    view = f"__lakehouse_history_{len(views)}"
+    views[f"history:{name.lower()}:{len(views)}"] = view
+    con.register(view, lakehouse.table_history(name).to_arrow())
+    return sqlglot.parse_one(f"SELECT * FROM {view} ORDER BY version DESC", read="duckdb")
 
 
 READ_ONLY = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.Subquery)
@@ -123,13 +166,14 @@ def _execute(query: str, dialect: str, sandbox: bool) -> tuple[duckdb.DuckDBPyCo
     result = None
     statements = parse(query, dialect)
     if sandbox:
-        statements = [check_read_only(statements)]
+        statements = [check_read_only([history_query(s, con, views) for s in statements])]
         bind_tables(statements[0], con, views)
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
         result = con.execute(statements[0].sql("duckdb"))
         statements = []
     for statement in statements:
+        statement = history_query(statement, con, views)
         bind_tables(statement, con, views)
         result = con.execute(statement.sql("duckdb"))
     return con, result

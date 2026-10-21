@@ -95,14 +95,19 @@ def refused(verdicts: list[Verdict], allow: tuple[str, ...], confirmed: bool = F
 _LOCAL_CREATES = {"TABLE", "VIEW", "SCHEMA", "DATABASE", "INDEX", "SEQUENCE", "MACRO", "FUNCTION", "TYPE"}
 # Table functions that read files or other databases (DuckDB's read_csv, parquet_scan, glob, ...).
 _FILE_FUNCS = re.compile(r"^(read_?\w*|parquet_\w+|sniff_csv|glob|st_read\w*|delta_scan|iceberg_\w+|sqlite_\w+"
-                         r"|postgres_\w+|mysql_\w+|query_table)$")
+                         r"|postgres_\w+|mysql_\w+|query_table"
+                         # SQL text run inside the statement, which this check can't see into
+                         r"|query|json_execute_serialized_sql|json_deserialize_sql"
+                         # settings and environment that show this PC's paths
+                         r"|current_setting|duckdb_settings|getenv)$")
 _SPARK_FILE_FORMATS = {"csv", "parquet", "json", "text", "delta", "orc", "avro", "binaryfile"}
 # Settings of the project's database (profiling_output, extension and file access, ...) stay as the engine set them.
 _LOCAL_SETTINGS_COMMANDS = {"SET", "RESET", "PRAGMA", "LOAD", "INSTALL"}
 
 
 def _reads_files(st: exp.Expression) -> str:
-    """What in the statement reads a file or another database on this PC, or ''."""
+    """What in the statement reads a file or another database on this PC, runs SQL text this check
+    can't see into, or shows the PC's settings and paths, or ''."""
     for node in st.walk():
         if isinstance(node, exp.Func):
             name = (node.name if isinstance(node, exp.Anonymous) else node.key).lower()

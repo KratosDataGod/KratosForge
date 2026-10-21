@@ -522,6 +522,10 @@ def count(manager, table="orders"):
     ("CREATE TABLE t AS SELECT * FROM glob('C:/*')", [("fabric_mutation", False)]),
     ("SET profiling_output = 'C:/out.json'", [("fabric_mutation", False)]),
     ("PRAGMA enable_profiling", [("fabric_mutation", False)]),
+    ("SELECT * FROM query('SELECT * FROM read_csv(''C:/secret.csv'')')", [("fabric_mutation", False)]),
+    ("SELECT json_execute_serialized_sql('{}')", [("fabric_mutation", False)]),
+    ("SELECT current_setting('home_directory')", [("fabric_mutation", False)]),
+    ("SELECT * FROM duckdb_settings()", [("fabric_mutation", False)]),
 ])
 def test_local_target_classes(query, expected):
     verdicts = sql_policy.classify(sql.parse(query, "duckdb"), "local")

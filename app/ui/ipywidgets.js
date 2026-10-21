@@ -7,6 +7,7 @@
 function renderWidgetOutput(o, cell) {
   const wrap = h("div", { class: "output widget-output" });
   const redraw = () => wrap.replaceWith(renderWidgetOutput(o, cell));
+  const notebook = state.notebook?.name;  // its session's kernel holds these widgets (kernel_sessions.py)
   // One change at a time: one made while the kernel answers waits, and only the latest is sent.
   const send = (model, event) => {
     if (o.busy) { o.pending = { model, event }; return; }
@@ -18,7 +19,7 @@ function renderWidgetOutput(o, cell) {
       if (p && !o.gone) send(p.model, p.event);
       else redraw();
     };
-    rpc("notebook_ipywidget_event", { model, event, root: o.model }).then((r) => {
+    rpc("notebook_ipywidget_event", { model, event, root: o.model, notebook }).then((r) => {
       if (r.gone) o.gone = r.message;
       else {
         if (r.view) o.view = r.view;

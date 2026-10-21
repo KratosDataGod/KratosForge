@@ -3864,7 +3864,7 @@ function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
   const { node } = chartsHarness(null);
   const calls = [];
-  const ctx = { h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
+  const ctx = { state: { notebook: { name: "Sales" } }, h: node, friendlyError: String, previewMarked: (_id, n) => n, htmlFrame: (html) => node("iframe", { srcdoc: html }),
     renderOutput: (o) => node("pre", {}, o.text || o.type),
     rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
   vm.createContext(ctx);
@@ -3888,7 +3888,7 @@ test("ipywidgets controls send their change to the kernel and draw its answer", 
   const range = nodes.find((n) => n.tag === "input" && n.attrs.type === "range");
   assert.deepStrictEqual([range.attrs.min, range.attrs.max, range.attrs.value], [1, 10, 5]);
   range.attrs.onchange({ target: { value: "9" } });
-  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5" }]);
+  assert.deepStrictEqual(calls[0], ["notebook_ipywidget_event", { model: "w1", event: { value: 9 }, root: "w5", notebook: "Sales" }]);
   await new Promise((r) => setImmediate(r));
   assert.strictEqual(o.view.children[0].value, 9);
   assert.strictEqual(o.events[0].text, "clicked\n");

@@ -192,3 +192,26 @@ def test_widget_events_wait_for_a_proof_and_a_replay(tmp_path, monkeypatch):
         s.notebook_ipywidget_event(model, {"click": True})
     monkeypatch.setattr(Service, "_replay_live", lambda self: None)
     assert s.notebook_ipywidget_event(model, {"click": True})["status"] == "ok"
+
+
+
+def test_an_event_goes_to_its_notebooks_session(tmp_path, monkeypatch):
+    from fabric_desktop.service import Service
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    s = Service(root=tmp_path / "app")
+    s.save_app_settings(changes={"kernel_process": True})
+    try:
+        k = s.sessions.kernel("Sales")
+        snap = k.start("import ipywidgets as w\nb = w.Button()\nb.on_click(lambda _b: print('sales'))\nb")
+        while snap["status"] == "running":
+            snap = k.poll(snap["version"], 0.5)
+        model = _widget(snap)["model"]
+        assert s.notebook_ipywidget_event(model, {"click": True}, notebook="Sales")["outputs"] == [
+            {"type": "stream", "text": "sales\n"}]
+        # A notebook with no session has no widgets, and none is started for it.
+        assert s.notebook_ipywidget_event(model, {"click": True}, notebook="Other") == {"gone": True, "message": WIDGET_GONE}
+        assert s.sessions.session("Other", create=False) is None
+    finally:
+        for kernel in s.sessions.kernels():
+            getattr(kernel, "close", lambda: None)()

@@ -147,6 +147,45 @@ def test_python_gets_only_a_storage_token(svc):
     assert out["state"] == "failed"
 
 
+def test_python_gets_only_an_allowlisted_environment(svc, monkeypatch):
+    """HD-012 (EN-2): code an external tool runs doesn't see the engine's environment (secrets,
+    tokens) beyond what Python needs to start; PATH still gets through."""
+    import os
+    monkeypatch.setenv("FABRIC_DESKTOP_TEST_SECRET", "hd012-not-for-tools")
+    monkeypatch.setenv("PATH", os.environ.get("PATH", "") or os.defpath)
+    code = ("import os, json\n"
+            "print(json.dumps(sorted(os.environ)))\n"
+            "print(os.environ.get('FABRIC_DESKTOP_TEST_SECRET', 'absent'))\n"
+            "print(os.environ.get('PATH') == %r)" % os.environ["PATH"])
+    out = call(svc, "fabric_desktop_execute_python", code=code)
+    assert out["state"] == "succeeded", out
+    lines = "".join(o.get("text", "") for o in out["result"]["cells"][0]["outputs"]).splitlines()
+    names = json.loads(lines[0])
+    assert lines[1] == "absent"
+    assert lines[2] == "True"
+    assert "FABRIC_DESKTOP_TEST_SECRET" not in names and "PATH" in names
+    from fabric_desktop.kernel_proc import EXTERNAL_ENV_ALLOW, EXTERNAL_ENV_PREFIXES, EXTERNAL_ENV_SET
+    allowed = {n.upper() for n in EXTERNAL_ENV_ALLOW} | set(EXTERNAL_ENV_SET)
+    # Set inside the kernel by its own imports (notebook.py's matplotlib backend, polars' allocator),
+    # in the engine too, so they show up on both sides without being passed down.
+    set_by_imports = {"MPLBACKEND", "_RJEM_MALLOC_CONF"}
+    from_parent = [n for n in names if n in os.environ and n not in set_by_imports]
+    leaked = [n for n in from_parent if n.upper() not in allowed and not n.upper().startswith(EXTERNAL_ENV_PREFIXES)]
+    assert leaked == []
+
+
+def test_the_external_environment_is_the_allowlist_and_nothing_else():
+    from fabric_desktop.kernel_proc import external_environment
+    parent = {"PATH": "/bin", "Path": "/x", "SystemRoot": r"C:\Windows", "TEMP": "/t", "LC_TIME": "C", "LANG": "C.UTF-8",
+              "HOME": "/h", "USERPROFILE": "/u", "AGENT_SP_SECRET": "s", "AZURE_CLIENT_SECRET": "s",
+              "FABRIC_DESKTOP_CLIENT_ID": "c", "PYTHONPATH": "/elsewhere", "PYTHONSTARTUP": "/evil.py",
+              "https_proxy": "http://proxy:8080", "SSL_CERT_FILE": "/ca.pem", "LOCALAPPDATA": "/l", "APPDATA": "/a", "USERNAME": "me"}
+    env = external_environment(parent)
+    assert set(env) == {"PATH", "Path", "SystemRoot", "TEMP", "LC_TIME", "LANG", "HOME", "USERPROFILE",
+                        "https_proxy", "SSL_CERT_FILE", "PYTHONPATH", "PYTHONUNBUFFERED"}
+    assert env["PYTHONPATH"] != "/elsewhere" and Path(env["PYTHONPATH"], "fabric_desktop", "kernel_host.py").exists()
+
+
 def test_python_cant_write_lakehouse_tables(svc):
     code = "import pyarrow as pa\nfrom fabric_desktop import lakehouse\nlakehouse.write_table(pa.table({'a': [1]}), 'dbo.t')"
     out = call(svc, "fabric_desktop_execute_python", code=code, workspace_id="ws1", lakehouse_id="lh1")

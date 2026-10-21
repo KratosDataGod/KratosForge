@@ -22,6 +22,7 @@ import platform
 from typing import Any
 
 from .. import __version__
+from ..auth import default_cache_path
 from ..fabric_run import compute_check
 from ..redact import describe
 from . import scope
@@ -52,7 +53,10 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """Who is signed in and what this engine can do, without starting a sign-in."""
     user = tenant = None
     try:
-        user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
+        # Nobody has signed in on this PC: say so without building the sign-in client, which asks
+        # Microsoft for its endpoints. A tool calls this first, often several times at once.
+        if getattr(svc, "_auth", None) is not None or default_cache_path().exists():
+            user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
     except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
         _log.info("Not signed in: %s", describe(exc))
     return {"product": "KratosForge", "version": __version__, "python": platform.python_version(),

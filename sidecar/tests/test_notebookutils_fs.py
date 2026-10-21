@@ -326,3 +326,17 @@ def test_doubled_slashes_dont_hide_the_source(store, fs):
     with pytest.raises(ValueError, match="inside it"):
         fs.mv("Files/raw", "Files//raw/./sub")
     assert store.mutations() == []
+
+
+@pytest.mark.parametrize("dest", ["Files/one%2Etxt", "Files/%72aw/sub", "Files\\raw\\sub"])
+def test_an_encoded_onelake_path_is_the_path_it_decodes_to(store, fs, dest):
+    src = "Files/one.txt" if "one" in dest else "Files/raw"
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(src, dest, overwrite=True)
+    assert store.mutations() == []
+
+
+def test_an_encoded_local_name_is_its_own_file(tmp_path, fs):
+    (tmp_path / "a b.txt").write_text("spaced")
+    fs.mv(f"file:{tmp_path}/a b.txt", f"file:{tmp_path}/a%20b.txt")
+    assert (tmp_path / "a%20b.txt").read_text() == "spaced" and not (tmp_path / "a b.txt").exists()

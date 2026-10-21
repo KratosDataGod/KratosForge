@@ -3,6 +3,7 @@
 // so nothing reaches OneLake.
 const { test, before, after } = require("node:test");
 const assert = require("node:assert");
+const fs = require("node:fs");
 const path = require("node:path");
 const { playwright, openApp } = require("./harness.cjs");
 
@@ -38,7 +39,9 @@ test("the table pages through all 2,500 rows and sorts and searches every row", 
   await out.getByText("Rows 101 to 200 of 2,500").waitFor();
   await out.locator("th .th-sort").first().click();
   await out.locator("th .th-sort").first().click();
-  await out.getByText("Rows 1 to 100 of 2,500").waitFor();
+  // Wait for the descending page itself: the range line reads the same after the first sort.
+  await out.locator("tbody tr").first().getByText("row 2499", { exact: true }).waitFor();
+  assert.strictEqual(await range.innerText(), "Rows 1 to 100 of 2,500");
   assert.match(await out.locator("tbody tr").first().innerText(), /^2499\s+row 2499$/);
   await out.getByRole("searchbox", { name: "Search all rows" }).fill("row 1999");
   await out.getByText("Rows 1 to 1 of 1 matching").waitFor();
@@ -51,12 +54,15 @@ test("Download saves the whole result as a new file each time", { skip }, async 
   for (let i = 0; i < 2; i++) {
     await out.locator(".result-download summary").click();
     await out.getByRole("menuitem", { name: "CSV" }).click();
-    const toast = page().getByText(/^Saved 2,500 rows to /);
+    let toast = page().getByText(/^Saved 2,500 rows to /);
+    if (paths.length) toast = toast.filter({ hasNotText: paths[0] });
     await toast.last().waitFor();
     paths.push((await toast.last().innerText()).replace(/^Saved 2,500 rows to /, ""));
   }
+  // The name carries the time to the second, so the second file is either a later second or "(2)".
   assert.notStrictEqual(paths[0], paths[1]);
   assert.match(paths[0], /Viewer test result .*\.csv$/);
-  assert.match(paths[1], /\(2\)\.csv$/);
+  assert.ok(paths[1].endsWith(" (2).csv") || paths[1] > paths[0], paths[1]);
+  assert.ok(fs.existsSync(paths[0]) && fs.existsSync(paths[1]), "both files are there");
   assert.deepStrictEqual(app.errors, []);
 });

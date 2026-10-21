@@ -25,6 +25,7 @@ import base64
 import datetime as dt
 import json
 import os
+import posixpath
 import re
 import shutil
 import time
@@ -120,9 +121,10 @@ def _same_or_inside(src: str, dest: str) -> bool:
     if sw != dw:
         return False
     if sw == "local":
-        sp, dp = (os.path.normcase(os.path.abspath(p)) for p in (sp, dp))
+        # realpath follows symlinks and Windows junctions, so a link to the source counts as the source.
+        sp, dp = (os.path.normcase(os.path.realpath(p)) for p in (sp, dp))
         return dp == sp or dp.startswith(sp.rstrip(os.sep) + os.sep)
-    sp, dp = sp.rstrip("/"), dp.rstrip("/")
+    sp, dp = posixpath.normpath(sp), posixpath.normpath(dp)
     return dp == sp or dp.startswith(sp + "/")
 
 

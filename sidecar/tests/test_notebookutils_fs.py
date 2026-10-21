@@ -4,6 +4,7 @@ request is sent, and mv keeps its source until the copy is there."""
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -292,3 +293,36 @@ def test_a_windows_file_uri_names_the_drive(monkeypatch):
     assert notebookutils_local._split("file:C:/data") == ("local", "C:/data")
     monkeypatch.setattr(notebookutils_local.os, "name", "posix")
     assert notebookutils_local._split("file:///C:/data") == ("local", "/C:/data")
+
+
+def test_a_link_to_the_source_counts_as_the_source(tmp_path, fs):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    try:
+        (tmp_path / "alias.txt").symlink_to(tmp_path / "data" / "a.txt")
+        (tmp_path / "linked").symlink_to(tmp_path / "data", target_is_directory=True)
+    except OSError:
+        pytest.skip("this account can't create symlinks")
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/alias.txt", overwrite=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data", f"file:{tmp_path}/linked/sub")
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows folders links")
+def test_a_junction_to_the_source_counts_as_the_source(tmp_path, fs):
+    import subprocess
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "a.txt").write_text("only copy")
+    subprocess.run(["cmd", "/c", "mklink", "/J", str(tmp_path / "junction"), str(tmp_path / "data")],
+                   check=True, capture_output=True)
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv(f"file:{tmp_path}/data/a.txt", f"file:{tmp_path}/junction/a.txt", overwrite=True)
+    assert (tmp_path / "data" / "a.txt").read_text() == "only copy"
+
+
+def test_doubled_slashes_dont_hide_the_source(store, fs):
+    with pytest.raises(ValueError, match="inside it"):
+        fs.mv("Files/raw", "Files//raw/./sub")
+    assert store.mutations() == []

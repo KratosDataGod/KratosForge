@@ -398,3 +398,27 @@ def test_saving_keeps_metadata_other_tools_wrote(tmp_path):
     cell = raw["cells"][0]
     assert cell["id"] == "c1" and cell["metadata"] == {"microsoft": {"language": "python"}, "tags": ["parameters"],
                                                         "jupyter": {"custom": 1}}
+
+
+def test_heading_collapse_and_cell_titles_round_trip_where_jupyterlab_and_databricks_keep_them(tmp_path):
+    nb = {"nbformat": 4, "nbformat_minor": 5, "metadata": {}, "cells": [
+        {"cell_type": "markdown", "id": "m1", "source": ["# Load"], "metadata": {"jp-MarkdownHeadingCollapsed": True}},
+        {"cell_type": "code", "id": "c1", "source": ["x = 1"], "outputs": [], "execution_count": None,
+         "metadata": {"application/vnd.databricks.v1+cell": {"title": "Read sales", "nuid": "abc", "showTitle": True}}}]}
+    (tmp_path / "nb.ipynb").write_text(json.dumps(nb), encoding="utf-8")
+    store = NotebookStore(tmp_path)
+    cells = store.load("nb")["cells"]
+    assert cells[0]["meta"] == {"heading_collapsed": True}
+    assert cells[1]["meta"] == {"title": "Read sales"}
+    cells[0]["meta"] = {}                                    # expanded again
+    cells[1]["meta"] = {"title": "Read the sales table", "tags": ["load"]}
+    store.save("nb", cells)
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    assert "jp-MarkdownHeadingCollapsed" not in raw["cells"][0]["metadata"]
+    assert raw["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] == {
+        "title": "Read the sales table", "nuid": "abc", "showTitle": True}
+    cells = store.load("nb")["cells"]
+    cells[1]["meta"] = {}                                    # title removed: Databricks' own keys stay
+    store.save("nb", cells)
+    raw = json.loads(store.path("nb").read_text(encoding="utf-8"))
+    assert raw["cells"][1]["metadata"]["application/vnd.databricks.v1+cell"] == {"nuid": "abc", "showTitle": True}

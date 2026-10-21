@@ -58,7 +58,7 @@ def test_merge_star_clauses_and_not_matched_by_source(engine):
                    "t(id, name, region, spend)")
     r = engine.change_delta("MERGE INTO customers t USING full_load s ON t.Id = s.id "
                             "WHEN MATCHED THEN UPDATE SET * WHEN NOT MATCHED THEN INSERT * "
-                            "WHEN NOT MATCHED BY SOURCE THEN DELETE", dialect="spark")
+                            "WHEN NOT MATCHED BY SOURCE THEN DELETE", dialect="spark", confirm=True)
     assert (r["rows_updated"], r["rows_inserted"], r["rows_deleted"]) == (1, 1, 2)
     assert rows(engine) == [[1, "Ann", "EU", 11.0], [5, "Ed", "US", 5.0]]
 
@@ -93,6 +93,45 @@ def test_every_row_needs_confirm(engine):
     assert engine.change_delta("DELETE FROM customers", dry_run=True, confirm=True)["rows_deleted"] == 3
     assert engine.change_delta("DELETE FROM customers", confirm=True)["rows_deleted"] == 3
     assert rows(engine) == []
+
+
+def test_where_true_and_an_unconditional_by_source_change_need_confirm(engine):
+    for sql in ("DELETE FROM customers WHERE true", "UPDATE customers SET spend = 0 WHERE 1 = 1"):
+        with pytest.raises(ValueError, match="changes every row"):
+            engine.change_delta(sql)
+    engine.execute("CREATE TABLE nothing AS SELECT * FROM updates WHERE false")
+    wipe = "MERGE INTO customers t USING nothing s ON t.Id = s.id WHEN NOT MATCHED BY SOURCE THEN DELETE"
+    for run in (engine.execute, engine.change_delta):
+        with pytest.raises(ValueError, match="NOT MATCHED BY SOURCE and no condition"):
+            run(wipe)
+    with pytest.raises(ValueError, match="NOT MATCHED BY SOURCE and no condition"):
+        engine.change_delta(wipe.replace("THEN DELETE", "THEN UPDATE SET spend = 0"))
+    assert table(engine).version() == 0 and len(rows(engine)) == 3
+    # With a condition on the table's columns it says which rows, so it runs.
+    r = engine.change_delta(wipe.replace("BY SOURCE THEN", "BY SOURCE AND t.region = 'US' THEN"))
+    assert r["rows_deleted"] == 1
+    assert engine.change_delta(wipe, dry_run=True, confirm=True)["rows_deleted"] == 2
+
+
+def test_a_failed_change_commits_nothing_even_when_another_writer_did(engine, monkeypatch):
+    folder = engine.tables_dir / "dbo" / "customers"
+    real = delta_dml.apply
+
+    def other_writer_then_fail(*args, **kwargs):
+        write_deltalake(str(folder), DeltaTable(str(folder)).to_pyarrow_table().slice(0, 1), mode="append")
+        raise RuntimeError("commit conflict")
+    monkeypatch.setattr(delta_dml, "apply", other_writer_then_fail)
+    with pytest.raises(ValueError, match="failed, and nothing was committed: commit conflict"):
+        engine.change_delta("UPDATE customers SET spend = 0 WHERE id = 1")
+    assert table(engine).version() == 1 and table(engine).history(1)[0]["operation"] == "WRITE"
+    monkeypatch.setattr(delta_dml, "apply", real)
+    assert rows(engine)[0] == [1, "Ann", "EU", 10.0]  # the update didn't happen
+
+
+def test_a_dry_run_reports_the_version_a_real_run_commits(engine):
+    for sql in ("DELETE FROM customers WHERE id = 1", "DELETE FROM customers WHERE id > 100"):
+        dry = engine.change_delta(sql, dry_run=True)["version"]
+        assert dry == engine.change_delta(sql)["version"]
 
 
 def test_two_source_rows_for_one_table_row_are_refused(engine):

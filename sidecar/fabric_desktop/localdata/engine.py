@@ -897,8 +897,13 @@ class LocalEngine:
         name = f"{entry['schema']}.{entry['table']}"
         folder = Path(entry["folder"])
         if c.whole_table and not confirm:
-            raise ValueError(f"{c.kind.upper()} without WHERE changes every row of {name}. Add a WHERE, or run it "
-                             "on its own with confirm (local_change_delta).")
+            if c.kind == "merge":
+                raise ValueError(f"MERGE with WHEN NOT MATCHED BY SOURCE and no condition changes every row of "
+                                 f"{name} that the source doesn't have (all of them, if the source is empty). Add "
+                                 "a condition (WHEN NOT MATCHED BY SOURCE AND ...), or run it on its own with "
+                                 "confirm (local_change_delta).")
+            raise ValueError(f"{c.kind.upper()} without a WHERE on its columns changes every row of {name}. Add a "
+                             "WHERE, or run it on its own with confirm (local_change_delta).")
         current = DeltaTable(str(folder))
         try:
             delta_profile.check_table(current)
@@ -918,7 +923,7 @@ class LocalEngine:
             if dry_run:
                 with self._shadow(folder) as copy:
                     out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
-                out["version"] = before + 1
+                    out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
                 return out
             out.update(delta_dml.apply(c, current, source, names, props))
         except BaseException as exc:
@@ -926,7 +931,7 @@ class LocalEngine:
                 raise duckdb.InterruptException("cancelled") from None
             if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
                 raise
-            committed = not dry_run and DeltaTable(str(folder)).version() != before
+            committed = not dry_run and _committed(folder, before, query_id)
             raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
                              f"{_short(exc).split(' Detail: Python exception')[0]}") from None
         finally:
@@ -1179,6 +1184,18 @@ class ResultStream:
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
+
+
+def _committed(folder: Path, before: int, query_id: str) -> bool:
+    """Whether this change committed a version, by its own commit metadata: another writer's commit in the
+    meantime doesn't count."""
+    from deltalake import DeltaTable
+    try:
+        table = DeltaTable(str(folder))
+        return any(v.get("fabric_desktop.query") == query_id
+                   for v in table.history(max(1, table.version() - before)))
+    except Exception:  # noqa: BLE001  # silent-ok: an unreadable log means it may have committed, and the error says so
+        return True
 
 
 def _about(run: dict[str, Any], project: str) -> dict[str, Any]:

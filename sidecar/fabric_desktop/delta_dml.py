@@ -61,8 +61,13 @@ class Change:
 
     @property
     def whole_table(self) -> bool:
-        """An UPDATE or DELETE with no WHERE: it changes every row."""
-        return self.kind in ("update", "delete") and self.where is None
+        """It can change every row with nothing in the statement saying which: an UPDATE or DELETE with
+        no WHERE (or one that names no column, such as WHERE true), or a MERGE whose WHEN NOT MATCHED
+        BY SOURCE deletes or updates with no condition (with an empty source, that is every row)."""
+        if self.kind in ("update", "delete"):
+            return self.where is None or not any(True for _ in self.where.find_all(exp.Column))
+        return any(w.match == "not_matched_by_source" and (w.condition is None or
+                   not any(True for _ in w.condition.find_all(exp.Column))) for w in self.whens)
 
     def source_sql(self, dialect: str = "duckdb") -> str:
         """The rows the MERGE reads, as a query in ``dialect``."""

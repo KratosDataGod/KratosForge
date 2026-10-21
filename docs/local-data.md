@@ -90,7 +90,8 @@ DELETE FROM customers WHERE last_order < '2020-01-01';
 
 - The source (`USING`) is any query or table in the project, and can read a table as it was (`VERSION AS OF`). Column names match without regard to case, as in Spark.
 - As in Spark, a MERGE in which two source rows match the same table row is refused, because which one would win is undefined. Keep one row per key first (`QUALIFY row_number() OVER (PARTITION BY id ORDER BY updated DESC) = 1`). This is checked when `ON` is `t.col = s.col [AND ...]`.
-- An `UPDATE` or `DELETE` without `WHERE` changes every row, so it isn't run from a query. Run it with `local_change_delta` and `confirm`.
+- An `UPDATE` or `DELETE` without a `WHERE` on its columns (no `WHERE`, or one such as `WHERE true`) changes every row, and so does a `MERGE` whose `WHEN NOT MATCHED BY SOURCE` deletes or updates with no condition (every row the source lacks: all of them, if the source is empty). None of these run from a query. Run them with `local_change_delta` and `confirm`, or add a condition.
+- A change that fails commits nothing: the table stays at the version it was, even if another program committed to it in the meantime, and the error says so.
 - `local_change_delta` with `dry_run` runs the statement on a copy of the table (its log copied, its data files linked, deleted afterwards) and returns exactly how many rows it would insert, update and delete. The table isn't touched.
 - Conditions and values are run by delta-rs, so a subquery inside one (`WHERE id IN (SELECT ...)`) isn't supported. Join the rows in with `MERGE ... USING (SELECT ...)` instead. `UPDATE ... FROM` and `DELETE ... USING` are refused for the same reason.
 - `MERGE ... WITH SCHEMA EVOLUTION` (adding columns from the source) isn't supported yet.

@@ -67,6 +67,11 @@ class NotebookRunner(Protocol):
         """What the run record should say about the notebooks that ran (where they read and wrote)."""
         ...
 
+    def finish(self) -> None:
+        """Clean up after the run's notebooks (their sandbox folders). Called once every step has
+        ended and before the run reports its final state; calling it again does nothing."""
+        ...
+
 
 class RunRefused(Exception):
     """The run can't start; ``problems`` says why, activity by activity."""
@@ -276,6 +281,10 @@ class PipelineRun:
         finally:
             if timer:
                 timer.cancel()
+        if self.notebooks is not None:
+            # Every step has ended; clean up before the final state, so a caller that sees the run
+            # end also sees its folders gone. (On an error the caller stops the steps, then finishes.)
+            self.notebooks.finish()
         with self._lock:
             if self.stop_reason == "timed_out":
                 self.state = "failed"

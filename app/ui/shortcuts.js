@@ -229,20 +229,22 @@ async function renderShortcuts() {
     } else if (sp.panelTab === "readers") {
       const box = h("div", {}, h("p", { class: "muted-text" }, "Reading workspace roles and data access roles..."));
       inner.append(box);
-      rpc("shortcut_readers", { shortcut: s }).then((r) => {
-        fill(box, h("p", { class: r.gap ? "warn-text" : "" }, r.text),
+      const readers = () => rpc("shortcut_readers", { shortcut: s }).then((r) => {
+        fill(box, h("p", { class: r.gap || r.partial ? "warn-text" : "" }, r.text),
           r.readers?.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Person or group", "Reads it as", "Target"].map((x) => h("th", {}, x)))),
             h("tbody", {}, r.readers.map((p) => h("tr", {}, h("td", {}, p.name, p.email ? h("div", { class: "muted-text small" }, p.email) : null),
               h("td", { class: "small" }, p.how),
               h("td", { class: "small" }, r.mode === "connection" ? "Connection" : r.missing.some((m) => m.id === p.id) ? h("span", { class: "pill-s wrn" }, "No access") : r.target === null ? "Unknown" : h("span", { class: "pill-s pass" }, "Allowed"))))))
             : null,
           s.exposure === "connection" ? h("p", { class: "muted-text small" }, "To limit who reads this storage, add a OneLake data access role on its folder in the Access tab.") : null);
-      }).catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+      }).catch((err) => fill(box, errorPanel(err, { label: "Couldn't read who can read this shortcut", retry: readers })));
+      readers();
     } else {
       const box = h("div", {}, h("p", { class: "muted-text" }, "Reading the history..."));
       inner.append(box);
-      rpc("shortcut_changes", { days: 3650, shortcut: s.id }).then((r) => fill(box, scChangeList(r.changes, () => { sp.data = null; load(true); }, false)))
-        .catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+      const history = () => rpc("shortcut_changes", { days: 3650, shortcut: s.id }).then((r) => fill(box, scChangeList(r.changes, () => { sp.data = null; load(true); }, false)))
+        .catch((err) => fill(box, errorPanel(err, { label: "Couldn't read the history", retry: history })));
+      history();
     }
   }
 
@@ -313,7 +315,7 @@ async function renderShortcuts() {
         fill(box, h("b", {}, "Where readers and targets don't match"), h("p", { class: "muted-text" }, "Reading workspace roles and data access roles of every shortcut..."));
         return;
       }
-      const rows = sp.data.rows.map((s) => ({ s, a: sp.access.items[s.id] || {} })).filter(({ a }) => a.gap);
+      const rows = sp.data.rows.map((s) => ({ s, a: sp.access.items[s.id] || {} })).filter(({ a }) => a.gap || a.partial);
       fill(box, h("b", {}, "Where readers and targets don't match"),
         rows.length ? h("table", { class: "list" }, h("thead", {}, h("tr", {}, ["Shortcut", "Readers here", "Target lets in", "What it means", ""].map((x) => h("th", {}, x)))),
           h("tbody", {}, rows.map(({ s, a }) => h("tr", {},
@@ -346,7 +348,7 @@ async function renderShortcuts() {
   }
 
   async function scRules(box) {
-    const r = await rpc("shortcut_rules").catch((err) => ({ problems: [String(err)], rules: {}, text: {} }));
+    const r = await rpc("shortcut_rules").catch((err) => ({ problems: [`Couldn't read the shortcut rules: ${friendlyError(err).text}`], rules: {}, text: {} }));
     if (!box.isConnected) return;
     sp.rules = r;
     const rules = { ...r.rules };
@@ -370,7 +372,7 @@ async function renderShortcuts() {
       rule("connections", modeSel("connections")),
       h("label", { class: "field" }, "Allowed connections", conns),
       rule("who_creates", who),
-      h("p", { class: "muted-text small" }, "Fabric itself lets any workspace Contributor make a shortcut. These rules apply to what Fabric Desktop by KratosBI makes; anything made elsewhere that breaks them shows on Health."),
+      h("p", { class: "muted-text small" }, "Fabric itself lets any workspace Contributor make a shortcut. These rules apply to what KratosForge makes; anything made elsewhere that breaks them shows on Health."),
       r.admin ? btn("Save rules", "save", async () => {
         rules.allowed_connections = conns.value.split(",").map((x) => x.trim()).filter(Boolean);
         const out = await attempt(() => rpc("shortcut_save_rules", { rules }), "Rules not saved");
@@ -390,13 +392,16 @@ async function renderShortcuts() {
     kind.addEventListener("change", () => { sp.changeKind = kind.value; show(); });
     const show = () => fill(box, scChangeList((sp.changes || []).filter((c) => sp.changeKind === "all" || c.kind === sp.changeKind), () => { sp.data = null; sp.changes = null; load(true); }, true));
     if (sp.changes) show();
-    else rpc("shortcut_changes", { days: sp.days }).then((r) => { sp.changes = r.changes; if (box.isConnected) show(); })
-      .catch((err) => fill(box, h("p", { class: "error-text" }, String(err))));
+    else {
+      const changes = () => rpc("shortcut_changes", { days: sp.days }).then((r) => { sp.changes = r.changes; if (box.isConnected) show(); })
+        .catch((err) => fill(box, errorPanel(err, { label: "Couldn't read the changes", retry: changes })));
+      changes();
+    }
     return h("div", { class: "sc-pad sc-two" },
       h("div", { class: "card pad sc-col" }, h("div", { class: "sc-filters" }, days, kind), box),
       h("div", { class: "sc-col sc-side" },
         h("div", { class: "card pad" }, h("b", {}, "Where changes come from"),
-          h("p", { class: "small" }, "Changes made in Fabric Desktop by KratosBI are recorded with who made them, and why when it came from a request."),
+          h("p", { class: "small" }, "Changes made in KratosForge are recorded with who made them, and why when it came from a request."),
           h("p", { class: "small" }, "Fabric doesn't record who changes a shortcut. Each time this page reads the shortcuts it compares them with the last read, so changes made in Fabric or by other tools show as \"seen at scan\"."),
           h("p", { class: "muted-text small" }, "The first read of a lakehouse sets the starting point, so what was already there isn't listed as added.")),
         h("div", { class: "card pad" }, h("b", {}, "Undo and Recreate"),
@@ -459,7 +464,7 @@ function scLastChange(c) {
   if (!c) return h("span", { class: "muted-text small" }, "");
   const [, label] = SC_CHANGE[c.kind] || ["", c.kind];
   return h("div", { class: "small" }, `${label} ${relTime(c.at)}`,
-    h("div", { class: "muted-text small" }, c.how === "app" ? (c.by_user ? `by ${c.by_user}` : "in Fabric Desktop by KratosBI") : c.how === "check" ? "health check" : "seen at scan"));
+    h("div", { class: "muted-text small" }, c.how === "app" ? (c.by_user ? `by ${c.by_user}` : "in KratosForge") : c.how === "check" ? "health check" : "seen at scan"));
 }
 
 function scDefText(d) {
@@ -498,7 +503,7 @@ function scChangeList(changes, after, showWhere) {
           : c.kind === "added" ? h("div", { class: "small mono" }, `→ ${scDefText(c.after)}`)
             : c.kind === "removed" ? h("div", { class: "small mono" }, `was → ${scDefText(c.before)}`) : null,
         c.note ? h("div", { class: "muted-text small" }, c.note) : null),
-      h("span", { class: "small" }, c.how === "app" ? (c.by_user || "Fabric Desktop by KratosBI") : c.how === "check" ? "Health check" : "Seen at scan",
+      h("span", { class: "small" }, c.how === "app" ? (c.by_user || "KratosForge") : c.how === "check" ? "Health check" : "Seen at scan",
         c.how === "scan" ? h("div", { class: "muted-text small" }, "made outside the app") : null),
       ["removed", "repointed", "added"].includes(c.kind) && (c.before || c.after)
         ? btn(c.kind === "removed" ? "Recreate" : "Undo", null, () => undo(c), "tool link small") : h("span", {})));
@@ -577,13 +582,15 @@ async function shortcutDialog(mode, opts = {}) {
     timer = setTimeout(async () => {
       const l = host();
       if (!l) return;
+      // A check that couldn't run blocks like a rule would: the rules are unknown, not absent (QA-005).
       verdict = await rpc("shortcut_preflight", { workspace_id: l.workspace_id, source: src(), workspace_name: l.workspace_name,
-        target_workspace_name: targetWs() }).catch(() => ({ blocked: [], warnings: [] }));
+        target_workspace_name: targetWs() }).catch((err) => ({ blocked: [`The shortcut rules couldn't be checked: ${friendlyError(err).text}`], warnings: [], unchecked: true }));
       fill(notice,
-        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
+        verdict.blocked.length ? h("div", { class: "problems" }, h("b", {}, verdict.unchecked ? "The shortcut rules couldn't be checked"
+          : mode === "request" ? "Whoever approves this will be stopped by the rules" : "The shortcut rules stop this"), gateList(verdict.blocked)) : null,
         verdict.warnings.length ? h("div", { class: "card pad warn-box" }, gateList(verdict.warnings)) : null);
-      primary.lastChild.textContent = mode === "create" && verdict.blocked.length ? "Send as a request instead" : label;
-      primary.disabled = mode === "repoint" && verdict.blocked.length > 0;
+      primary.lastChild.textContent = mode === "create" && verdict.blocked.length && !verdict.unchecked ? "Send as a request instead" : label;
+      primary.disabled = !!verdict.unchecked || (mode === "repoint" && verdict.blocked.length > 0);
     }, 250);
   };
   const sync = () => {

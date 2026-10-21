@@ -1,6 +1,6 @@
 # Pipeline definitions (Preview)
 
-Fabric Desktop by KratosBI can read a Microsoft Fabric Data Factory pipeline definition, check it, show what is in it and convert it between formats, all on your PC. Nothing in the pipeline runs, nothing is sent to Fabric, and no capacity is used. Running pipelines on your PC is planned ([orchestration plan](plan.md)).
+KratosForge can read a Microsoft Fabric Data Factory pipeline definition, check it, show what is in it and convert it between formats, all on your PC. Nothing in the pipeline runs, nothing is sent to Fabric, and no capacity is used. Running pipelines on your PC is planned ([orchestration plan](plan.md)).
 
 This is Preview: the formats follow Microsoft's documentation and have been tested with hand-built definitions, not yet with exports from a live tenant.
 
@@ -40,6 +40,6 @@ fabric-desktop pipeline export .\pipeline-content.json --format item_definition
 
 From your own AI tool, through MCP or the local API ([connect your AI tool](../ai/README.md)): `fabric_desktop_validate_pipeline`, `fabric_desktop_inspect_pipeline` and `fabric_desktop_export_pipeline`. They take the definition as text (up to 1 MB) and need only the read metadata permission. Default values of secure string parameters are hidden.
 
-To see which activities could run on your PC and which need Fabric, see [Pipeline activity compatibility](activity-registry.md).
+To see which activities could run on your PC and which need Fabric, see [Pipeline activity compatibility](activity-registry.md). To run a pipeline's control flow on your PC, see [Running pipelines on your PC](local-runs.md).
 
 There is no pipeline page in the app yet.

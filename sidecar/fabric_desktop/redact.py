@@ -28,16 +28,24 @@ _SECRETS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"(?i)([?&]sig=)[^&\s\"'<>]+"), r"\1" + REMOVED),
     # A password or token in a URL's user info: https://user:token@dev.azure.com/...
     (re.compile(r"(?i)(\b[a-z][a-z0-9+.\-]*://)[^/\s:@\"'<>]+:[^@/\s\"'<>]+@"), r"\1" + REMOVED + "@"),
-    # A Teams incoming webhook: anyone with the address can post to the channel.
-    (re.compile(r"https://[A-Za-z0-9.\-]+\.webhook\.office\.com/[^\s\"'<>]+"), REMOVED),
+    # A Teams incoming webhook: anyone with the address can post to the channel. The legacy
+    # Office 365 connector form lives under outlook.office.com/webhook/ (or office365.com).
+    (re.compile(r"(?i)https://(?:[A-Za-z0-9.\-]+\.webhook\.office\.com/|outlook\.office(?:365)?\.com/webhook(?:b2)?/)"
+                r"[^\s\"'<>]+"), REMOVED),
+    # The same webhook's path on its own: a failed post's error names the host and the path apart
+    # ("host='x.webhook.office.com' ... url: /webhookb2/<id>@<id>/IncomingWebhook/...").
+    (re.compile(r"(?i)/webhook(?:b2)?/[^\s\"'<>/]+@[^\s\"'<>/]+/IncomingWebhook/[^\s\"'<>]+"), REMOVED),
     # Provider tokens and keys, as git/secrets.py finds them in files about to be committed.
     (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"), REMOVED),
     (re.compile(r"(?<![A-Za-z0-9_~.\-])[A-Za-z0-9_~.\-]{3}\dQ~[A-Za-z0-9_~.\-]{31,34}(?![A-Za-z0-9_~.\-])"), REMOVED),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), REMOVED),
+    # A Databricks personal access token (dapi + 32 hex, sometimes with a -N suffix).
+    (re.compile(r"\bdapi[0-9a-f]{32}(?:-\d+)?\b"), REMOVED),
     (re.compile(r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"), REMOVED),
     # name=value or "name": "value" for names that hold secrets.
-    (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|access_token|refresh_token"
-                r"|id_token|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
+    # Any *_token or *-token name, and a bare token= (access_token, sas_token, x-auth-token, token).
+    (re.compile(r"(?i)\b(client_secret|password|passwd|pwd|accountkey|sharedaccesskey|(?:[a-z0-9]+[_-])*token"
+                r"|api[_-]?key|secret)(\"?\s*[=:]\s*\"?)[^\s\"'&;,]+"), r"\1\2" + REMOVED),
 ]
 # Field names whose value is a secret, compared without case, "-" or "_" (Api-Key, client_secret).
 # "sas" only at either end (sas_url, blob_sas), so names that merely contain the letters stay.
@@ -70,3 +78,12 @@ def for_support(text: str) -> str:
     text = _WIN_USER_PATH.sub(r"\1[user]", text)
     text = _UNIX_USER_PATH.sub(r"\1[user]", text)
     return _GUID.sub("[id]", text)
+
+
+def describe(exc: BaseException) -> str:
+    """``exc`` as one log-safe line, ``TypeName: message``, with anything credential-shaped removed."""
+    try:
+        text = str(exc)
+    except Exception:  # noqa: BLE001 - an exception whose message can't be read still gets its type logged
+        text = "(message unreadable)"
+    return f"{type(exc).__name__}: {secrets(text)}" if text else type(exc).__name__

@@ -116,6 +116,7 @@ function drawXray(box, res) {
     progress,
     stats,
     withHowItWorks([
+    xrayShared(result.shared),
     result.skipped?.length ? h("p", { class: "muted-text small" }, `Couldn't read: ${result.skipped.join(", ")} (a paused capacity, or no access).`) : null,
     open.length ? h("div", { class: "row wrap xray-chips" }, chip("all", "All", open.length),
       Object.entries(XRAY_KINDS).filter(([k]) => byKind[k]).map(([k, label]) => chip(k, label, byKind[k]))) : null,
@@ -137,13 +138,27 @@ function xrayHow() {
   return howItWorks("home.xray", {
     reads: "Table logs and workspace roles in every lakehouse you can reach, and the runs this app started in Fabric. "
       + "The first scan on this PC starts by itself after you sign in; after that it reads only when you press Scan again.",
-    changes: "Scanning changes nothing. Three buttons write. Optimize starts a Fabric table maintenance job that compacts "
-      + "that table as soon as you press it. Vacuum first shows how many old files it would delete, and deletes them in "
+    changes: "Scanning changes no lakehouse it reads. When this PC is connected to a central lakehouse you can write to "
+      + "(Settings > Optimize lakehouses), each scan also adds its lakehouse and table findings there as new rows, never "
+      + "the names of people or cost estimates. Three buttons write, and each asks first. Optimize names the table, says it runs in "
+      + "Fabric and uses capacity, and shows the risk check, then starts a Fabric table maintenance job that compacts it "
+      + "and removes old files past the history the table keeps. Vacuum first shows how many old files it would delete, and deletes them in "
       + "Fabric only when you confirm, keeping the history the table promises. Adopt shows the entities it would create "
       + "and, when you confirm, writes them as files in your metadata project on this PC; the table itself isn't changed.",
-    results: "Findings are kept on this PC and only you see them. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
+    results: "Findings are kept on this PC. Lakehouse and table findings added to the central lakehouse show in "
+      + "Optimize > Opportunities, and anyone who can read that lakehouse can read them, including the workspace, "
+      + "lakehouse and table names of every workspace this scan reached; the app hides items you can't open, but "
+      + "that is a courtesy, not security. Optimize and Vacuum run as jobs in Fabric; follow them in Monitor.",
     anchor: "estate-x-ray-preview",
   });
+}
+
+// Where the scan's findings went besides this PC, when it is connected to a central lakehouse.
+function xrayShared(shared) {
+  if (!shared) return null;
+  return h("p", { class: "muted-text small" }, shared.error
+    ? `These findings weren't added to ${shared.lakehouse}: ${shared.error}`
+    : `${shared.findings} lakehouse and table finding${shared.findings === 1 ? " was" : "s were"} added to ${shared.lakehouse} for Optimize > Opportunities.`);
 }
 
 function stat(value, label, tone = "") {
@@ -159,13 +174,7 @@ function xrayFinding(f, box, res) {
   const sev = { high: ["fail", "Fix first"], medium: ["wrn", "Worth fixing"], low: ["neu", "Good to know"] }[f.severity];
   const lakehouseLink = () => openInFabric(fabricItemLink({ type: "Lakehouse", item_id: f.lakehouse_id, workspace_id: f.workspace_id }));
   const action = {
-    optimize: () => btn("Optimize", "sync", async (e) => {
-      e.target.disabled = true;
-      const r = await attempt(() => rpc("xray_optimize", { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table,
-        schema: f.schema, lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id }), "Optimize not started");
-      if (r) { f.fix = { state: "submitted", job_id: r.job_id }; toast(`Optimizing ${f.table} in Fabric. Follow it in Monitor.`); drawXray(box, res); }
-      else e.target.disabled = false;
-    }, "tool primary"),
+    optimize: () => btn("Optimize", "sync", () => optimizeDialog(f, box, res), "tool primary"),
     vacuum: () => btn("Vacuum", "delete", () => vacuumDialog(f, box, res), "tool outline"),
     open: () => btn("Open in Fabric", "publish", lakehouseLink, "tool outline"),
     access: () => btn("Review access", "person", () => { catalogPage.tab = "access"; go("onelake"); }, "tool outline"),
@@ -196,6 +205,38 @@ function xrayFix(f) {
 function vacuumArgs(f) {
   return { workspace_id: f.workspace_id, lakehouse_id: f.lakehouse_id, table: f.table, schema: f.schema,
     lakehouse_name: f.lakehouse_name, workspace_name: f.workspace_name, finding_id: f.id };
+}
+
+// Optimize one table: say what runs in Fabric and the risk check (FINOPS-004) first. Blocked has
+// no Optimize button; warnings need the box ticked when the settings ask for it.
+async function optimizeDialog(f, box, res, refresh = false) {
+  const label = f.schema ? `${f.schema}.${f.table}` : f.table;
+  const body = h("div", { class: "wl-confirm" }, h("p", { class: "muted-text" }, `Checking ${label} and its capacity...`));
+  const start = btn("Optimize", "sync", async () => {
+    if (ack && !ack.querySelector("input").checked) { toast("Tick \"I've looked at these\" first, or cancel.", true); return; }
+    start.disabled = true;
+    const r = await attempt(() => rpc("xray_optimize", vacuumArgs(f)), "Optimize not started");
+    if (!r) { start.disabled = false; return; }
+    closeDialog();
+    f.fix = { state: "submitted", job_id: r.job_id };
+    toast(`Optimizing ${label} in Fabric. Follow it in Monitor.`, false, { log: true });
+    drawXray(box, res);
+  }, "tool primary");
+  let ack = null;
+  start.disabled = true;
+  showDialog(`Optimize ${label}?`, body, [btn("Cancel", null, closeDialog, "tool outline"), start]);
+  const { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name } = vacuumArgs(f);
+  const p = await attempt(() => rpc("xray_optimize_check", { workspace_id, lakehouse_id, table, schema, lakehouse_name, workspace_name, refresh }),
+    "Could not check the table");
+  if (!p) { closeDialog(); return; }
+  ack = riskAckBox(p.risk);
+  body.replaceChildren(
+    h("p", { class: "text" }, `Optimize runs in Fabric as a table maintenance job on ${label}, and uses capacity. `,
+      "It compacts small files into larger ones with V-Order, then removes old files that no version in the last ",
+      `${p.keep_days} days reads, so Restore and time travel still reach back that far (${p.why}).`),
+    riskPanel(p.risk, { onRecheck: () => { closeDialog(); optimizeDialog(f, box, res, true); }, box: ack }));
+  start.disabled = p.risk?.result === "blocked";
+  if (start.disabled) start.title = "The risk check found something that stops this run";
 }
 
 // Vacuum one table: a dry run first says what it would delete and how much history it keeps.

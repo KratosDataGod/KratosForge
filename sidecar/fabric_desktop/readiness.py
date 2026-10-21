@@ -75,7 +75,7 @@ def _policy_check(settings: dict[str, Any]) -> dict[str, Any]:
     problems = settings.get("policy_problems") or []
     if problems:
         return _check("policy", "Your organization's settings", "warn",
-                      f"Part of the policy file was ignored: {'; '.join(problems)}", "settings", "azure-setup.md#4-push-settings-to-everyone")
+                      f"Check the policy file: {'; '.join(problems)}", "settings", "azure-setup.md#4-push-settings-to-everyone")
     text = (f"Your organization sets {', '.join(sorted(fixed))}." if fixed
             else "No organization policy on this PC; you choose your own settings.")
     return _check("policy", "Your organization's settings", "ok", text)
@@ -92,7 +92,7 @@ def write_test(store: Any, workspace_id: str, lakehouse_id: str, workspace_name:
     refusal = write_test_refusal(workspace_name)
     if refusal:
         raise PermissionError(refusal)
-    body = f"Fabric Desktop by KratosBI write test {int(time.time())}\n".encode()
+    body = f"KratosForge write test {int(time.time())}\n".encode()
     started = time.monotonic()
     try:
         store.upload(workspace_id, lakehouse_id, CHECK_FILE, body)

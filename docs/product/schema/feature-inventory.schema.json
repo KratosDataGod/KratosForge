@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/KratosDataGod/fabric-desktop/docs/product/schema/feature-inventory.schema.json",
-  "title": "Fabric Desktop by KratosBI feature inventory",
+  "$id": "https://github.com/KratosDataGod/KratosForge/docs/product/schema/feature-inventory.schema.json",
+  "title": "KratosForge feature inventory",
   "description": "The machine-readable feature registry. docs/product/FEATURE_INVENTORY.json is the source of truth; FEATURE_INVENTORY.md is rendered from it by docs/product/tools/product_data.py.",
   "type": "object",
   "required": ["schema_version", "assessed", "features"],

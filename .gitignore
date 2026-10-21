@@ -11,3 +11,7 @@ site/
 
 # setuptools build output
 build/
+
+# Output of app/tests/browser/motion-benchmark.cjs when run without an output folder
+/frames-*.png
+/motion-benchmark.json

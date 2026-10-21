@@ -5,14 +5,13 @@ import json
 import types
 
 import pytest
+from test_agent import Clock
 
 from fabric_desktop import app_settings
 from fabric_desktop.leases import LocalBackend
 from fabric_desktop.service import Service
 from fabric_desktop.workloads import evaluate, sla
 from fabric_desktop.workloads.incidents import KEY, IncidentLog, default_priority
-
-from test_agent import Clock
 
 
 def run(entity, status, run_id, started="2026-10-16T10:00:00+00:00"):
@@ -148,7 +147,7 @@ def test_the_timeline_records_every_change_and_stays_bounded(backend):
 # ---------------------------------------------------------------------------- SLA
 
 
-T0 = dt.datetime(2026, 10, 18, 6, 0, tzinfo=dt.timezone.utc)
+T0 = dt.datetime(2026, 10, 18, 6, 0, tzinfo=dt.UTC)
 
 
 def at(minutes):
@@ -224,3 +223,88 @@ def test_the_sla_policy_call_says_where_targets_come_from(svc, policy):
     policy({"incident_sla": {"P1": {"resolve_minutes": 60}}})
     out = svc.incident_sla_policy()
     assert out["source"] == "policy" and out["targets"]["P1"]["resolve_minutes"] == 60 and out["problems"] == []
+
+
+# ---------------------------------------------------------------------------- history in the central lakehouse
+
+
+@pytest.fixture
+def central(svc, tmp_path, monkeypatch):
+    from test_optimize_service import FakeFabric
+
+    from fabric_desktop.optimize.lakehouse import LocalLakehouse
+    fabric = FakeFabric()
+    monkeypatch.setattr(Service, "fabric", property(lambda self: fabric))
+    lakes = tmp_path / "onelake"
+    monkeypatch.setattr(Service, "_optimize_lake",
+                        lambda self, ws, lh, schemas=None: LocalLakehouse(lakes / ws / lh, schemas is not False))
+    return svc
+
+
+def test_history_needs_the_central_lakehouse_and_says_why(svc, policy):
+    assert svc.incidents_history_sync()["state"] == "not_connected"
+    policy({"allow_optimize_lakehouse": False})
+    assert svc.incidents_history_sync()["state"] == "off"
+    assert svc.incidents_history()["incidents"] == []
+
+
+def test_history_copies_each_change_once_and_keeps_what_the_live_list_drops(central):
+    central.optimize_create("w1", workspace_name="Platform")
+    inc = central.incident_report("dev", "Revenue looks doubled", text="token=abc123secret", priority="P2")
+    ask = central.incidents_history_sync()  # the incident tables don't exist yet: ask first
+    assert ask["state"] == "needs_confirm" and ask["message"].endswith("Confirm to continue.")
+    assert central.incidents_history()["state"] == "empty"
+    out = central.incidents_history_sync(approve=True)
+    dev = next(e for e in out["envs"] if e["env"] == "dev")
+    assert out["state"] == "copied" and out["lakehouse"] == "FabricDesktop_Central"
+    assert dev["events"] == 1 and dev["snapshots"] == 1
+    assert {e["env"]: e["state"] for e in out["envs"]}["dev"] == "copied"
+    again = next(e for e in central.incidents_history_sync()["envs"] if e["env"] == "dev")
+    assert again["events"] == 0 and again["snapshots"] == 0  # nothing new: nothing sent
+    central.incident_set_priority("dev", inc["id"], "P1", "Board meeting at 10")
+    central.incident_resolve("dev", inc["id"], "Fixed the measure")
+    dev = next(e for e in central.incidents_history_sync()["envs"] if e["env"] == "dev")
+    assert dev["events"] == 2 and dev["snapshots"] == 1
+    [row] = central.incidents_history("dev")["incidents"]
+    assert row["number"] == "INC-DEV-0001" and row["state"] == "resolved" and row["priority"] == "P1"
+    # The live list forgets it; the history doesn't.
+    log = central._incident_log("dev")
+    log.backend.replace(KEY, json.dumps({"contract": 1, "kind": "incidents", "env": "dev", "incidents": []}).encode(),
+                        log.backend.read(KEY).etag)
+    assert [r["incident_id"] for r in central.incidents_history()["incidents"]] == [inc["id"]]
+
+
+def test_history_on_a_read_only_central_lakehouse_says_why(central):
+    central.optimize_create("w1", workspace_name="Platform")
+    reg = central.optimize_registry
+    reg.add(reg.active() | {"access": "read"})
+    out = central.incidents_history_sync(approve=True)
+    assert out["state"] == "refused" and "Contributor" in out["message"]
+
+
+def test_history_rows_are_stable_across_pcs_and_redact_secrets():
+    from fabric_desktop.workloads.incident_history import event_rows, snapshot_rows
+    inc = {"id": "inc-1", "number": "INC-PROD-0001", "kind": "reported", "state": "open", "priority": "P2",
+           "opened_at": "2026-10-18T06:00:00Z", "title": "password=hunter2 in the log",
+           "events": [{"at": "2026-10-18T06:00:00Z", "by": "dana", "what": "reported", "text": "x"}]}
+    same = dict(inc, events=[dict(inc["events"][0], at="2026-10-18T06:00:00+00:00")])
+    assert event_rows([inc], "prod", "w")[0]["record_id"] == event_rows([same], "prod", "w")[0]["record_id"]
+    assert snapshot_rows([inc], "prod", "w")[0]["record_id"] == snapshot_rows([same], "prod", "w")[0]["record_id"]
+    assert "hunter2" not in snapshot_rows([inc], "prod", "w")[0]["title"]
+    moved = dict(inc, state="acknowledged", acknowledged_at="2026-10-18T06:05:00Z")
+    assert snapshot_rows([moved], "prod", "w")[0]["record_id"] != snapshot_rows([inc], "prod", "w")[0]["record_id"]
+
+
+def test_an_open_incident_acknowledged_late_counts_as_breached(svc, policy):
+    svc.incident_report("dev", "Late ack", priority="P3")  # acknowledge within 4 h, resolve within 2 days
+    log = svc._incident_log("dev")
+    doc = json.loads(log.backend.read(KEY).data)
+    opened = dt.datetime.now(dt.UTC) - dt.timedelta(hours=5)
+    iso = lambda t: t.isoformat(timespec="seconds").replace("+00:00", "Z")
+    doc["incidents"][0].update(opened_at=iso(opened), state="acknowledged",
+                               acknowledged_at=iso(opened + dt.timedelta(hours=4, minutes=10)))
+    log.backend.replace(KEY, json.dumps(doc).encode(), log.backend.read(KEY).etag)
+    board = svc.incidents_board("dev")
+    [inc] = board["incidents"]
+    assert inc["sla"]["acknowledge"]["state"] == "missed" and inc["sla"]["resolve"]["state"] == "due"
+    assert board["counts"]["breached"] == 1

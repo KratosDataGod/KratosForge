@@ -4,20 +4,25 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import threading
-from typing import Any
+from typing import Any, Callable
 
 import polars as pl
 import pyarrow as pa
 from deltalake import DeltaTable
 
-from . import maintenance, xray
+from . import app_settings, maintenance, risk, xray
+from .auth import FABRIC_SCOPES
 from .fabric_api import FabricClient
 from .fabric_run import TERMINAL
 from .meta_service import NoMetadataProject
 from .meta.templates import _columns_toml, _dtype_name
 from .onelake import FileStore, TableRef, storage_options
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 
 def _entity_name(text: str) -> str:
@@ -148,9 +153,10 @@ class XRayMixin:
                 report = self.cost_report(30)  # type: ignore[attr-defined]
                 local = {n["name"] for n in self.notebooks.list()}  # type: ignore[attr-defined]
                 result["findings"] = xray.rank(result["findings"] + xray.cost_findings(report | {"days": 30}, local))
-            except Exception:  # cost needs the run logs; the rest stands without it
-                pass
+            except Exception as exc:  # cost needs the run logs; the rest stands without it
+                _log.info("No cost findings for X-ray: %s", describe(exc))
             result["counts"] = xray.counts(result["findings"])
+            result["shared"] = self._xray_share(result, lambda: storage_token)
             self._xray_file.parent.mkdir(parents=True, exist_ok=True)
             self._xray_file.write_text(json.dumps(result, default=str), encoding="utf-8")
             state: dict[str, Any] = {"running": False}
@@ -158,6 +164,26 @@ class XRayMixin:
             state = {"running": False, "error": f"{type(exc).__name__}: {exc}"}
         with self._xray_lock:
             self._xray_state = state
+
+    def _xray_share(self, result: dict[str, Any], storage_token: Callable[[], str]) -> dict[str, Any] | None:
+        """Add the scan's lakehouse and table findings to the central lakehouse this PC is connected
+        to, so Optimize > Opportunities shows them for everyone using it (optimize.Shared). Nothing
+        when the PC isn't connected, the policy turns it off, or the lakehouse is open read-only.
+        Never fails the scan: what went wrong is kept with the result. ``storage_token`` is the one
+        the scan took on the calling thread; this runs on the scan's own thread."""
+        conn = self.central_lakehouse()  # type: ignore[attr-defined]
+        if not conn or conn.get("access") != "write":
+            return None
+        try:
+            records = xray.optimize_records(result)
+            self._xray_progress({"phase": f"Adding findings to {conn.get('lakehouse_name') or 'the central lakehouse'}",
+                                 "done": 0, "total": len(records["findings"])})
+            out = self._optimize_shared(storage_token).record_analysis(  # type: ignore[attr-defined]
+                records["run"], records["artifacts"], records["findings"], records["recommendations"])
+            return {"lakehouse": conn.get("lakehouse_name"), "findings": out["findings"]}
+        except Exception as exc:  # noqa: BLE001 - the scan stands without it
+            _log.info("X-ray findings weren't added to the central lakehouse: %s", describe(exc))
+            return {"lakehouse": conn.get("lakehouse_name"), "error": describe(exc)}
 
     def _xray_annotate(self, result: dict[str, Any], refresh: bool = True) -> dict[str, Any]:
         """Which lakehouses the metadata project already manages, and which findings have a fix under way or done."""
@@ -167,8 +193,8 @@ class XRayMixin:
             project = self._project()  # type: ignore[attr-defined]
             managed |= {(ws, layer.lakehouse) for ws, layer in _layer_workspaces(project)}
             adopted = {str(e.spec.get("source", {}).get("table", "")) for e in project.entities.values()}
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.info("No metadata project for X-ray: %s", describe(exc))
         fixes = self._xray_fixes(result.get("scanned"), refresh)
         rows = []
         for r in result.get("lakehouse_rows", []):
@@ -254,6 +280,30 @@ class XRayMixin:
                                      "table": label, "workspace_id": workspace_id, "workspace_name": workspace_name,
                                      "item_id": lakehouse_id, "job_id": job_id})
 
+    def xray_optimize_check(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
+                            lakehouse_name: str = "", workspace_name: str = "", refresh: bool = False) -> dict[str, Any]:
+        """What Optimize on one table would do, and the risk check (FINOPS-004) for starting it in
+        Fabric: the policy, the sign-in and the workspace's capacity. Read only."""
+        uri, options = self._xray_table(workspace_id, lakehouse_id, schema, table)
+        days, why = self._xray_keep_days(workspace_id, lakehouse_name, self._xray_table_days(uri, options))
+        label = f"{schema}.{table}" if schema else table
+        reads: list[str] = []
+        facts: dict[str, Any] = {
+            "workload_id": f"xray:{workspace_id}/{lakehouse_id}/{label}", "workload": f"{lakehouse_name} {label}".strip(),
+            "action": "run_in_fabric", "label": "Optimize", "env": None, "env_label": "", "where": "fabric",
+            "needs_sign_in": True, "policy": {"allow_fabric_runs": bool(app_settings.value("allow_fabric_runs"))},
+            "signed_in": bool(self._wl_token(FABRIC_SCOPES)),  # type: ignore[attr-defined]
+            "definition_errors": [], "version": None, "schedules": [], "runs": [], "measured": [], "estimated": [],
+            "reads": reads,
+        }
+        try:
+            facts["capacity"] = self._risk_capacity(workspace_id, workspace_name, refresh, reads)  # type: ignore[attr-defined]
+            assessed = risk.analyze(facts, self._risk_settings())  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the check is advice; the confirm still shows
+            assessed = {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
+                        "needs_acknowledgement": False, "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
+        return {"keep_days": days, "why": why, "risk": assessed}
+
     def xray_vacuum_preview(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,
                             lakehouse_name: str = "") -> dict[str, Any]:
         """What Vacuum would delete from one table, found by a dry run that deletes nothing: how
@@ -267,8 +317,8 @@ class XRayMixin:
             listed = FileStore(self.auth.storage_token).list(workspace_id, lakehouse_id, folder, recursive=True)  # type: ignore[attr-defined]
             sizes = {e["path"][len(folder) + 1:]: e["size"] for e in listed if not e["is_dir"]}
             size = sum(sizes.get(f, 0) for f in doomed)
-        except Exception:  # the count still stands without the sizes
-            pass
+        except Exception as exc:  # the count still stands without the sizes
+            _log.warning("Couldn't size the files a vacuum would delete: %s", describe(exc))
         return {"files": len(doomed), "bytes": size, "keep_days": days, "why": why}
 
     def xray_vacuum(self, workspace_id: str, lakehouse_id: str, table: str, schema: str | None = None,

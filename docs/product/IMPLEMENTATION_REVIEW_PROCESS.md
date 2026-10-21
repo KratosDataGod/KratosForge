@@ -1,7 +1,6 @@
 # Implementation review process
 
-How a merged or ready pull request becomes an **accepted** capability of Fabric Desktop by
-KratosBI. A merge says the code is in main. Acceptance says the product does what its backlog item
+How a merged or ready pull request becomes an **accepted** capability of KratosForge. A merge says the code is in main. Acceptance says the product does what its backlog item
 promised, for the people it was built for, with evidence. They are different decisions, made at
 different times, and **a merged PR is not automatically accepted**.
 

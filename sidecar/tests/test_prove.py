@@ -23,6 +23,7 @@ import pytest
 from deltalake import DeltaTable, write_deltalake
 
 from fabric_desktop import lakehouse, proof, prove_service, verify
+from fabric_desktop.notebook import Kernel
 from fabric_desktop.proof_runtime import ProofRuntime, ReadOnlyTable
 from fabric_desktop.receipts import receipt_id
 from fabric_desktop.server import handle
@@ -447,6 +448,29 @@ def test_the_lakehouse_module_follows_the_proof_only_off_the_rpc_thread(svc, mon
         rt.restore()
 
 
+@pytest.mark.parametrize("rules", [{}, {"keys": ["k"]}, {"limit_rows": 1}], ids=["whole rows", "keyed", "checksum"])
+def test_whole_numbers_on_one_side_and_decimals_on_the_other_compare_as_numbers(rules):
+    pc = pa.table({"k": [1, 2], "n": pa.array([1, 2], pa.int64())})
+    out = verify.compare(pc, pa.table({"k": [1, 2], "n": [1.0, 2.0]}), rules)
+    assert out["result"] == "match" and out["columns"]["widened"] == ["n (integer vs number)"]
+    assert any("compared as numbers" in x for x in out["limitations"]), "the person sees the types differ"
+    assert verify.compare(pc, pa.table({"k": [1, 2], "n": [1.0, 2.5]}), rules)["result"] == "differs"
+    assert verify.compare(pc, pa.table({"k": [1, 2], "n": ["1", "2"]}), rules)["result"] == "differs"
+
+
+NAN, INF = float("nan"), float("inf")
+
+
+@pytest.mark.parametrize("rules", [{}, {"keys": ["k"]}, {"limit_rows": 1}], ids=["whole rows", "keyed", "checksum"])
+@pytest.mark.parametrize("pc,fabric,result", [
+    ([1.0], [NAN], "differs"), ([1], [NAN], "differs"), ([1], [INF], "differs"), ([1.0], [-INF], "differs"),
+    ([INF], [-INF], "differs"), ([0], [None], "differs"), ([None], [0.0], "differs"),
+    ([NAN], [NAN], "match"), ([INF], [INF], "match"), ([None], [None], "match"), ([0], [-0.0], "match")])
+def test_nan_infinity_and_null_are_never_within_a_tolerance(rules, pc, fabric, result):
+    a = pa.table({"k": [1], "n": pa.array(pc, pa.int64() if isinstance(pc[0], int) else pa.float64())})
+    assert verify.compare(a, pa.table({"k": [1], "n": pa.array(fabric, pa.float64())}), rules)["result"] == result
+
+
 def test_verify_whole_rows_counts_duplicates_and_reports_levels():
     a = pa.table({"k": [1, 1, 2], "v": [1.0, 1.0, 2.0]})
     b = pa.table({"k": [1, 2, 2], "v": [1.0, 2.0, 2.0]})
@@ -461,3 +485,22 @@ def test_verify_whole_rows_counts_duplicates_and_reports_levels():
     ts = verify.compare(pa.table({"t": pa.array([1_000_000_123], pa.timestamp("us"))}),
                         pa.table({"t": pa.array([1_000_000_999], pa.timestamp("us"))}), {"timestamps": "ms"})
     assert ts["result"] == "match"
+
+
+def test_a_proof_uses_its_own_notebooks_kernel_not_the_open_one(svc):
+    # A kernel per notebook (as with notebooks in their own process), in the engine to keep it quick.
+    svc.sessions.in_process, svc.sessions._make = True, lambda _process: Kernel()
+    svc.sessions.active = "Other"
+    other = svc.sessions.kernel("Other")
+    other.run("y = 1")
+    svc.fake = FakeFabric(svc)
+    cells = CELLS[:2] + [{"type": "code", "source": "import time\nfor _ in range(400):\n    time.sleep(0.05)"}] + CELLS[3:]
+    started = call(svc, "prove_start", **payload(cells))
+    for _ in range(200):
+        if call(svc, "prove_status", id=started["id"])["pc"].get("cell") == 2:
+            break
+        time.sleep(0.05)
+    assert call(svc, "prove_cancel", id=started["id"]) == {"cancelled": True}
+    assert wait(svc, started["id"])["state"] == "cancelled"
+    assert svc.sessions.kernel("Order values").notebook_name == "Order values"
+    assert other.run("print(y)")["outputs"][0]["text"] == "1\n"  # the open notebook kept its variables

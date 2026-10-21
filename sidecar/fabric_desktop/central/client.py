@@ -14,6 +14,7 @@ from typing import Any, Callable
 import requests
 
 from . import core
+from .. import http_session
 
 API = "https://api.fabric.microsoft.com/v1"
 # Business keys per call. Each call's request stays well under User Data Functions' payload limit.
@@ -72,7 +73,7 @@ class FabricPlatform:
     def __init__(self, token: Callable[[], str], workspace_id: str, functions_id: str,
                  session: requests.Session | None = None):
         self._token, self.workspace_id, self.functions_id = token, workspace_id, functions_id
-        self._http = session or requests.Session()
+        self._http = session or http_session.session()
 
     def url(self, op: str) -> str:
         return f"{API}/workspaces/{self.workspace_id}/userDataFunctions/{self.functions_id}/functions/{op}/invoke"
@@ -87,7 +88,7 @@ class FabricPlatform:
             raise PermissionError("The platform refused this call. Ask your platform team for at least Viewer "
                                   "on the Platform workspace and Execute on UDF_Platform.")
         if resp.status_code == 404:
-            raise LookupError("UDF_Platform wasn't found. Open Settings > Platform and check the platform's workspace.")
+            raise LookupError("UDF_Platform wasn't found. Open Platform > Settings, then check the platform's workspace.")
         body = resp.json() if resp.content else {}
         if resp.status_code >= 400 or body.get("status") == "Failed" or body.get("errors"):
             errors = body.get("errors") or [{"message": resp.text[:300]}]

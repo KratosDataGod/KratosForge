@@ -162,6 +162,10 @@ class KernelSessions:
             for s in stale:
                 del self._sessions[s.notebook]
         for s in stale:
+            if s.running():  # a cell started in it from a kernel a caller already held: keep it
+                with self._lock:
+                    self._sessions.setdefault(s.notebook, s)
+                continue
             s.kernel.close()
             self.notes.append(f"Stopped the session for {s.notebook}: idle for more than {minutes:g} minutes. "
                               "Its variables were cleared.")

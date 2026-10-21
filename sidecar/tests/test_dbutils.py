@@ -69,7 +69,7 @@ def test_task_values_flow_between_run_multiple_activities(tmp_path):
     out = k.run("r = notebookutils.notebook.runMultiple({'activities': ["
                 "{'name': 'load', 'path': 'load'}, {'name': 'report', 'path': 'report', 'dependencies': ['load']}]})\n"
                 "r['report']['exitVal']")
-    assert _last(out) == "42"
+    assert _last(out) == "'42'"
     # Run by hand, Databricks answers with debugValue.
     assert _last(k.run("dbutils.jobs.taskValues.get('load', 'rows', debugValue=7)")) == "7"
     out = k.run("dbutils.jobs.taskValues.get('load', 'rows')")

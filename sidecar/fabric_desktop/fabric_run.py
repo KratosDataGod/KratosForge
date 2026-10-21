@@ -238,14 +238,14 @@ def _is_sql(c: dict[str, Any]) -> bool:
 # ---- where a notebook can run
 
 # Code that needs Fabric's Spark runtime or its notebook services. On this PC, ``spark`` is
-# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials and
-# runtime, so most PySpark notebooks run here; these parts don't.
+# DuckDB's PySpark-compatible API and ``notebookutils`` covers fs, notebook, credentials,
+# runtime and variableLibrary, so most PySpark notebooks run here; these parts don't.
 _FABRIC_ONLY = [
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse|warehouse|"
-                r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
+    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse\.(create|update|delete|loadTable)|notebook\.(create|update|updateDefinition|delete)\b|warehouse|"
+                r"udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
 # Databricks' utilities: this PC has them, Fabric has notebookutils instead.
 _DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")

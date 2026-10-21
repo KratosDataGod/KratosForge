@@ -7,17 +7,22 @@ The calls Fabric notebooks use most work the same here:
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``credentials``: getToken for storage and Fabric, getSecret from Azure Key Vault as you.
 - ``runtime.context``: the notebook, lakehouse and workspace, with ``isLocal`` set.
+- ``lakehouse``: get, getWithProperties, list and listTables, read as you. Creating, changing or
+  deleting a lakehouse is done in Fabric or the app, where it is confirmed first.
 - ``nbResPath``: the notebook's resources folder on this PC; its files are in ``builtin/``
   (notebook_resources).
 - ``variableLibrary``: VL_Sources from the metadata project, with the values of the environment
-  whose workspace the attached lakehouse is in (Dev's when it is in none).
+  whose workspace the attached lakehouse is in (Dev's when it is in none); any other library is
+  read from the attached lakehouse's workspace with its active value set.
 
 What only Fabric has (mounting other storage, session settings) raises an error that says so.
 """
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import json
 import os
 import re
 import shutil
@@ -68,7 +73,7 @@ class Host:
     def __init__(self, token: Callable[[str], str] | None = None,
                  run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
                  notebook_name: Callable[[], str] | None = None,
-                 variables: Callable[[str], dict[str, str] | None] | None = None,
+                 variables: Callable[[str], dict[str, Any] | None] | None = None,
                  display: Callable[..., None] | None = None,
                  tasks: list[str] | None = None, task_values: dict[str, dict[str, Any]] | None = None,
                  resources: Callable[[], str] | None = None):
@@ -336,8 +341,19 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
         resp.raise_for_status()
         return resp.json()["value"]
 
-    return types.SimpleNamespace(getToken=getToken, getSecret=getSecret,
-                                 help=lambda *_a: print("notebookutils.credentials on this PC: getToken, getSecret"))
+    def isValidToken(token: str) -> bool:  # noqa: N802
+        """Whether ``token`` is a token that hasn't expired. Only its expiry is read; the signature
+        is checked by the service it is sent to."""
+        try:
+            payload = str(token).split(".")[1]
+            claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+            return float(claims["exp"]) > time.time()
+        except (IndexError, KeyError, TypeError, ValueError):
+            return False
+
+    return types.SimpleNamespace(getToken=getToken, getSecret=getSecret, isValidToken=isValidToken,
+                                 help=lambda *_a: print("notebookutils.credentials on this PC: getToken, getSecret, "
+                                                        "isValidToken"))
 
 
 _ACTIVITY_KEYS = {"name", "path", "args", "dependencies", "retry", "retryIntervalInSeconds", "timeoutPerCellInSeconds"}
@@ -347,7 +363,8 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
     """runMultiple's activities in an order that runs each after its dependencies. Anything the
     PC can't honor (an unknown key, a missing or circular dependency) is an error before any run."""
     if isinstance(dag, (list, tuple)):
-        return [{"name": p, "path": p, "args": {}, "dependencies": [], "retry": 0, "retry_interval": 0} for p in dag]
+        return [{"name": p, "path": p, "args": {}, "dependencies": [], "retry": 0, "retry_interval": 0,
+             "cell_timeout": None} for p in dag]
     if not isinstance(dag, dict) or not isinstance(dag.get("activities"), list):
         raise TypeError("runMultiple takes a list of notebook names or a DAG: {\"activities\": [...]}.")
     unknown = set(dag) - {"activities", "timeoutInSeconds", "concurrency"}
@@ -363,7 +380,8 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
             raise ValueError(f"Every runMultiple activity needs a path and a unique name ({name!r}).")
         out[name] = {"name": name, "path": a["path"], "args": dict(a.get("args") or {}),
                      "dependencies": list(a.get("dependencies") or []), "retry": int(a.get("retry") or 0),
-                     "retry_interval": float(a.get("retryIntervalInSeconds") or 0)}
+                     "retry_interval": float(a.get("retryIntervalInSeconds") or 0),
+                     "cell_timeout": float(a.get("timeoutPerCellInSeconds") or 0) or None}
     ordered: list[dict[str, Any]] = []
     done: set[str] = set()
     while len(ordered) < len(out):
@@ -379,10 +397,19 @@ def _activities(dag: Any) -> list[dict[str, Any]]:
 
 
 def _make_notebook(host: Host) -> types.SimpleNamespace:
-    def run(path: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None, **_kw: Any) -> Any:
+    def run(path: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None,
+            workspace: str = "", *, cell_timeout: float | None = None, **_kw: Any) -> str | None:
+        """Fabric's notebook.run: the exit value comes back as a string, as in Fabric; the run
+        stops with a TimeoutError after ``timeout_seconds`` (0: no limit), and each cell after
+        ``cell_timeout`` (runMultiple's timeoutPerCellInSeconds)."""
         if host.run_notebook is None:
             raise RuntimeError("Running other notebooks isn't available here.")
-        return host.run_notebook(path, timeout_seconds, arguments or {})
+        if workspace:
+            raise NotImplementedError("On this PC notebook.run runs notebooks on this PC; leave out workspace, "
+                                      "or run the notebook in Fabric.")
+        value = (host.run_notebook(path, timeout_seconds, arguments or {}, cell_timeout=cell_timeout)
+                 if cell_timeout else host.run_notebook(path, timeout_seconds, arguments or {}))
+        return None if value is None else str(value)
 
     def exit(value: Any = "") -> None:  # noqa: A001
         raise NotebookExit(value)
@@ -393,25 +420,28 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
         skipped. Every result is kept; if any activity failed, a RuntimeError lists them after all
         have run, with the results on its ``results`` attribute."""
         activities = _activities(dag)
-        notes = sorted({k for a in activities for k in ("timeoutPerCellInSeconds",) if a.get(k)}
-                       | {k for k in ("timeoutInSeconds", "concurrency") if isinstance(dag, dict) and dag.get(k)}
-                       | ({"timeout_seconds"} if timeout_seconds else set()))
-        if notes:
-            print(f"Note: {', '.join(notes)} isn't enforced on this PC; the notebooks run one at a time.")
+        if isinstance(dag, dict) and (dag.get("concurrency") or 0) > 1:
+            print("Note: on this PC the notebooks run one at a time, so concurrency doesn't apply.")
+        whole = (dag.get("timeoutInSeconds") if isinstance(dag, dict) else None) or timeout_seconds or 0
+        ends = time.monotonic() + whole if whole else None
         results: dict[str, Any] = {}
         failed: list[str] = []
         if not host.tasks:
             host.task_values.clear()  # a new job run starts with no task values
         for a in activities:
             blocked = [d for d in a["dependencies"] if d in failed]
-            if blocked:
-                results[a["name"]] = {"exitVal": None, "exception": f"Skipped: {', '.join(blocked)} failed."}
+            left = ends - time.monotonic() if ends is not None else None
+            if blocked or (left is not None and left <= 0):
+                why = f"{', '.join(blocked)} failed" if blocked else f"the DAG's timeoutInSeconds ({whole}) ran out"
+                results[a["name"]] = {"exitVal": None, "exception": f"Skipped: {why}."}
                 failed.append(a["name"])
                 continue
             for attempt in range(a["retry"] + 1):
+                left = ends - time.monotonic() if ends is not None else None
                 host.tasks.append(a["name"])
                 try:
-                    results[a["name"]] = {"exitVal": run(a["path"], arguments=a["args"]), "exception": None}
+                    results[a["name"]] = {"exitVal": run(a["path"], left if left is not None else 0, a["args"],
+                                                         cell_timeout=a["cell_timeout"]), "exception": None}
                     break
                 except Exception as exc:  # noqa: BLE001 - recorded per activity, as Fabric does
                     results[a["name"]] = {"exitVal": None, "exception": f"{type(exc).__name__}: {exc}"}
@@ -427,8 +457,43 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
             raise error
         return results
 
-    return types.SimpleNamespace(run=run, exit=exit, runMultiple=runMultiple,
-                                 help=lambda *_a: print("notebookutils.notebook on this PC: run, exit, runMultiple"))
+    def validateDAG(dag: Any) -> bool:  # noqa: N802
+        """Fabric's validateDAG: True when runMultiple can run the DAG; otherwise the error says why."""
+        _activities(dag)
+        return True
+
+    def find(name: str, workspaceId: str) -> dict[str, Any]:  # noqa: N803
+        ws = _workspace(workspaceId)
+        found = next((n for n in _client(host).list_notebooks(ws) if n.get("displayName") == name), None)
+        if found is None:
+            raise LookupError(f"No notebook named {name} in workspace {ws}.")
+        return found
+
+    def get(name: str, workspaceId: str = "") -> Item:  # noqa: N803
+        """A Fabric notebook item, read as you (not a notebook on this PC)."""
+        return Item(find(name, workspaceId))
+
+    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+        return [Item(n) for n in _limit(_client(host).list_notebooks(_workspace(workspaceId)), maxResults)]
+
+    def getDefinition(name: str, workspaceId: str = "", format: str = "ipynb") -> str:  # noqa: N802, N803, A002
+        """The notebook's content as Fabric stores it (ipynb JSON by default), as text."""
+        item = find(name, workspaceId)
+        parts = _client(host).get_item_definition(item["workspaceId"], item["id"], format).get("definition", {}).get("parts", [])
+        part = next((p for p in parts if p.get("path", "").startswith("notebook-content")), None)
+        if part is None:
+            raise LookupError(f"Fabric returned no content for the notebook {name}.")
+        return base64.b64decode(part["payload"]).decode("utf-8")
+
+    def item_change(*_a: Any, **_kw: Any) -> None:
+        raise NotImplementedError("Creating, changing or deleting Fabric notebook items from a notebook runs in "
+                                  "Fabric. On this PC, use Publish to OneLake, which shows what it replaces first.")
+
+    return types.SimpleNamespace(run=run, exit=exit, runMultiple=runMultiple, validateDAG=validateDAG, get=get, list=list,
+                                 getDefinition=getDefinition, create=item_change, update=item_change,
+                                 updateDefinition=item_change, delete=item_change,
+                                 help=lambda *_a: print("notebookutils.notebook on this PC: run, exit, runMultiple, "
+                                                        "validateDAG, get, list, getDefinition (Fabric items, read only)"))
 
 
 def _make_runtime(host: Host) -> types.SimpleNamespace:
@@ -454,8 +519,12 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
                 "defaultLakehouseWorkspaceId": lh.workspace_id if lh else None,
                 "currentWorkspaceId": lh.workspace_id if lh else None,
                 "currentWorkspaceName": lh.workspace_name if lh else None,
+                "currentNotebookId": None,  # a notebook on this PC isn't a Fabric item
+                "currentRunId": None,
                 "isForPipeline": False,
+                "isForInteractive": True,
                 "isReferenceRun": False,
+                "productType": "KratosForge",
                 "isLocal": True,
                 "runtimeVersion": "Fabric Desktop (this PC)",
                 "userName": os.environ.get("USERNAME") or os.environ.get("USER") or "",
@@ -464,14 +533,97 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
     return types.SimpleNamespace(context=_Context())
 
 
+class Item(dict):
+    """A Fabric item as notebookutils returns it: ``item.displayName`` or ``item["displayName"]``."""
+
+    def __getattr__(self, key: str) -> Any:
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+
+_ITEM_CHANGES = ("Creating, changing or deleting a lakehouse from a notebook runs in Fabric. On this PC, "
+                 "do it in Workspaces or Platform setup, where the change is confirmed first.")
+
+
+def _client(host: Host) -> Any:
+    """A Fabric API client that reads as you, with your sign-in."""
+    if host.token is None:
+        raise RuntimeError("Sign in first: item details come from Fabric as you.")
+    from .fabric_api import FabricClient
+    return FabricClient(lambda: host.token("pbi"))  # type: ignore[misc]
+
+
+def _workspace(workspaceId: str) -> str:  # noqa: N803
+    """The workspace given, else the attached lakehouse's, as Fabric defaults to the notebook's own."""
+    if workspaceId:
+        return workspaceId
+    lh = lakehouse._attached
+    if lh is None:
+        raise ValueError("Pass workspaceId, or attach a lakehouse: its workspace is the default, as in Fabric.")
+    return lh.workspace_id
+
+
+def _limit(items: list[Any], max_results: int) -> list[Any]:
+    """The first ``max_results`` items; a negative number means all of them, as in Fabric."""
+    return items if max_results is None or max_results < 0 else items[:max_results]
+
+
+def _make_lakehouse(host: Host) -> types.SimpleNamespace:
+    def client() -> Any:
+        return _client(host)
+
+    workspace = _workspace
+
+    def find(name: str, workspaceId: str) -> dict[str, Any]:  # noqa: N803
+        ws = workspace(workspaceId)
+        found = client().find_lakehouse(ws, name)
+        if found is None:
+            raise LookupError(f"No lakehouse named {name} in workspace {ws}.")
+        return found
+
+    def get(name: str = "", workspaceId: str = "") -> Item:  # noqa: N803
+        if not name:
+            lh = lakehouse._attached
+            if lh is None:
+                raise ValueError("Pass a lakehouse name, or attach one: the attached lakehouse is the default.")
+            name, workspaceId = lh.name, workspaceId or lh.workspace_id
+        found = find(name, workspaceId)
+        return Item({k: v for k, v in found.items() if k != "properties"})
+
+    def getWithProperties(name: str = "", workspaceId: str = "") -> Item:  # noqa: N802, N803
+        item = get(name, workspaceId)
+        return Item(client().get_lakehouse(item["workspaceId"], item["id"]))
+
+    def list(workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: A001, N803
+        return [Item(x) for x in _limit(client().list_lakehouses(workspace(workspaceId)), maxResults)]
+
+    def listTables(lakehouse: str = "", workspaceId: str = "", maxResults: int = 1000) -> list[Item]:  # noqa: N802, N803
+        item = get(lakehouse, workspaceId)
+        return [Item(t) for t in _limit(client().list_tables(item["workspaceId"], item["id"]), maxResults)]
+
+    def refuse(*_a: Any, **_kw: Any) -> None:
+        raise NotImplementedError(_ITEM_CHANGES)
+
+    def loadTable(*_a: Any, **_kw: Any) -> None:  # noqa: N802
+        raise NotImplementedError("Loading files into a table runs in Fabric. On this PC, read the file and "
+                                  "write it with saveAsTable or lakehouse.write_table.")
+
+    return types.SimpleNamespace(get=get, getWithProperties=getWithProperties, list=list, listTables=listTables,
+                                 create=refuse, update=refuse, delete=refuse, loadTable=loadTable,
+                                 help=lambda *_a: print("notebookutils.lakehouse on this PC: get, getWithProperties, "
+                                                        "list, listTables (create, update, delete run in Fabric)"))
+
+
 class VariableLibrary:
     """A variable library's values, read as attributes: ``lib.CRM_server_host``."""
 
-    def __init__(self, name: str, values: dict[str, str]):
+    def __init__(self, name: str, values: dict[str, Any]):
         object.__setattr__(self, "_name", name)
         object.__setattr__(self, "_values", dict(values))
 
-    def __getattr__(self, key: str) -> str:
+    def __getattr__(self, key: str) -> Any:
         values = object.__getattribute__(self, "_values")
         if key in values:
             return values[key]
@@ -487,15 +639,27 @@ class VariableLibrary:
 _REFERENCE = re.compile(r"^\$\(/\*\*/([^/]+)/([^)]+)\)$")
 
 
+# Set by the app on a library read from Fabric: the workspace it came from (never a variable name,
+# which starts with a letter).
+FROM_KEY = "__fd_from__"
+
+
 def _make_variable_library(host: Host) -> types.SimpleNamespace:
+    told: set[str] = set()
+
     def getLibrary(variableLibraryName: str) -> VariableLibrary:  # noqa: N802, N803
         values = host.variables(variableLibraryName) if host.variables else None
+        source = values.pop(FROM_KEY, None) if values else None
+        if source and variableLibraryName not in told:
+            told.add(variableLibraryName)
+            print(f"Read {variableLibraryName} from workspace {source}, the attached lakehouse's. In Fabric a notebook "
+                  f"reads its own workspace's library, so attach a lakehouse in that workspace to read the same values.")
         if values is None:
-            raise LookupError(f"On this PC the variable library {variableLibraryName} comes from the metadata project; "
-                              "only VL_Sources is there (Data mesh > Design > Source systems).")
+            raise LookupError(f"Attach a lakehouse to read the variable library {variableLibraryName} from its workspace. "
+                              "VL_Sources also comes from the metadata project (Data mesh > Design > Source systems).")
         return VariableLibrary(variableLibraryName, values)
 
-    def get(variableReference: str) -> str:  # noqa: N803
+    def get(variableReference: str) -> Any:  # noqa: N803
         m = _REFERENCE.match(str(variableReference).strip())
         if not m:
             raise ValueError('Use a reference like "$(/**/VL_Sources/CRM_server_host)"')
@@ -510,9 +674,11 @@ def build(host: Host) -> types.ModuleType:
     mod.credentials = _make_credentials(host)
     mod.notebook = _make_notebook(host)
     mod.runtime = _make_runtime(host)
+    mod.lakehouse = _make_lakehouse(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary, nbResPath")
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, lakehouse, "
+                                 "variableLibrary, nbResPath")
 
     def attribute(name: str) -> Any:
         # nbResPath follows the notebook that is running, so it is looked up on each use.

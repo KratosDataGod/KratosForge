@@ -35,6 +35,8 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 | Clean and check | Standardize names and types | Renames columns to snake_case, trims text, and turns the columns you name into dates or numbers. A value that can't be read stops the run, so nothing is quietly lost |
 | Clean and check | Data quality checks | Checks required columns, unique keys, allowed values (`status: open\|closed`) and ranges (`amount: 0..1000000`). Rows that pass go to one table; rows that fail go to a rejects table with a `reason` |
 | Model | Join and aggregate | Joins two tables on a column and groups by columns |
+| Model | Update a dimension in place (SCD type 1) | Upsert: source rows replace the dimension's rows with the same key, new keys are added, and keys no longer in the source stay. No history. Rewrites the dimension as a whole |
+| Model | Keep a dimension's history (SCD type 2) | When a tracked column changes (every non-key column when you name none), closes the current row (`valid_to`, `is_current` false) and adds the next `version`. A change to an untracked column alone updates the current row in place, without a new version. New keys start at version 1; keys no longer in the source stay current. `valid_from` and `valid_to` are the run's time in UTC, so a proof matches rows by key and `version` and leaves those two out. A tracked column the dimension doesn't have yet stops the run. Rewrites the dimension as a whole |
 | Model | Date dimension | One row per day between two dates, with year, quarter, month, ISO week, weekday, weekend, and a fiscal year named by the calendar year it ends in |
 | Model | Daily snapshot | Appends today's rows of a table to a history table with a `snapshot_date` (UTC). A second run on the same day writes nothing, so a retry can't double a day. It can't write to the table it reads |
 | Compare | Reconcile two tables | Compares row counts, keys on one side only and column totals; the run fails when they differ, so a schedule stops. Writes nothing |
@@ -98,17 +100,19 @@ from pyspark.sql import functions as F
   `spark.read.option("versionAsOf", 3).table("dbo.sales")` (or `"timestampAsOf", "2026-10-20 13:00:00"`, in UTC), the same options on `spark.read.format("delta").load("Tables/dbo/sales")`, `SELECT * FROM dbo.sales VERSION AS OF 3`, `TIMESTAMP AS OF '...'` and `dbo.sales@v3` in SQL (also on the SQL query page), and `lakehouse.read_table("dbo.sales", version=3)`. `DESCRIBE HISTORY dbo.sales`, `lakehouse.table_history("dbo.sales")` and `from delta.tables import DeltaTable` (`forName`, `forPath`, `history`, `detail`, `toDF`) list a table's versions from its Delta log. Reading uses OneLake, so it uses capacity like any other read. `RESTORE` and `DeltaTable` changes (`restoreToVersion`, `merge`, `update`, `delete`, `vacuum`, `optimize`) run in Fabric; on this PC, read the old version and overwrite the table with it if you mean to. A version removed by `VACUUM` can't be read.
 - **Not available on this PC:** RDDs, UDFs, streaming, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
 
-**`notebookutils` (and `mssparkutils`)** cover:
+**`notebookutils` (and `mssparkutils`)** cover the areas below. Rows marked Preview read Fabric live as you and haven't been run on a tenant yet.
 
 | Area | What works here |
 | --- | --- |
 | `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths. Each `ls` entry has `name`, `path`, `size`, `isDir`, `isFile` and `modifyTime` (milliseconds since 1970, UTC; Databricks' `modificationTime` works too) |
-| `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
-| `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
-| `runtime.context` | Works; `isLocal` is true here |
+| `notebook` | `run`, `exit`, `runMultiple` and `validateDAG`, against the notebooks on this PC. As in Fabric, `run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds` (90 unless you pass another). The timeout lands between Python steps, so a single long call such as `time.sleep(4)` finishes before it stops (a 1 second timeout ends at 4 seconds); a DuckDB query is asked to stop at once. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, `timeoutPerCellInSeconds` and the DAG's `timeoutInSeconds` (activities that hadn't started when it ran out are skipped), and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. `concurrency` doesn't apply, because the notebooks run one at a time. A notebook run inside another can nest 5 deep, so a notebook that runs itself stops. `workspace` (another workspace's notebook) runs in Fabric only. |
+| `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission). `isValidToken` says whether a token hasn't expired yet (it reads only the expiry) |
+| `runtime.context` | Works; `isLocal` and `isForInteractive` are true here, and `currentNotebookId` is empty because a notebook on this PC isn't a Fabric item |
+| `notebook` items (Preview) | `get`, `list` and `getDefinition` read Fabric notebook items as you (the workspace defaults to the attached lakehouse's; `getDefinition` returns the ipynb text). `create`, `update`, `updateDefinition` and `delete` run in Fabric only: on this PC, use **Publish to OneLake**, which shows what it replaces first |
 | `session` | `restartPython()` (and `stop()`) stop the cell and restart Python, clearing variables, as `dbutils.library.restartPython()` does |
+| `lakehouse` (Preview) | `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you; the workspace defaults to the attached lakehouse's, and `get()` with no name returns the attached lakehouse. `create`, `update`, `delete` and `loadTable` run in Fabric only: on this PC, create lakehouses in Workspaces or Platform setup, where the change is confirmed first. As in Fabric, `listTables` doesn't list lakehouses with schemas |
 | `nbResPath` | The notebook's resources folder on this PC; cells read its files as `builtin/<file>` ([notebook resources](notebook-resources.md)) |
-| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)) |
+| `variableLibrary` | `getLibrary("VL_Sources")` reads the metadata project's source system values ([variable library](metadata-guide.md#9-source-systems-and-the-variable-library)). Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace with its active value set, and the cell says which workspace that was (Fabric reads the notebook's own workspace, so attach a lakehouse there to read the same values); Integer, Number and Boolean variables keep their type. Read only (Preview, not yet run on a tenant) |
 
 **Databricks `dbutils`** is there too, so notebooks written for Databricks run here unchanged where the same thing exists on this PC. It is a global in every cell, and `from databricks.sdk.runtime import dbutils` works.
 
@@ -173,6 +177,18 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 
 None of these run for notebooks that run in Fabric.
 
+### Breakpoints and stepping (Preview)
+
+For cells that run on this PC, with the same Preview setting as watches:
+
+- **Set a breakpoint** by clicking a line number (with **Line numbers** on) or pressing **F9** on a line. A red bar marks it. Breakpoints follow their lines as you edit, and they're kept for this session only, not saved in the notebook file.
+- **A cell with breakpoints pauses at them** whenever it runs, whether you run it alone or with **Run all**. **Debug cell (pause at the first line)** in the cell's **...** menu pauses before its first line.
+- **While paused**, the paused line is highlighted and a panel under the cell shows the call stack, that frame's variables (names, types, sizes and short previews; a variable whose name looks like a secret, or whose value is a secret from `getSecret`, shows as `hidden`, but a value built from a secret, such as a connection string, isn't hidden, as in watches), and your watches as they are in that frame. **Evaluate** runs an expression in the paused frame, such as `df.shape` or `n + 1`. Like a watch, it runs as notebook code, so keep it to reads.
+- **Continue** (F5) runs to the next breakpoint, **Step over** (F10) to the next line, **Step into** (F11) into a function the cell defines, and **Step out** (Shift+F11) to the next line after the function returns. **Stop** cancels the cell like **Cancel**, keeping variables.
+- Only the cell's own code stops: functions and classes it defines pause wherever the cell calls them. Libraries, functions from earlier cells, `%run` notebooks and threads the cell starts run at full speed and never pause. A cell running under the debugger has no time limit, because time spent paused counts as running. The memory limit still applies.
+
+Proofs, side by side, Validate and scheduled runs never stop at breakpoints, because they don't run cells from the editor.
+
 ### Failure replay bundles (Preview)
 
 When a cell fails on this PC, **Save replay bundle** under its error saves a file someone else (or you, later) can use to run the notebook again up to that cell, against the same inputs. The dialog shows exactly what goes in before anything is saved:
@@ -208,6 +224,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 ## Editing
 
 - Cells have line numbers, bracket matching, folding, find in the cell (**Ctrl+F**), **Ctrl+/** to comment, and autocomplete (**Ctrl+Space**) from the running kernel's variables, Python names, and the attached lakehouse's table names inside strings and `%%sql` cells.
+- Hover a name for its signature and docs, see a call's parameters as you type, and get a red underline on syntax errors. See [IntelliSense in notebook cells](notebook-editor/intellisense.md).
 - **Ctrl+H** finds and replaces across every cell. See [Find and replace in a notebook](notebook-editor/find-and-replace.md).
 - Drag a table or file from **Explorer > Data items** into a cell, or right-click it to load it with Polars, Spark or SQL. See [Drag tables and files into a notebook](notebook-editor/load-data-items.md).
 - **Shift+click** or **Shift+Down** selects several cells to run, copy, merge, freeze or delete together, and **Ctrl+Shift+Enter** runs just the selected text. See [Select several cells and run part of a notebook](notebook-editor/select-and-run-parts.md).

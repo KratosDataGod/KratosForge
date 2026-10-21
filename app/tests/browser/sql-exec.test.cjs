@@ -134,8 +134,9 @@ test("reading a file on this PC is blocked inside the run", { skip }, async () =
   await page().locator("select.sql-dialect").selectOption("spark");
 });
 
-test("Settings › SQL queries shows the limits and saves them", { skip }, async () => {
+test("Settings › Advanced › SQL queries shows the limits and saves them", { skip }, async () => {
   await page().evaluate(() => go("settings"));
+  await page().click("button.fold-toggle:has-text('Advanced')");  // folded by default (UX-006)
   await page().waitForSelector("text=SQL queries");
   const rows = page().getByRole("spinbutton", { name: "Rows per page" });
   assert.strictEqual(await rows.inputValue(), "1000");
@@ -143,12 +144,12 @@ test("Settings › SQL queries shows the limits and saves them", { skip }, async
   assert.strictEqual(await page().getByRole("spinbutton", { name: "Memory" }).inputValue(), "60");
   assert.strictEqual(await page().getByRole("spinbutton", { name: "Queries at once" }).inputValue(), "2");
   await rows.fill("500");
-  await page().locator("section:has(h2:text('SQL queries')) button:has-text('Save')").click();
+  await page().locator(".advanced-group:has(h3:text('SQL queries')) button:has-text('Save')").click();
   await page().waitForFunction(() => /New SQL queries use these limits/.test(document.querySelector(".toast")?.textContent || ""));
   const settings = await page().evaluate(() => rpc("app_settings"));
   assert.strictEqual(settings.sql_page_rows.value, 500);
   if (SHOTS) {
-    await page().locator("section:has(h2:text('SQL queries'))").scrollIntoViewIfNeeded();
+    await page().locator(".advanced-group:has(h3:text('SQL queries'))").scrollIntoViewIfNeeded();
     await page().screenshot({ path: path.join(SHOTS, "sql-003-settings.png") });
   }
 });

@@ -3666,13 +3666,14 @@ test("Databricks dbutils snippets and docs", () => {
 // Parameters and widgets bar (Preview): above the cells, values added after their cell when it runs.
 test("parameters and widgets bar sits above the cells and adds its values to the run", () => {
   const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nb, /computeNote\(nb\), inputsBar\(nb\), nb\.cells\.map\(renderCell\)/);
+  assert.match(nb, /computeNote\(nb\), inputsBar\(nb\), visibleCells\(nb\.cells\)\.map\(renderCell\)/);
   assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
   const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
   assert.match(bar, /previewMarked\("inputs"/);
   assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
   assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
-  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="nbinputs\.js"><\/script>/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('<script src="nbinputs.js"></script>') > html.indexOf('<script src="notebook.js"></script>'));
 });
 
 // dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.

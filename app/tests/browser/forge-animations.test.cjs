@@ -47,7 +47,7 @@ test("Run all shows the wolf at the cells done, glows at the end, and says so on
   await page.getByRole("button", { name: "Run all" }).first().click();
   const bar = page.getByRole("progressbar", { name: "Notebook run" });
   await bar.waitFor();
-  assert.match(await page.locator(".wolf-text").innerText(), /^Cell [12] of 3$/);
+  assert.match(await page.locator(".wolf-text").innerText(), /^Cell [12] of 3 on this PC$/);
   assert.ok(await page.locator(".wolf-bar .wolf").count(), "no wolf on the track");
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-run-all.png") });
   await page.locator(".fx-arrive").waitFor({ state: "attached", timeout: 30000 });
@@ -77,22 +77,22 @@ test("A cell that succeeds sparks; a cell that fails shows the ember and the err
   assert.deepStrictEqual(app.errors, []);
 });
 
-test("With Forge animations off nothing decorative is made, and the run still shows its progress", { skip }, async () => {
+test("With motion Off nothing decorative is made, and the run still shows its progress", { skip }, async () => {
   const app = await open();
   const { page } = app;
-  await page.evaluate(() => saveSettings({ forge_animations: false }));
+  await page.evaluate(() => saveSettings({ motion_level: 0 }));
   assert.strictEqual(await page.evaluate(() => document.documentElement.dataset.motion), "off");
   await page.getByRole("button", { name: "Run all" }).first().click();
   await page.getByRole("progressbar", { name: "Notebook run" }).waitFor();
   await page.waitForFunction(() => document.getElementById("announce").textContent === "Run finished: 3 cells succeeded", null, { timeout: 30000 });
   assert.deepStrictEqual(await page.evaluate(() => window.__fx), [], "an effect was made with the setting off");
   // The setting is kept for the next start, and Settings shows it.
-  assert.strictEqual(await page.evaluate(async () => (await rpc("app_settings")).forge_animations.value), false);
+  assert.strictEqual(await page.evaluate(async () => (await rpc("app_settings")).motion_level.value), 0);
   await page.evaluate(() => go("settings"));
-  const toggle = page.getByRole("checkbox", { name: "Forge animations" });
-  await toggle.waitFor();
-  assert.strictEqual(await toggle.isChecked(), false);
-  await toggle.check();
+  const off = page.getByRole("radio", { name: /^0 Off/ });
+  await off.waitFor();
+  assert.strictEqual(await off.isChecked(), true);
+  await page.getByRole("radio", { name: /^2 Refined/ }).check();
   await page.waitForFunction(() => document.documentElement.dataset.motion === "on");
   assert.deepStrictEqual(app.errors, []);
 });
@@ -105,7 +105,7 @@ test("Windows reduced motion turns the effects off whatever the setting says", {
   await page.waitForFunction(() => document.getElementById("announce").textContent === "Run finished: 3 cells succeeded", null, { timeout: 30000 });
   assert.deepStrictEqual(await page.evaluate(() => window.__fx), []);
   await page.evaluate(() => go("settings"));
-  await page.getByText("Off while Windows reduces motion").waitFor();
+  await page.getByText("Off now: Windows asks apps to reduce motion.").waitFor();
   if (SHOTS) await page.screenshot({ path: path.join(SHOTS, "forge-settings-reduced.png") });
   assert.deepStrictEqual(app.errors, []);
 });

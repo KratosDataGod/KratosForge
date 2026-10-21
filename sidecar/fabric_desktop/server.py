@@ -133,6 +133,11 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Folders for notebooks (notebook_folders_service.py): new, rename, delete when empty, move into one.
+from .notebook_folders_service import METHODS as NOTEBOOK_FOLDERS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FOLDERS_METHODS
+
 # Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
 from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
 

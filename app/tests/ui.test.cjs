@@ -2235,6 +2235,26 @@ test("removing a schedule asks first, in red, and says what stops", () => {
   assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
 });
 
+// Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
+// each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
+test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  assert.match(src, /workloadIncidentsCard\(w\),\n    workloadCapacityCard\(w\),/);
+  const card = /function workloadCapacityCard\(w\) \{[\s\S]*?\n\}\n/.exec(src)[0];
+  assert.match(card, /rpc\("workload_capacity_use", \{ id: w\.id, days: 30 \}\)/);
+  assert.match(card, /measureFigure\("Capacity use of its Fabric runs", u\.total\)/);
+  assert.match(card, /OneLake reads and writes still use some capacity/);
+  assert.doesNotMatch(card, /no Fabric capacity|saved|savings of/i);
+});
+
+test("a replay notebook offers to delete what its replays wrote, with a danger confirm", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const fn = src.match(/function replayDeleteOutputs\([\s\S]*?\n}\n/)[0];
+  assert.match(fn, /confirmDialog\([\s\S]*\{ danger: true \}/);
+  assert.match(fn, /rpc\("replay_delete_outputs"/);
+  assert.match(src, /disabled: busy \|\| c\.live, title: c\.live \? "End the replay first\."/);
+});
+
 // Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
 test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
   const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
@@ -2861,6 +2881,36 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
   assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
+});
+
+// Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
+test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
+  const root = path.join(__dirname, "..", "..");
+  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+    ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
+    assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
+  }
+});
+
+// Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
+test("domain owners from Fabric show only until the platform sets its own", () => {
+  const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const pick = (name) => src.slice(src.indexOf(`function ${name}(`)).split("\n}\n")[0] + "\n}\n";
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : [].concat(n.children || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter((c) => c != null && c !== false) }) };
+  vm.runInNewContext(["fabricOwners", "domainOwnersCell", "domainOwnerLine"].map(pick).join("\n") +
+    "\nthis.cell = domainOwnersCell; this.line = domainOwnerLine;", ctx);
+  const fabric = JSON.stringify([{ name: "Ana", type: "User" }, { name: "Sales leads", type: "Group" }]);
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: fabric })), "Ana, Sales leads From Fabric");
+  assert.strictEqual(text(ctx.cell({ owners: "lee@contoso.com", fabric_owners: fabric })), "lee@contoso.comIn Fabric: Ana, Sales leads");
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: "not json" })), "not set");
+  assert.strictEqual(text(ctx.line({ owners: "", fabric_owners: fabric })), "Owner: Ana +1 (from Fabric)");
+  assert.strictEqual(text(ctx.line({ owners: "lee@contoso.com", fabric_owners: fabric })), "Owner: lee@contoso.com");
+  assert.strictEqual(ctx.line({ owners: "", fabric_owners: null }), null);
+  const map = fs.readFileSync(path.join(ui, "meshmap.js"), "utf8");
+  assert.match(map, /domainOwnerLine\(d\)/);
 });
 
 // Notebook result viewer (frames.py): a table output with a `frame` pages, searches and sorts the

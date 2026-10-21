@@ -1,0 +1,153 @@
+# Spark on this PC
+
+In a notebook on this PC, `spark` is DuckDB's PySpark-compatible API wired to the attached lakehouse ([notebooks](notebooks.md#fabric-notebook-code-on-this-pc)). There is no Spark cluster: everything runs on this PC, and when the notebook runs in Fabric the same code runs on Fabric's real Spark. This page lists what of PySpark 3.5's API works here, so you know before you run.
+
+## Settings: `spark.conf`
+
+`spark.conf.set`, `get`, `unset`, `getAll` and `isModifiable` work, and so does `SparkSession.builder.config(...)`. Every key you set is kept and returned, so a notebook that sets Fabric settings still runs here:
+
+- **Applied on this PC:** `spark.sql.session.timeZone` (UTC unless you set it) and `spark.app.name`.
+- **Kept, take effect in Fabric:** everything else, such as `spark.sql.shuffle.partitions`, `spark.sql.parquet.vorder.default`, `spark.microsoft.delta.optimizeWrite.enabled`, `spark.sql.ansi.enabled` and executor or driver settings. Known keys return Fabric's defaults until you set them.
+
+`spark.conf.explain()` prints each setting and whether it applies here. `spark.conf.get` of a key that isn't set and has no default stops with a message, as in Spark; pass a default to avoid it.
+
+## `spark.sparkContext`
+
+`version` and `spark.version` say 3.5.0, the PySpark API this follows. `applicationId`, `defaultParallelism` (this PC's processors), `startTime`, `sparkUser()`, `getConf()`, `setLogLevel`, `setJobDescription`, `setJobGroup` and local properties work; `uiWebUrl` is None because there's no Spark UI. RDDs (`parallelize`, `textFile`, `broadcast`, `accumulator`) run in Fabric.
+
+## DataFrame methods
+
+Calls that only change how Spark spreads or keeps work across a cluster (`repartition`, `coalesce`, `persist`, `cache`, `checkpoint`, `hint`) are accepted and do nothing, since everything runs in one process here. `spark.catalog.tableExists` checks temp views and the attached lakehouse. The tables below are generated from the code (`spark_api.coverage_markdown()`), and a test fails if they fall out of step.
+
+### DataFrame: 77 of 102
+
+| Method | On this PC |
+| --- | --- |
+| `agg` | Works |
+| `alias` | Works |
+| `approxQuantile` | Works |
+| `cache` | Accepted, does nothing on one PC |
+| `checkpoint` | Accepted, does nothing on one PC |
+| `coalesce` | Accepted, does nothing on one PC |
+| `colRegex` | Not yet on this PC |
+| `collect` | Works |
+| `columns` | Works |
+| `corr` | Works |
+| `count` | Works |
+| `cov` | Works |
+| `createGlobalTempView` | Works |
+| `createOrReplaceGlobalTempView` | Works |
+| `createOrReplaceTempView` | Works |
+| `createTempView` | Works |
+| `crossJoin` | Works |
+| `crosstab` | Not yet on this PC |
+| `cube` | Not yet on this PC |
+| `describe` | Works |
+| `distinct` | Works |
+| `drop` | Works |
+| `dropDuplicates` | Works |
+| `dropDuplicatesWithinWatermark` | Runs in Fabric: streaming runs in Fabric |
+| `dropna` | Works |
+| `dtypes` | Works |
+| `exceptAll` | Works |
+| `explain` | Works |
+| `fillna` | Works |
+| `filter` | Works |
+| `first` | Works |
+| `foreach` | Runs in Fabric: row-by-row Python runs in Fabric |
+| `foreachPartition` | Runs in Fabric: runs in Fabric |
+| `freqItems` | Not yet on this PC |
+| `groupBy` | Works |
+| `groupby` | Works |
+| `head` | Works |
+| `hint` | Accepted, does nothing on one PC |
+| `inputFiles` | Not yet on this PC |
+| `intersect` | Works |
+| `intersectAll` | Works |
+| `isEmpty` | Works |
+| `isLocal` | Works |
+| `isStreaming` | Runs in Fabric: streaming runs in Fabric |
+| `join` | Works |
+| `limit` | Works |
+| `localCheckpoint` | Accepted, does nothing on one PC |
+| `mapInArrow` | Runs in Fabric: runs in Fabric |
+| `mapInPandas` | Runs in Fabric: runs in Fabric |
+| `melt` | Works |
+| `na` | Works |
+| `observe` | Not yet on this PC |
+| `offset` | Works |
+| `orderBy` | Works |
+| `pandas_api` | Runs in Fabric: pandas-on-Spark runs in Fabric; use toPandas() |
+| `persist` | Accepted, does nothing on one PC |
+| `printSchema` | Works |
+| `randomSplit` | Works |
+| `rdd` | Runs in Fabric: RDDs run in Fabric |
+| `registerTempTable` | Works |
+| `repartition` | Accepted, does nothing on one PC |
+| `repartitionByRange` | Accepted, does nothing on one PC |
+| `replace` | Works |
+| `rollup` | Not yet on this PC |
+| `sameSemantics` | Not yet on this PC |
+| `sample` | Works |
+| `sampleBy` | Not yet on this PC |
+| `schema` | Works |
+| `select` | Works |
+| `selectExpr` | Works |
+| `semanticHash` | Not yet on this PC |
+| `show` | Works |
+| `sort` | Works |
+| `sortWithinPartitions` | Works |
+| `sparkSession` | Works |
+| `stat` | Works |
+| `storageLevel` | Not yet on this PC |
+| `subtract` | Works |
+| `summary` | Works |
+| `tail` | Works |
+| `take` | Works |
+| `to` | Not yet on this PC |
+| `toDF` | Works |
+| `toJSON` | Not yet on this PC |
+| `toLocalIterator` | Works |
+| `toPandas` | Works |
+| `transform` | Works |
+| `union` | Works |
+| `unionAll` | Works |
+| `unionByName` | Works |
+| `unpersist` | Accepted, does nothing on one PC |
+| `unpivot` | Works |
+| `where` | Works |
+| `withColumn` | Works |
+| `withColumnRenamed` | Works |
+| `withColumns` | Works |
+| `withColumnsRenamed` | Works |
+| `withMetadata` | Not yet on this PC |
+| `withWatermark` | Runs in Fabric: streaming runs in Fabric |
+| `write` | Works |
+| `writeStream` | Runs in Fabric: streaming runs in Fabric |
+| `writeTo` | Not yet on this PC |
+
+### SparkSession: 13 of 17
+
+| Method | On this PC |
+| --- | --- |
+| `builder` | Works |
+| `catalog` | Works |
+| `conf` | Works |
+| `createDataFrame` | Works |
+| `getActiveSession` | Works |
+| `newSession` | Works |
+| `range` | Works |
+| `read` | Works |
+| `readStream` | Runs in Fabric: streaming runs in Fabric |
+| `sparkContext` | Works |
+| `sql` | Works |
+| `stop` | Works |
+| `streams` | Runs in Fabric: streaming runs in Fabric |
+| `table` | Works |
+| `udf` | Runs in Fabric: Python UDFs run in Fabric |
+| `udtf` | Runs in Fabric: Python UDTFs run in Fabric |
+| `version` | Works |
+
+## Not on this PC
+
+RDDs, Python UDFs, row-by-row Python (`foreach`, `mapInPandas`), pandas-on-Spark, streaming, Scala and R run in Fabric. A notebook that uses them can still be edited here and run with **Runs on: Fabric** ([where a notebook runs](notebooks.md#where-a-notebook-runs)).

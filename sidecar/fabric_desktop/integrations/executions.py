@@ -293,6 +293,8 @@ class ExecutionManager:
         """Run code cells in order in a fresh process kernel, then end it."""
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
+        where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
+        kernel.resources_dir = where(notebook) if where else ""
         budget = [MAX_OUTPUT_CHARS]
         done: list[dict[str, Any]] = []
 

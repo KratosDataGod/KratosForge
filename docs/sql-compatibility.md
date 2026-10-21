@@ -2,7 +2,7 @@
 
 Fabric has several SQL engines, and they don't take the same SQL. The SQL query page checks what you write against the engine you pick, as you type, and lists what that engine doesn't support or may run differently. It is in preview.
 
-The check is **static**: Fabric Desktop by KratosBI reads the SQL; it doesn't run it, doesn't connect to Fabric and uses no capacity. It never changes your SQL. Each finding says what to change, and you decide.
+The check is **static**: KratosForge reads the SQL; it doesn't run it, doesn't connect to Fabric and uses no capacity. It never changes your SQL. Each finding says what to change, and you decide.
 
 No findings means **no known problem**, not proof that the query runs, or gives the same answer, in Fabric. A query that runs on this PC with DuckDB says nothing about how a Fabric Warehouse runs it.
 
@@ -57,7 +57,7 @@ Queries over 100,000 characters are checked when you press **Check now** in the 
 
 ## Rules
 
-Rule set **2026.10.1**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview.
+Rule set **2026.10.2**, from Microsoft Learn and the Apache Spark 3.5 reference as they read on 2026-10-17. Each Microsoft page's "last updated" date is kept in `sidecar/fabric_desktop/sqlcompat/profiles.py`. DDL-007 (ALTER TABLE) is an error except ALTER COLUMN, which is a warning because it is in preview.
 
 | Rule | Finding | Severity | Engines | Confidence | Source |
 | --- | --- | --- | --- | --- | --- |
@@ -67,11 +67,11 @@ Rule set **2026.10.1**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | SYN-004 | @variables are T-SQL | error | Spark | high | [source](https://spark.apache.org/docs/3.5.1/sql-ref.html) |
 | SYN-005 | GO isn't SQL | error | Spark, DuckDB | high | [source](https://spark.apache.org/docs/3.5.1/sql-ref.html) |
 | SYN-006 | `Backticks` aren't T-SQL | error | Warehouse, Endpoint, SQL database | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
-| SYN-007 | Not checked: couldn't read this statement | unverified | Spark, Warehouse, Endpoint, SQL database, DuckDB | medium | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
+| SYN-007 | Not checked: couldn't read this statement | unverified | Spark, Warehouse, Endpoint, SQL database, DuckDB | medium | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | SYN-008 | "Double quotes" make a name, not text | warning | Warehouse, Endpoint, SQL database, DuckDB | medium | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
 | SYN-009 | *construct* is Spark SQL, not T-SQL | error | Warehouse, Endpoint, SQL database | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
 | SYN-010 | *construct* isn't in SQL database T-SQL | error | SQL database | medium | [source](https://learn.microsoft.com/fabric/database/sql/limitations) |
-| FN-001 | Not checked: function *name* | unverified | Spark, Warehouse, Endpoint, SQL database, DuckDB | low | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
+| FN-001 | Not checked: function *name* | unverified | Spark, Warehouse, Endpoint, SQL database, DuckDB | low | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | FN-002 | ISNULL takes one argument in Spark SQL | error | Spark | high | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
 | FN-003 | *name* is a T-SQL function | error | Spark | high | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
 | FN-004 | *name* isn't a T-SQL function | error | Warehouse, Endpoint, SQL database | high | [source](https://learn.microsoft.com/fabric/data-warehouse/tsql-surface-area) |
@@ -117,20 +117,20 @@ Rule set **2026.10.1**, from Microsoft Learn and the Apache Spark 3.5 reference 
 | SEM-004 | NOT IN with a subquery | information | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://learn.microsoft.com/sql/t-sql/language-elements/in-transact-sql) |
 | SEM-005 | The clock is UTC | information | Warehouse, Endpoint, SQL database | medium | [source](https://learn.microsoft.com/fabric/database/sql/limitations) |
 | SEM-006 | Collation *name* | warning | Warehouse | medium | [source](https://learn.microsoft.com/fabric/data-warehouse/collation) |
-| DES-001 | DROP *name* deletes it | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| DES-002 | TRUNCATE deletes every row | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| DES-003 | *name* without WHERE changes every row | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| DES-004 | *name* replaces the table | warning | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| DES-005 | DROP COLUMN deletes the column's data | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| LOC-001 | Changes data in Fabric, not here | warning | Spark | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
+| DES-001 | DROP *name* deletes it | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| DES-002 | TRUNCATE deletes every row | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| DES-003 | *name* without WHERE changes every row | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| DES-004 | *name* replaces the table | warning | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| DES-005 | DROP COLUMN deletes the column's data | warning | Spark, Warehouse, Endpoint, SQL database, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| LOC-001 | Changes data in Fabric, not here | warning | Spark | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-002 | Regular expressions differ on this PC | warning | Spark | medium | [source](https://duckdb.org/docs/stable/sql/functions/regular_expressions) |
 | LOC-003 | Date pattern is translated on this PC | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-datetime-pattern.html) |
-| LOC-004 | *name* gives a different value each run | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| LOC-005 | Decimal results can differ | information | Spark | medium | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
+| LOC-004 | *name* gives a different value each run | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| LOC-005 | Decimal results can differ | information | Spark | medium | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 | LOC-006 | *name* has no fixed order | warning | Spark | medium | [source](https://spark.apache.org/docs/3.5.1/sql-ref-functions-builtin.html) |
-| LOC-007 | Each run starts fresh | information | Spark | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| LOC-008 | DuckDB SQL runs only on this PC | information | DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
-| LOC-009 | *name* reads files on this PC | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/sql-compatibility.md) |
+| LOC-007 | Each run starts fresh | information | Spark | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| LOC-008 | DuckDB SQL runs only on this PC | information | DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
+| LOC-009 | *name* reads files on this PC | information | Spark, DuckDB | high | [source](https://github.com/KratosDataGod/KratosForge/blob/main/docs/sql-compatibility.md) |
 
 ## How it's built and tested
 

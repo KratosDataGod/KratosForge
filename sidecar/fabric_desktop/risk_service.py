@@ -21,6 +21,9 @@ from . import receipts as receipts_mod
 from . import risk
 from .auth import CAPACITY_SCOPES, FABRIC_SCOPES
 from .fabric_run import compute_check
+from .meta import mesh as mesh_mod
+from .meta.project import run_order
+from .workloads import model
 
 # Actions that start work; cancel needs no assessment.
 ASSESSED = ("run", "run_in_fabric", "run_item", "run_schedule")
@@ -60,9 +63,23 @@ class RiskMixin:
     # ---- facts
 
     def _risk_capacity(self, workspace_id: str, workspace_name: str, refresh: bool,
-                       reads: list[str]) -> dict[str, Any] | None:
+                       reads: list[str], memo: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """The capacity reading for a workspace: an environment's reading when the workspace is one
-        (from the last hour unless ``refresh``), otherwise a read of that workspace now."""
+        (from the last hour unless ``refresh``), otherwise a read of that workspace now. ``memo``
+        keeps readings across the checks of one batch, so each workspace is read once."""
+        if memo is not None and ("capacity", workspace_id) in memo:
+            cap, cap_reads = memo[("capacity", workspace_id)]
+            reads.extend(cap_reads)
+            return cap
+        mine: list[str] = []
+        cap = self._risk_capacity_read(workspace_id, workspace_name, refresh, mine)
+        reads.extend(mine)
+        if memo is not None:
+            memo[("capacity", workspace_id)] = (cap, mine)
+        return cap
+
+    def _risk_capacity_read(self, workspace_id: str, workspace_name: str, refresh: bool,
+                            reads: list[str]) -> dict[str, Any] | None:
         now = dt.datetime.now(dt.timezone.utc)
         try:
             health = self.capacity_health(refresh=refresh)  # type: ignore[attr-defined]
@@ -93,13 +110,21 @@ class RiskMixin:
         obs = capacity_mod.observe_env("", workspace_id, workspace_name, fabric.get_workspace, caps, cap_error, now)
         return obs | capacity_mod.freshness(obs, now)
 
-    def _risk_cu(self, runs: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    def _risk_cu(self, runs: list[dict[str, Any]],
+                 memo: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
         """Measured (from usage imports matched to these runs) and estimated CU of the given Fabric
         runs, newest first, and why the imports couldn't be read ("" when they could). Nothing is
-        read from Fabric."""
+        read from Fabric. ``memo`` keeps the run history and imports across one batch."""
         job_ids = [r["job_id"] for r in runs if r.get("job_id")]
         if not job_ids:
             return [], [], ""
+        memo = {} if memo is None else memo
+        if "cu" not in memo:
+            memo["cu"] = self._risk_cu_index()
+        measured, est, problem = memo["cu"]
+        return [measured[j] for j in job_ids if j in measured], [est[j] for j in job_ids if j in est], problem
+
+    def _risk_cu_index(self) -> tuple[dict[str, Any], dict[str, Any], str]:
         fabric = self.fabric_runs(limit=500, refresh=False)  # type: ignore[attr-defined]
         rows = costs_mod.activities([], fabric, [], self._cost_settings())  # type: ignore[attr-defined]
         est = {r["fabric_job_cu"]["run_id"]: r["fabric_job_cu"] for r in rows
@@ -112,9 +137,10 @@ class RiskMixin:
         except Exception as exc:  # noqa: BLE001 - the estimate is still shown, with why nothing is measured
             log.warning("Risk check: imported usage couldn't be read: %s", exc)
             problem = f"Imported usage couldn't be read ({str(exc)[:200]}), so nothing is measured."
-        return [measured[j] for j in job_ids if j in measured], [est[j] for j in job_ids if j in est], problem
+        return measured, est, problem
 
-    def _risk_facts(self, w: dict[str, Any], action: str, env: str | None, refresh: bool) -> dict[str, Any]:
+    def _risk_facts(self, w: dict[str, Any], action: str, env: str | None, refresh: bool,
+                    memo: dict[str, Any] | None = None) -> dict[str, Any]:
         dep = next((d for d in w["deployments"] if (d.get("env") or None) == (env or None)
                     and action in (d.get("actions") or [])), None)
         if dep is None:
@@ -133,13 +159,13 @@ class RiskMixin:
         }
         if where == "fabric":
             facts["capacity"] = self._risk_capacity(loc.get("workspace_id") or "", loc.get("workspace_name") or "",
-                                                    refresh, reads)
+                                                    refresh, reads, memo)
         runs = [r for r in w.get("runs") or []
                 if (r.get("where") == "fabric") == (where == "fabric") and (not env or not r.get("env") or r["env"] == env)]
         facts["runs"] = runs
         if where == "fabric":
             facts["measured"], facts["estimated"], facts["measured_problem"] = self._risk_cu(
-                [r for r in runs if r.get("where") == "fabric"])
+                [r for r in runs if r.get("where") == "fabric"], memo)
         if w["kind"] == "notebook":
             try:
                 nb = self.notebooks.load(w["name"])  # type: ignore[attr-defined]
@@ -167,12 +193,41 @@ class RiskMixin:
         """The assessment shown in the run dialog; a failure in it never stops the dialog."""
         if action not in ASSESSED:
             return None
+        return self._risk_or_unknown(lambda: w, action, env, None)
+
+    def _risk_or_unknown(self, record: Any, action: str, env: str | None,
+                         memo: dict[str, Any] | None) -> dict[str, Any]:
+        """The assessment, or an unknown one saying why it couldn't run: the check is advice."""
         try:
-            return risk.analyze(self._risk_facts(w, action, env, False), self._risk_settings())
-        except Exception as exc:  # noqa: BLE001 - the check is advice, the preflight still works
-            log.warning("Risk check failed for %s: %s", w.get("id"), exc)
+            w = record()
+            return risk.analyze(self._risk_facts(w, action, env, False, memo), self._risk_settings())
+        except Exception as exc:  # noqa: BLE001 - the check is advice, the run or dialog still works
+            log.warning("Risk check failed for %s %s: %s", action, env, exc)
             return {"result": risk.UNKNOWN, "label": risk.LABELS[risk.UNKNOWN], "findings": [], "can_proceed": True,
                     "needs_acknowledgement": False, "enforced": False, "summary": f"The risk check couldn't run: {exc}"[:300]}
+
+    def meta_risk_gate(self, names: list[str] | None = None, env: str = "dev") -> dict[str, Any]:
+        """The risk check for every Data mesh entity a run would start (all of them when ``names`` is
+        None), in run order, read once per batch: each workspace's capacity and the run history are
+        shared. ``run`` lists the entities that can start: not blocked, and not reading from one
+        that is (``held``), so nothing runs on top of a table that wasn't refreshed. Read only."""
+        project = self._project()  # type: ignore[attr-defined]
+        pname = mesh_mod.project_name(project)
+        order = run_order(project)
+        targets = order if names is None else [n for n in order if n in set(names)]
+        memo: dict[str, Any] = {}
+        checks = [{"entity": n} | self._risk_or_unknown(
+            lambda n=n: self._wl_record(model.meta_id(pname, n)), "run", env, memo)  # type: ignore[attr-defined]
+            for n in targets]
+        blocked = [c["entity"] for c in checks if c["result"] == risk.BLOCKED]
+        stopped, held = set(blocked), {}
+        for n in targets:
+            upstream = [r for r in project.entities[n].reads() if r in stopped]
+            if n not in stopped and upstream:
+                held[n] = upstream
+                stopped.add(n)
+        return {"checks": checks, "blocked": blocked, "held": held, "run": [n for n in targets if n not in stopped],
+                "enforced": False}
 
     def risk_acknowledge(self, id: str, action: str, risk_id: str, env: str | None = None,  # noqa: A002
                          note: str = "") -> dict[str, Any]:

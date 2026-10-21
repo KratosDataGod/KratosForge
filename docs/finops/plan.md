@@ -1,6 +1,6 @@
 # Administration and FinOps program (FINOPS-001 to FINOPS-005)
 
-Fabric Desktop by KratosBI helps developers understand, predict and avoid Fabric capacity use without becoming a copy of the Fabric admin portal or the Capacity Metrics app. This program adds evidence to what the app already shows: where each CU and cost number comes from, what capacity a workload would run on, what is risky before a cloud run, and when this PC is the better place to run.
+KratosForge helps developers understand, predict and avoid Fabric capacity use without becoming a copy of the Fabric admin portal or the Capacity Metrics app. This program adds evidence to what the app already shows: where each CU and cost number comes from, what capacity a workload would run on, what is risky before a cloud run, and when this PC is the better place to run.
 
 Rules for every PR in this program:
 
@@ -44,6 +44,7 @@ PRs #5, #32, #58 and #94 are merged and present on main.
 | 4 | FINOPS-004 Predeployment capacity and CU risk analyzer, part 1: the risk service ([risk-check.md](risk-check.md)) | Open for review |
 | 4b | FINOPS-004 part 2: findings in the run dialogs, acknowledgement, settings ([risk-check.md](risk-check.md#where-you-see-it)) | Open for review |
 | 5 | FINOPS-005 Local vs Fabric execution advisor | Part 1: savings on this PC estimated from Fabric runs of the same table (`calibration.py`, #257). Part 2: placement advice per notebook (`advisor.py`, [Where to run a notebook](placement-advice.md)); its UI is Prove's (item 35) |
+| 6 | Capacity settings history (testing feedback item 30, `fdcap_` in the central lakehouse; [Capacity settings history](../optimize/README.md#capacity-settings-history)) | Merged (#294); admin overrides in #351 |
 
 ## FINOPS-003 usage source decision
 

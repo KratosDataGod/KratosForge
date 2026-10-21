@@ -3524,9 +3524,9 @@
       },
       "limitations": [
         "Moving back to LH_Keys refused once new keys are issued",
-        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in a Fabric SQL database in a dedicated workspace; whether there is one per environment or one for all environments is still Chris's decision"
+        "Direction change (Chris's unit testing, 2026-10-18, item 25): keys live in one Fabric SQL database in a dedicated workspace, shared by all environments (Chris chose one for all on 2026-10-20, reversing the 2026-10-16 decision to keep keys per environment); today each environment has its own SQL_Platform"
       ],
-      "next_action": "Chris decides one keys database per environment or one for all; then the Staged roadmap moves keys to the dedicated workspace (item 25)",
+      "next_action": "Staged roadmap moves keys to one shared keys database in a dedicated workspace, keeping existing key numbers (item 25, decided 2026-10-20)",
       "backlog": [
         "PB-052"
       ]
@@ -3608,7 +3608,7 @@
       },
       "limitations": [
         "Fabric domain import needs Tenant.Read.All and its shape is unverified",
-        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of Fabric Desktop's own; the built-in glossary becomes a fallback or is retired"
+        "Direction change (Chris's unit testing, 2026-10-18, item 27): the glossary should come from Purview, Collibra or another catalog instead of KratosForge's own; the built-in glossary becomes a fallback or is retired"
       ],
       "prs": [
         48,

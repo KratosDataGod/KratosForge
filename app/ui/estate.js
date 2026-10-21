@@ -489,7 +489,7 @@ function costBody(r) {
         h("td", { class: "n" }, x.fabric_runs ? measureFigure(`${x.name || x.kind}: Fabric capacity used`, x.evidence.fabric_cost, cur) : ""),
         h("td", { class: "n" }, x.local_runs ? measureFigure(`${x.name || x.kind}: Fabric use avoided on this PC`, x.evidence.avoided_cost, cur) : "")))))
       : h("p", { class: "muted-text" }, `Nothing ran in the last ${r.days} days.`),
-    h("p", { class: "muted-text small" }, "Estimated: run time times the capacity units of what it ran on. A Python notebook (Fabric Desktop by KratosBI's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
+    h("p", { class: "muted-text small" }, "Estimated: run time times the capacity units of what it ran on. A Python notebook (KratosForge's runner) uses 1 CU per 2 vCores; Spark jobs such as table maintenance use the Spark figure. ",
       "Avoided on this PC: estimated from the same table's runs in Fabric (their run time times the configured CUs), never from how long it took here. OneLake reads and writes from this PC still use capacity and aren't counted. Click a figure to see how it was worked out; Fabric's Capacity Metrics app has the CU your capacity recorded.",
       unavailable.length ? ` Left out: ${unavailable.map(([env, why]) => `${ENV_LABEL[env]} (${why})`).join(", ")}.` : ""),
   ];

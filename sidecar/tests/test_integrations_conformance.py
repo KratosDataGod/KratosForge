@@ -56,25 +56,25 @@ def env(tmp_path, monkeypatch):
             "service": Service(root=root)}
 
 
-def free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def http_server(env):
-    port = free_port()
+    # Bind the socket here and hand it to uvicorn, so no other test can take the port between
+    # choosing it and serving on it; and fail clearly if the server never comes up.
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
     app = build_app(env["registry"], env["store"], port, lambda: env["service"])
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started and time.monotonic() < deadline:
+    deadline = time.monotonic() + 30
+    while not server.started and thread.is_alive() and time.monotonic() < deadline:
         time.sleep(0.05)
+    assert server.started, "the local API server didn't start"
     yield port
     server.should_exit = True
     thread.join(10)
+    sock.close()
 
 
 def connect(transport, env, mode, port=None):
@@ -117,7 +117,7 @@ def test_initialize_negotiates_and_describes_the_server(transport, mode):
             assert c.protocol_version == MODES[mode]
             info = c.server_info
             assert (info.name, info.version) == ("fabric-desktop", __version__)
-            assert info.title == "Fabric Desktop by KratosBI"
+            assert info.title == "KratosForge"
             caps = c.server_capabilities
             assert caps.tools is not None and caps.resources is not None and caps.prompts is not None
             assert c.instructions and "approval" in c.instructions

@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import unquote
 
 import requests
 
@@ -90,6 +91,20 @@ def _iso(http_date: str | None) -> str:
         return ""
 
 
+def item_path(path: str, empty_ok: bool = False) -> str:
+    """``path`` inside a lakehouse, without its edge slashes. Refuses a ``.`` or ``..`` segment
+    (also percent-encoded or with backslashes): the HTTP client resolves them before sending, so
+    the request would land in another lakehouse or workspace. An empty path names the lakehouse's
+    own root, which only a read may do (``empty_ok``): a delete there removes everything."""
+    clean = path.strip("/")
+    for segment in re.split(r"[/\\]", unquote(clean)):
+        if segment in (".", ".."):
+            raise ValueError(f"{path!r} isn't a path inside the lakehouse.")
+    if not clean and not empty_ok:
+        raise ValueError("A file path is needed; an empty one would name the whole lakehouse.")
+    return clean
+
+
 class FileStore:
     """The lakehouse Files area, through the OneLake DFS (ADLS Gen2) API.
 
@@ -115,7 +130,7 @@ class FileStore:
         With ``max_results``, only the first page of at most that many."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "true" if recursive else "false",
-                  "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+                  "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
         if max_results:
             params["maxResults"] = str(max_results)
         entries: list[dict[str, Any]] = []
@@ -139,7 +154,7 @@ class FileStore:
         request didn't get an answer."""
         url = f"https://{DFS_HOST}/{workspace_id}"
         params = {"resource": "filesystem", "recursive": "false", "maxResults": "1",
-                  "directory": f"{lakehouse_id}/{directory.strip('/')}"}
+                  "directory": f"{lakehouse_id}/{item_path(directory, empty_ok=True)}"}
         try:
             resp = self._http.get(url, params=params, headers=self._headers(), timeout=60)
         except requests.RequestException as exc:
@@ -154,7 +169,7 @@ class FileStore:
         return resp.status_code, message
 
     def download(self, workspace_id: str, lakehouse_id: str, path: str, dest: Path) -> Path:
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         with self._read(url, stream=True, timeout=300) as resp:
             resp.raise_for_status()
             dest.parent.mkdir(parents=True, exist_ok=True)
@@ -165,7 +180,7 @@ class FileStore:
 
     def read_bytes(self, workspace_id: str, lakehouse_id: str, path: str) -> bytes | None:
         """A small file's content, or None when it doesn't exist."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         resp = self._read(url, timeout=60)
         if resp.status_code == 404:
             return None
@@ -174,7 +189,7 @@ class FileStore:
 
     def upload(self, workspace_id: str, lakehouse_id: str, path: str, data: bytes) -> None:
         """Create or replace a file: create, append, then flush (the ADLS Gen2 way)."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         steps = [("PUT", {"resource": "file"}, None),
                  ("PATCH", {"action": "append", "position": "0"}, data),
                  ("PATCH", {"action": "flush", "position": str(len(data))}, None)]
@@ -187,7 +202,7 @@ class FileStore:
     def delete(self, workspace_id: str, lakehouse_id: str, path: str, recursive: bool = True) -> None:
         """Delete a file or a whole folder; a missing one is fine. Without ``recursive``, OneLake
         refuses (409) a folder that isn't empty."""
-        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{path.strip('/')}"
+        url = f"https://{DFS_HOST}/{workspace_id}/{lakehouse_id}/{item_path(path)}"
         resp = self._http.request("DELETE", url, params={"recursive": "true" if recursive else "false"},
                                   headers=self._headers(), timeout=300)
         if resp.status_code != 404:

@@ -37,7 +37,7 @@ def register_core(reg: Registry) -> None:
     caps = [
         Capability(
             "fabric_desktop_get_status", "Get status",
-            "Fabric Desktop by KratosBI's version, whether someone is signed in to Fabric and as whom, and how this "
+            "KratosForge's version, whether someone is signed in to Fabric and as whom, and how this "
             "client is connected. Call this first.",
             schema(), schema({"product": STR, "version": STR, "signed_in": {"type": "boolean"},
                               "user": {"type": ["string", "null"]}, "tenant": {"type": ["string", "null"]}},
@@ -46,7 +46,7 @@ def register_core(reg: Registry) -> None:
             resource="fabric-desktop://status"),
         Capability(
             "fabric_desktop_list_capabilities", "List capabilities",
-            "Everything this Fabric Desktop by KratosBI can do for an external tool, with input and output schemas, "
+            "Everything this KratosForge can do for an external tool, with input and output schemas, "
             "the permission each needs, whether it needs the person's approval, and whether it is available to "
             "you now and if not why.",
             schema({"include_unavailable": {"type": "boolean", "default": True,
@@ -123,7 +123,7 @@ def register_core(reg: Registry) -> None:
             resource="fabric-desktop://workspaces/{workspace_id}/lakehouses/{lakehouse_id}/tables/{table}/schema"),
         Capability(
             "fabric_desktop_list_notebooks", "List notebooks",
-            "The notebooks saved in Fabric Desktop by KratosBI on this PC, newest first.",
+            "The notebooks saved in KratosForge on this PC, newest first.",
             schema(dict(PAGING)), paged_output(NOTEBOOK_ROW),
             "READ_METADATA", services.list_notebooks, artifact_types=("Notebook",), timeout=30,
             resource="fabric-desktop://notebooks"),
@@ -139,7 +139,8 @@ def register_core(reg: Registry) -> None:
         Capability(
             "fabric_desktop_validate_notebook", "Validate notebook",
             "Whether a notebook can run on this PC and in Fabric and which cells stop it, what a proof would refuse, "
-            "and how its cells depend on each other: the checks the notebook screen runs. Runs no code.",
+            "how its cells depend on each other, and Validate's findings (errors, warnings and info, each with its cell "
+            "and a fix): the checks the notebook screen runs. Runs no code.",
             schema({"name": NAME}, ["name"]),
             schema({"ok": {"type": "boolean"}, "this_pc": CHECK, "fabric": CHECK, "proof": {"type": "object"},
                     "dependencies": {"type": "object"}}, ["ok", "this_pc", "fabric"], extra=True),
@@ -224,8 +225,8 @@ def _pipelines() -> list[Capability]:
             limitations=PIPELINE_LIMIT, timeout=60),
         Capability(
             "fabric_desktop_check_pipeline_compatibility", "Check what can run on this PC",
-            "For every activity in a Fabric pipeline definition (nested ones included): whether Fabric Desktop by "
-            "KratosBI can run it here, simulate it, only check it, or must leave it to Fabric; what is planned and in "
+            "For every activity in a Fabric pipeline definition (nested ones included): whether KratosForge "
+            "can run it here, simulate it, only check it, or must leave it to Fabric; what is planned and in "
             "which stage; the properties it can't use; the sign-in it needs; its side effects; and whether it can "
             "only ever run in Fabric. Fabric meters every activity run, so each activity that can't run here counts "
             "as needing Fabric capacity. Unknown activity types are kept and reported as unsupported.",
@@ -261,7 +262,7 @@ RUN_LIMIT = ("Runs control flow (variables, conditions, loops, waits, Fail, Filt
              "refuse the run.",
              "Nothing is sent to Fabric and no capacity is used. Behaviour follows Data Factory's documentation and "
              "hasn't been compared with Fabric.",
-             "Activity outputs and variable values are left out; open the run in Fabric Desktop by KratosBI to see them.")
+             "Activity outputs and variable values are left out; open the run in KratosForge to see them.")
 
 
 def _pipeline_runs() -> list[Capability]:
@@ -314,7 +315,7 @@ def _pipeline_runs() -> list[Capability]:
 
 
 PROVE_LIMIT = ("Cell outputs and example rows are left out: they can contain data. Open the proof in "
-               "Fabric Desktop by KratosBI to see them.",)
+               "KratosForge to see them.",)
 NAME_FILTER = {"name": {"type": "string", "maxLength": 200, "default": "", "description": "Only this notebook's; empty for all."}}
 
 
@@ -415,7 +416,7 @@ def _executions() -> list[Capability]:
         Capability(
             "fabric_desktop_execute_python", "Run Python",
             "Runs Python on this PC in a fresh process, optionally with a lakehouse attached (as a notebook cell "
-            "would run). The person approves every run in Fabric Desktop by KratosBI, seeing the code.",
+            "would run). The person approves every run in KratosForge, seeing the code.",
             schema({"code": {"type": "string", "minLength": 1, "maxLength": 100_000},
                     "workspace_id": OPT_ID, "lakehouse_id": OPT_ID,
                     **WAIT, "timeout_seconds": {"type": "number", "minimum": 1, "maximum": 3600, "default": 300}},

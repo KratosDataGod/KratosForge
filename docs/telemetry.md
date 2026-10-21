@@ -1,6 +1,6 @@
 # Usage data
 
-Fabric Desktop by KratosBI can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off** until you turn it on in **Settings > Usage data**. Your organization can turn it off, or on, for everyone. This feature is in Preview.
+KratosForge can send a small daily summary of which actions were used, how often they failed and how long they took. It is **off** until you turn it on in **Settings > Usage data**. Your organization can turn it off, or on, for everyone. This feature is in Preview.
 
 ## What is sent
 

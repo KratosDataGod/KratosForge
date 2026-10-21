@@ -13,18 +13,51 @@ test("every UI script parses", () => {
   }
 });
 
+// The names a script declares at its top level (function, class, var, let, const, however indented
+// and including destructured names), found by V8's own parser rather than a regex: appending
+// `let x;` to a script is a SyntaxError exactly when the script already declares x at the top
+// level. Nothing is run; the scripts are only compiled.
+const bindable = new Map();
+function canBind(word) {
+  if (!bindable.has(word)) {
+    try { new vm.Script(`let ${word};`); bindable.set(word, true); } catch { bindable.set(word, false); }
+  }
+  return bindable.get(word);
+}
+function topLevelNames(src) {
+  const left = new Set([...new Set(src.match(/[A-Za-z_$][\w$]*/g) || [])].filter(canBind));
+  const found = [];
+  while (left.size) {
+    try {
+      new vm.Script(`${src}\n;let ${[...left].join(", ")};`);
+      break;
+    } catch (e) {
+      const m = /^Identifier '([^']+)' has already been declared$/.exec(e.message);
+      if (!m || !left.has(m[1])) throw e;
+      found.push(m[1]);
+      left.delete(m[1]);
+    }
+  }
+  return found;
+}
+
+test("topLevelNames finds indented and destructured declarations, not nested ones", () => {
+  const src = "function a() { var inner; }\n  const b = 1, { c, d: e } = {}, [f] = [];\n\tclass G {}\n" +
+    "if (true) { let blockScoped; }\n    async function* h() {}\n// var commented;\nconst s = 'var quoted';";
+  assert.deepStrictEqual(topLevelNames(src).sort(), ["G", "a", "b", "c", "e", "f", "h", "s"]);
+});
+
 // The page's scripts share one global scope, so a top-level name declared in two of them makes
 // the later file silently replace the earlier one (integrations.js once replaced activity.js's when()).
 test("no two page scripts declare the same top-level name", () => {
   const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
-  const scripts = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
+  const scripts = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("vendor/"));
   assert.ok(scripts.length > 10, "index.html scripts not found");
   const owner = new Map();
   const clashes = [];
-  const decl = /^(?:async\s+)?(?:function\*?\s+|(?:const|let|var|class)\s+)([A-Za-z_$][\w$]*)/gm;
   for (const name of scripts) {
-    for (const [, id] of fs.readFileSync(path.join(ui, name), "utf8").matchAll(decl)) {
-      if (owner.has(id) && owner.get(id) !== name) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
+    for (const id of topLevelNames(fs.readFileSync(path.join(ui, name), "utf8"))) {
+      if (owner.has(id)) clashes.push(`${id}: ${owner.get(id)} and ${name}`);
       else owner.set(id, name);
     }
   }
@@ -66,7 +99,7 @@ test("an engine ended for not answering says so, and that variables were cleared
   const src = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
   const ctx = {};
   vm.runInNewContext(`${src.match(/function friendlyError\([\s\S]*?\n}\n/)[0]}; this.friendlyError = friendlyError;`, ctx);
-  const raw = "The engine stopped answering, so Fabric Desktop by KratosBI restarted it. poll_cell had no answer after 60 seconds.";
+  const raw = "The engine stopped answering, so KratosForge restarted it. poll_cell had no answer after 60 seconds.";
   const out = ctx.friendlyError(raw);
   assert.match(out.text, /restarted it\. Notebook variables were cleared/);
   assert.strictEqual(out.details, raw);
@@ -107,7 +140,7 @@ function proveHelpers() {
   const src = fs.readFileSync(path.join(ui, "prove.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { proveNames, proveRulesFrom, proveKind, proveVerdict, proveDiffRows, proveDifference, pollRun });`, ctx);
   return ctx;
 }
 
@@ -231,7 +264,10 @@ test("Report a problem takes out secrets, emails, user names and ids (same cases
   const ctx = {};
   vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
   const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
+  for (const c of cases) {
+    const input = Array.isArray(c.in) ? c.in.join("") : c.in;
+    assert.strictEqual(ctx.redactReport(input, c.level), c.out, input);
+  }
 });
 
 // Accessibility (FD-139): checks that need no browser.
@@ -272,7 +308,7 @@ test("dialogs are modal for keyboard users and focus shows", () => {
   assert.match(app, /dialogFocus\.opener/);
   const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
   assert.match(css, /^:focus-visible \{ outline: 2px/m);
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n {2}\*, \*::before, \*::after/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{[^\n]*\n {2}html:not\(\[data-motion-override\]\) \*, html:not\(\[data-motion-override\]\) \*::before/);
 });
 
 test("a lakehouse name Fabric would refuse is caught before it's sent", () => {
@@ -293,19 +329,12 @@ test("Fabric refusing a name reads as a name problem, not an app crash", () => {
   assert.match(ctx.friendlyError(raw).text, /doesn't accept that name/);
 });
 
-test("Report a problem takes out secrets, emails, user names and ids (same cases as the engine)", () => {
-  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
-  const ctx = {};
-  vm.runInNewContext(`${src.match(/function redactReport\([\s\S]*?\n}\n/)[0]}; this.redactReport = redactReport;`, ctx);
-  const { cases } = JSON.parse(fs.readFileSync(path.join(__dirname, "redact-cases.json"), "utf8"));
-  for (const c of cases) assert.strictEqual(ctx.redactReport(c.in, c.level), c.out, c.in);
-});
-
 function gitHelpers() {
   const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { gitSplitPath, gitPillText, gitSideBySide, gitCommitLabel, gitGroupRepos, nbData, nbDataText,
+    platformChangeLines, platformStepText, PLATFORM_STATES });`, ctx);
   return ctx;
 }
 
@@ -695,7 +724,7 @@ test("What's new lists the month's history and drops notes that only repeat its 
   assert.deepStrictEqual(plain(ctx.items("Old build", undefined)), { lines: ["Old build"], items: [] });
   const dialog = src.slice(src.indexOf("function showWhatsNew"), src.indexOf("function whatsNewItems"));
   assert.match(dialog, /items\.slice\(0, 10\)/);
-  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/fabric-desktop/);
+  assert.match(dialog, /https:\/\/github\.com\/KratosDataGod\/KratosForge/);
 });
 
 // The pure helpers at the top of debugging.js.
@@ -703,7 +732,7 @@ function dbgHelpers() {
   const src = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
   const code = src.slice(0, src.indexOf("// ---------- state ----------"));
   const ctx = {};
-  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail });`, ctx);
+  vm.runInNewContext(`${code}; Object.assign(this, { dbgDiff, dbgHidden, dbgTrail, dbgBpMap, dbgStackText, dbgKeyAction });`, ctx);
   return ctx;
 }
 
@@ -1138,7 +1167,7 @@ test("with platform keys, no Keys button makes a project key table", () => {
 test("promote, sync keys, the variable library and quarantine replay carry the Preview tag", () => {
   const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
   const features = read("features.js");
-  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["replay", "dataops.js"]]) {
+  for (const [id, file] of [["promote", "meta.js"], ["syncKeys", "meta.js"], ["varlib", "estate.js"], ["quarantineReplay", "dataops.js"]]) {
     assert.match(features, new RegExp(`\\n  ${id}: "`), `${id} is in PREVIEW_FEATURES`);
     assert.ok(read(file).includes(`previewMarked("${id}", `), `${file} tags ${id}`);
   }
@@ -1151,7 +1180,7 @@ test("promote, sync keys, the variable library and quarantine replay carry the P
   assert.deepStrictEqual(ctx.previewMarked("promote", node()).kids, ["tag"]);
   // and Settings names them as staying
   const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1].replace(/'/g, '"'));
-  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "replay", "risk"]);
+  assert.deepStrictEqual(always, ["promote", "syncKeys", "varlib", "quarantineReplay", "risk"]);
   assert.ok(read("settings.js").includes("PREVIEW_ALWAYS_SHOWN"), "Settings explains the steps that stay");
 });
 
@@ -1371,6 +1400,10 @@ test("Estate X-ray and the Fabric portal tab have How this works panels that nam
   for (const write of ["Optimize", "Vacuum", "Adopt"]) assert.match(how, new RegExp(`${write} `));
   assert.match(how, /only when you confirm/);
   assert.match(how, /each asks first/);
+  assert.match(how, /adds its lakehouse and table findings there as new rows, never "\n\s*\+ "the names of people or cost/);
+  assert.match(xray, /function xrayShared\(shared\)/);
+  assert.match(how, /anyone who can read that lakehouse can read them/);
+  assert.match(how, /a courtesy, not security/);
   assert.ok((xray.match(/xrayHow\(\)/g) || []).length >= 3, "the panel shows before and after a scan");
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const fabric = app.slice(app.indexOf("function renderFabric()"), app.indexOf("function openWorkspace("));
@@ -1444,9 +1477,2403 @@ test("a notebook's data: its own lakehouse first, then its repository's location
 test("the location's lakehouse is used to run and publish but never saved into the notebook", () => {
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   const nbjs = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
-  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source, lakehouse_ref: nbLakehouse\(state\.notebook\)/);
+  assert.match(nbjs, /rpc\("start_cell", \{ code: cell\.source \+ nbInputSuffix\(cell\), lakehouse_ref: nbLakehouse\(nb\)/);
   assert.match(app.match(/function notebookPayload\(\)[\s\S]*?\n}\n/)[0], /lakehouse_ref: state\.notebook\.lakehouse,/);
   for (const call of ["publish_notebook", "run_notebook_in_fabric", "add_notebook_schedule"]) {
     assert.match(app, new RegExp(`rpc\\("${call}", (\\{ \\.\\.\\.)?publishPayload\\(\\)`));
   }
+});
+
+// Fabric Desktop is now KratosForge: every name a person sees changed; identifiers that installed
+// copies, notebooks and workspaces depend on did not. The announcement shows once, before What's new.
+test("the app is called KratosForge everywhere people read it, and identifiers stay", () => {
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<title>KratosForge<\/title>/);
+  assert.match(html, /<img class="brand-name" src="kratosforge-lettering\.png"[^>]*alt="KratosForge">/);
+  assert.ok(!/by <b>KratosBI<\/b>/.test(html));
+  assert.ok(fs.existsSync(path.join(ui, "kratosforge-lettering.png")));
+  for (const f of fs.readdirSync(ui).filter((f) => f.endsWith(".js"))) {
+    assert.ok(!fs.readFileSync(path.join(ui, f), "utf8").includes("Fabric Desktop by KratosBI"), f);
+  }
+  const conf = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src-tauri", "tauri.conf.json"), "utf8"));
+  assert.strictEqual(conf.app.windows[0].title, "KratosForge");
+  assert.strictEqual(conf.identifier, "com.kratosbi.fabricdesktop", "a new identifier would stop installed copies updating");
+  assert.strictEqual(conf.productName, "Fabric Desktop", "the product name sets the program's file and folder");
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /const RENAME_SEEN = "fd\.rename\.kratosforge\.seen"/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /showRenameSplash\(\(\) => showWhatsNew\(\)\) \|\| showUpdateSplash\(\);/);
+  assert.match(settings, /"aria-labelledby": "splash-title", "aria-describedby": "splash-text"/);
+  assert.match(settings, /label: "About the new name: KratosForge"/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\n  \.overlay\.splash/);
+});
+
+test("the Platform tab says what differs between Git and the platform, and what a deploy will do", () => {
+  const { platformChangeLines, platformStepText, PLATFORM_STATES } = gitHelpers();
+  assert.strictEqual(PLATFORM_STATES.only_deployed, "removed in Git");
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "domains", changes: [
+    { field: "description", git: "Selling things", deployed: "Selling" }, { field: "owners", git: ["a", "b"], deployed: [] }] })),
+  JSON.stringify(['description: Git "Selling things", deployed "Selling"', "owners: Git a, b, deployed none"]));
+  assert.strictEqual(JSON.stringify(platformChangeLines({ kind: "admins", changes: [{ field: "admins", git: ["ana"], deployed: [] }] })),
+    JSON.stringify(["Git adds ana"]));
+  const labels = { domains: "Domain", policies: "Policy" };
+  assert.strictEqual(platformStepText({ kind: "domains", id: "sales", action: "create" }, labels), "Domain sales: create");
+  assert.strictEqual(platformStepText({ kind: "policies", id: "names", action: "update", what: "publish it as a new version" }, labels),
+    "Policy names: publish it as a new version");
+});
+
+// FINOPS-004 follow-up: Data mesh Run all reads the risk in one batch and starts only what can.
+test("Run all checks the risk once and starts only entities that aren't blocked or waiting on one", async () => {
+  const src = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const calls = [];
+  let dialog = null;
+  const ctx = { ENV_LABEL: { dev: "Dev" }, h: (tag, attrs, ...kids) => ({ tag, attrs, kids }),
+    btn: (label, icon, onclick) => ({ label, onclick }), riskAckBox: () => null, riskPanel: (r) => r.entity,
+    riskProceed: async () => true, closeDialog: () => {}, showDialog: (title, body, buttons) => { dialog = { title, body, buttons }; } };
+  vm.runInNewContext(`${src.match(/async function metaRiskGate\([\s\S]*?\n}\n/)[0]}; this.gate = metaRiskGate;`, ctx);
+  const p = { project: { name: "proj" } };
+  const check = (entity, result) => ({ entity, result, note: "Reports only" });
+  ctx.rpc = async (method, args) => { calls.push([method, args]); return ctx.answer; };
+  ctx.answer = { checks: [check("a", "pass"), check("b", "pass")], blocked: [], held: {}, run: ["a", "b"] };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all 2 entities"), true);
+  assert.strictEqual(JSON.stringify(calls), JSON.stringify([["meta_risk_gate", { names: null, env: "dev" }]]));
+  assert.strictEqual(dialog, null);
+  ctx.answer = { checks: [check("a", "blocked"), check("b", "pass"), check("c", "warning")], blocked: ["a"],
+    held: { b: ["a"] }, run: ["c"] };
+  const asked = ctx.gate(p, null, "dev", "all 3 entities");
+  await new Promise((r) => setImmediate(r));
+  const flat = (k) => (Array.isArray(k) ? k.flatMap(flat) : [k]);
+  const text = JSON.stringify(flat(dialog.body.kids));
+  assert.match(text, /b \(reads a\)/);
+  assert.match(text, /2 of 3 won't start; the other 1 run/);
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Cancel|Run the other 1");
+  await dialog.buttons[1].onclick();
+  assert.strictEqual(JSON.stringify(await asked), '["c"]');
+  ctx.answer = { checks: [check("a", "blocked")], blocked: ["a"], held: {}, run: [] };
+  const none = ctx.gate(p, ["a"], "dev", "a");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(dialog.buttons.map((b) => b.label).join("|"), "Close");
+  dialog.buttons[0].onclick();
+  assert.strictEqual(await none, false);
+  ctx.rpc = async () => { throw new Error("engine busy"); };
+  assert.strictEqual(await ctx.gate(p, null, "dev", "all"), true);  // the check is advice
+  assert.match(src, /meta_run", \{ names: only, env/);
+  assert.match(src, /if \(only !== names\) label = only\.join\(", "\);/);  // the toast and tray name only those
+});
+
+// Item 25: one keys database for Dev, Test and Prod. Moving keys in always shows what would move
+// first; the write is a second call with approve, and cancelling one that stopped is a danger confirm.
+test("moving keys into one database previews first, and cancelling it is a danger confirm", () => {
+  const mesh = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const move = mesh.match(/async function moveKeysIn\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(move, /^async function moveKeysIn\(\) \{\n  const plan = await attempt\(\(\) => rpc\("platform_share_keys", \{\}\)/);
+  assert.strictEqual((move.match(/approve: true/g) || []).length, 1);
+  assert.ok(move.indexOf('btn("Move keys in"') < move.indexOf("approve: true"), "the write happens only from the dialog's button");
+  assert.match(move, /Re-run Dev and Test/);
+  const cancel = mesh.match(/async function cancelKeysMove\(\)[\s\S]*?\n}\n/)[0];
+  assert.match(cancel, /confirmDialog\("Cancel the move\?", [^)]*\), "Cancel the move", \{ danger: true \}\)/);
+  assert.ok(cancel.indexOf("danger: true") < cancel.indexOf("approve: true"));
+  assert.match(mesh, /\.\.\.MESH_ENVS\.map\(row\), keysRow\(s, policy\)\)/);
+  const platform = fs.readFileSync(path.join(ui, "platform.js"), "utf8");
+  assert.match(platform, /!\(p\.tab === "keys" && p\.keysShared\) \? envSeg : null/);
+  assert.match(platform, /k\.shared \? "Key tables in SQL_Keys"/);
+  const how = platform.match(/howItWorks\("platform\.keys", \{[\s\S]*?\n  \}\)/)?.[0] || "";
+  for (const write of [/SQL_Keys and UDF_Keys, which uses Fabric capacity/, /copies every key table/, /new numbers/, /closes each environment's old key tables/, /removes the copied tables/]) {
+    assert.match(how, write);
+  }
+  assert.doesNotMatch(mesh, /Moved \$\{k\.moved_at \? when\(k\.moved_at\) : ""\}/, "no bare 'Moved .' when the time is missing");
+});
+
+// Validate notebook (validate.js): the headline, the count chips, what changed since a result,
+// and which tidy-ups Apply makes.
+function validateHelpers() {
+  const src = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}; Object.assign(this, { validateHeadline, validateShown, validateSnapshot, validateChanged, cleanupChosen, cleanupState, cleanupUndoable });`, ctx);
+  return ctx;
+}
+
+test("Validate says how ready the notebook is, and the chips filter by severity", () => {
+  const { validateHeadline, validateShown } = validateHelpers();
+  assert.deepStrictEqual([...validateHeadline({ verdict: "not_ready", counts: { error: 1, warning: 2 } })], ["fail", "Not ready: 1 error, 2 warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "ready", counts: {} })], ["pass", "Ready: no errors or warnings"]);
+  assert.deepStrictEqual([...validateHeadline({ verdict: "checked", counts: { warning: 1 } })], ["neu", "Code checks: 1 warning"]);
+  const f = [{ severity: "error" }, { severity: "info" }, { severity: "error" }];
+  assert.strictEqual(validateShown(f, "error").length, 2);
+  assert.strictEqual(validateShown(f, "all").length, 3);
+});
+
+test("Validate marks a result out of date when a cell changes, is added or is deleted", () => {
+  const { validateSnapshot, validateChanged } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1" }, { cell_id: "b", type: "markdown", source: "# hi" }];
+  const snap = validateSnapshot(cells);
+  assert.deepStrictEqual([...validateChanged(snap, cells)], []);
+  assert.deepStrictEqual([...validateChanged(snap, [{ ...cells[0], source: "x = 2" }, { ...cells[1], source: "# edited" }])], [1]);
+  assert.deepStrictEqual([...validateChanged(snap, [...cells, { cell_id: "c", type: "code", source: "" }])], [3]);
+  assert.deepStrictEqual([...validateChanged(snap, [cells[1]])], [0]);
+});
+
+test("Clean up applies the ticked tidy-ups, starting from the ones ticked at first", () => {
+  const { cleanupChosen } = validateHelpers();
+  const plan = { tidy: [{ id: "unused_imports", on: true }, { id: "print_lines", on: false }] };
+  assert.deepStrictEqual([...cleanupChosen(plan, {})], ["unused_imports"]);
+  assert.deepStrictEqual([...cleanupChosen(plan, { unused_imports: false, print_lines: true })], ["print_lines"]);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /preview\("validate", btn\("Validate"/);
+  assert.match(v, /v\.undo = \{ cells: before, after: cleanupState\(nb\.cells\) \};/);
+  assert.match(v, /if \(cell\.meta\?\.frozen\) continue;/);
+  assert.match(v, /changes: "Code checks and suggestions change nothing\. A clean run writes tables only to Files\/_fabric_desktop\/proofs\/validate-<id>\/pc/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/validateToggle\(nb\), proveToggle\(nb\)/g).length, 2);
+  assert.match(nb, /provePanel\(nb\), validatePanel\(nb\)\)/);
+});
+
+test("Clean up's Undo is offered only while the cells are exactly what Apply made", () => {
+  const { cleanupState, cleanupUndoable } = validateHelpers();
+  const cells = [{ cell_id: "a", type: "code", source: "x = 1", meta: {} }, { cell_id: "b", type: "code", source: "y = 2", meta: {} }];
+  const undo = { cells: [], after: cleanupState(cells) };
+  assert.strictEqual(cleanupUndoable(undo, cells), true);
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], source: "y = 3" }]), false);  // an edit
+  assert.strictEqual(cleanupUndoable(undo, [cells[1], cells[0]]), false);  // a move
+  assert.strictEqual(cleanupUndoable(undo, [cells[0], { ...cells[1], meta: { frozen: true } }]), false);
+  assert.strictEqual(cleanupUndoable(null, cells), false);
+});
+
+test("Schedules warns when this PC's schedules file was moved aside (QA-011)", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /h\("h3", \{ class: "schedule-head" \}, "On this PC"\),\n    setAsideNotice\(res\.pc_set_aside\),/);
+  assert.match(s, /look in Task Scheduler under /);
+});
+
+test("A metadata project that can't be read is said, not shown as no runs or nothing late (QA-027)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /if \(meta\.project_error\) unread\.unshift\("the metadata project"\);/);
+  assert.match(a, /meta\.project_error \? `Metadata runs not shown: the metadata project couldn't be read \(\$\{meta\.project_error\}\)` : ""/);
+  const d = fs.readFileSync(path.join(ui, "dataops.js"), "utf8");
+  assert.match(d, /if \(res\.project_error\) logActivity\(\{ id: "fresh:project-error", status: "error", title: "Freshness not checked"/);
+});
+
+// HD-035: Prove and side-by-side status polling stops on finish, an unknown run and errors.
+function pollHarness(answers, { limit } = {}) {
+  const { pollRun } = proveHelpers();
+  const waits = [];
+  let calls = 0;
+  const run = pollRun(async () => {
+    const a = answers[calls++];
+    if (a instanceof Error || typeof a === "string") throw a;  // Tauri rejects with the engine's text
+    return a;
+  }, { limit, onStatus: (now) => now.state === "running", sleep: async (ms) => { waits.push(ms); } });
+  return run.then((end) => ({ end, waits, calls: () => calls }));
+}
+
+test("status polling stops when the run finishes", async () => {
+  const { end, calls } = await pollHarness([{ state: "running" }, { state: "running" }, { state: "done" }, { state: "running" }]);
+  assert.strictEqual(end.stopped, "finished");
+  assert.strictEqual(calls(), 3);
+});
+
+test("status polling stops at once when the engine doesn't know the run", async () => {
+  // the engine replies "LookupError: No proof p-1" (server.py)
+  const { end, calls } = await pollHarness([{ state: "running" }, "LookupError: No proof p-1"]);
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "LookupError: No proof p-1" });
+  assert.strictEqual(calls(), 2);
+  const sbs = await pollHarness(["LookupError: No side-by-side run s-1"]);
+  assert.strictEqual(sbs.end.stopped, "lost");
+});
+
+test("status polling backs off on errors and gives up after the limit", async () => {
+  const down = new Error("The engine isn't answering");
+  const { end, waits, calls } = await pollHarness([down, { state: "running" }, down, down, down, down, down, { state: "done" }], { limit: 5 });
+  assert.deepStrictEqual({ ...end }, { stopped: "lost", message: "The engine isn't answering" });
+  assert.strictEqual(calls(), 7, "an answer in between resets the count");
+  assert.deepStrictEqual(waits, [1500, 3000, 1500, 3000, 6000, 12000, 12000]);
+});
+
+// followProof and followSideBySide with the engine, the bell and the page stubbed out.
+function followHarness(statuses) {
+  const ctx = { console, Promise, Map, Set, Object, String, Math, RegExp, Number, Error, JSON };
+  const calls = { status: 0, bell: [], toasts: [] };
+  Object.assign(ctx, {
+    state: { notebook: null, view: "notebook" },
+    setTimeout: (fn) => Promise.resolve().then(fn),
+    rpc: async (method) => {
+      if (method.endsWith("_status")) {
+        const s = statuses[Math.min(calls.status++, statuses.length - 1)];
+        return typeof s === "function" ? s() : s;
+      }
+      return [];
+    },
+    setKernel() {}, renderNotebook() {}, updateResults() {}, registerFeature() {}, previewShown: () => true,
+    logActivity: (item) => calls.bell.push(item),
+    toast: (text) => calls.toasts.push(text),
+    document: { querySelector: () => null, querySelectorAll: () => [] },
+  });
+  vm.createContext(ctx);
+  for (const file of ["prove.js", "sidebyside.js"]) vm.runInContext(fs.readFileSync(path.join(ui, file), "utf8"), ctx, { filename: file });
+  return { ctx, calls };
+}
+
+for (const [kind, follow, slot, prefix] of [["Prove", "followProof", "prove", "prove:"], ["Side by side", "followSideBySide", "sbs", "sbs:"]]) {
+  test(`${kind}: closing the notebook mid-run still settles the bell entry`, async () => {
+    let closed = false;
+    const done = { state: "done", verdict: { text: "Same.", verdict: "same", same: true } };
+    const { ctx, calls } = followHarness([{ state: kind === "Prove" ? "pc" : "local" }, () => { ctx.state.notebook = null; closed = true; return { state: kind === "Prove" ? "fabric" : "fabric" }; }, done]);
+    const nb = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = nb;
+    await ctx[follow](nb, "r-1");
+    assert.ok(closed, "the notebook was closed during the run");
+    const last = calls.bell.at(-1);
+    assert.strictEqual(last.id, `${prefix}r-1`);
+    assert.strictEqual(last.status, "ok");
+    assert.match(calls.toasts.at(-1), /^nb: Same\./);
+  });
+
+  test(`${kind}: reopening the notebook mid-run doesn't start a second loop`, async () => {
+    const running = { state: kind === "Prove" ? "pc" : "local" };
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const { ctx, calls } = followHarness([running, () => gate, { state: "cancelled" }]);
+    const first = { name: "nb", prove: {}, cells: [] };
+    const second = { name: "nb", prove: {}, cells: [] };
+    ctx.state.notebook = first;
+    const loop = ctx[follow](first, "r-2");
+    await new Promise((r) => setImmediate(r));
+    ctx.state.notebook = second;
+    await ctx[follow](second, "r-2");  // returns at once: the first loop takes the new notebook over
+    release(running);
+    await loop;
+    assert.strictEqual(calls.status, 3);
+    assert.strictEqual(slot === "prove" ? second.prove.record.state : second.sbs.state, "cancelled");
+    assert.deepStrictEqual(calls.toasts, ["nb: Cancelled."]);
+  });
+}
+
+test("Prove and side by side follow runs only through pollRun", () => {
+  for (const [file, fn] of [["prove.js", "followProof"], ["sidebyside.js", "followSideBySide"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = src.match(new RegExp(`async function ${fn}\\([\\s\\S]*?\\n}\\n`))[0];
+    assert.match(body, /pollRun\(/, fn);
+    assert.doesNotMatch(body, /for \(;;\)|while \(true\)/, fn);
+    assert.match(body, /if \(following\) return;/, `${fn} guards against two loops for one run`);
+  }
+});
+
+// UI-4 (HD-042): closing a prompt by its overlay, its X or Escape settled nothing, so the code
+// awaiting it hung. Runs the dialog code from app.js and meta.js on a small fake DOM.
+function dialogHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const section = app.slice(app.indexOf("// ---------- dialogs and menus ----------"), app.indexOf("function showMenu("));
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const keys = features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("));
+  const code = keys + section + app.match(/function pickWorkspace\([\s\S]*?\n}\n/)[0] + meta.match(/function confirmDialog\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {}, value: attrs?.value || "",
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type, e = {}) { for (const fn of this.on[type] || []) fn({ target: this, preventDefault() {}, stopImmediatePropagation() {}, ...e }); },
+      focus() {}, select() {}, contains: () => false, querySelector: () => null, querySelectorAll: () => [] };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) n.addEventListener(k.slice(2), v);
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const root = node("div");
+  Object.defineProperty(root, "childElementCount", { get: () => root.kids.length });
+  Object.assign(root, {
+    replaceChildren(...k) { this.kids = k; },
+    querySelector(sel) { return sel === ".overlay[data-dismiss]" ? find(this.kids[0], (n) => "data-dismiss" in n.attrs) : null; },
+  });
+  const docOn = {};
+  const ctx = {
+    h: node, icon: () => node("svg"), btn: (label, _i, onClick, cls) => node("button", { class: cls, onclick: onClick }, label),
+    MutationObserver: class { observe() {} disconnect() {} },
+    document: { getElementById: () => root, addEventListener: (t, fn) => { (docOn[t] ||= []).push(fn); } },
+  };
+  vm.runInNewContext(`${code}; Object.assign(this, { showDialog, closeDialog, askText, pickWorkspace, confirmDialog });`, ctx);
+  const overlay = () => root.kids[0];
+  return {
+    ...ctx, root,
+    clickOverlay: () => overlay().fire("mousedown", { target: overlay() }),
+    clickX: () => find(overlay(), (n) => n.attrs["aria-label"] === "Close").fire("click"),
+    pressEscape: () => docOn.keydown.forEach((fn) => fn({ key: "Escape", preventDefault() {}, stopImmediatePropagation() {} })),
+    clickButton: (label) => find(overlay(), (n) => n.tag === "button" && n.kids[0] === label).fire("click"),
+  };
+}
+
+const settledOrHung = (p) => Promise.race([p.then((v) => ({ v })), new Promise((r) => setTimeout(() => r("hung"), 20))]);
+
+test("closing a text prompt by its overlay, its X or Escape answers null", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const answer = d.askText("Rename", "Name", "orders");
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(answer), { v: null }, close);
+    assert.strictEqual(d.root.childElementCount, 0, close);
+  }
+  const d = dialogHelpers();
+  const answer = d.askText("Rename", "Name", "orders");
+  d.clickButton("Cancel");
+  assert.deepStrictEqual(await settledOrHung(answer), { v: null });
+});
+
+test("a workspace picker and a confirmation settle however they close", async () => {
+  for (const close of ["clickOverlay", "clickX", "pressEscape"]) {
+    const d = dialogHelpers();
+    const pick = d.pickWorkspace([{ id: "w1", displayName: "Sales" }]);
+    d[close]();
+    assert.deepStrictEqual(await settledOrHung(pick), { v: null }, close);
+    const e = dialogHelpers();
+    const ok = e.confirmDialog("Delete Orders?", "x", "Delete", { danger: true });
+    e[close]();
+    assert.deepStrictEqual(await settledOrHung(ok), { v: false }, close);
+  }
+});
+
+test("a dialog's onClose runs exactly once, also when another dialog replaces it", () => {
+  const d = dialogHelpers();
+  let closed = 0;
+  d.showDialog("One", d.h("p"), [], () => { closed++; });
+  d.clickX();
+  d.closeDialog();
+  d.pressEscape();
+  assert.strictEqual(closed, 1);
+  let replaced = 0;
+  d.showDialog("Two", d.h("p"), [], () => { replaced++; });
+  d.showDialog("Three", d.h("p"));
+  d.closeDialog();
+  assert.strictEqual(replaced, 1);
+  assert.strictEqual(d.root.childElementCount, 0);
+});
+
+// HD-044 (UI-6): the rail marks the page you're on, and the command bar is a modal dialog.
+function paletteHarness() {
+  const src = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs, kids: kids.flat(), on: {}, isConnected: true, value: attrs.value || "",
+      addEventListener(type, fn) { this.on[type] = fn; }, focus() { ctx.document.activeElement = this; },
+      setSelectionRange() {}, querySelector() { return null; }, replaceChildren(...k) { this.kids = k; },
+      remove() { this.isConnected = false; if (ctx.mounted === this) ctx.mounted = null; } };
+    for (const [k, v] of Object.entries(attrs)) if (k.startsWith("on") && typeof v === "function") n.on[k.slice(2)] = v;
+    return n;
+  };
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    h: node, icon: () => node("svg"), closeMenu() {}, state: { view: "home" }, rpc: () => new Promise(() => {}),
+    previewShown: () => true, go() {}, console, mounted: null, trapped: 0,
+    trapFocus() { ctx.trapped++; },
+    document: { activeElement: null, body: { append(b) { ctx.mounted = b; } },
+      getElementById: (id) => (id === "palette" ? ctx.mounted : id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.runInNewContext(src, ctx);
+  ctx.paletteItems = () => [{ group: "Pages", label: "Home", icon: "home", run() {} }];
+  const key = (k) => { const e = { key: k, stopped: false, preventDefault() {}, stopPropagation() { e.stopped = true; } }; return e; };
+  return { ctx, node, dialogRoot, key };
+}
+
+test("the command bar is a modal dialog: focus goes in, Tab stays in, Escape closes it and focus returns (HD-044)", () => {
+  const { ctx, node, key } = paletteHarness();
+  const opener = node("button", { id: "opener" });
+  ctx.document.activeElement = opener;
+  ctx.openPalette();
+  const box = ctx.mounted;
+  assert.ok(box, "the command bar did not open");
+  const dialog = box.kids[0];
+  assert.strictEqual(dialog.attrs.role, "dialog");
+  assert.strictEqual(dialog.attrs["aria-modal"], "true");
+  assert.strictEqual(ctx.document.activeElement.tag, "input", "focus did not move into the command bar");
+  ctx.openPalette();  // Ctrl+K again keeps where focus came from
+  const reopened = ctx.mounted;
+  assert.ok(reopened.on.keydown, "the command bar has no keydown handler for Tab and Escape");
+  reopened.on.keydown(key("Tab"));
+  assert.strictEqual(ctx.trapped, 1, "Tab is not kept inside the command bar");
+  const esc = key("Escape");
+  reopened.on.keydown(esc);
+  assert.strictEqual(ctx.mounted, null, "Escape did not close the command bar");
+  assert.ok(esc.stopped, "Escape also reaches the activity tray behind the command bar");
+  assert.strictEqual(ctx.document.activeElement, opener, "focus did not go back to where it was");
+});
+
+test("Ctrl+K does nothing while another dialog is open (HD-044)", () => {
+  const { ctx, dialogRoot } = paletteHarness();
+  dialogRoot.childElementCount = 1;
+  ctx.openPalette();
+  assert.strictEqual(ctx.mounted, null, "the command bar opened over a dialog");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /isShortcut\(e, "palette"\)\) \{ e\.preventDefault\(\); openPalette\(\); \}/);
+});
+
+test("the rail marks the page you're on with aria-current, and only that one (HD-044)", () => {
+  const { ctx } = paletteHarness();
+  const f = { id: "x", rail: { label: "Home", icon: "home", order: 1, also: ["homeDetail"] }, views: { home() {} } };
+  ctx.state.view = "home";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "homeDetail";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], "page");
+  ctx.state.view = "settings";
+  assert.strictEqual(ctx.railItem(f).attrs["aria-current"], null);
+  assert.doesNotMatch(ctx.railItem(f).attrs.class, /active/);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /class: `rail-item\$\{state\.view === view \? " active" : ""\}`, "aria-current": state\.view === view \? "page" : null/);
+});
+
+test("A scheduled run whose Teams alert didn't go out says so in Runs and Schedules (QA-013)", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(a, /reason: r\.status === "ok" \? "" : \[r\.message\?\.replace\(\/\\\.\$\/, ""\), r\.alert_error\]\.filter\(Boolean\)\.join\("\. "\)/);
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  assert.match(s, /s\.last\?\.alert_error \? h\("div", \{ class: "reason" \}, s\.last\.alert_error\) : null/);
+});
+
+// motion.js with a small stand-in DOM and clock: what Forge animations make, and when they don't.
+function motionHarness({ setting = true, reduced = false, hidden = false, settings = null } = {}) {
+  let clock = 0;
+  let timers = [];
+  const node = (cls = "") => {
+    const n = {
+      cls: new Set(String(cls).split(" ").filter(Boolean)), kids: [], attrs: {}, style: {}, parent: null, textContent: "",
+      get isConnected() { return !!n.parent; },
+      classList: { add: (c) => n.cls.add(c), contains: (c) => n.cls.has(c) },
+      append(...cs) { for (const c of cs) if (c && typeof c === "object") { c.remove(); c.parent = n; n.kids.push(c); } },
+      remove() { if (n.parent) n.parent.kids = n.parent.kids.filter((k) => k !== n); n.parent = null; },
+      setAttribute(k, v) { n.attrs[k] = v; },
+      all() { return n.kids.flatMap((k) => [k, ...k.all()]); },
+      querySelector(sel) {
+        if (sel === ":scope > .fx") return n.kids.find((k) => k.cls.has("fx")) || null;
+        return n.all().find((k) => k.cls.has(sel.slice(1))) || null;
+      },
+    };
+    return n;
+  };
+  const live = node();
+  const ctx = {
+    state: { settings: settings || { forge_animations: { value: setting } } },
+    document: { hidden, documentElement: { dataset: {} }, createElementNS: () => node(), getElementById: (id) => (id === "announce" ? live : null),
+      addEventListener() {}, hasFocus: () => true },
+    addEventListener() {},
+    getComputedStyle: () => ({ position: "static" }),
+    innerHeight: 900,
+    matchMedia: () => ({ matches: reduced, addEventListener() {} }),
+    setTimeout: (fn, ms) => { const t = { at: clock + ms, fn }; timers.push(t); return t; },
+    clearTimeout: (t) => { timers = timers.filter((x) => x !== t); },
+    Date: { now: () => clock },
+    h: (tag, attrs = {}, ...children) => {
+      const n = node(attrs.class || "");
+      for (const [k, v] of Object.entries(attrs)) if (k !== "class") n.attrs[k] = v;
+      n.append(...children.flat());
+      return n;
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "motion.js"), "utf8"), ctx);
+  ctx.advance = (ms) => {
+    clock += ms;
+    for (let due; (due = timers.filter((t) => t.at <= clock).sort((a, b) => a.at - b.at)[0]);) { timers = timers.filter((t) => t !== due); due.fn(); }
+  };
+  const page = node();  // anchors the tests make sit on the page, as real ones do
+  ctx.node = (cls) => { const n = node(cls); page.append(n); return n; };
+  ctx.live = live;
+  return ctx;
+}
+
+test("Forge animations: fx plays one hidden effect, removes it, and doesn't stack repeats", () => {
+  const ctx = motionHarness();
+  const label = ctx.node();
+  const el = ctx.fx(label, "spark");
+  assert.ok(el, "no spark was made");
+  assert.strictEqual(el.attrs["aria-hidden"], "true");
+  assert.ok(el.cls.has("fx") && el.cls.has("fx-spark") && label.cls.has("fx-anchor"));
+  assert.strictEqual(ctx.fx(label, "fail"), null, "a second effect stacked on the same element");
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null, "a second spark played within its gap");
+  ctx.advance(600);
+  assert.strictEqual(label.kids.length, 0, "the spark was not removed");
+  assert.ok(ctx.fx(ctx.node(), "spark"), "a spark after the gap did not play");
+  assert.strictEqual(ctx.fx(ctx.node(), "confetti"), null, "an unknown kind played");
+  assert.strictEqual(ctx.fx(null, "fail"), null);
+});
+
+test("Forge animations: nothing is made with the setting off, reduced motion or a hidden window", () => {
+  for (const opts of [{ setting: false }, { reduced: true }, { hidden: true }]) {
+    const ctx = motionHarness(opts);
+    const label = ctx.node();
+    assert.strictEqual(ctx.fx(label, "spark"), null, JSON.stringify(opts));
+    assert.strictEqual(label.kids.length, 0);
+    const track = ctx.wolfTrack(() => ctx.bar ||= ctx.node(), "Notebook run", "Cell");
+    track.set(1, 3);
+    ctx.advance(700);
+    assert.strictEqual(ctx.bar.querySelector(".wolf"), null, `a wolf was drawn: ${JSON.stringify(opts)}`);
+    if (!opts.hidden) assert.ok(ctx.bar.querySelector(".wolf-bar"), "the progress bar itself went with the animations");
+  }
+  const off = motionHarness({ setting: false });
+  off.applyMotion();
+  assert.strictEqual(off.document.documentElement.dataset.motion, "off");
+  const reduced = motionHarness({ reduced: true });
+  reduced.applyMotion();
+  assert.strictEqual(reduced.document.documentElement.dataset.motion, "off");
+  const on = motionHarness();
+  on.applyMotion();
+  assert.strictEqual(on.document.documentElement.dataset.motion, "on");
+  on.state.settings = null;  // settings not loaded yet: on, as for a new install
+  assert.strictEqual(on.motionOn(), true);
+});
+
+test("Forge animations: the wolf track waits 600 ms, follows real progress and goes when the run ends", () => {
+  const ctx = motionHarness();
+  const bar = ctx.node();
+  const quick = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  quick.set(0, 2);
+  ctx.advance(500);
+  quick.stop();
+  ctx.advance(500);
+  assert.strictEqual(bar.kids.length, 0, "a run shorter than 600 ms flashed the track");
+
+  const track = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  track.set(0, 4);
+  ctx.advance(599);
+  assert.strictEqual(track.shown, false);
+  ctx.advance(1);
+  assert.strictEqual(track.shown, true);
+  track.set(1, 4);
+  const p = bar.querySelector(".wolf-bar");
+  assert.strictEqual(bar.querySelector(".wolf-text").textContent, "Cell 2 of 4");
+  assert.deepStrictEqual([p.attrs.role, p.attrs["aria-valuenow"], p.attrs["aria-valuemax"]], ["progressbar", "1", "4"]);
+  assert.strictEqual(bar.querySelector(".wolf").style.left, "25%");
+  assert.strictEqual(bar.querySelector(".wolf").attrs["aria-hidden"], "true");
+  assert.strictEqual(bar.querySelector(".wolf-embers").kids.length, 3, "the wolf has no embers behind it");
+  assert.strictEqual(bar.querySelector(".wolf-fill").style.width, "25%");
+  track.set(4, 4);
+  track.arrive();
+  assert.ok(bar.querySelector(".fx-arrive"), "the wolf didn't glow at the end");
+  assert.ok(bar.querySelector(".wolf").cls.has("arriving"));
+  ctx.advance(700);
+  assert.strictEqual(bar.kids.length, 0, "the track stayed after the run");
+
+  const failed = ctx.wolfTrack(() => bar, "Notebook run", "Cell");
+  failed.set(1, 3);
+  ctx.advance(700);
+  failed.stop();
+  assert.strictEqual(bar.kids.length, 0, "a failed or cancelled run left its track");
+  assert.strictEqual(bar.querySelector(".fx-arrive"), null);
+});
+
+test("Forge animations: announce speaks once through the polite region", () => {
+  const ctx = motionHarness({ setting: false });
+  ctx.announce("Run finished: 3 cells succeeded");
+  ctx.advance(60);
+  assert.strictEqual(ctx.live.textContent, "Run finished: 3 cells succeeded", "turning animations off silenced screen readers");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /<div id="announce" class="sr-only" role="status" aria-live="polite"><\/div>/);
+  assert.ok(html.indexOf('src="motion.js"') < html.indexOf('src="notebook.js"'), "motion.js loads after notebook.js");
+});
+
+// cellFx from notebook.js, with fx and announce recorded.
+function cellFxHarness(runningAll) {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const code = src.match(/function cellFx\([\s\S]*?\n}\n/)[0];
+  const calls = [];
+  const cells = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  const ctx = {
+    state: { notebook: { cells, runningAll } }, calls, cells,
+    document: { querySelector: (sel) => ({ sel }) },
+    LONG_RUN_SECONDS: 10,
+    forgeEvent: (name, anchor) => { calls.push(["fx", name, anchor.sel]); return {}; },
+    announce: (text) => calls.push(["say", text]),
+  };
+  vm.runInNewContext(`${code}; this.cellFx = cellFx;`, ctx);
+  return ctx;
+}
+
+test("Forge animations in the notebook: spark on success, ember on failure, nothing for Stop or Cancel", () => {
+  const one = cellFxHarness(false);
+  one.cells[1].status = "ok";
+  one.cellFx(one.cells[1]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "notebook.cell.succeeded", '[data-cell="b"] .cell-status > span']]);
+  one.calls.length = 0;
+  one.cells[2].status = "error";
+  one.cellFx(one.cells[2]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 3 failed"], ["fx", "notebook.cell.failed", '[data-cell="c"] .cell-status > span']]);
+  // A cell that ran 10 s or more gets the Wolf Run in the status bar instead of a spark.
+  one.calls.length = 0;
+  Object.assign(one.cells[1], { status: "ok", seconds: 12 });
+  one.cellFx(one.cells[1]);
+  assert.deepStrictEqual(one.calls, [["say", "Cell 2 succeeded"], ["fx", "notebook.long.succeeded", ".statusbar"]]);
+  for (const status of ["stopped", "cancelled", "running", null]) {
+    one.calls.length = 0;
+    one.cells[0].status = status;
+    one.cellFx(one.cells[0]);
+    assert.deepStrictEqual(one.calls, [], `${status} played or said something`);
+  }
+  const all = cellFxHarness(true);
+  all.cells[0].status = "ok";
+  all.cellFx(all.cells[0]);
+  assert.deepStrictEqual(all.calls, [], "Run all sparked or spoke for each cell");
+  all.cells[1].status = "error";
+  all.cellFx(all.cells[1]);
+  assert.deepStrictEqual(all.calls, [["fx", "notebook.cell.failed", '[data-cell="b"] .cell-status > span']]);
+});
+
+test("Forge animations in the notebook: runs of several cells use the wolf track and one announcement", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const run = src.match(/async function runCells\([\s\S]*?\n}\n/)[0];
+  assert.match(run, /if \(!ok \|\| nb\.cancelRequested\) \{\n\s+track\?\.stop\(\);/, "a failed or cancelled run keeps its track");
+  assert.match(run, /code\.length > 1 \? wolfTrack\(\(\) => document\.querySelector\("\.statusbar"\), "Notebook run", "Cell", "on this PC"\) : null/);
+  assert.match(run, /if \(code\.length > 1\) forgeEvent\("notebook\.run\.started", document\.querySelector\("button\[data-run\]"\)\);/);
+  assert.match(run, /announce\(cell\.status === "error" \? `Run stopped: cell \$\{[^}]+\} failed` : "Run stopped"\);/, "a stopped run says nothing");
+  assert.match(run, /track\?\.set\(i \+ 1, code\.length\);/);
+  assert.match(run, /track\?\.arrive\(\);\n\s+if \(code\.length\) announce\(`Run finished/);
+  assert.match(run, /\} finally \{\n\s+nb\.runningAll = false;/);
+  assert.match(src, /refreshVariables\(\);\n  cellFx\(cell\);  \/\/ after dbgAfterRun, which draws the results again\n  return ok;/);
+});
+
+test("Motion & effects settings: four levels, family switches, reduced-motion choice, lockable, applied at once; CSS honours them", () => {
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const card = s.match(/function motionSettingsCard\([\s\S]*?\n}\n/)[0];
+  assert.match(card, /h\("h2", \{\}, "Appearance"\),\n\s+h\("h3", \{\}, "Motion & effects"\)/);
+  assert.match(card, /type: "radio", name: "motion_level"/);
+  assert.match(card, /disabled: locked\("motion_level"\) \? true : null, onchange: \(\) => save\(\{ motion_level: n \}\)/);
+  assert.match(card, /\[0, 1, 2, 3\]\.map\(levelRow\)/);
+  assert.match(card, /toggle\(key, label, s\[key\]\?\.value !== false, level < 2\)/, "family switches don't grey out below Refined");
+  assert.match(card, /disabled: disabled \|\| locked\(key\) \? true : null/);
+  assert.match(card, /"Respect Windows' reduced-motion setting"/);
+  for (const key of ["motion_wolf", "motion_sparks", "motion_ambient"]) assert.match(s, new RegExp(`\\["${key}", "`));
+  assert.doesNotMatch(s, /\["motion_achievements", "/, "the achievements switch shows before the profile can award anything");
+  assert.match(s, /\["motion_ambient", "Running indicators",/);
+  assert.match(s, /const display = s\.motion_level \? motionSettingsCard\(s, locked\) : null;/);
+  assert.match(s, /\[account, updates, display, previews,/);
+  assert.match(s, /if \(res\) state\.settings = res;\n  applyMotion\(\);/);
+  assert.match(s, /state\.settings = await rpc\("app_settings"\)[^\n]*\n  applyMotion\(\);/);
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /html\[data-motion="off"\] \.fx, html\[data-motion="off"\] \.wolf \{ display: none; \}/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ html:not\(\[data-motion-override\]\) :is\(\.fx, \.wolf\) \{ display: none; \}/);
+  assert.match(css, /html\[data-fx-wolf="off"\] \.wolf, html\[data-fx-sparks="off"\] :is\(\.fx-spark, \.fx-fail, \.fx-strike\),/);
+  // Effects animate only transform and opacity, so they never move the layout.
+  const keyframes = [...css.matchAll(/@keyframes fx-[\w-]+ \{([^\n]*)\}\n/g)].map((m) => m[1]);
+  assert.ok(keyframes.length >= 6, "fx keyframes not found");
+  for (const k of keyframes) assert.doesNotMatch(k.replace(/\b(opacity|transform)\b/g, ""), /[a-z-]+:/, k);
+});
+
+// Notebook files (notebook-files.js): the Saved in chips, search hits, and what Publish says changed in Fabric.
+function notebookFilesHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registered: [], registerFeature(f) { ctx.registered.push(f); } };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFilesPlaces, nbFilesShown, nbHitParts, nbHitCount, nbChangeTitle });`, ctx);
+  return ctx;
+}
+
+test("All notebooks filters by where notebooks are saved", () => {
+  const { nbFilesPlaces, nbFilesShown } = notebookFilesHelpers();
+  const repo = { root: "C:/git/sales", label: "sales-notebooks" };
+  const list = [{ name: "A", place: null }, { name: "B", place: repo }, { name: "C", place: repo }];
+  assert.deepStrictEqual([...nbFilesPlaces(list).map((p) => `${p.label} ${p.count}`)], ["All 3", "This PC 1", "sales-notebooks 2"]);
+  assert.deepStrictEqual([...nbFilesShown(list, "pc").map((n) => n.name)], ["A"]);
+  assert.deepStrictEqual([...nbFilesShown(list, repo.root).map((n) => n.name)], ["B", "C"]);
+  assert.strictEqual(nbFilesShown(list, null).length, 3);
+});
+
+test("A search hit marks the match, and the count covers name-only matches", () => {
+  const { nbHitParts, nbHitCount } = notebookFilesHelpers();
+  assert.deepStrictEqual([...nbHitParts({ text: "x = region_map.join()", start: 4, end: 14 })], ["x = ", "region_map", ".join()"]);
+  const found = { notebooks: [{ name_match: true, hits: [] }, { name_match: false, hits: [{}, {}] }, { name_match: true, hits: [{}] }] };
+  assert.strictEqual(nbHitCount(found), 4);
+});
+
+test("Publish names each change made in Fabric", () => {
+  const { nbChangeTitle } = notebookFilesHelpers();
+  assert.strictEqual(nbChangeTitle({ kind: "changed", position: 3 }), "Cell 3: changed");
+  assert.strictEqual(nbChangeTitle({ kind: "added", position: 6 }), "Cell 6: added");
+  assert.strictEqual(nbChangeTitle({ kind: "reordered", position: null }), "Cells were reordered");
+});
+
+test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publish check are wired", () => {
+  const { registered } = notebookFilesHelpers();
+  assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
+  assert.ok(registered[0].views.notebooks);
+  assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.match(app, /also: \["notebooks"\]/);
+  assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
+  assert.match(app, /rpc\("publish_notebook", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(app, /rpc\("run_notebook_in_fabric", \{ \.\.\.publishPayload\(\), replace_fabric_changes: gate\.replace \}\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\)/);
+  assert.match(fs.readFileSync(path.join(ui, "item-preview.js"), "utf8"), /preview\("fabricEdit", btn\("Edit on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /fabricEdit: "Edit Fabric notebooks on this PC"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="validate\.js"><\/script>\n  <script src="notebook-files\.js"><\/script>/);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /confirmDialog\(`Delete \$\{name\}\?`, .*"Delete", \{ danger: true \}\)/);
+  assert.match(files, /"Replace with mine", \{ danger: true \}/);
+});
+
+test("the update splash lists the build's notes and each change since the build this PC ran before", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function updateHighlights\([\s\S]*?\n}\n/)[0]}; this.f = updateHighlights;`, ctx);
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const items = [{ title: "Notebook steps", commit: "c3" }, { title: "SCD templates ", commit: "c2" }, { title: "Keys move", commit: "c1" }];
+  assert.deepStrictEqual(plain(ctx.f([], items, "c1")), ["Notebook steps", "SCD templates"]);
+  assert.deepStrictEqual(plain(ctx.f(["Faster runs"], items, "c2")), ["Faster runs", "Notebook steps"]);
+  assert.deepStrictEqual(plain(ctx.f([], items, "gone")), ["Notebook steps"], "an unknown build shows only the newest change");
+  assert.deepStrictEqual(plain(ctx.f(["Notebook steps"], items, "")), ["Notebook steps"], "no repeats");
+  assert.deepStrictEqual(plain(ctx.f([], items, "c3")), []);
+  assert.match(src, /const UPDATE_SPLASH_OFF = "fd\.updatesplash\.off"/);
+  assert.match(src, /if \(!asked && !updateSplashOn\(\)\) \{ showWhatsNew\(\); return false; \}/);
+  assert.match(src, /label: "Show the update splash"/);
+  assert.match(fs.readFileSync(path.join(ui, "styles.css"), "utf8"), /\.splash-actions, \.splash-optout \{ animation: none; \}/);
+});
+
+// UX-018: every schedule Remove asks first, names what stops, and points at Off.
+test("removing a schedule asks first, in red, and says what stops", () => {
+  const s = fs.readFileSync(path.join(ui, "schedules.js"), "utf8");
+  const removes = s.split('btn("Remove", "delete", async () => {').slice(1);
+  assert.strictEqual(removes.length, 3);
+  for (const r of removes) assert.match(r.split("\n")[1], /if \(!\(await confirmRemoveSchedule\([^)]*\)\)\) return;/);
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function confirmRemoveSchedule\([\s\S]*?\n}\n/.exec(s)[0] + "\nthis.f = confirmRemoveSchedule;", ctx);
+  ctx.confirmDialog = (...args) => args;
+  const [title, text, ok, opts] = ctx.f("nb_sales", "Daily at 06:00 UTC", false);
+  assert.strictEqual(title, "Remove the schedule for nb_sales?");
+  assert.match(text, /^Daily at 06:00 UTC\. Its Windows task is deleted .* turn it Off\.$/);
+  assert.strictEqual(ok, "Remove");
+  assert.strictEqual(opts.danger, true);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true)[1], /Fabric deletes the schedule/);
+  assert.match(ctx.f("Dev runs", "Every 30 minutes", true, false)[1], /turn it Off in Monitor > Schedules\.$/);
+  assert.match(s, /confirmRemoveSchedule\(o\.what, s\.text, true, false\)/);
+});
+
+// Notebook sessions: each open notebook keeps its own kernel state, a running notebook keeps
+// running when another is opened, and reopening shows its outputs (kernel_sessions.py).
+test("each notebook has its own kernel state, and in-engine notebooks share one busy kernel", () => {
+  const a = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (src, name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0];
+  const ctx = { ownProcess: false };
+  vm.createContext(ctx);
+  vm.runInContext(`const state = {}; const openNotebooks = new Map(); const KEPT_NOTEBOOKS = 2;
+    function kernelInOwnProcess() { return ownProcess; }
+    ${/Object\.defineProperty\(state, "kernel", \{[\s\S]*?\n\}\);\n/.exec(a)[0]}
+    ${grab(n, "kernelBusy")}${grab(a, "nbRunning")}${grab(a, "keepOutputs")}${grab(a, "rememberNotebook")}
+    this.state = state; this.open = openNotebooks; this.keepOutputs = keepOutputs; this.remember = rememberNotebook;`, ctx);
+  const nb = (name, cells = []) => ({ name, cells, kernelStatus: "idle" });
+  const A = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [{ text: "1" }], count: 3, status: "ok" }]);
+  const B = nb("B");
+  ctx.state.notebook = A; ctx.remember(A);
+  ctx.state.notebook = B; ctx.remember(B);
+  A.kernelStatus = "busy";
+  assert.strictEqual(ctx.state.kernel, "busy");  // inside the engine, one shared kernel
+  ctx.ownProcess = true;
+  assert.strictEqual(ctx.state.kernel, "idle");  // B's own session is free
+  ctx.state.kernel = "stopped";
+  assert.strictEqual(B.kernelStatus, "stopped");
+  assert.strictEqual(A.kernelStatus, "busy");
+  // Reopened from disk: unchanged cells keep their outputs; changed ones don't.
+  const again = nb("A", [{ cell_id: "c1", source: "x = 1", outputs: [] }, { cell_id: "c2", source: "y", outputs: [] }]);
+  ctx.keepOutputs(A, again);
+  assert.strictEqual(again.cells[0].count, 3);
+  assert.deepStrictEqual(again.cells[1].outputs, []);
+  // Only idle notebooks are forgotten past the limit.
+  ctx.state.notebook = nb("C"); ctx.remember(ctx.state.notebook);
+  assert.deepStrictEqual([...ctx.open.keys()], ["A", "C"]);
+  // A cell keeps polling its own notebook's session after another notebook is opened.
+  assert.match(n, /async function runCell\(cell, \{ timeLimit = true, code = null, debug = false, nb = state\.notebook \} = \{\}\)/);
+  assert.match(n, /rpc\("poll_cell", \{ version: snap\.version, wait: 0\.4, notebook: nb\.name \}\)/);
+  assert.match(n, /rpc\("interrupt_cell", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /rpc\("stop_kernel_process", \{ notebook: nb\?\.name \}\)/);
+  assert.match(n, /sessionsButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>/);
+});
+
+// Notebook environments: packages are added through a confirm that says where they come from,
+// and the dialog never opens a confirm on top of itself (showDialog would settle it twice).
+test("notebook environments confirm installs and close their dialog before asking", () => {
+  const e = fs.readFileSync(path.join(ui, "nbenv.js"), "utf8");
+  const install = /async function install\(\) \{[\s\S]*?\n  \}\n/.exec(e)[0];
+  assert.ok(install.indexOf("closeDialog();") < install.indexOf("confirmDialog("));
+  assert.match(install, /from PyPI, or from the package index this PC's pip is set up for/);
+  assert.match(install, /install only ones you trust/);
+  const del = /async function del\(\) \{[\s\S]*?\n  \}\n/.exec(e)[0];
+  assert.ok(del.indexOf("closeDialog();") < del.indexOf("confirmDialog("));
+  assert.match(del, /\{ danger: true \}/);
+  assert.match(e, /return preview\("environments",/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /sessionsButton\(\), environmentButton\(nb\),/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="sessions\.js"><\/script>\s*<script src="nbenv\.js"><\/script>/);
+});
+
+test("breakpoints follow their lines, and the debugger keys match VS Code", () => {
+  const { dbgBpMap, dbgStackText, dbgKeyAction } = dbgHelpers();
+  // Two lines inserted above line 3; line 5 deleted onto line 4; line 9 is past the end now.
+  const moved = { 1: 1, 3: 5, 4: 6, 5: 6, 9: 11 };
+  assert.deepStrictEqual([...dbgBpMap([1, 3, 4, 5, 9], (n) => moved[n] ?? null, 10)], [1, 5, 6]);
+  assert.strictEqual(dbgStackText([{ function: "(cell)", line: 5 }, { function: "double", line: 3 }]), "(cell) line 5 › double line 3");
+  const key = (k, extra = {}) => dbgKeyAction({ key: k, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...extra });
+  assert.strictEqual(key("F5"), "continue");
+  assert.strictEqual(key("F10"), "next");
+  assert.strictEqual(key("F11"), "step");
+  assert.strictEqual(key("F11", { shiftKey: true }), "out");
+  assert.strictEqual(key("F5", { ctrlKey: true }), null);
+  assert.strictEqual(key("Enter"), null);
+});
+
+test("the notebook editor wires breakpoints and the debugger through debugging.js", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const dbg = fs.readFileSync(path.join(ui, "debugging.js"), "utf8");
+  for (const hook of ["dbgEditorMarks(cell)", "dbgEdited(cell, u)", "dbgToggleAtCursor(cell)", "dbgStartArgs(cell, debug)",
+    "dbgSnapshot(cell, snap)", "dbgPausedPanel(cell)", "dbgGutterClick(cell, view, line)", "debugCell(cell)"]) {
+    assert.ok(nb.includes(hook), hook);
+  }
+  assert.match(dbg, /rpc\("debug_cell"/);
+  // Breakpoints are a Preview feature: nothing is sent or shown while it is hidden.
+  assert.match(dbg, /function dbgBreakpoints\(cell\) \{\n  return dbgOn\(\)/);
+  assert.match(dbg, /function dbgStartArgs\(cell, debug\) \{\n  const lines = dbgBreakpoints\(cell\);\n  if \(!dbgOn\(\)\) return \{\};/);
+  // The debugger keys are in the Keyboard shortcuts dialog, only while the Preview feature is shown.
+  assert.match(dbg, /registerShortcuts\("Notebook debugger", \[[\s\S]*keys: \["F9"\][\s\S]*keys: \["Shift\+F11"\][\s\S]*\]\);/);
+  assert.strictEqual((dbg.match(/when: \(\) => state\.view === "notebook" && dbgOn\(\)/g) || []).length, 5);
+});
+
+// Item 18 follow-up: Queue, Incidents and Run as each have How this works beside the list, like
+// Workloads and Agents, linked to their own section of the guide.
+test("Queue, Incidents and Run as say how they work beside the list", () => {
+  const guide = fs.readFileSync(path.join(ui, "..", "..", "docs", "user-guide.md"), "utf8");
+  for (const [file, fn, id, anchor] of [["queue.js", "queuePanel", "monitor.queue", "queue-preview"],
+    ["incidents.js", "incidentsPanel", "monitor.incidents", "incidents-preview"], ["runas.js", "runAsPanel", "monitor.runas", "run-as-preview"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const body = new RegExp(`function ${fn}\\(\\) \\{[\\s\\S]*?\\n\\}\\n`).exec(src)[0];
+    assert.match(body, new RegExp(`withHowItWorks\\(box, howItWorks\\("${id.replace(".", "\\.")}"`), file);
+    for (const part of ["reads:", "changes:", "results:", `anchor: "${anchor}"`]) assert.ok(body.includes(part), `${file} ${part}`);
+    const heading = { "queue-preview": "### Queue (Preview)", "incidents-preview": "### Incidents (Preview)", "run-as-preview": "### Run as (Preview)" }[anchor];
+    assert.ok(guide.includes(heading), heading);
+  }
+  const inc = fs.readFileSync(path.join(ui, "incidents.js"), "utf8");
+  assert.match(inc, /Check now never posts/);
+});
+
+// Cost allocation: the workload page shows its runs' capacity use from workload_capacity_use, with
+// each figure's classification, and says runs on this PC aren't counted (QA-008 wording).
+test("the workload page shows its capacity use, classified, and never a figure for this PC", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  assert.match(src, /workloadIncidentsCard\(w\),\n    workloadCapacityCard\(w\),/);
+  const card = /function workloadCapacityCard\(w\) \{[\s\S]*?\n\}\n/.exec(src)[0];
+  assert.match(card, /rpc\("workload_capacity_use", \{ id: w\.id, days: 30 \}\)/);
+  assert.match(card, /measureFigure\("Capacity use of its Fabric runs", u\.total\)/);
+  assert.match(card, /OneLake reads and writes still use some capacity/);
+  assert.doesNotMatch(card, /no Fabric capacity|saved|savings of/i);
+});
+
+test("a replay notebook offers to delete what its replays wrote, with a danger confirm", () => {
+  const src = fs.readFileSync(path.join(ui, "replay.js"), "utf8");
+  const fn = src.match(/function replayDeleteOutputs\([\s\S]*?\n}\n/)[0];
+  assert.match(fn, /confirmDialog\([\s\S]*\{ danger: true \}/);
+  assert.match(fn, /rpc\("replay_delete_outputs"/);
+  assert.match(src, /disabled: busy \|\| c\.live, title: c\.live \? "End the replay first\."/);
+});
+
+// Motion & effects levels (motion.js): what each level, family switch and the reduced-motion choice let play.
+test("Motion levels: Minimal plays no branded effects, Refined and Expressive do, and <html> says which", () => {
+  const at = (level, extra = {}) => motionHarness({ settings: { motion_level: { value: level }, ...extra } });
+  const minimal = at(1);
+  assert.strictEqual(minimal.fx(minimal.node(), "spark"), null);
+  assert.strictEqual(minimal.motionDiagnostics().skipped.level, 1);
+  minimal.applyMotion();
+  assert.strictEqual(minimal.document.documentElement.dataset.motionLevel, "1");
+  assert.strictEqual(minimal.document.documentElement.dataset.motion, "off");
+  for (const level of [2, 3]) {
+    const ctx = at(level);
+    assert.ok(ctx.fx(ctx.node(), "spark"), `level ${level} played no spark`);
+    ctx.applyMotion();
+    assert.strictEqual(ctx.document.documentElement.dataset.motionLevel, String(level));
+  }
+  const off = at(0);
+  assert.strictEqual(off.motionLevel(), 0);
+  assert.strictEqual(motionHarness({ setting: false }).motionLevel(), 0, "the first switch turned off no longer means Off");
+  assert.strictEqual(motionHarness({ setting: true }).motionLevel(), 2, "Refined is not the default");
+});
+
+test("Motion families: each switch silences only its own effects", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 }, motion_sparks: { value: false } } });
+  assert.strictEqual(ctx.fx(ctx.node(), "spark"), null);
+  assert.strictEqual(ctx.fx(ctx.node(), "strike"), null, "the anvil strike is a spark effect");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.family, 2);
+  assert.ok(ctx.fx(ctx.node(), "wolfrun"), "turning sparks off stopped the wolf");
+  ctx.applyMotion();
+  assert.strictEqual(ctx.document.documentElement.dataset.fxSparks, "off");
+  assert.strictEqual(ctx.document.documentElement.dataset.fxWolf, "on");
+  const noWolf = motionHarness({ settings: { motion_level: { value: 3 }, motion_wolf: { value: false } } });
+  const track = noWolf.wolfTrack(() => noWolf.bar ||= noWolf.node(), "Notebook run", "Cell", "on this PC");
+  track.set(1, 4);
+  noWolf.advance(700);
+  assert.strictEqual(noWolf.bar.querySelector(".wolf"), null, "a wolf ran with wolf animations off");
+  assert.strictEqual(noWolf.bar.querySelector(".wolf-text").textContent, "Cell 2 of 4 on this PC", "the progress lost its words or where it runs");
+});
+
+test("Motion and Windows' reduced motion: Off unless the person opted out, and then the stylesheet steps aside", () => {
+  const follow = motionHarness({ reduced: true, settings: { motion_level: { value: 3 } } });
+  assert.strictEqual(follow.motionLevel(), 0);
+  follow.applyMotion();
+  assert.strictEqual(follow.document.documentElement.dataset.motionOverride, undefined);
+  const opted = motionHarness({ reduced: true, settings: { motion_level: { value: 3 }, motion_follow_system: { value: false } } });
+  assert.strictEqual(opted.motionLevel(), 3);
+  assert.ok(opted.fx(opted.node(), "spark"));
+  opted.applyMotion();
+  assert.strictEqual(opted.document.documentElement.dataset.motionOverride, "on");
+});
+
+test("Motion budget: at most three effects at once, each removed on time, the count goes back to zero", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const kinds = ["arrive", "settle", "strike", "wolfrun"];
+  const made = kinds.map((k) => ctx.fx(ctx.node(), k));
+  assert.ok(made.slice(0, 3).every(Boolean));
+  assert.strictEqual(made[3], null, "a fourth effect played at once");
+  assert.strictEqual(ctx.motionDiagnostics().skipped.budget, 1);
+  assert.strictEqual(ctx.motionDiagnostics().live, 3);
+  ctx.advance(1100);
+  assert.strictEqual(ctx.motionDiagnostics().live, 0, "an effect was never cleaned up");
+  assert.ok(made.slice(0, 3).every((el) => !el.isConnected), "an effect element stayed on the page");
+  const strike = ctx.fx(ctx.node(), "wolfrun");
+  assert.ok(strike && strike.kids.length >= 2, "the Wolf Run has no runner or trail");
+});
+
+test("Forge events: every event names a real effect, unknown ones play nothing, and each is counted", () => {
+  const ctx = motionHarness({ settings: { motion_level: { value: 2 } } });
+  const events = vm.runInContext("FORGE_EVENTS", ctx);
+  const kinds = vm.runInContext("MOTION", ctx);
+  for (const [name, kind] of Object.entries(events)) assert.ok(kinds[kind], `${name} plays ${kind}, which isn't an effect`);
+  for (const [kind, m] of Object.entries(kinds)) {
+    assert.ok(m.ms > 0 && m.ms <= 900, `${kind} is longer than a signature moment`);
+    assert.ok(["wolf", "sparks", "achievements", "ambient"].includes(m.family), `${kind} has no family switch`);
+    assert.ok(m.level >= 2, `${kind} plays at Minimal`);
+  }
+  assert.ok(ctx.forgeEvent("deploy.succeeded", ctx.node()), "a deployment struck no anvil");
+  assert.strictEqual(ctx.forgeEvent("cell.typed", ctx.node()), null);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.motionDiagnostics().events)), { "deploy.succeeded": 1, "cell.typed": 1 });
+  const src = fs.readFileSync(path.join(ui, "git.js"), "utf8");
+  assert.match(src, /toast\(`Deployed \$\{out\.done\.length\}[^\n]*\n\s+forgeEvent\("deploy\.succeeded", document\.getElementById\("toast"\)\);/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /view\.replaceChildren\(\.\.\.children\);\n  viewTransition\(view\);/);
+});
+
+// Item 21: a table's whole lineage, hop by hop, both ways, out to the projects reading its products.
+function lineageHelper() {
+  const src = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/function mfLineage\([\s\S]*?\n}\n/)[0]}; this.mfLineage = mfLineage;`, ctx);
+  return ctx.mfLineage;
+}
+
+test("lineage walks every hop both ways, to the products and the projects that read them", () => {
+  const mfLineage = lineageHelper();
+  const entities = [
+    { name: "bronze.customers", source: "landing crm/customers", reads: [] },
+    { name: "bronze.orders", source: "files orders/*.csv", reads: [] },
+    { name: "silver.customers", source: "bronze.customers", reads: ["bronze.customers"] },
+    { name: "silver.orders", reads: ["bronze.orders", "silver.customers"] },
+    { name: "gold.dim_customer", reads: ["silver.customers"] },
+    { name: "gold.fact_sales", reads: ["silver.orders", "gold.dim_customer", "sales.link_rates"] },
+  ];
+  const ports = [["Customer 360", "gold.dim_customer"], ["Orders", "bronze.orders"]];
+  const readers = { "Customer 360": ["finance", "marketing"] };
+  const cols = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "silver.customers")));
+  assert.deepStrictEqual(cols.map((c) => c.label), ["Source", "It reads", "This table", "Reads it", "Then", "Data products", "Other projects"]);
+  assert.deepStrictEqual(cols[0].items.map((x) => x.name), ["landing crm/customers"]);
+  assert.deepStrictEqual(cols[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  assert.deepStrictEqual(cols[4].items.map((x) => x.name), ["gold.fact_sales"]);
+  assert.deepStrictEqual(cols[5].items.map((x) => x.name), ["Customer 360"], "Orders is upstream, not something it ends up in");
+  assert.deepStrictEqual(cols[6].items.map((x) => `${x.name}:${x.note}`), ["finance:Customer 360", "marketing:Customer 360"]);
+  // Upstream of the fact: two hops, both roots, and the link it reads from another project.
+  const up = JSON.parse(JSON.stringify(mfLineage(entities, ports, readers, "gold.fact_sales", "up")));
+  assert.deepStrictEqual(up.map((c) => c.label), ["Source", "Before that", "Before that", "It reads", "This table"]);
+  assert.deepStrictEqual(up[0].items.map((x) => x.name), ["files orders/*.csv", "landing crm/customers", "sales.link_rates"]);
+  assert.deepStrictEqual(up[3].items.map((x) => x.name), ["gold.dim_customer", "silver.orders"]);
+  // A cycle in hand-edited configs never loops.
+  const loop = [{ name: "a", reads: ["b"] }, { name: "b", reads: ["a"] }];
+  assert.strictEqual(mfLineage(loop, [], {}, "a").length, 3);
+  const flow = fs.readFileSync(path.join(ui, "meshflow.js"), "utf8");
+  assert.match(flow, /pick\("both", "Whole lineage"\), pick\("up", "Only what it reads"\), pick\("down", "Only what reads it"\)/);
+  assert.match(flow, /preview\("lineage", btn\("Columns", "flow", \(\) => columnLineage\(e\.name\)/);
+});
+
+// UX-006: Advanced settings fold closed by default, and a value policy or the environment sets is read-only.
+test("a fold can start closed, and the choice made on this PC wins after that", () => {
+  const src = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const store = new Map();
+  const localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v) };
+  const h = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids, classes: new Set(String(attrs.class || "").split(" ").filter(Boolean)),
+    append(...k) { this.kids.push(...k); }, setAttribute(k, v) { this.attrs[k] = v; },
+    get classList() { const c = this.classes; return { toggle: (n, on) => (on ? c.add(n) : c.delete(n)) }; } });
+  const ctx = { h, localStorage };
+  vm.runInNewContext(`${src.match(/function foldable\([\s\S]*?\n}\n/)[0]}; this.f = foldable;`, ctx);
+  assert.ok(!ctx.f("x", "Head", []).classes.has("folded"), "folds open unless asked");
+  const box = ctx.f("settings.advanced", "Advanced", [], { start: true });
+  assert.ok(box.classes.has("folded"));
+  const toggle = box.kids[0].kids[0];
+  assert.strictEqual(toggle.attrs["aria-expanded"], "false");
+  toggle.attrs.onclick();
+  assert.strictEqual(store.get("fd.fold.settings.advanced"), "0");
+  assert.ok(!ctx.f("settings.advanced", "Advanced", [], { start: true }).classes.has("folded"), "opened once, it opens next time");
+});
+
+test("Settings keeps App ID and engine limits in a folded Advanced section, read-only when policy or the environment sets them", () => {
+  const src = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const SOURCE_TEXT = \{[\s\S]*?\n};\n/)[0]}; ${src.match(/function fixedBy\([\s\S]*?\n}\n/)[0]}; this.f = fixedBy; this.T = SOURCE_TEXT;`, ctx);
+  assert.strictEqual(ctx.f({ client_id: { source: "environment" } }, "client_id"), "environment");
+  assert.strictEqual(ctx.f({ sql_page_rows: { source: "policy" } }, "sql_page_rows"), "policy");
+  for (const source of ["user", "default", "built_in"]) assert.strictEqual(ctx.f({ k: { source } }, "k"), null);
+  assert.strictEqual(ctx.f({}, "kernel_process"), null);
+  assert.strictEqual(ctx.T.policy, "Set by your organization's policy");
+  assert.strictEqual(ctx.T.environment, "Set by the FABRIC_DESKTOP_CLIENT_ID environment variable");
+  const render = src.slice(src.indexOf("async function renderSettings"), src.indexOf("// \"policy\" or \"environment\""));
+  const account = render.slice(render.indexOf("// Account"), render.indexOf("// Updates"));
+  assert.ok(!account.includes("App (client) ID"), "the App ID left Account");
+  assert.ok(!render.includes("Cell time limit") && !render.includes("sqlSettingsSection("), "limits left the main page");
+  assert.match(render, /\[account, updates, display, previews, usage, platform, notify, about, advanced\]/);
+  const adv = src.match(/function advancedSection\([\s\S]*?\n}\n/)[0];
+  for (const text of ["App (client) ID", "Cell time limit", "Notebook memory limit", "Run notebooks in their own process", "sqlSettingsSection("]) assert.ok(adv.includes(text), text);
+  assert.match(adv, /foldable\("settings\.advanced", h\("h2", \{\}, "Advanced"\)[\s\S]*\{ start: true/);
+  assert.match(adv, /readonly: idFixed \? true : null/);
+  assert.match(adv, /idFixed \? null : btn\("Save"/, "no Save for an ID that wouldn't apply");
+  const sql = src.match(/function sqlSettingsSection\([\s\S]*?\n}\n/)[0];
+  assert.match(sql, /readonly: locked\(key\)/);
+  assert.match(sql, /readonly: locked\("sql_temp_dir"\)/);
+  assert.match(sql, /fixedBy\(s, "sql_temp_dir"\)/);
+  assert.match(src, /learnMore\("settings"\)/, "the page keeps its guide link");
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8"), /^### Advanced settings$/m);
+});
+
+// UX-019: the Preview list in the docs is the app's own list, once.
+test("the documentation's Preview list matches PREVIEW_FEATURES", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const block = features.match(/const PREVIEW_FEATURES = \{([\s\S]*?)\n\};/)[1];
+  const entries = [...block.matchAll(/^ {2}(\w+): "([^"]+)",/gm)].map(([, id, name]) => [id, name]);
+  assert.ok(entries.length > 20, `only ${entries.length} preview features found`);
+  const ids = entries.map(([id]) => id);
+  assert.deepStrictEqual(ids.filter((id, i) => ids.indexOf(id) !== i), [], "an id listed twice keeps only its last name");
+  const readme = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "README.md"), "utf8");
+  const table = readme.split("| Preview feature | Where |")[1];
+  assert.ok(table, "docs/README.md has the Preview feature table");
+  const rows = [];
+  for (const line of table.split("\n").slice(2)) {
+    if (!line.startsWith("|")) break;
+    rows.push(line.split("|")[1].trim());
+  }
+  assert.deepStrictEqual([...rows].sort(), entries.map(([, name]) => name).sort());
+  // The steps that stay visible are the ones the table says are always shown.
+  const always = JSON.parse(features.match(/const PREVIEW_ALWAYS_SHOWN = (\[[^\]]*\])/)[1]);
+  const names = Object.fromEntries(entries);
+  const shownRows = table.split("\n").filter((l) => /always shown/.test(l)).map((l) => l.split("|")[1].trim());
+  assert.deepStrictEqual(shownRows.sort(), always.map((id) => names[id]).sort());
+  // The user guide points at that list instead of keeping a second one.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("## Preview features\n")[1].split("\n## ")[0];
+  assert.match(section, /README\.md#what-is-tested-and-what-isnt/);
+});
+
+// UX-019: one shortcut table, read by the global key handlers and drawn by the Keyboard shortcuts dialog.
+test("the global key handlers and the Keyboard shortcuts dialog read one table", () => {
+  const features = fs.readFileSync(path.join(ui, "features.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${features.slice(features.indexOf("// ---------- keyboard shortcuts"), features.indexOf("function shortcutsDialog("))}
+    Object.assign(this, { shortcutRegistry, registerShortcuts, isShortcut, typingIn, shortcutGroups });`, ctx);
+  const appWide = [...ctx.shortcutRegistry];
+  const ids = appWide.map((s) => s.id);
+  assert.strictEqual(new Set(ids).size, ids.length);
+  // Every entry is a key app.js actually handles, through the table.
+  for (const id of ids) assert.ok(app.includes(`isShortcut(e, "${id}")`), `app.js handles ${id} through the table`);
+  assert.doesNotMatch(app, /e\.key\.toLowerCase\(\) === "k"/, "Ctrl+K is read from the table");
+  const key = (k, mods = {}) => ({ key: k, ctrlKey: false, metaKey: false, ...mods });
+  assert.ok(ctx.isShortcut(key("K", { ctrlKey: true }), "palette"));
+  assert.ok(ctx.isShortcut(key("k", { metaKey: true }), "palette"));
+  assert.ok(!ctx.isShortcut(key("k"), "palette"));
+  assert.ok(ctx.isShortcut(key("?"), "shortcuts"));
+  assert.ok(ctx.isShortcut(key("Escape"), "close"));
+  assert.ok(ctx.isShortcut(key(" "), "open") && ctx.isShortcut(key("Enter"), "open"));
+  assert.ok(!ctx.isShortcut(key("ArrowLeft"), "menu") && ctx.isShortcut(key("ArrowLeft"), "tabs"));
+  assert.ok(!ctx.isShortcut(key("x"), "nothing"));
+  // "?" typed in a box stays a character.
+  const el = (tagName, inEditor = false) => ({ tagName, isContentEditable: false, closest: () => (inEditor ? {} : null) });
+  assert.ok(ctx.typingIn(el("INPUT")) && ctx.typingIn(el("TEXTAREA")) && ctx.typingIn(el("DIV", true)));
+  assert.ok(!ctx.typingIn(el("BUTTON")) && !ctx.typingIn(null));
+  // Another feature (the notebook) registers its keys once and they join the same list, shown only when it says.
+  let inNotebook = false;
+  ctx.registerShortcuts("Notebook", [{ keys: ["Shift+Enter"], label: "Run the cell", when: () => inNotebook },
+    { keys: ["Ctrl+Shift+Enter"], label: "Run the selected cells", when: () => { throw new Error("broken"); } }]);
+  assert.deepStrictEqual([...ctx.shortcutGroups().map(([g]) => g)], ["Anywhere", "Moving around", "Menus and tabs"]);
+  inNotebook = true;
+  const groups = ctx.shortcutGroups();
+  assert.deepStrictEqual([...groups.map(([g, list]) => [g, list.length])],
+    [["Anywhere", 3], ["Moving around", 2], ["Menus and tabs", 2], ["Notebook", 1]]);
+  assert.ok(!ctx.isShortcut(key("Enter", { shiftKey: true }), undefined), "an entry without an id matches nothing");
+  // The dialog lists the registry, opens from the command bar and Settings, and points at the notebook keys.
+  const dialog = features.match(/function shortcutsDialog\([\s\S]*?\n}\n/)[0];
+  assert.match(dialog, /shortcutGroups\(\)/);
+  assert.match(dialog, /notebooks\.md#editing/);
+  const settings = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(settings, /btn\("Keyboard shortcuts", "help", shortcutsDialog/);
+  assert.match(settings, /\{ label: "Keyboard shortcuts", [^}]*run: shortcutsDialog \}/);
+  // The user guide's table has a row for every entry.
+  const guide = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "user-guide.md"), "utf8");
+  const section = guide.split("### Keyboard shortcuts\n")[1].split("\n#")[0];
+  const rows = section.split("\n").filter((l) => l.startsWith("| **"));
+  assert.strictEqual(rows.length, appWide.length);
+  assert.match(fs.readFileSync(path.join(__dirname, "..", "..", "docs", "ui-guidelines.md"), "utf8"), /registerShortcuts\("Notebook"/);
+});
+
+// UX-019: every page has a help link into the user guide.
+test("every page links to its section of the user guide", () => {
+  const all = fs.readdirSync(ui).filter((f) => f.endsWith(".js")).map((f) => fs.readFileSync(path.join(ui, f), "utf8")).join("\n");
+  const body = (fn) => all.match(new RegExp(`\\n(?:async )?function ${fn}\\([\\s\\S]*?\\n}\\n`))?.[0] || "";
+  const views = new Map();
+  for (const [, list] of all.matchAll(/views: \{([^}]*)\}/g)) for (const [, view, fn] of list.matchAll(/(\w+): (\w+)/g)) views.set(view, fn);
+  assert.ok(views.size > 15, `only ${views.size} pages found`);
+  // The notebook's help belongs to its own guide; an agent's page has its link in the advice under its state.
+  const elsewhere = { notebook: null, agent: "agAdvice" };
+  const missing = [...views].filter(([view, fn]) => {
+    if (view in elsewhere) return elsewhere[view] && !(body(fn).includes(`${elsewhere[view]}(`) && body(elsewhere[view]).includes("learnMore("));
+    return !/learnMore\(|howItWorks\(/.test(body(fn));
+  }).map(([view]) => view);
+  assert.deepStrictEqual(missing, []);
+});
+
+// UX-008: Back, Forward and reopening the last page. The history block of app.js runs on features.js
+// with fake pages, a fake localStorage and a render() that counts.
+function navHarness({ stored = null, preview = true } = {}) {
+  const store = new Map(stored ? [["fd.nav.last", JSON.stringify(stored)]] : []);
+  const dialogRoot = { childElementCount: 0 };
+  const ctx = {
+    console, h: () => ({}), icon: () => ({}), renders: 0,
+    state: { view: "home", meta: { tab: "overview", entity: null }, notebook: null, openWorkspace: null, lakehouseView: null, settingsTab: "general" },
+    monitorPage: { panel: "runs" }, catalogPage: { tab: "catalog" }, optimizePage: { tab: "overview" },
+    platformPage: { tab: "overview" }, gitPage: { tab: "changes" }, wlPage: { id: null }, incPage: { id: null, env_of: null },
+    agPage: { name: null }, sqlPage: { ref: null },
+    closeMenu() {},
+    localStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)) },
+    document: { getElementById: (id) => (id === "dialog-root" ? dialogRoot : null) },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(path.join(ui, "features.js"), "utf8"), ctx);
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const block = app.slice(app.indexOf("// ---------- navigation history (UX-008)"), app.indexOf("function renderChrome()"));
+  vm.runInContext(block + "\nthis.nav = nav; this.features = features;", ctx);
+  ctx.previewShown = () => preview;
+  ctx.render = () => { ctx.renders++; ctx.navSync(); };
+  const page = (id, views, extra = {}) => ctx.registerFeature({ id, views, ...extra });
+  page("home", { home() {} }, { rail: { label: "Home", icon: "home", order: 10 } });
+  page("workspaces", { workspaces() {}, workspace() {}, fabric() {} }, { rail: { label: "Workspaces", icon: "w", order: 30, also: ["workspace", "fabric"] } });
+  page("metadata", { metadata() {}, entity() {} }, { rail: { label: "Data mesh", icon: "m", order: 50, also: ["entity"] } });
+  page("monitor", { monitor() {} }, { rail: { label: "Monitor", icon: "monitor", order: 70 } });
+  page("platform", { platform() {} }, { rail: { label: "Platform", icon: "b", order: 55 }, preview: true });
+  page("notebook", { notebook() {} });
+  return { ctx, store, dialogRoot };
+}
+
+test("Back and Forward walk the pages you opened, with each page's tab (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.monitorPage.panel = "schedules";
+  ctx.go("monitor");
+  ctx.monitorPage.panel = "incidents"; ctx.render();  // a tab clicked on the page
+  ctx.state.meta.tab = "keys";
+  ctx.go("metadata");
+  assert.strictEqual(ctx.navCan(-1), true);
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.strictEqual(ctx.navBack(), true);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.monitorPage.panel, "incidents", "Back did not bring the tab back");
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.strictEqual(ctx.navBack(), false, "Back went past the first page");
+  ctx.navForward();
+  ctx.navForward();
+  assert.strictEqual(ctx.state.view, "metadata");
+  assert.strictEqual(ctx.state.meta.tab, "keys");
+  // Opening a page from the middle drops what was ahead.
+  ctx.navBack();
+  ctx.go("workspaces");
+  assert.strictEqual(ctx.navCan(1), false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "workspaces"]);
+});
+
+test("Back after Open in Fabric returns to the page before, and opening the same page twice adds one entry (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  ctx.go("monitor");
+  ctx.go("fabric");
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(ctx.nav.stack.map((e) => e.view))), ["home", "monitor", "fabric"]);
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("Back brings back the workspace you had open and skips a notebook that was closed (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  ctx.state.openWorkspace = { id: "w1", displayName: "Sales" };
+  ctx.go("workspace");
+  ctx.state.notebook = { name: "nb" };
+  ctx.go("notebook");
+  ctx.state.openWorkspace = { id: "w2", displayName: "Finance" };
+  ctx.go("workspace");
+  ctx.state.notebook = null;  // closed from the rail
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "workspace", "Back opened a closed notebook");
+  assert.strictEqual(ctx.state.openWorkspace.id, "w1");
+});
+
+test("Back skips a preview page once preview features are hidden (UX-008)", () => {
+  const { ctx } = navHarness();
+  let shown = true;
+  ctx.previewShown = () => shown;
+  ctx.render();
+  ctx.go("platform");
+  ctx.go("monitor");
+  shown = false;
+  ctx.navBack();
+  assert.strictEqual(ctx.state.view, "home");
+});
+
+test("the last page and its tab are saved and opened again on start, or Home if it's gone (UX-008)", () => {
+  const a = navHarness();
+  a.ctx.render();
+  assert.strictEqual(a.store.get("fd.nav.last"), undefined, "the last page was overwritten before it was read back");
+  a.ctx.navRestore();
+  a.ctx.state.meta.tab = "sources";
+  a.ctx.go("metadata");
+  assert.strictEqual(a.store.get("fd.nav.last"), JSON.stringify({ view: "metadata", tab: "sources" }));
+
+  const b = navHarness({ stored: { view: "metadata", tab: "sources" } });
+  assert.strictEqual(b.ctx.navRestore(), "metadata");
+  assert.strictEqual(b.ctx.state.meta.tab, "sources");
+  assert.strictEqual(b.ctx.navCan(-1), false);
+  assert.strictEqual(navHarness({ stored: { view: "removed-page" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "platform", tab: "keys" }, preview: false }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness({ stored: { view: "workspace" } }).ctx.navRestore(), "workspaces", "an item page reopens on its rail page");
+  assert.strictEqual(navHarness({ stored: { view: "notebook" } }).ctx.navRestore(), "home");
+  assert.strictEqual(navHarness().ctx.navRestore(), "home");
+  // A broken or blocked store starts on Home.
+  const c = navHarness();
+  c.ctx.localStorage.getItem = () => { throw new Error("blocked"); };
+  c.ctx.localStorage.setItem = () => { throw new Error("blocked"); };
+  assert.strictEqual(c.ctx.navRestore(), "home");
+  assert.doesNotThrow(() => c.ctx.go("monitor"));
+});
+
+test("Alt+Left and Alt+Right go back and forward, but not while typing or in a dialog (UX-008)", () => {
+  const { ctx, dialogRoot } = navHarness();
+  ctx.render();
+  ctx.go("monitor");
+  const key = (k, target = { closest: () => null }, mods = { altKey: true }) => ({ key: k, target, ...mods, prevented: false, preventDefault() { this.prevented = true; } });
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", { closest: (s) => (/textarea/.test(s) ? {} : null) })), false);
+  assert.strictEqual(ctx.state.view, "monitor");
+  assert.strictEqual(ctx.navKey(key("ArrowLeft", undefined, { altKey: false })), false);
+  dialogRoot.childElementCount = 1;
+  assert.strictEqual(ctx.navKey(key("ArrowLeft")), false);
+  dialogRoot.childElementCount = 0;
+  const e = key("ArrowLeft");
+  assert.strictEqual(ctx.navKey(e), true);
+  assert.ok(e.prevented);
+  assert.strictEqual(ctx.state.view, "home");
+  ctx.navKey(key("ArrowRight"));
+  assert.strictEqual(ctx.state.view, "monitor");
+});
+
+test("the command bar offers Go back and Go forward only when there is somewhere to go (UX-008)", () => {
+  const { ctx } = navHarness();
+  ctx.render();
+  const labels = () => ctx.features.commands.filter((c) => !c.when || c.when()).map((c) => c.label);
+  assert.ok(!labels().includes("Go back"));
+  ctx.go("monitor");
+  assert.ok(labels().includes("Go back"));
+  assert.ok(!labels().includes("Go forward"));
+  ctx.features.commands.find((c) => c.label === "Go back").run();
+  assert.strictEqual(ctx.state.view, "home");
+  assert.ok(labels().includes("Go forward"));
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.match(html, /id="nav-back"[^>]*title="Back \(Alt\+Left\)" aria-label="Back"/);
+  assert.match(html, /id="nav-forward"[^>]*title="Forward \(Alt\+Right\)" aria-label="Forward"/);
+});
+
+// UX-011: one error panel, Retry on toasts, and friendlyError checked in the right order (PR-UX-02).
+function errorHelpers() {
+  const activity = fs.readFileSync(path.join(ui, "activity.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => {
+    const n = { tag, attrs: { ...(attrs || {}) }, kids: kids.flat(Infinity).filter((k) => k != null && k !== false), on: {},
+      disabled: false, hidden: false, isConnected: true, className: attrs?.class || "",
+      get textContent() { return this.kids.map((k) => (typeof k === "object" ? k.textContent : String(k))).join(""); },
+      set textContent(v) { this.kids = [String(v)]; },
+      append(...k) { this.kids.push(...k); },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      addEventListener(type, fn) { (this.on[type] ||= []).push(fn); },
+      fire(type) { return Promise.all((this.on[type] || []).map((fn) => fn({ target: this }))); },
+      matches: () => false, contains: () => false };
+    for (const [k, v] of Object.entries(n.attrs)) if (k.startsWith("on") && v) { n.addEventListener(k.slice(2), v); delete n.attrs[k]; }
+    return n;
+  };
+  const find = (n, pred) => !n || typeof n !== "object" ? null : pred(n) ? n : n.kids.reduce((hit, k) => hit || find(k, pred), null);
+  const timers = [];
+  const toastEl = node("div");
+  const ctx = {
+    h: node, btn: (label, _i, onClick, cls, attrs = {}) => node("button", { class: cls, onclick: onClick, ...attrs }, label),
+    copied: [], toasts: [], logged: [], state: { view: "home" },
+    navigator: { clipboard: { writeText: async (t) => { ctx.copied.push(t); } } },
+    logActivity: (i) => ctx.logged.push(i),
+    document: { getElementById: () => toastEl, activeElement: null },
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    clearTimeout: (id) => { if (timers[id - 1]) timers[id - 1].live = false; },
+  };
+  const code = activity.match(/function friendlyError\([\s\S]*?\n}\n/)[0] + activity.match(/function errorPanel\([\s\S]*?\n}\n/)[0] +
+    app.match(/function toast\([\s\S]*?\n}\n/)[0] + app.match(/async function attempt\([\s\S]*?\n}\n/)[0];
+  vm.runInNewContext(`${code}; Object.assign(this, { friendlyError, errorPanel, realToast: toast, attempt });`, ctx);
+  return { ctx, node, find, timers, toastEl, live: () => timers.filter((t) => t.live) };
+}
+
+test("friendlyError checks the engine first, then files on this PC, then Fabric's patterns", () => {
+  const { ctx } = errorHelpers();
+  const cases = [
+    ["The engine stopped answering, so KratosForge restarted it. (sql_page)", /stopped answering/],
+    ["The Python sidecar stopped. It will restart on the next action. 404", /local engine stopped while doing this/],
+    ["PermissionError: [WinError 4551] Application Control policy has blocked this file", /Windows blocked part of the local engine/],
+    ["FileNotFoundError: [Errno 2] No such file or directory: 'C:\\\\data\\\\sales.csv'", /^There is no file or folder at C:\\data\\sales\.csv on this PC\./],
+    ["FileNotFoundError: The notebook nb_sales does not exist on this PC", /^The notebook nb_sales does not exist on this PC$/],
+    ["PermissionError: [Errno 13] Permission denied: '/home/me/out.csv'", /^This PC didn't allow access to \/home\/me\/out\.csv\./],
+    ["IsADirectoryError: [Errno 21] Is a directory: '/data'", /^\/data is a folder/],
+    ["FileExistsError: [Errno 17] File exists: 'out'", /^Something already exists at out/],
+    ["TimeoutError: The query ran longer than 30 seconds and was stopped.", /^The query ran longer than 30 seconds/],
+    ["TimeoutError: [Errno 110] Connection timed out", /Couldn't reach Fabric/],
+    ["RuntimeError: 404 Not Found: ItemNotFound", /Fabric couldn't find that item/],
+    ["RuntimeError: 403 Forbidden", /don't have permission/],
+    ["ConnectionError: Max retries exceeded", /Couldn't reach Fabric/],
+    ["ValueError: Pick a lakehouse first.", /^Pick a lakehouse first\.$/],
+    ["ZeroDivisionError: division by zero", /inside the app/],
+  ];
+  for (const [raw, want] of cases) {
+    const f = ctx.friendlyError(raw);
+    assert.match(f.text, want, raw);
+    assert.doesNotMatch(f.text, /^[A-Z][A-Za-z]*(Error|Exception):/, `${raw} starts with an exception name`);
+  }
+  assert.doesNotMatch(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").text, /Fabric/);
+  assert.strictEqual(ctx.friendlyError("FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'").details,
+    "FileNotFoundError: [Errno 2] No such file or directory: 'x.csv'");
+});
+
+test("errorPanel says what happened, what to do, and keeps the raw text under Details with Copy", async () => {
+  const { ctx, find } = errorHelpers();
+  let tries = 0;
+  const panel = ctx.errorPanel("RuntimeError: 429 TooManyRequests", { label: "Couldn't read the history", retry: async () => { tries++; } });
+  assert.strictEqual(panel.attrs.role, "alert");
+  assert.strictEqual(panel.kids[0].textContent, "Couldn't read the history");
+  assert.match(panel.kids[1].textContent, /^Fabric is busy/);
+  assert.match(panel.kids[2].textContent, /^Try again/);
+  const retry = find(panel, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "a Retry button");
+  await retry.fire("click");
+  assert.strictEqual(tries, 1, "Retry calls the function it was given");
+  assert.strictEqual(retry.disabled, false, "Retry can be pressed again after a failure");
+  const details = find(panel, (n) => n.tag === "details");
+  assert.strictEqual(details.kids[0].textContent, "Details");
+  assert.strictEqual(details.kids[1].textContent, "RuntimeError: 429 TooManyRequests");
+  await find(details, (n) => n.tag === "button" && n.textContent === "Copy").fire("click");
+  assert.deepStrictEqual(ctx.copied, ["RuntimeError: 429 TooManyRequests"]);
+
+  const plain = ctx.errorPanel("Pick a lakehouse first.");
+  assert.ok(!find(plain, (n) => n.tag === "button"), "no Retry without retry, no Copy without details");
+  assert.ok(!find(plain, (n) => n.tag === "details"));
+  assert.strictEqual(ctx.errorPanel("SignInCancelled: cancelled: closed"), null, "a cancelled sign-in shows nothing");
+});
+
+test("an error toast is an alert with Retry, and stays while the pointer is on it", async () => {
+  const { ctx, find, toastEl, live } = errorHelpers();
+  let calls = 0;
+  const failing = async () => { calls++; throw "RuntimeError: 429 TooManyRequests"; };
+  assert.strictEqual(await ctx.attempt(failing, "Couldn't load runs", { retry: true }), undefined);
+  assert.strictEqual(toastEl.attrs.role, "alert");
+  assert.match(toastEl.textContent, /^Couldn't load runs: Fabric is busy/);
+  const retry = find(toastEl, (n) => n.tag === "button" && n.textContent === "Retry");
+  assert.ok(retry, "the toast has Retry");
+  assert.strictEqual(live().at(-1).ms, 8000);
+  toastEl.fire("mouseenter");
+  assert.strictEqual(live().length, 0, "hovering pauses the auto-dismiss");
+  toastEl.fire("mouseleave");
+  assert.strictEqual(live().length, 1, "leaving starts it again");
+  await retry.fire("click");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(calls, 2, "Retry runs the same call again");
+
+  await ctx.attempt(failing, "No retry here");
+  assert.ok(!find(toastEl, (n) => n.tag === "button"), "no Retry unless the caller asks for one");
+  ctx.realToast("Saved");
+  assert.strictEqual(toastEl.attrs.role, "status");
+  assert.strictEqual(live().at(-1).ms, 4000);
+});
+
+test("the listed screens show a sentence or the error panel, never the raw exception (UX-011)", () => {
+  const read = (f) => fs.readFileSync(path.join(ui, f), "utf8");
+  const sc = read("shortcuts.js");
+  assert.doesNotMatch(sc, /class: "error-text" \}, String\(err\)/);
+  assert.strictEqual((sc.match(/errorPanel\(err, \{ label: "Couldn't read [^"]+", retry: \w+ \}\)/g) || []).length, 3);
+  assert.doesNotMatch(sc, /problems: \[String\(err\)\]/);
+  assert.doesNotMatch(read("deps.js"), /problem: String\(err\)/);
+  assert.match(read("query.js"), /errorPanel\(tab\.error, \{ retry: tab\.errorRetry \}\)/);
+  assert.doesNotMatch(read("app.js"), /could not open: \$\{err\}/);
+  assert.match(read("app.js"), /attempt\(\(\) => rpc\("list_workspaces"\), "Could not list workspaces", \{ retry: again \}\)/,
+    "listing workspaces, a read, offers Retry on its toast");
+});
+
+// UX-020: one look for "still loading" and "nothing here yet", built by shared helpers.
+function stateHelpers() {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const code = app.match(/function loading\([\s\S]*?\n}\n/)[0] + app.match(/function emptyState\([\s\S]*?\n}\n/)[0];
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: attrs || {}, kids: kids.flat(Infinity).filter((k) => k != null && k !== false) });
+  const ctx = { h: node, icon: (name, size) => node("svg", { name, size }) };
+  vm.runInNewContext(`${code}; Object.assign(this, { loading, emptyState });`, ctx);
+  const text = (n) => typeof n === "string" ? n : n.kids.map(text).join("");
+  return { ...ctx, text };
+}
+
+test("loading() is a status line with a spinner and the label, plus any classes asked for (UX-020)", () => {
+  const { loading, text } = stateHelpers();
+  const plain = loading();
+  assert.strictEqual(plain.attrs.role, "status");
+  assert.deepStrictEqual(plain.attrs.class.split(" "), ["loading", "muted-text"]);
+  assert.strictEqual(plain.kids[0].attrs.class, "spinner");
+  assert.strictEqual(plain.kids[0].attrs["aria-hidden"], "true");
+  assert.strictEqual(text(plain), "Loading...");
+  const runs = loading("Loading runs...", "monitor-empty");
+  assert.deepStrictEqual(runs.attrs.class.split(" "), ["loading", "muted-text", "monitor-empty"]);
+  assert.strictEqual(text(runs), "Loading runs...");
+  const quiet = loading("Loading notebooks...", "", { live: false });
+  assert.strictEqual(quiet.attrs.role, null);
+  assert.strictEqual(quiet.kids[0].attrs["aria-hidden"], "true");
+  const css = fs.readFileSync(path.join(ui, "styles.css"), "utf8");
+  assert.match(css, /\.loading > \.spinner \{[^}]*animation: spin/);
+  assert.match(css, /prefers-reduced-motion: reduce\) \{ \.loading > \.spinner/);
+});
+
+test("emptyState() draws the .empty markup: icon, title, text and action, each optional (UX-020)", () => {
+  const { emptyState, text } = stateHelpers();
+  const action = { tag: "button", attrs: {}, kids: ["New entity"] };
+  const full = emptyState({ icon: "branch", title: "No entities yet", text: "Add one from a template.", action });
+  assert.strictEqual(full.attrs.class, "empty");
+  assert.deepStrictEqual(full.kids.map((k) => k.tag), ["svg", "span", "span", "button"]);
+  assert.deepStrictEqual(full.kids[0].attrs, { name: "branch", size: 32 });
+  assert.deepStrictEqual([full.kids[1].attrs.class, text(full.kids[1])], ["title", "No entities yet"]);
+  assert.deepStrictEqual([full.kids[2].attrs.class, text(full.kids[2])], ["text", "Add one from a template."]);
+  const bare = emptyState({ title: "No links yet" });
+  assert.deepStrictEqual(bare.kids.map((k) => k.attrs.class), ["title"]);
+  const two = emptyState({ title: "x", action: [action, action] });
+  assert.strictEqual(two.kids.filter((k) => k.tag === "button").length, 2);
+});
+
+test("hand-built empty states and the converted Loading lines use the shared helpers (UX-020)", () => {
+  for (const name of ["mesh.js", "meshflow.js", "meshmap.js", "meta.js", "platform.js", "git.js"]) {
+    const src = fs.readFileSync(path.join(ui, name), "utf8");
+    assert.doesNotMatch(src, /h\("div", \{ class: "empty" \}/, `${name} builds .empty by hand`);
+    assert.match(src, /emptyState\(\{/, name);
+  }
+  for (const name of ["agents.js", "incidents.js", "workloads.js", "schedules.js", "integrations.js"]) {
+    assert.match(fs.readFileSync(path.join(ui, name), "utf8"), /loading\(/, name);
+  }
+});
+
+test("Home draws at once while the component check runs, and calls nothing until it returns (UX-020)", () => {
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const starting = app.match(/function startingHome\([\s\S]*?\n}\n/)[0];
+  assert.doesNotMatch(starting, /rpc\(|invoke\(|homeCache/);
+  // Exactly one live region on the starting Home: one loading() call left live, the rest quiet.
+  assert.strictEqual((starting.match(/\bloading\(/g) || []).length, 2);
+  assert.strictEqual((starting.match(/\{ live: false \}/g) || []).length, 1);
+  assert.match(app, /async function renderHome\(\) \{\n  if \(state\.starting\) \{ setView\(startingHome\(\)\); return; \}/);
+  const boot = app.slice(app.lastIndexOf("hydrateIcons();"));
+  assert.ok(boot.indexOf("renderHome()") < boot.indexOf("checkComponents()"), "Home must draw before the check starts");
+  assert.ok(boot.indexOf("state.starting = false") < boot.indexOf("render();"), "the check's end must clear starting before Home draws");
+});
+
+// L4: notebook resources. Names are checked before the engine sees them, a delete asks first in
+// red, and the Resources tab keeps its snippets under the files.
+test("notebook resource names, sizes and the Resources tab", () => {
+  const src = fs.readFileSync(path.join(ui, "nbresources.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src.match(/const NB_RES_RESERVED = [^\n]+\n/)[0]}
+${src.match(/function nbResNameProblem\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbResSize\([\s\S]*?\n}\n/)[0]}
+this.problem = nbResNameProblem; this.size = nbResSize;`, ctx);
+  for (const ok of ["regions.csv", "helpers.py", ".env", "a b (2).json"]) assert.strictEqual(ctx.problem(ok), "", ok);
+  for (const bad of ["", "..", "../x.csv", "a/b", "a\\b", "CON", "nul.txt", "Com3.csv", "x.", "a:b", "a?b", "x".repeat(121)]) {
+    assert.notStrictEqual(ctx.problem(bad), "", bad);
+  }
+  assert.strictEqual(ctx.size(17), "17 B");
+  assert.strictEqual(ctx.size(2048), "2.0 KB");
+  assert.strictEqual(ctx.size(5 * 1024 * 1024), "5.0 MB");
+  assert.match(src, /confirmDialog\(`Delete \$\{file\.name\}\?`,[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /copyText\(`builtin\/\$\{file\.name\}`, "Path"\)/);
+  assert.match(src, /const NB_RES_MAX_FILES = 100;/);
+  assert.match(src, /const NB_RES_MAX_BYTES = 50 \* 1024 \* 1024;/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /content\.append\(nbResourcesSection\(state\.notebook\), h\("div", \{ class: "nb-res-head" \}, h\("b", \{\}, "Code snippets"\)\)/);
+  assert.ok(nb.includes("...SNIPPETS.map("), "the snippets stay");
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbresources.js"') > html.indexOf('src="replay.js"'), "replayBase64 loads first");
+});
+
+// Once keys come from the platform, the entity's keys card names the database instead of a MERGE.
+test("the keys card says where keys come from instead of an LH_Keys MERGE", () => {
+  const meta = fs.readFileSync(path.join(ui, "meta.js"), "utf8");
+  const card = meta.match(/function keysCard\(e\)[\s\S]*?\n}\n/)[0];
+  assert.match(card, /e\.keys_sql \? h\("pre"[\s\S]*: e\.keys_from \? h\("p"/);
+  assert.match(card, /Keys come from \$\{e\.keys_from\}/);
+});
+
+// PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
+test("notebooks docs list the PySpark calls added on this PC", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  for (const call of ["Window.partitionBy(...).orderBy(...)", "df.agg(...)", "selectExpr", "fillna", "pivot", "explode", "date_format"]) {
+    assert.ok(page.includes(call), call);
+  }
+});
+
+// Notebook magics: a snippet shows %sql inside Python, and the magics page is linked everywhere docs are.
+test("notebook snippets include a %sql query into a DataFrame, and the magics page is linked", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Query into a DataFrame", "df = %sql SELECT \* FROM dbo\.my_table LIMIT 100\\ndisplay\(df\)"\]/);
+  const root = path.join(__dirname, "..", "..");
+  for (const [file, link] of [["README.md", "docs/notebook-magics.md"], ["docs/README.md", "(notebook-magics.md)"],
+    ["zensical.toml", '"notebook-magics.md"'], ["docs/notebooks.md", "(notebook-magics.md)"]]) {
+    assert.ok(fs.readFileSync(path.join(root, file), "utf8").includes(link), file);
+  }
+});
+
+// Notebook cell languages: Databricks' %sql alone on the first line is a SQL cell, %md shows Markdown.
+test("notebook cells read Databricks %sql and %md headers", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/function cellLang\([\s\S]*?\n}\n/.exec(nb)[0] + /const mdMagic = [^\n]*\n/.exec(nb)[0]
+    + "\nthis.lang = cellLang; this.md = mdMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  assert.strictEqual(ctx.lang(code("%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("  %%sql\nSELECT 1")), "sql");
+  assert.strictEqual(ctx.lang(code("%sql SELECT 1")), "python");
+  assert.strictEqual(ctx.lang(code("%python\nx = 1")), "python");
+  assert.strictEqual(ctx.md(code("%md # Title")), true);
+  assert.strictEqual(ctx.md(code("%%markdown\n# Title")), true);
+  assert.strictEqual(ctx.md(code("%mdx")), false);
+  assert.strictEqual(ctx.md({ type: "markdown", source: "%md" }), false);
+  assert.match(nb, /if \(o\.type === "markdown"\) return h\("div", \{ class: "output md-view" \}, markdown\(o\.text\)\);/);
+});
+
+// Notebook shell cells: %sh, %%sh, %%bash, %%cmd and %%powershell are plain text in the editor.
+test("notebook shell cells are recognised for the editor", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(/const shellMagic = [^\n]*\n/.exec(nb)[0] + "\nthis.sh = shellMagic;", ctx);
+  const code = (source) => ({ type: "code", source });
+  for (const s of ["%sh ls", "%%sh\nls", "%%bash\nls", "  %%cmd\ndir", "%%powershell\nGet-Date"]) assert.strictEqual(ctx.sh(code(s)), true, s);
+  for (const s of ["%shx", "!ls", "x = 1", "%%sql\nSELECT 1"]) assert.strictEqual(ctx.sh(code(s)), false, s);
+  assert.match(nb, /if \(shellMagic\(cell\)\) return \[\];/);
+});
+
+// IPython magics in notebooks: the magics page lists what runs and why %cd and %%javascript don't.
+test("notebook magics page lists the IPython magics", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  for (const m of ["`%lsmagic`", "`%%capture name`", "`%%writefile path`", "`%timeit expression`", "`%cd`", "`%%javascript`"]) {
+    assert.ok(page.includes(m), m);
+  }
+});
+
+// %run with parameters: the magics page shows Fabric's JSON form and Databricks' $name form.
+test("notebook magics page shows both %run parameter forms", () => {
+  const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.ok(page.includes('%run Load sales {"day": "2026-01-01", "full": true}'));
+  assert.ok(page.includes('%run ./etl/Load sales $day="2026-01-01"'));
+});
+
+// %%configure on this PC: the notebooks page links to the section that explains it.
+test("notebooks page links %%configure to its section on the magics page", () => {
+  const root = path.join(__dirname, "..", "..", "docs");
+  assert.ok(fs.readFileSync(path.join(root, "notebooks.md"), "utf8").includes("(notebook-magics.md#configure)"));
+  assert.ok(fs.readFileSync(path.join(root, "notebook-magics.md"), "utf8").includes("\n## %%configure\n"));
+});
+
+// %%tsql cells are highlighted as SQL in the notebook editor.
+test("notebook %%tsql cells get SQL highlighting", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(\/\^\\s\*%%tsql\(\\s\|\$\)\/\.test\(cell\.source\)\) return \[CM\.sql\(/);
+});
+
+// Plan step 4: a domain's admins in Fabric show as owners marked From Fabric, never in place of the platform's own.
+test("domain owners from Fabric show only until the platform sets its own", () => {
+  const src = fs.readFileSync(path.join(ui, "mesh.js"), "utf8");
+  const pick = (name) => src.slice(src.indexOf(`function ${name}(`)).split("\n}\n")[0] + "\n}\n";
+  const text = (n) => (n == null ? "" : typeof n === "string" ? n : [].concat(n.children || []).map(text).join(""));
+  const ctx = { h: (tag, attrs, ...children) => ({ tag, attrs, children: children.flat().filter((c) => c != null && c !== false) }) };
+  vm.runInNewContext(["fabricOwners", "domainOwnersCell", "domainOwnerLine"].map(pick).join("\n") +
+    "\nthis.cell = domainOwnersCell; this.line = domainOwnerLine;", ctx);
+  const fabric = JSON.stringify([{ name: "Ana", type: "User" }, { name: "Sales leads", type: "Group" }]);
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: fabric })), "Ana, Sales leads From Fabric");
+  assert.strictEqual(text(ctx.cell({ owners: "lee@contoso.com", fabric_owners: fabric })), "lee@contoso.comIn Fabric: Ana, Sales leads");
+  assert.strictEqual(text(ctx.cell({ owners: "", fabric_owners: "not json" })), "not set");
+  assert.strictEqual(text(ctx.line({ owners: "", fabric_owners: fabric })), "Owner: Ana +1 (from Fabric)");
+  assert.strictEqual(text(ctx.line({ owners: "lee@contoso.com", fabric_owners: fabric })), "Owner: lee@contoso.com");
+  assert.strictEqual(ctx.line({ owners: "", fabric_owners: null }), null);
+  const map = fs.readFileSync(path.join(ui, "meshmap.js"), "utf8");
+  assert.match(map, /domainOwnerLine\(d\)/);
+});
+
+// Notebook result viewer (frames.py): a table output with a `frame` pages, searches and sorts the
+// whole result in the engine and downloads it; a result the kernel no longer holds says to run again.
+function resultViewerHarness(pages) {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`(?:async )?function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => {
+    const node = { tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false),
+      listeners: {}, textContent: "", disabled: false,
+      append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+      replaceChildren(...k) { this.kids = k; },
+      addEventListener(type, fn) { this.listeners[type] = fn; } };
+    if (attrs.value !== undefined) node.value = attrs.value;
+    return node;
+  };
+  const calls = [];
+  const toasts = [];
+  const ctx = { h: el, btn: (label, _i, onclick) => el("button", { onclick }, label), previewMarked: (_id, n) => n,
+    toast: (t, err) => toasts.push([t, !!err]), friendlyError: String, state: { notebook: { name: "Sales" } },
+    attempt: async (fn) => fn(), setTimeout: (fn) => fn(), clearTimeout() {},
+    rpc: async (method, args) => { calls.push([method, args]); return pages.shift(); } };
+  vm.createContext(ctx);
+  vm.runInContext(["resultTable", "renderResultViewer", "copyResultPage", "downloadResult"].map(grab).join("\n") +
+    "\nconst RESULT_PAGE = 100;\nthis.view = renderResultViewer; this.download = downloadResult;", ctx);
+  return { ctx, calls, toasts };
+}
+const findAll = (node, pred, out = []) => { if (node && typeof node === "object") { if (pred(node)) out.push(node); (node.kids || []).forEach((k) => findAll(k, pred, out)); } return out; };
+const texts = (node) => (typeof node === "string" || typeof node === "number" ? String(node) : (node.kids || []).map(texts).join(""));
+
+test("the notebook result viewer pages, searches and sorts the whole result in the engine", async () => {
+  const page = (offset, rows, total) => ({ frame: "f1", offset, rows, total, columns: ["n"], types: ["integer"] });
+  const { ctx, calls } = resultViewerHarness([page(100, [[100]], 5000), page(0, [[4999]], 5000), page(0, [[42]], 1)]);
+  const o = { frame: "f1", columns: ["n"], types: ["integer"], rows: Array.from({ length: 1000 }, (_, i) => [i]), total_rows: 5000 };
+  const wrap = ctx.h("div"); const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [true], "Showing the first 1000 of 5000 rows");
+  const status = findAll(wrap, (n) => n.attrs?.role === "status")[0];
+  assert.strictEqual(status.textContent, "Rows 1 to 100 of 5,000");
+  assert.match(texts(findAll(wrap, (n) => n.tag === "th")[0]), /^ninteger$/);
+  const [prev, next] = findAll(wrap, (n) => n.tag === "button" && ["Previous", "Next"].includes(texts(n)));
+  assert.strictEqual(prev.disabled, true);
+  await next.attrs.onclick();
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_page", { frame: "f1", offset: 100, limit: 100, sort: null, desc: false, q: "" }]);
+  assert.strictEqual(status.textContent, "Rows 101 to 101 of 5,000");
+  await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
+  assert.deepStrictEqual(plain(calls[1][1]), { frame: "f1", offset: 0, limit: 100, sort: 0, desc: false, q: "" });
+  const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
+  search.value = "42";
+  search.listeners.input();
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(calls[2][1].q, "42");
+  assert.strictEqual(status.textContent, "Rows 1 to 1 of 1 matching");
+});
+
+test("a result the kernel no longer holds says to run the cell again; downloads name the file saved", async () => {
+  const { ctx, toasts, calls } = resultViewerHarness([{ frame: "f1", gone: true }, { path: "C:\\Users\\me\\Downloads\\Sales result.xlsx", rows: 5000, format: "xlsx" }]);
+  const o = { frame: "f1", columns: ["n"], rows: [[1]], total_rows: 1 };
+  const wrap = ctx.h("div");
+  const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [true], "1 row");
+  await findAll(wrap, (n) => n.attrs?.class === "th-sort")[0].attrs.onclick();
+  assert.match(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, /^Run the cell again/);
+  const items = findAll(bar, (n) => n.attrs?.role === "menuitem").map(texts);
+  assert.deepStrictEqual(plain(items), ["CSV", "Excel", "Parquet"]);
+  await ctx.download(o, "xlsx");
+  assert.deepStrictEqual(plain(calls[1]), ["notebook_frame_download", { frame: "f1", format: "xlsx", name: "Sales" }]);
+  assert.deepStrictEqual(plain(toasts.at(-1)), ["Saved 5,000 rows to C:\\Users\\me\\Downloads\\Sales result.xlsx", false]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(o\.view === "table" && o\.frame\) \{\n    renderResultViewer\(o, wrap, bar, numeric, count\);/);
+  assert.match(nb, /previewMarked\("resultViewer", menu\)/);
+});
+
+test("a slow search answer that arrives after a newer one is dropped", async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  const answers = [slow, Promise.resolve({ frame: "f1", offset: 0, rows: [["new"]], total: 1 })];
+  const { ctx } = resultViewerHarness([]);
+  ctx.rpc = () => answers.shift();
+  const o = { frame: "f1", columns: ["s"], rows: [["a"]], total_rows: 1 };
+  const wrap = ctx.h("div"); const bar = ctx.h("div");
+  ctx.view(o, wrap, bar, [false], "1 row");
+  const search = findAll(bar, (n) => n.attrs?.type === "search")[0];
+  search.value = "o"; search.listeners.input();
+  search.value = "new"; search.listeners.input();
+  await new Promise((r) => setImmediate(r));
+  release({ frame: "f1", offset: 0, rows: [["old"]], total: 9 });
+  await new Promise((r) => setImmediate(r));
+  assert.deepStrictEqual(plain(o.viewer.page.rows), [["new"]]);
+  assert.strictEqual(findAll(wrap, (n) => n.attrs?.role === "status")[0].textContent, "Rows 1 to 1 of 1 matching");
+});
+
+// notebookutils.fs.ls entries carry modifyTime, as in Fabric.
+test("notebook docs list the fs.ls entry fields with modifyTime", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`isFile` and `modifyTime` \(milliseconds since 1970, UTC; Databricks' `modificationTime` works too\)/);
+});
+
+test("Profile opens from the account menu and the command bar, and Validate passes on what it earned (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  assert.match(p, /registerFeature\(\{\s*id: "profile", preview: true,\s*views: \{ profile: renderProfile \}/);
+  assert.doesNotMatch(p, /rail:/, "Profile must not take a rail slot");
+  for (const m of ["profile_get", "profile_save", "profile_exclude", "profile_backfill", "profile_report", "profile_report_save", "profile_export", "profile_delete"]) {
+    assert.ok(p.includes(`"${m}"`), `${m} has no caller`);
+  }
+  assert.match(p, /confirmDialog\("Delete your profile data\?"[\s\S]*?\{ danger: true, typeToConfirm: "DELETE" \}/);
+  assert.match(p, /aria-valuenow/, "the XP bar has no progressbar values");
+  assert.match(p, /const RECORDING_ON = "Recording is on: [^"]*Turn it off in Profile > Settings\."/);
+  assert.match(p, /a\.id === "first-flame"\) \? ` \$\{RECORDING_ON\}`/, "the first achievement toast doesn't say recording is on");
+  const s = fs.readFileSync(path.join(ui, "settings.js"), "utf8");
+  assert.match(s, /previewShown\(\) \? \{ label: "Profile \(Preview\)"/);
+  assert.match(s, /showMenu\(anchor, items\.filter\(Boolean\)\)/);
+  const v = fs.readFileSync(path.join(ui, "validate.js"), "utf8");
+  assert.match(v, /toast\(`\$\{nb\.name\}: \$\{r\.summary \|\| r\.state\}`, r\.state === "failed"\);\n  profileEarned\(r\.earned\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="profile.js"') > html.indexOf('src="features.js"'), "profile.js must load after features.js");
+});
+
+test("the profile report preview renders headings, bullets and source tags without HTML from the text (KF-DX-001)", () => {
+  const p = fs.readFileSync(path.join(ui, "profile.js"), "utf8");
+  const src = p.slice(p.indexOf("function markdownBlocks"), p.indexOf("// ---------- Settings"));
+  const ctx = { h: (tag, attrs, ...kids) => ({ tag, kids: kids.flat(), append(k) { this.kids.push(k); } }) };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}; this.markdownBlocks = markdownBlocks;`, ctx);
+  const out = ctx.markdownBlocks("# Title\n\n## Key contributions\n\n- Validated <b>x</b> *(Verified, E1)*\n- Two\n\nText");
+  assert.strictEqual(out.map((b) => b.tag).join(","), "h2,h3,ul,p");
+  assert.strictEqual(out[2].kids.length, 2);
+  assert.strictEqual(JSON.stringify(out[2].kids[0].kids.map((k) => (typeof k === "string" ? k : k.tag))), JSON.stringify(["Validated <b>x</b> ", "em"]));
+  const escaped = ctx.markdownBlocks("- Validated notebook \\*x\\* \\[a\\]\\(b\\) *(Verified, E1)*")[0].kids[0].kids;
+  assert.strictEqual(escaped.filter((k) => typeof k === "string").join(""), "Validated notebook *x* [a](b) ");
+  assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
+});
+
+// Running part of a cell (nbselect.js): the selected text, or the cursor's line dedented, in the
+// cell's language.
+test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
+  const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
+  ctx.cellLang = (c) => c.lang;
+  const py = { lang: "python" };
+  const code = "for i in range(3):\n    x = i\n    print(x)";
+  assert.strictEqual(ctx.f(py, code, 25, 25), "x = i");  // cursor on line 2, nothing selected
+  assert.strictEqual(ctx.f(py, code, 23, code.length), "x = i\nprint(x)");
+  assert.strictEqual(ctx.f(py, "a = 1\n\nb", 6, 6), null);  // a blank line has nothing to run
+  const sql = { lang: "sql" };
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1;\nSELECT 2", 16, 24), "%%sql\nSELECT 2");
+  assert.strictEqual(ctx.f(sql, "%%sql\nSELECT 1", 2, 2), null);  // the magic line alone
+});
+
+test("several selected cells: the notebook hooks are in place", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /if \(selectionClick\(cell, e\)\) return;/);
+  assert.match(nb, /if \(last\.group\) return undoDeleteGroup\(last\);/);
+  assert.match(nb, /if \(code == null\) depsRan\(cell, ok\);/);
+  assert.match(nb, /\.\.\.\(code != null \? \{ code \} : dbgStartArgs\(cell, debug\)\) \}\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbselect.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Organising cells (nbcells.js): which cells a collapsed heading hides, and the hooks in notebook.js.
+test("a collapsed heading hides the cells up to the next heading of the same or a higher level", () => {
+  const src = fs.readFileSync(path.join(ui, "nbcells.js"), "utf8");
+  const ctx = { document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { collapsedCells, headingLevel, visibleCells };`, ctx);
+  const { collapsedCells, headingLevel, visibleCells } = ctx.f;
+  const md = (id, source, collapsed) => ({ id, type: "markdown", source, meta: collapsed ? { heading_collapsed: true } : {} });
+  const code = (id) => ({ id, type: "code", source: "# not a heading", meta: { heading_collapsed: true } });
+  assert.strictEqual(headingLevel(md(1, "Intro\n\n## Two")), 2);
+  assert.strictEqual(headingLevel(md(1, "#hashtag")), 0);
+  assert.strictEqual(headingLevel(code(1)), 0);
+  const cells = [md(1, "# A", true), code(2), md(3, "## A.1", true), code(4), md(5, "# B"), code(6), md(7, "### C", true), code(8)];
+  const { hidden, counts } = collapsedCells(cells);
+  assert.deepStrictEqual([...hidden].sort(), [2, 3, 4, 8]);
+  assert.strictEqual(counts.get(1), 3);
+  assert.strictEqual(counts.get(7), 1);
+  assert.deepStrictEqual([...visibleCells(cells).map((c) => c.id)], [1, 5, 6, 7]);
+  assert.strictEqual(visibleCells(cells.slice(4, 6)).length, 2);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /\.\.\.cellHeadExtras\(cell\)/);
+  assert.match(nb, /return \[\.\.\.items, \.\.\.cellMenuExtras\(cell\)\];/);
+  assert.match(nb, /cell\.status === "error" && state\.notebook\?\.cells\.includes\(cell\) && revealCell\(cell\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>(\n {2}<script src="[\w.-]+"><\/script>)*\n {2}<script src="nbcells\.js"><\/script>/);
+});
+
+// Tables and files from the notebook's Explorer (nbdrag.js): what a drop inserts and the ways to load.
+test("dropping a table or file inserts its load code on an empty line, else its name for the cell's language", () => {
+  const src = fs.readFileSync(path.join(ui, "nbdrag.js"), "utf8");
+  const ctx = { document: { addEventListener() {} }, readSnippet: (p) => `df = lakehouse.read_csv("${p}")\ndf` };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { dataItemDropText, dataItemLoads };`, ctx);
+  const { dataItemDropText, dataItemLoads } = ctx.f;
+  const table = { kind: "table", schema: "dbo", table: "sales" };
+  assert.strictEqual(dataItemDropText(table, "python", { blankLine: true }), 'df = lakehouse.read_table("dbo.sales")\ndf');
+  assert.strictEqual(dataItemDropText(table, "python"), '"dbo.sales"');
+  assert.strictEqual(dataItemDropText(table, "python", { inString: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "sql", { blankLine: true }), "dbo.sales");
+  assert.strictEqual(dataItemDropText(table, "markdown"), "`dbo.sales`");
+  assert.deepStrictEqual([...dataItemLoads(table).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Query with SQL", "Load with pandas"]);
+  assert.strictEqual(dataItemLoads(table)[3][1], 'df = lakehouse.read_table("dbo.sales").to_pandas()\ndf');
+  assert.deepStrictEqual([...dataItemLoads({ kind: "file", path: "Files/a.parquet" }).map((l) => l[0])], ["Load with Polars", "Load with Spark", "Load with pandas"]);
+  assert.match(dataItemLoads({ kind: "file", path: "Files/a.csv" })[2][1], /^import pandas as pd\ndf = pd\.read_csv\(lakehouse\.local_path\("Files\/a\.csv"\)\)\ndf$/);
+  const odd = { kind: "file", path: "Files/notes/readme.txt" };
+  assert.deepStrictEqual([...dataItemLoads(odd).map((l) => l[0])], ["Load with Polars", "Read the file's text"]);
+  assert.strictEqual(dataItemDropText({ kind: "file", path: 'Files/a "b".csv' }, "python"), '"Files/a \\"b\\".csv"');
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  assert.strictEqual((app.match(/\.\.\.\(onInsert \? dataItemAttrs\(pick\) : \{\}\)/g) || []).length, 2);
+  // Names are quoted wherever they go into code, so a quote in a file name can't end the string.
+  const ctx2 = { document: { addEventListener() {} } };
+  vm.createContext(ctx2);
+  vm.runInContext(`${/function readSnippet\([\s\S]*?\n}\n/.exec(app)[0]}\n${src}\nthis.f = { dataItemLoads, dataItemDropText };`, ctx2);
+  const evil = { kind: "file", path: 'Files/x"); import os; os.system("calc"); (".csv' };
+  assert.strictEqual(ctx2.f.dataItemLoads(evil)[0][1], `df = lakehouse.read_csv(${JSON.stringify(evil.path)})\ndf`);
+  assert.match(app, /onInsert\(`df = lakehouse\.read_table\(\$\{JSON\.stringify\(`\$\{schema\}\.\$\{t\}`\)\}\)\\ndf`\)/);
+  const odd2 = { kind: "table", schema: "dbo", table: "my `odd` table" };
+  assert.strictEqual(ctx2.f.dataItemDropText(odd2, "sql"), "dbo.`my ``odd`` table`");
+  assert.match(ctx2.f.dataItemLoads(odd2)[2][1], /FROM dbo\.`my ``odd`` table` LIMIT/);
+});
+
+// Notebook find and replace (nbfind.js): matches across cells with the bar's flags, regex groups in
+// the replacement, and edits applied from the end of a cell.
+test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
+  const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
+  const { findMatches, findReplacement, findApply } = ctx.f;
+  const cells = [{ type: "markdown", source: "# Sales" }, { type: "code", source: "sales = 1\nsales_count = sales" }];
+  assert.strictEqual(findMatches(cells, "sales").matches.length, 4);
+  assert.strictEqual(findMatches(cells, "sales", { matchCase: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { word: true }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "sales", { markdown: false }).matches.length, 3);
+  assert.strictEqual(findMatches(cells, "a.e").matches.length, 0);  // not a regex unless asked
+  assert.strictEqual(findMatches(cells, "x*", { regex: true }).matches.length, 0);  // empty matches skipped
+  assert.match(findMatches(cells, "(", { regex: true }).error, /isn't a valid regular expression/);
+  const [m] = findMatches(cells, "(s)ales", { regex: true, matchCase: true }).matches;
+  assert.strictEqual(findReplacement(m, "(s)ales", "$1old", { regex: true, matchCase: true }), "sold");
+  assert.strictEqual(findReplacement(m, "x", "$1", {}), "$1");  // plain text replacement is literal
+  // Lookarounds and anchors see the whole cell, as when they matched.
+  const xa = [{ type: "code", source: "xa ya xa" }];
+  const found = findMatches(xa, "(?<=x)a", { regex: true }).matches;
+  assert.strictEqual(found.length, 2);
+  assert.deepStrictEqual([...found.map((f) => findReplacement(f, "(?<=x)a", "B", { regex: true }))], ["B", "B"]);
+  assert.strictEqual(findApply(xa[0].source, found.map((f) => ({ from: f.from, to: f.to, insert: "B" }))), "xB ya xB");
+  const lines = [{ type: "code", source: "a1\nb2" }];
+  assert.strictEqual(findMatches(lines, "^b(\\d)", { regex: true }).matches.length, 0);  // ^ is the start of the cell
+  const [start] = findMatches(lines, "^(a)(\\d)", { regex: true }).matches;
+  assert.strictEqual(findReplacement(start, "^(a)(\\d)", "$2$1", { regex: true }), "1a");
+  assert.strictEqual(findApply("ab ab", [{ from: 0, to: 2, insert: "xyz" }, { from: 3, to: 5, insert: "q" }]), "xyz q");
+});
+
+test("the notebook keeps its matches marked and the bar over the cells", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /nbFindBar\(\), h\("div", \{ class: "cells-inner" \}/);
+  assert.match(nb, /findHighlighter\(cell\),/);
+  assert.match(nb, /findCellChanged\(\);/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbfind.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Notebook cell comments (notebook-comments.js): mentions only highlight, line ranges follow the
+// selection, and the panel lists threads in cell order with deleted cells' threads last.
+test("cell comments: mentions, selected lines and the panel's rows", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-comments.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  for (const name of ["commentParts", "commentLines", "commentRows", "commentAuthor", "ownComment"]) {
+    vm.runInContext(new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(src)[0], ctx);
+  }
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  assert.deepStrictEqual(plain(ctx.commentParts("ask @bob.smith, <b>now</b>. me@")), [
+    { text: "ask ", mention: false }, { text: "@bob.smith", mention: true }, { text: ", <b>now</b>. me@", mention: false }]);
+  const code = "a = 1\nb = 2\nc = 3";
+  assert.strictEqual(ctx.commentLines(code, 3, 3), null, "no selection: the whole cell");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 7, 1)), [1, 2]);
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 6, 12)), [2, 2], "ending at a line's start leaves that line out");
+  assert.deepStrictEqual(plain(ctx.commentLines(code, 0, code.length)), [1, 3]);
+  const cells = [{ cell_id: "a" }, { cell_id: "b" }];
+  const threads = [
+    { id: "t1", cell_id: "b", resolved: false, comments: [{ at: "2026-10-20T10:00:00+00:00" }] },
+    { id: "t2", cell_id: "gone", resolved: false, comments: [{ at: "2026-10-20T09:00:00+00:00" }] },
+    { id: "t3", cell_id: "a", resolved: false, comments: [{ at: "2026-10-20T11:00:00+00:00" }] },
+    { id: "t4", cell_id: "a", resolved: true, comments: [{ at: "2026-10-20T08:00:00+00:00" }] },
+  ];
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open").map((r) => [r.thread.id, r.n])), [["t3", 1], ["t1", 2], ["t2", null]]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "resolved").map((r) => r.thread.id)), ["t4"]);
+  assert.deepStrictEqual(plain(ctx.commentRows(threads, cells, "open", "a").map((r) => r.thread.id)), ["t3"]);
+  // "You" only for the current account's (or this PC's) id; others keep their stored name.
+  const me = { name: "ann@contoso.com", id: "aad:1" };
+  assert.strictEqual(ctx.commentAuthor("ann@contoso.com", "aad:1", me), "You");
+  assert.strictEqual(ctx.commentAuthor("bob@contoso.com", "aad:2", me), "bob@contoso.com");
+  assert.strictEqual(ctx.commentAuthor("", "pc:other", me), "Someone on this PC");
+  assert.strictEqual(ctx.commentAuthor("", "", { name: "", id: "" }), "Someone on this PC", "no id is never you");
+  assert.strictEqual(ctx.ownComment({ author: "ann@contoso.com", author_id: "aad:9" }, me), false, "the name alone isn't ownership");
+  assert.strictEqual(ctx.ownComment({ author_id: "aad:1" }, me), true);
+  assert.strictEqual(ctx.ownComment({}, { name: "", id: "" }), false);
+  // Comment text only ever becomes text nodes, and deleting asks first, in red.
+  assert.doesNotMatch(src, /innerHTML/);
+  assert.match(src, /"Delete", \{ danger: true \}/);
+  assert.match(src, /nobody is notified/);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  for (const hook of ["commentBadge(cell)", "commentMenuItems(cell)", "commentsToggle(nb)", "commentsPanel(nb)"]) assert.ok(nb.includes(hook), hook);
+});
+
+// Notebook parity L3: a notebook's Runs panel lists this PC's scheduled runs and its Fabric runs.
+test("the notebook Runs panel labels each run and offers Refresh status only for Fabric runs still going", () => {
+  const src = fs.readFileSync(path.join(ui, "runs.js"), "utf8");
+  const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${app.match(/function fabricStatus\([\s\S]*?\n}\n/)[0]}
+    ${src.slice(0, src.indexOf("// ---------- state"))}
+    Object.assign(this, { NB_RUN_TRIGGERS, nbRunStatus, nbRunWhere, nbRunsUnfinished, nbRunsSummary, nbRunKey });`, ctx);
+  const pcOk = { source: "pc", status: "ok", trigger: "schedule", started: "2026-10-20T06:00:00+00:00", schedule_id: "s1" };
+  const pcBad = { source: "pc", status: "failed", trigger: "manual" };
+  const going = { source: "fabric", status: "InProgress", trigger: "fabric", workspace_name: "Sales", job_id: "j1" };
+  const done = { source: "fabric", status: "Completed", trigger: "run_now" };
+  assert.deepStrictEqual([pcOk, pcBad, going, done, { source: "pc", status: "skipped" }].map(ctx.nbRunStatus),
+    ["ok", "failed", "running", "ok", "skipped"]);
+  assert.deepStrictEqual([pcOk, going, done].map(ctx.nbRunWhere), ["This PC", "Fabric: Sales", "Fabric"]);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, going, done]), 1);
+  assert.strictEqual(ctx.nbRunsUnfinished([pcOk, done]), 0, "nothing to ask Fabric about");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk, pcBad, going, done]), "4 runs, 1 failed, 1 still going");
+  assert.strictEqual(ctx.nbRunsSummary([pcOk]), "1 run");
+  assert.strictEqual(ctx.nbRunsSummary([]), "No runs yet");
+  assert.strictEqual(ctx.nbRunKey(pcOk), "pc:2026-10-20T06:00:00+00:00:s1");
+  for (const t of ["schedule", "manual", "fabric", "run_now", "prove", "side_by_side"]) assert.ok(ctx.NB_RUN_TRIGGERS[t], t);
+  // Wired into the ribbon and the notebook body, tagged Preview, and the engine call is read-only.
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.strictEqual(nb.match(/runsToggle\(nb\)/g).length, 2, "Home and Run tabs");
+  assert.match(nb, /runsPanel\(nb\), provePanel\(nb\)/);
+  assert.match(src, /preview\("notebookRuns", btn\("Recent runs"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /\n  notebookRuns: "Notebook runs",/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="runs.js"><\/script>/);
+  assert.match(src, /rpc\("notebook_runs", \{ name: nb\.name, limit: NB_RUNS_LIMIT, refresh \}\)/);
+  const audit = fs.readFileSync(path.join(__dirname, "..", "..", "sidecar", "fabric_desktop", "audit.py"), "utf8");
+  assert.match(audit, /\bnotebook_runs\b/);
+  // How this works names the one write, and no other panel stays open beside it.
+  assert.match(src, /saves the answer in fabric_runs\.jsonl on this PC/);
+  assert.match(src, /anchor: "notebook-runs-preview"/);
+  for (const f of ["prove.js", "validate.js"]) assert.match(fs.readFileSync(path.join(ui, f), "utf8"), /if \(nb\.runs\?\.open\) nb\.runs\.open = false;/);
+});
+
+// Notebook parity L5: export and import formats (notebook-formats.js, notebook_formats.py).
+test("notebook export sends the cells with their outputs, and says where the file goes", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+  vm.createContext(ctx);
+  vm.runInContext(`${src.match(/const NBF_EXPORTS = [\s\S]*?\];/)[0]}
+${src.match(/function nbfExportPayload\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfExportMenu\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfBase64\([\s\S]*?\n}\n/)[0]}
+this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64;`, ctx);
+  const nb = { name: "Sales", lakehouse: null, cells: [
+    { type: "markdown", source: "# T", meta: {}, cell_id: "m", outputs: [{ type: "text", text: "x" }], count: null },
+    { type: "code", source: "1", meta: {}, cell_id: "c", outputs: [{ type: "text", text: "1" }], count: 4 }] };
+  const p = JSON.parse(JSON.stringify(ctx.payload(nb, "ipynb_outputs")));
+  assert.deepStrictEqual(p.cells.map((c) => [c.outputs.length, c.count]), [[0, null], [1, 4]]);
+  assert.strictEqual(p.format, "ipynb_outputs");
+  const items = ctx.menu();
+  assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
+  assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
+});
+
+// Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
+function notebookVersionsHelpers() {
+  const ctx = { registerFeature: () => {} };
+  vm.createContext(ctx);
+  vm.runInContext(`${fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8")}
+this.groups = nbvGroups; this.summary = nbvChangeSummary; this.title = nbvTitle;`, ctx);
+  return ctx;
+}
+
+test("version history groups versions by day and sums up a compare", () => {
+  const f = notebookVersionsHelpers();
+  const today = new Date("2026-10-20T15:00:00");
+  const v = (at, kind = "auto", label = "") => ({ at, kind, label });
+  const groups = f.groups([v("2026-10-20T14:00:00"), v("2026-10-20T09:00:00", "checkpoint", "Before refactor"), v("2026-10-19T22:00:00")], today);
+  assert.deepStrictEqual([...groups].map((g) => [g.day, g.rows.length]), [["Today", 2], ["Yesterday", 1]]);
+  assert.strictEqual(f.title(v("x", "checkpoint", "Before refactor")), "Before refactor");
+  assert.strictEqual(f.title(v("x", "before restore")), "Before a restore");
+  assert.strictEqual(f.summary([]), "No changes to cells.");
+  assert.strictEqual(f.summary([{ kind: "changed" }, { kind: "changed" }, { kind: "added" }, { kind: "reordered" }]),
+    "2 cells changed, 1 cell added, cells reordered.");
+  const src = fs.readFileSync(path.join(ui, "notebook-versions.js"), "utf8");
+  assert.match(src, /confirmDialog\(`Delete \$\{v\.kind === "checkpoint"[\s\S]*?"Delete", \{ danger: true \}\)/);
+  assert.match(src, /The notebook as it is now is kept as a version first/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\), btn\("Versions", "history", nbVersions\)/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook-files\.js"><\/script>\n  <script src="notebook-versions\.js"><\/script>/);
+});
+
+// Optimize > Settings history (item 30): changes from fdten_ and fdcap_, named and filtered, and a
+// read that asks before it creates the tables.
+test("Settings history names capacities, filters by scope and asks before creating its tables", async () => {
+  const src = fs.readFileSync(path.join(ui, "optimize.js"), "utf8");
+  assert.match(src, /\["settings", "Settings history"\]\]/);
+  const fn = (name) => src.match(new RegExp(`(async )?function ${name}\\([\\s\\S]*?\\n}\\n`))[0];
+  const ctx = { calls: [], toasts: [], renders: 0 };
+  vm.createContext(ctx);
+  vm.runInContext(`${fn("settingsHistoryNames")}${fn("settingsHistoryRows")}${fn("settingsHistoryRead")}
+    this.names = settingsHistoryNames; this.rows = settingsHistoryRows; this.read = settingsHistoryRead;`, ctx);
+  const changes = [  // newest first, as tenant_settings_history returns them
+    { scope_type: "capacity", scope_id: "cap-1", setting: "sku", changed_after: "t1", changed_by_time: "t2", old_json: '"F64"', new_json: '"F128"' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: "t1", changed_by_time: "t2", old_json: '"Old"', new_json: '"Prod"' },
+    { scope_type: "tenant", scope_id: "ten", setting: "ExportToExcel", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '{"enabled":true}' },
+    { scope_type: "capacity", scope_id: "cap-1", setting: "displayName", changed_after: null, changed_by_time: "t1", old_json: null, new_json: '"Old"' },
+    { scope_type: "capacity", scope_id: "cap-2", setting: "override:Copilot", changed_after: "t1", changed_by_time: "t2", old_json: "true", new_json: null },
+  ];
+  const names = ctx.names(changes);
+  assert.strictEqual(JSON.stringify(names), '{"cap-1":"Prod"}');  // the newest name; cap-2 has none yet
+  assert.strictEqual(ctx.rows(changes, names, "all").length, 5);
+  assert.strictEqual(ctx.rows(changes, names, "tenant").map((r) => r.scope).join(), "Tenant");
+  assert.strictEqual(ctx.rows(changes, names, "capacity").length, 4);
+  const [sku] = ctx.rows(changes, names, "cap-1");
+  assert.strictEqual(JSON.stringify([sku.after, sku.by, sku.scope, sku.setting, sku.was, sku.now]), '["t1","t2","Capacity Prod","sku","\\"F64\\"","\\"F128\\""]');
+  const [ov] = ctx.rows(changes, names, "cap-2");
+  assert.strictEqual(JSON.stringify([ov.scope, ov.setting, ov.now]), '["Capacity cap-2","Override: Copilot",null]');
+
+  // The first read asks; only a yes passes approve.
+  ctx.toast = (t, err) => ctx.toasts.push([t, !!err]);
+  ctx.render = () => { ctx.renders += 1; };
+  ctx.friendlyError = (e) => ({ text: String(e.message).replace(/^PermissionError: /, "") });
+  ctx.attempt = async (f) => { try { return await f(); } catch { return undefined; } };
+  ctx.rpc = async (method, args) => {
+    ctx.calls.push([method, JSON.stringify(args)]);
+    if (!args.approve) throw new Error("PermissionError: Setting up adds 3 tables. Confirm to continue.");
+    return { outcome: "read", changes: [{}, {}] };
+  };
+  ctx.confirmDialog = async (title, text) => { ctx.asked = [title, text]; return ctx.yes; };
+  ctx.yes = false;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.asked[1], "Setting up adds 3 tables.");
+  assert.strictEqual(JSON.stringify(ctx.calls), '[["capacity_settings_read","{}"]]');
+  ctx.yes = true;
+  await ctx.read("capacity_settings_read", "Capacities");
+  assert.strictEqual(ctx.calls[2][1], '{"approve":true}');
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Capacities read: 2 changes",false]');
+  // An unreadable read is recorded by the engine and shown as an error toast, not asked about again.
+  ctx.rpc = async () => ({ outcome: "unreadable", reason: "Only a Fabric administrator can read tenant settings.", changes: [] });
+  await ctx.read("tenant_settings_read", "Tenant settings");
+  assert.strictEqual(JSON.stringify(ctx.toasts.at(-1)), '["Tenant settings: Only a Fabric administrator can read tenant settings.",true]');
+  assert.strictEqual(ctx.renders, 2);
+
+  const how = src.match(/howItWorks\("optimize\.settings", \{[\s\S]*?\n  \}\)/)[0];
+  for (const t of ["fdcap_snapshot", "fdcap_change", "fdcap_read", "fdten_snapshot", "fdten_change", "fdten_read", "no tenant or capacity setting is ever changed", "asks before it creates the tables"]) {
+    assert.ok(how.includes(t), t);
+  }
+});
+
+// Inspect over every row: a table output with a `frame` shows the engine's profile of the whole result.
+test("Inspect profiles every row of a held result, and says so when the kernel no longer holds it", async () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const grab = (name) => new RegExp(`function ${name}\\([\\s\\S]*?\\n}\\n`).exec(nb)[0];
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined), textContent: "",
+    append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); }, replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); },
+    querySelector(sel) { return findAll(this, (n) => n.attrs?.class === sel.slice(1))[0]; } });
+  const answers = [{ frame: "f", rows: 10000, more_columns: 0, columns: [
+    { name: "n", type: "integer", kind: "number", missing: 0, distinct: 9990, min: 0, max: 9999, mean: 4999.5, std: 2886.9, q1: 2499.75, median: 4999.5, q3: 7499.25, histogram: [5, 10] },
+    { name: "s", type: "string", kind: "text", missing: 1, distinct: 2, top: [["a", 6000], [null, 3]] },
+    { name: "bad", type: "double", kind: "number", error: "Couldn't profile this column: Out of Range" }] },
+    { frame: "h", rows: 5000000, profiled_rows: 1000000, sampled: true, more_columns: 0, columns: [{ name: "v", type: "double", kind: "number", missing: 0, distinct: 2, infinite: 3, min: 1, max: 2, mean: 1.5, std: 0.5, q1: 1, median: 1.5, q3: 2, histogram: [1, 1] }] },
+    { frame: "f", gone: true }];
+  const ctx = { h: el, isNumber: (v) => typeof v === "number", friendlyError: String, rpc: async () => answers.shift() };
+  vm.createContext(ctx);
+  vm.runInContext(grab("renderFrameProfile") + grab("renderInspect") + "this.p = renderFrameProfile;", ctx);
+  const o = { frame: "f", columns: ["n", "s"], rows: [[1, "a"]] };
+  const box = ctx.p(o, [true, false], "Showing the first 1000 of 10000 rows");
+  assert.match(texts(box), /Profiling every row\.\.\.$/);
+  await new Promise((r) => setImmediate(r));
+  const t = texts(box);
+  assert.match(t, /Profile of all 10,000 rows$/);
+  assert.match(t, /Distinct≈ 9,990/);
+  assert.match(t, /Median4999\.5/);
+  assert.match(t, /null3/);
+  assert.match(t, /baddoubleCouldn't profile this column: Out of Range/);
+  const big = ctx.p({ frame: "h", columns: ["v"], rows: [[1]] }, [true], "x");
+  await new Promise((r) => setImmediate(r));
+  assert.match(texts(big), /Infinite3/);
+  assert.match(texts(big), /Profile of a random sample of 1,000,000 of 5,000,000 rows$/);
+  assert.ok(o.profile && ctx.p(o, [true, false], "x") !== box, "a held profile redraws without asking again");
+  const o2 = { frame: "g", columns: ["n"], rows: [[1]] };
+  const box2 = ctx.p(o2, [true], "1 row");
+  await new Promise((r) => setImmediate(r));
+  assert.strictEqual(o2.profileGone, true);
+  assert.match(box2.querySelector(".more").textContent, /Run the cell again to profile every row\.$/);
+  assert.match(nb, /\} else if \(o\.frame && !o\.profileGone\) \{\n    wrap\.append\(renderFrameProfile\(o, numeric, count\)\);/);
+});
+
+// The chart builder (charts.js): the engine aggregates every row; the cell keeps its chart by column name.
+function chartsHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "charts.js"), "utf8");
+  const node = (tag, attrs = {}, ...kids) => ({ tag, attrs: { ...attrs }, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined),
+    textContent: "", listeners: {}, setAttribute(k, v) { this.attrs[k] = v; }, append(...k) { this.kids.push(...k.flat(Infinity).filter(Boolean)); },
+    replaceChildren(...k) { this.kids = k.flat(Infinity).filter(Boolean); }, replaceWith(n) { this.replaced = n; },
+    addEventListener(t, fn) { this.listeners[t] = fn; } });
+  const calls = [];
+  let dirty = 0;
+  const ctx = { h: node, btn: (label, _i, onclick) => node("button", { onclick }, label), friendlyError: String, markDirty: () => { dirty += 1; },
+    document: { createElementNS: (_ns, tag) => node(tag) },
+    rpc: async (m, a) => { calls.push([m, a]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { chartConfig, renderChartBuilder, chartSvg };", ctx);
+  return { ctx, calls, dirty: () => dirty, node };
+}
+const allNodes = (n, out = []) => { if (n && typeof n === "object") { out.push(n); (n.kids || []).forEach((k) => allNodes(k, out)); } return out; };
+
+test("the chart builder asks the engine for every row and keeps the cell's chart by column name", async () => {
+  const d = { kind: "stacked", rows: 3000, truncated: false, categories: ["East", "West"],
+    series: [{ name: "p1", values: [1, 2] }, { name: "Other", values: [3, null] }] };
+  const { ctx, calls, dirty } = chartsHarness(d);
+  const o = { frame: "f", columns: ["region", "product", "amount"], rows: [["East", "p1", 1]] };
+  const cell = { meta: {} };
+  const cfg = ctx.api.chartConfig(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(cfg), { kind: "bar", x: "region", y: "amount", agg: "sum", series: null, title: "" });
+  const box = ctx.api.renderChartBuilder(o, [false, false, true], cell);
+  assert.deepStrictEqual(plain(calls[0]), ["notebook_frame_chart", { frame: "f", kind: "bar", x: 0, y: 2, agg: "sum", series: null }]);
+  const kind = allNodes(box).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Chart");
+  kind.attrs.onchange({ target: { value: "stacked" } });
+  const series = allNodes(box.replaced).find((n) => n.tag === "select" && n.attrs["aria-label"] === "Series");
+  series.attrs.onchange({ target: { value: "product" } });
+  assert.deepStrictEqual(plain(cell.meta.chart), { kind: "stacked", x: "region", y: "amount", agg: "sum", series: "product", title: "" });
+  assert.strictEqual(dirty(), 2);
+  assert.deepStrictEqual(plain(calls.at(-1)[1]), { frame: "f", kind: "stacked", x: 0, y: 2, agg: "sum", series: 1 });
+  await new Promise((r) => setImmediate(r));
+  // A rerun keeps the saved chart; a renamed column falls back to the default.
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["region", "product", "amount"] }, [false, false, true], cell).series, "product");
+  assert.strictEqual(ctx.api.chartConfig({ columns: ["area", "amount"] }, [false, true], cell).kind, "bar");
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.view \|\|= o\.summary \? "inspect" : o\.frame && cell\?\.meta\?\.chart \? "chart" : "table";/);
+  assert.match(nb, /previewMarked\("chartBuilder"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="notebook\.js"><\/script>\n  <script src="charts\.js"><\/script>/);
+});
+
+test("every chart kind draws marks with a tooltip, and an empty result says so", () => {
+  const { ctx } = chartsHarness(null);
+  const kinds = {
+    bar: { kind: "bar", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, -2] }] },
+    stacked: { kind: "stacked", rows: 2, categories: ["a"], series: [{ name: "x", values: [1] }, { name: "y", values: [2] }] },
+    line: { kind: "line", rows: 2, categories: [1, 2], series: [{ name: null, values: [1, null] }] },
+    area: { kind: "area", rows: 2, categories: [1, 2], series: [{ name: "x", values: [1, 2] }, { name: "y", values: [2, 1] }] },
+    pie: { kind: "pie", rows: 2, categories: ["a", "b"], series: [{ name: null, values: [1, 3] }] },
+    scatter: { kind: "scatter", rows: 2, points: [[1, 2, "x"], [2, 3, "y"]], sampled: false, total: 2 },
+    histogram: { kind: "histogram", rows: 2, min: 0, max: 10, counts: [1, 0, 1] },
+    box: { kind: "box", rows: 2, boxes: [{ x: "a", min: 0, q1: 1, median: 2, q3: 3, max: 4, n: 5 }] },
+  };
+  for (const [k, d] of Object.entries(kinds)) {
+    const svg = ctx.api.chartSvg(d, { kind: k, x: "x", y: "v", title: "" });
+    const titled = allNodes(svg).filter((n) => n.tag === "title");
+    assert.ok(titled.length > 0, `${k} has tooltips`);
+    assert.strictEqual(svg.attrs.role, "img");
+  }
+  const empty = ctx.api.chartSvg({ kind: "bar", rows: 0, categories: [], series: [] }, { kind: "bar" });
+  assert.ok(allNodes(empty).some((n) => n.textContent === "Nothing to chart"));
+  const pie = ctx.api.chartSvg({ kind: "pie", rows: 9, categories: [1, 2, 3, 4, 5, 6, 7, 8, 9], series: [{ name: null, values: [1, 1, 1, 1, 1, 1, 1, 1, 1] }] }, { kind: "pie" });
+  assert.strictEqual(allNodes(pie).filter((n) => n.tag === "path").length, 7, "a pie folds past six slices into Other");
+});
+
+// Data Wrangler (wrangler.js): steps go to the engine, which writes the Polars code and previews it on every row.
+function wranglerHarness(answer) {
+  const src = fs.readFileSync(path.join(ui, "wrangler.js"), "utf8");
+  const { node } = chartsHarness(null);
+  const calls = [];
+  const inserted = [];
+  const ctx = { h: node, btn: (label, _i, onclick, _c, attrs = {}) => node("button", { onclick, ...attrs }, label), friendlyError: String,
+    resultTable: (columns) => ({ ...node("table", {}), columns, querySelectorAll: () => [] }), state: { selected: null },
+    insertCell: (code) => inserted.push(code), toast: () => {}, attempt: (fn) => fn(), navigator: { clipboard: { writeText: async () => {} } },
+    rpc: async (m, a) => { calls.push([m, JSON.parse(JSON.stringify(a))]); return typeof answer === "function" ? answer(a) : answer; } };
+  vm.createContext(ctx);
+  vm.runInContext(src + "\nthis.api = { wrangleName, renderWrangler, renderWrangleAdd, addWrangleCell };", ctx);
+  return { ctx, calls, inserted };
+}
+
+test("Data Wrangler sends its steps to the engine and adds the code as a new cell under the output", async () => {
+  const d = { code: "import polars as pl\n...", columns: ["id", "name"], types: ["integer", "string"], rows: [[1, "Ann"]],
+    rows_before: 4, rows_after: 3, changed: ["name"], sampled: false, error: null, steps: ["Remove duplicate rows"] };
+  const { ctx, calls, inserted } = wranglerHarness(d);
+  assert.strictEqual(ctx.api.wrangleName({ source: "orders = spark.sql('x')\ndisplay(orders)" }), "orders");
+  assert.strictEqual(ctx.api.wrangleName({ source: "df2" }), "df2");
+  assert.strictEqual(ctx.api.wrangleName({ source: "display(spark.sql('x'))" }), "df");
+  const o = { frame: "f", columns: ["id", "name"], rows: [] };
+  const cell = { id: "c1", source: "display(orders)" };
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[0], ["notebook_frame_wrangle", { frame: "f", steps: [], name: "orders" }]);
+  // Adding a step: pick the operation, then its columns, then Add step.
+  o.wrangle.adding = "dedupe";
+  const form = ctx.api.renderWrangleAdd(o, o.wrangle, () => {});
+  const cols = allNodes(form).find((n) => n.tag === "select" && n.attrs.multiple);
+  cols.selectedOptions = [{ value: "id" }];
+  allNodes(form).find((n) => n.tag === "button" && n.kids.includes("Add step")).attrs.onclick();
+  assert.deepStrictEqual(plain(o.wrangle.steps), [{ op: "dedupe", columns: ["id"] }]);
+  ctx.api.renderWrangler(o, cell);
+  assert.deepStrictEqual(calls[1][1].steps, [{ op: "dedupe", columns: ["id"] }]);
+  await new Promise((r) => setImmediate(r));
+  ctx.api.addWrangleCell(cell, d.code);
+  assert.strictEqual(ctx.state.selected, "c1");
+  assert.deepStrictEqual(inserted, [d.code]);
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /o\.frame \? seg\("clean", "Clean"\) : null/);
+  assert.match(nb, /previewMarked\("dataWrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /dataWrangler: "Data Wrangler"/);
+  assert.match(fs.readFileSync(path.join(ui, "index.html"), "utf8"), /<script src="charts\.js"><\/script>\n  <script src="wrangler\.js"><\/script>/);
+  // The code is shown as text, never as HTML.
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "wrangler.js"), "utf8"), /innerHTML|insertAdjacentHTML|outerHTML/);
+});
+
+test("a Data Wrangler step that can't run is marked with its reason and blocks adding the code", async () => {
+  const d = { code: "x", columns: ["id"], types: ["integer"], rows: [], rows_before: 1, rows_after: 1, changed: [], sampled: false,
+    error: { step: 0, message: "'lots' isn't a number." }, steps: ["Fill missing values: id"] };
+  const { ctx } = wranglerHarness(d);
+  const o = { frame: "f", columns: ["id"], rows: [], wrangle: { steps: [{ op: "fill", columns: ["id"], value: "lots" }], name: "df", data: null, adding: "" } };
+  const box = ctx.api.renderWrangler(o, { id: "c" });
+  await new Promise((r) => setImmediate(r));
+  const alert = allNodes(box).find((n) => n.attrs?.role === "alert");
+  assert.ok(alert.kids.includes("'lots' isn't a number."));
+  const add = allNodes(box).find((n) => n.tag === "button" && n.kids.includes("Add code to notebook"));
+  assert.strictEqual(add.attrs.disabled, true);
+  // After a restart the kernel no longer holds the result.
+  const gone = wranglerHarness({ gone: true });
+  const box2 = gone.ctx.api.renderWrangler({ frame: "f", columns: [], rows: [] }, null);
+  await new Promise((r) => setImmediate(r));
+  assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
+});
+
+// Rich outputs: Markdown output uses the Markdown cell's escaping renderer, JSON is a tree of text,
+// and neither adds an HTML sink (HD-052).
+test("Markdown and JSON cell outputs render without new HTML sinks", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  const fn = /function jsonTree\([\s\S]*?\n}\n/.exec(nb)[0];
+  assert.doesNotMatch(fn, /innerHTML|outerHTML|insertAdjacentHTML|srcdoc/);
+  const el = (tag, attrs = {}, ...kids) => ({ tag, attrs, kids: kids.flat(Infinity).filter((k) => k !== null && k !== undefined) });
+  const ctx = { h: el };
+  vm.createContext(ctx);
+  vm.runInContext(fn + "this.t = jsonTree;", ctx);
+  const tree = ctx.t({ a: [1, "<b>x</b>", null], b: { c: true } }, null, 0);
+  const text = (n) => (typeof n === "string" || typeof n === "number" ? String(n) : (n.kids || []).map(text).join(""));
+  const t = text(tree);
+  assert.strictEqual(t, '{2}a: [3]0: 11: "<b>x</b>"2: nullb: {1}c: true');
+  assert.strictEqual(tree.attrs.open, true);
+  assert.strictEqual(ctx.t({ x: { y: { z: 1 } } }, null, 0).kids[1].kids[1].attrs.open, null);
+});
+
+// IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
+// completions carry lazy docs; other languages get none of it.
+test("Python cells get hover, signature help, syntax errors and completion docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /CM\.autocompletion\(\{ override: \[pythonCompletions\], activateOnTypingDelay: 150 \}\),\n\s+\.\.\.intelExtensions\(\)\]/);
+  assert.match(nb, /info: intelCompletionInfo\(base, i\.label\)/);
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true \}\)/);
+  assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
+  assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
+});
+
+// Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
+test("notebookutils.lakehouse and isValidToken are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `lakehouse` \(Preview\) \| `get`, `getWithProperties`, `list` and `listTables`, read from Fabric as you/);
+  assert.match(docs, /`create`, `update`, `delete` and `loadTable` run in Fabric only/);
+  assert.match(docs, /`isValidToken` says whether a token hasn't expired yet/);
+});
+
+// Notebook utilities: notebookutils.notebook reads Fabric notebook items; changes go through Publish.
+test("notebookutils.notebook item reads are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\| `notebook` items \(Preview\) \| `get`, `list` and `getDefinition` read Fabric notebook items as you/);
+  assert.match(docs, /use \*\*Publish to OneLake\*\*, which shows what it replaces first/);
+});
+
+// notebookutils rows that read Fabric live are marked Preview until they run on a tenant.
+test("notebookutils docs mark the live Fabric reads Preview", () => {
+  const docs = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /Rows marked Preview read Fabric live as you and haven't been run on a tenant yet\./);
+});
+
+// notebookutils.variableLibrary reads any library from the attached lakehouse's workspace, read only.
+test("notebook docs say any variable library is read from the lakehouse's workspace", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /Any other library, and VL_Sources when there is no metadata project, is read from the attached lakehouse's workspace/);
+  assert.match(doc, /Read only \(Preview, not yet run on a tenant\)/);
+});
+
+// Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
+test("Databricks dbutils snippets and docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Databricks widget", 'dbutils\.widgets\.text\("run_date"/);
+  assert.match(nb, /\["Databricks secret \(Key Vault scope\)", 'secret = dbutils\.secrets\.get\("<vault-name>"/);
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
+  assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// Parameters and widgets bar (Preview): above the cells, values added after their cell when it runs.
+test("parameters and widgets bar sits above the cells and adds its values to the run", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /computeNote\(nb\), inputsBar\(nb\), visibleCells\(nb\.cells\)\.map\(renderCell\)/);
+  assert.match(nb, /code: cell\.source \+ nbInputSuffix\(cell\)/);
+  const bar = fs.readFileSync(path.join(ui, "nbinputs.js"), "utf8");
+  assert.match(bar, /previewMarked\("inputs"/);
+  assert.match(bar, /Runs on this PC use these values; the notebook's code doesn't change\./);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /inputs: "Parameters and widgets bar"/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('<script src="nbinputs.js"></script>') > html.indexOf('<script src="notebook.js"></script>'));
+});
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});
+
+// Widget values from the bar apply from the start of every cell, even the one that creates the widget.
+test("the inputs bar docs say widget values apply in the creating cell", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /`dbutils\.widgets\.get` returns them from the start of every cell, including the cell that creates the widget/);
+});
+
+// Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
+test("notebook.run timeouts and validateDAG are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /`run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds`/);
+  assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
+  assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
+});
+
+// notebook.run timeouts land between Python steps; the docs say so.
+test("notebook.run docs say where the timeout lands", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /The timeout lands between Python steps, so a single long call such as `time\.sleep\(4\)` finishes before it stops/);
+});
+
+// The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
+test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
+  const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(`${src}\nthis.f = variableRows;`, ctx);
+  const rows = [
+    { name: "sales", type: "DataFrame", memory: 50000 },
+    { name: "Count", type: "int", memory: 28 },
+    { name: "sdf", type: "DataFrame", memory: null },
+    { name: "cfg", type: "dict", memory: 400 },
+  ];
+  const names = (opts) => [...ctx.f(rows, opts).map((r) => r.name)];
+  assert.deepStrictEqual(names(), ["cfg", "Count", "sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: "frame" }), ["sales", "sdf"]);
+  assert.deepStrictEqual(names({ filter: " CO " }), ["Count"]);
+  assert.deepStrictEqual(names({ sort: "memory" }), ["sales", "cfg", "Count", "sdf"]);
+  assert.deepStrictEqual(names({ sort: "type" }), ["sales", "sdf", "cfg", "Count"]);
+  assert.deepStrictEqual(names({ sort: "name", desc: true }), ["sdf", "sales", "Count", "cfg"]);
+  assert.strictEqual(rows[0].name, "sales");  // the kernel's rows aren't reordered
+  assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });

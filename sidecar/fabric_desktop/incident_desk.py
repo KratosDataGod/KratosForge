@@ -76,7 +76,7 @@ class IncidentDeskMixin:
             return {"state": "off", "message": "Your organization has turned off the central lakehouse "
                                                "(allow_optimize_lakehouse in its policy file)."}
         if not self.central_lakehouse():  # type: ignore[attr-defined]
-            return {"state": "not_connected", "message": "Connect this PC to the central Fabric Desktop lakehouse "
+            return {"state": "not_connected", "message": "Connect this PC to the central KratosForge lakehouse "
                                                          "(Settings > Optimize lakehouses) to keep incident history."}
         return None
 

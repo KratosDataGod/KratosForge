@@ -1,4 +1,4 @@
-"""External AI tools and other programs using Fabric Desktop by KratosBI through standard interfaces.
+"""External AI tools and other programs using KratosForge through standard interfaces.
 
 There is no AI in here. This package lets tools people already use (any MCP client, any HTTP
 client) reach the engine's existing services with the same checks for every route in. The

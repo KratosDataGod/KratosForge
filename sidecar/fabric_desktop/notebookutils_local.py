@@ -449,9 +449,9 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
         skipped. Every result is kept; if any activity failed, a RuntimeError lists them after all
         have run, with the results on its ``results`` attribute."""
         activities = _activities(dag)
-        if isinstance(dag, dict) and (dag.get("concurrency") or 0) > 1:
+        if isinstance(dag, dict) and float(dag.get("concurrency") or 0) > 1:
             print("Note: on this PC the notebooks run one at a time, so concurrency doesn't apply.")
-        whole = (dag.get("timeoutInSeconds") if isinstance(dag, dict) else None) or timeout_seconds or 0
+        whole = float((dag.get("timeoutInSeconds") if isinstance(dag, dict) else None) or timeout_seconds or 0)
         ends = time.monotonic() + whole if whole else None
         results: dict[str, Any] = {}
         failed: list[str] = []
@@ -461,12 +461,17 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
             blocked = [d for d in a["dependencies"] if d in failed]
             left = ends - time.monotonic() if ends is not None else None
             if blocked or (left is not None and left <= 0):
-                why = f"{', '.join(blocked)} failed" if blocked else f"the DAG's timeoutInSeconds ({whole}) ran out"
+                why = f"{', '.join(blocked)} failed" if blocked else f"the DAG's timeoutInSeconds ({whole:g}) ran out"
                 results[a["name"]] = {"exitVal": None, "exception": f"Skipped: {why}."}
                 failed.append(a["name"])
                 continue
             for attempt in range(a["retry"] + 1):
                 left = ends - time.monotonic() if ends is not None else None
+                if left is not None and left <= 0:
+                    # A run given no time left would run with no limit at all.
+                    results[a["name"]] = {"exitVal": None,
+                                          "exception": f"Stopped: the DAG's timeoutInSeconds ({whole:g}) ran out."}
+                    break
                 host.tasks.append(a["name"])
                 try:
                     results[a["name"]] = {"exitVal": run(a["path"], left if left is not None else 0, a["args"],
@@ -475,7 +480,8 @@ def _make_notebook(host: Host) -> types.SimpleNamespace:
                 except Exception as exc:  # noqa: BLE001 - recorded per activity, as Fabric does
                     results[a["name"]] = {"exitVal": None, "exception": f"{type(exc).__name__}: {exc}"}
                     if attempt < a["retry"]:
-                        time.sleep(a["retry_interval"])
+                        rest = ends - time.monotonic() if ends is not None else a["retry_interval"]
+                        time.sleep(max(0.0, min(a["retry_interval"], rest)))
                 finally:
                     host.tasks.pop()
             if results[a["name"]]["exception"]:

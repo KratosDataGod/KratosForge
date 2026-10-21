@@ -80,3 +80,17 @@ def test_workspace_argument_says_it_runs_in_fabric(tmp_path):
     k = _kernel(tmp_path, {"child": ["x = 1"]})
     out = k.run("notebookutils.notebook.run('child', 90, {}, 'other-workspace')")
     assert out["status"] == "error" and "leave out workspace" in out["outputs"][-1]["evalue"]
+
+
+def test_a_retry_after_the_dag_ran_out_of_time_doesnt_run_unlimited(tmp_path):
+    import time
+    k = _kernel(tmp_path, {"slow": ["import time\nfor _ in range(200):\n    time.sleep(0.05)"]})
+    started = time.monotonic()
+    out = k.run("try:\n"
+                "    notebookutils.notebook.runMultiple({'timeoutInSeconds': '1', 'concurrency': '4', 'activities': ["
+                "{'name': 's', 'path': 'slow', 'retry': 2, 'retryIntervalInSeconds': 30}]})\n"
+                "except RuntimeError as e:\n"
+                "    res = e.results\n"
+                "res['s']['exception']")
+    assert time.monotonic() - started < 6, out
+    assert "timeoutInSeconds (1) ran out" in out["outputs"][-1]["text"], out

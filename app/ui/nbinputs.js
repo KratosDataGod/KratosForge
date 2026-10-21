@@ -43,12 +43,14 @@ function currentInputValues() {
 
 // Saves go one after another, and each change is worked out from the values the save before it
 // returned: two quick changes (one box, then another) can't drop the first. A run waits for them
-// (nbInputsSaved, runCell) so it uses the values the bar shows.
+// (nbInputsSaved, runCell) so it uses the values the bar shows. A save that throws is reported and
+// the queue goes on: one failure can't stop later saves or every run after it.
 let inputsSaving = Promise.resolve();
 const nbInputsSaved = () => inputsSaving;
 
 function queueInputs(nb, valuesFrom) {
-  inputsSaving = inputsSaving.then(() => (state.notebook === nb ? saveInputValues(nb, valuesFrom()) : null));
+  inputsSaving = inputsSaving.then(() => (state.notebook === nb ? saveInputValues(nb, valuesFrom()) : null))
+    .catch((e) => { console.error(e); toast("Could not keep the value. Change it again to retry.", true); });
   return inputsSaving;
 }
 

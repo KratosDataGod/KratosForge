@@ -92,3 +92,19 @@ test("two quick changes and an immediate run keep both values, even when saving 
     await page().evaluate(() => { window.__fdCall = window.__fdCallFast; });
   }
 });
+
+test("a save that fails partway doesn't stop later saves or runs", { skip }, async () => {
+  const bar = page().locator(".nb-inputs");
+  // Drawing the bar after the first save throws once; the queue has to carry on past it.
+  await page().evaluate(() => {
+    window.renderInputsReal = renderInputs;
+    window.renderInputs = () => { window.renderInputs = window.renderInputsReal; throw new Error("draw failed"); };
+  });
+  await bar.getByLabel(/^Environment/).selectOption("prod");
+  await page().locator("#toast", { hasText: "Could not keep the value" }).waitFor();
+  await page().waitForFunction(() => renderInputs === window.renderInputsReal);
+  await bar.getByLabel(/^full_load/).selectOption("False");
+  await page().evaluate(() => runCells(state.notebook.cells));
+  await page().locator(".cell").nth(2).getByText("2026-01-01 100000 False prod East,West").waitFor({ timeout: 60000 });
+  assert.deepStrictEqual(app.errors, []);
+});

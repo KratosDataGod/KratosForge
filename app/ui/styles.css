@@ -1009,6 +1009,7 @@ input.days { width: 64px; min-height: 28px; padding: 0 6px; border: 1px solid va
 .plat-stat .plat-n { font-size: 24px; font-weight: 600; }
 .plat-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; align-items: start; }
 .plat-two > .card { display: flex; flex-direction: column; gap: 10px; }
+.plat-subdomain { padding-left: 28px; border-left: 3px solid var(--border-input); }
 @media (max-width: 1000px) { .plat-two { grid-template-columns: minmax(0, 1fr); } }
 
 /* Shortcut command center (shortcuts.js). */

@@ -596,10 +596,13 @@ class Kernel:
         if run is not None:
             run.clear(wait)
 
-    def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
+    def _display(self, *values: Any, summary: bool = False, raw: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
         for value in values:
-            out = self._show(value)
+            if raw and isinstance(value, dict):  # display(bundle, raw=True): a mime bundle, as IPython reads it
+                out = _from_bundle(value) or {"type": "text", "text": str(value.get("text/plain", ""))}
+            else:
+                out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
             if run is not None:

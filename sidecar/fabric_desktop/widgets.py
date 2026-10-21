@@ -20,6 +20,7 @@ import importlib.machinery
 import itertools
 import sys
 import threading
+import traceback
 import types
 from collections import OrderedDict
 from typing import Any, Callable, Iterator
@@ -218,7 +219,7 @@ class _Number(ValueWidget):
         bound = self._bounded and name in ("min", "max")
         if bound:
             value = self._cast(value)
-            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")))
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
         super()._set(name, value)
         if bound:
             self.value = self._state["value"]  # clamps into the new bounds, as ipywidgets does
@@ -234,9 +235,9 @@ class _Number(ValueWidget):
         return out
 
 
-def _check_bounds(lo: Any, hi: Any) -> None:
-    if lo > hi:
-        raise TraitError(f"setting min > max ({lo} > {hi})")
+def _check_bounds(lo: Any, hi: Any, setting: str = "min") -> None:
+    if lo > hi:  # worded as ipywidgets words it, after the bound being set
+        raise TraitError(f"setting max < min ({hi} < {lo})" if setting == "max" else f"setting min > max ({lo} > {hi})")
 
 
 class IntSlider(_Number):
@@ -300,7 +301,7 @@ class _Range(ValueWidget):
         bound = name in ("min", "max")
         if bound:
             value = self._cast(value)
-            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")))
+            _check_bounds(*(value if name == n else self._state[n] for n in ("min", "max")), setting=name)
         super()._set(name, value)
         if bound:
             self.value = self._state["value"]
@@ -778,9 +779,21 @@ class interactive(VBox):  # noqa: N801 - ipywidgets' name
     def update(self, *_a: Any) -> None:
         self.out.clear_output()
         with self.out:
-            self.result = self.f(**self.kwargs)
+            try:
+                self.result = self.f(**self.kwargs)
+            except Exception as exc:  # noqa: BLE001 - as ipywidgets: the error shows in the output and the controls stay
+                self.out._add(_error_output(exc))
+                return
             if self.result is not None and registry.show is not None:
                 registry.show(self.result)
+
+
+def _error_output(exc: Exception) -> dict[str, Any]:
+    """The error a cell would show, without this module's own frames."""
+    frames = [f for f in traceback.extract_tb(exc.__traceback__) if f.filename != __file__]
+    lines = traceback.format_list(frames) + traceback.format_exception_only(type(exc), exc)
+    return {"type": "error", "ename": type(exc).__name__, "evalue": str(exc),
+            "traceback": "Traceback (most recent call last):\n" + "".join(lines)}
 
 
 def interact(__interact_f: Callable[..., Any] | None = None, **kwargs: Any) -> Any:
@@ -817,7 +830,11 @@ def interactive_output(f: Callable[..., Any], controls: dict[str, Widget]) -> Ou
     def run(*_a: Any) -> None:
         out.clear_output()
         with out:
-            result = f(**{k: w.value for k, w in controls.items()})
+            try:
+                result = f(**{k: w.value for k, w in controls.items()})
+            except Exception as exc:  # noqa: BLE001 - as ipywidgets: the error shows in the output
+                out._add(_error_output(exc))
+                return
             if result is not None and registry.show is not None:
                 registry.show(result)
     for w in controls.values():

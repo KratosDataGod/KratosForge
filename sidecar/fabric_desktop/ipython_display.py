@@ -165,6 +165,11 @@ def build(display: Callable[..., None], clear_output: Callable[..., None]) -> ty
     pkg = types.ModuleType("IPython", "IPython isn't installed here; KratosForge provides IPython.display.")
     pkg.display = mod  # type: ignore[attr-defined]
     pkg.__path__ = []  # type: ignore[attr-defined]  # so "import IPython.display" finds the submodule
+    # Older notebooks import from IPython.core.display: the same module.
+    core = types.ModuleType("IPython.core", "IPython.core.display only, as KratosForge provides it.")
+    core.display = mod  # type: ignore[attr-defined]
+    core.__path__ = []  # type: ignore[attr-defined]
+    pkg.core = core  # type: ignore[attr-defined]
     pkg.get_ipython = lambda: None  # type: ignore[attr-defined]  # no interactive shell, so libraries take their plain path
     pkg.version_info = (8, 30, 0, "")  # type: ignore[attr-defined]  # the IPython.display API this stands in for
     pkg.__version__ = "8.30.0"  # type: ignore[attr-defined]
@@ -177,7 +182,7 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     that, because libraries change course when they see an ``IPython`` module (matplotlib reads
     ``IPython.version_info`` on every figure)."""
 
-    NAMES = ("IPython", "IPython.display")
+    NAMES = ("IPython", "IPython.display", "IPython.core", "IPython.core.display")
 
     def __init__(self) -> None:
         self.pkg: types.ModuleType | None = None
@@ -185,11 +190,11 @@ class _Finder(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> importlib.machinery.ModuleSpec | None:
         if fullname not in self.NAMES or self.pkg is None:
             return None
-        return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname == "IPython")
+        return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname in ("IPython", "IPython.core"))
 
     def create_module(self, spec: importlib.machinery.ModuleSpec) -> types.ModuleType:
         assert self.pkg is not None
-        return self.pkg if spec.name == "IPython" else self.pkg.display  # type: ignore[attr-defined]
+        return {"IPython": self.pkg, "IPython.core": self.pkg.core}.get(spec.name, self.pkg.display)  # type: ignore[attr-defined]
 
     def exec_module(self, module: types.ModuleType) -> None:
         return None
@@ -206,7 +211,8 @@ def install(pkg: types.ModuleType) -> None:
     if _finder not in sys.meta_path:
         sys.meta_path.append(_finder)
     if getattr(sys.modules.get("IPython"), "__kratosforge__", False):
-        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display)):  # type: ignore[attr-defined]
+        for name, fresh in (("IPython", pkg), ("IPython.display", pkg.display), ("IPython.core", pkg.core),  # type: ignore[attr-defined]
+                            ("IPython.core.display", pkg.display)):  # type: ignore[attr-defined]
             mod = sys.modules.get(name)
             if mod is not None:
                 mod.__dict__.update({k: v for k, v in fresh.__dict__.items() if not k.startswith("__")})

@@ -130,6 +130,12 @@ def _table(value: Any, label: str) -> str:
     return text
 
 
+def _same_table(a: str, b: str) -> bool:
+    # Names ignore case, and a name without a schema is dbo's table on a schema-enabled lakehouse.
+    full = lambda t: (t if "." in t else f"dbo.{t}").lower()  # noqa: E731
+    return full(a) == full(b)
+
+
 def _check_cell(df: str, keys: list[str]) -> str:
     return (f"# Check: every row has its key, and each key appears once\n"
             f"keys = {keys!r}\n"
@@ -263,8 +269,9 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
            "Made by the new notebook wizard.")
         code(head)
         code(f"df = lakehouse.read_table({source!r})\nkeys = {keys!r}\nnewest = {by[0]!r}\ndf.head()")
-        code("top = df.group_by(keys).agg(pl.col(newest).max())\n"
-             "tied = df.join(top, on=keys + [newest], how=\"semi\").group_by(keys).len().filter(pl.col(\"len\") > 1)\n"
+        # eq_missing: a key whose rows all have an empty order_by has two "newest" rows too.
+        code("top = pl.col(newest).max().over(keys)\n"
+             "tied = df.filter(pl.col(newest).eq_missing(top)).group_by(keys).len().filter(pl.col(\"len\") > 1)\n"
              "assert tied.height == 0, f\"{tied.height} keys have two newest rows with the same {newest}\"\n"
              "latest = df.sort(newest, descending=True, nulls_last=True, maintain_order=True)"
              ".unique(subset=keys, keep=\"first\", maintain_order=True)\n"
@@ -285,7 +292,9 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         code("while structs := [c for c, t in df.schema.items() if isinstance(t, pl.Struct)]:\n"
              "    names = {c: [f\"{c}_{f.name}\" for f in df.schema[c].fields] for c in structs}\n"
              "    new = [n for c in structs for n in names[c]]\n"
-             "    clashes = sorted({n for n in new if n in df.columns or new.count(n) > 1})\n"
+             "    # Delta column names ignore case, so Name and name clash.\n"
+             "    seen = [n.lower() for n in df.columns if n not in structs] + [n.lower() for n in new]\n"
+             "    clashes = sorted({n for n in new if seen.count(n.lower()) > 1})\n"
              "    assert not clashes, f\"These nested names clash with existing columns: {clashes}\"\n"
              "    df = df.with_columns([pl.col(c).struct.rename_fields(names[c]) for c in structs]).unnest(structs)\n"
              "print(f\"{df.height:,} rows, {df.width} columns\")\ndf.head()")
@@ -293,6 +302,8 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         code(f"lakehouse.write_table(df, {output!r}, mode={mode!r})")
     elif template == "profile":
         source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
         keys, mode = ["column"], "overwrite"
         md(f"# Profile {source}\n\nOne row per column of `{source}`: its type, how many rows have no value, how many "
            "distinct values it has, and its lowest and highest value (as text, so every type fits one table). "
@@ -319,6 +330,8 @@ def build(template: str, values: dict[str, Any]) -> dict[str, Any]:
         code(f"lakehouse.write_table(profile, {output!r}, mode=\"overwrite\")")
     elif template == "snapshot":
         source = _table(v.get("source"), "The table to read")
+        if _same_table(source, output):
+            raise ValueError("Write to a different table than the one it reads, so the source table isn't changed.")
         need_keys()
         mode = "append"
         md(f"# Daily snapshot of {source}\n\nAppends today's rows of `{source}` to `{output}` with a "

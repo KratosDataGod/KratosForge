@@ -342,6 +342,11 @@ def test_latest_row_keeps_the_newest_row_of_each_key_and_stops_on_a_tie(monkeypa
     tie = pl.concat([changes, pl.DataFrame({"order_id": [1], "status": ["late"], "modified_at": [5]})])
     with pytest.raises(AssertionError, match="1 keys have two newest rows"):
         run_cells(built, monkeypatch, FakeLake({"dbo.changes": tie}))
+    # A key whose rows all have no modified_at has two "newest" rows too.
+    empty = pl.concat([changes, pl.DataFrame({"order_id": [4, 4], "status": ["a", "b"], "modified_at": [None, None]},
+                                             schema=changes.schema)])
+    with pytest.raises(AssertionError, match="1 keys have two newest rows"):
+        run_cells(built, monkeypatch, FakeLake({"dbo.changes": empty}))
 
 
 def test_flatten_json_turns_nested_objects_into_columns(monkeypatch):
@@ -357,6 +362,18 @@ def test_flatten_json_turns_nested_objects_into_columns(monkeypatch):
     with pytest.raises(AssertionError, match="clash with existing columns"):
         run_cells(wizard.build("flatten_json", ANSWERS["flatten_json"]), monkeypatch,
                   FakeLake(files={"Files/raw/orders.json": clash}))
+    # Delta column names ignore case.
+    upper = nested.with_columns(pl.lit("x").alias("Customer_Name"))
+    with pytest.raises(AssertionError, match="clash with existing columns"):
+        run_cells(wizard.build("flatten_json", ANSWERS["flatten_json"]), monkeypatch,
+                  FakeLake(files={"Files/raw/orders.json": upper}))
+
+
+@pytest.mark.parametrize("template", ["profile", "snapshot"])
+@pytest.mark.parametrize("output", ["dbo.orders", "DBO.Orders", "orders"])
+def test_profile_and_snapshot_refuse_to_write_over_the_table_they_read(template, output):
+    with pytest.raises(ValueError, match="different table than the one it reads"):
+        wizard.build(template, ANSWERS[template] | {"output": output})
 
 
 def test_profile_has_a_row_per_column(monkeypatch):

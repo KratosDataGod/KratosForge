@@ -19,7 +19,7 @@ decides whether a tier plays at all.
 | **Ember** | A state that is true right now: running, waiting, connected | Inside one control; at most 8 px of moving mark | Loops while the state lasts; one cycle 1.2 to 1.8 s | Any number on screen, at most 3 animating | Refined (2) |
 | **Spark** | Feedback that one thing you did has finished | Beside one status label; at most 24 px | 0.3 to 0.5 s, once | Many per minute, with a minimum gap per kind | Refined (2) |
 | **Forge** | A hero moment: work that took a while, or mattered, is done | One region (a status bar, a card, a dialog header); at most 160 by 48 px | 0.6 to 1.2 s, once | A few per session, gap of 1.5 s or more | Refined (2), with more character at Expressive (3) |
-| **Titan** | A milestone worth stopping for: first deploy to Prod, a level reached, a release shipped | The whole window, and later possibly past its edges (see [Open questions](#open-questions)) | 1.5 to 2.5 s, skippable at any moment | At most once per milestone, never twice in 10 minutes | Expressive (3), and only when the person has turned on celebrations |
+| **Titan** | A milestone worth stopping for: first deploy to Prod, a level reached, a release shipped | The whole window, and past its edges onto the desktop (see [Past the window](#past-the-window)) | 1.5 to 2.5 s, skippable at any moment | At most once per milestone, never twice in 10 minutes | Expressive (3), and only when the person has turned on celebrations |
 
 ### Ember: the forge is lit
 
@@ -80,6 +80,24 @@ one with the strictest rules.
       `motion_achievements`), and only at Expressive.
     - It is the one exception to "no effect covers content" in [Motion and effects](forge-animations.md),
       and that page must say so when the first Titan ships.
+
+### Past the window
+
+A Titan may break out of KratosForge's window: the wolf leaps out of the app and across the desktop,
+or embers from the anvil spill over the screen. This is drawn in a second, transparent window that
+the app opens only for the length of the Titan.
+
+- The overlay is click-through, never takes focus, never shows in the taskbar or Alt+Tab, and closes
+  itself when the Titan ends or is skipped. Input anywhere still goes to whatever is under it.
+- It covers only the monitor KratosForge is on, and the art stays anchored to the app window: it
+  starts inside the window, travels out, and returns or fades. Nothing plays on a monitor where the
+  app isn't.
+- It plays only when KratosForge is the window in front. If the app is minimised, behind another
+  window or in full-screen presentation mode, the Titan plays inside the window or not at all.
+- It has its own switch, **Let celebrations leave the window** (off unless the person turns it on),
+  and its own policy key, `motion_desktop` (`true` or `false`), so IT can turn it off everywhere.
+  Off means the same Titan plays inside the window only.
+- Nothing is captured from the desktop or other apps. The overlay draws only its own art.
 
 ## Colour
 
@@ -229,10 +247,7 @@ implementation guide, sets the measured performance budget for each tier.
 
 ## Open questions
 
-1. **Past the window's edges.** Titan could be a full-window takeover only, or it could also escape
-   the window (a transparent, click-through overlay over the desktop, which Tauri supports). The
-   guide assumes full-window first, with desktop overflow as a later opt-in.
-2. **Dark theme.** The app has no dark theme yet. When it gets one, fire tokens stay the same and the
+1. **Dark theme.** The app has no dark theme yet. When it gets one, fire tokens stay the same and the
    navy ink becomes `--fx-ice` so the wolf stays visible.
-3. **Artwork for Titan.** The 2048 px emblem is enough for a first Titan. Painted, cover-quality
+2. **Artwork for Titan.** The 2048 px emblem is enough for a first Titan. Painted, cover-quality
    wolf and Kratos artwork would lift it, if KratosBI has or commissions some.

@@ -153,6 +153,11 @@ class FabricClient:
         harness calls this, for lakehouses it created itself."""
         self._request("DELETE", f"/workspaces/{workspace_id}/lakehouses/{lakehouse_id}")
 
+    def delete_item(self, workspace_id: str, item_id: str) -> None:
+        """Delete an item (a notebook or pipeline). Only the live test harness calls this, for
+        items it created itself and recorded in its ledger."""
+        self._request("DELETE", f"/workspaces/{workspace_id}/items/{item_id}")
+
     def find_lakehouse(self, workspace_id: str, name: str) -> dict[str, Any] | None:
         return next((lh for lh in self.list_lakehouses(workspace_id) if lh["displayName"] == name), None)
 

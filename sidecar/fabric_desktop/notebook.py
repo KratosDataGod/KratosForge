@@ -1619,7 +1619,13 @@ def _check_part(part: str, whole: str) -> str:
     if not part or _SAFE_NAME.search(part) or part.endswith("."):
         raise ValueError(f"Invalid notebook name {whole!r}: avoid < > : \" \\ | ? * and a trailing dot"
                          " (a / only separates folders).")
+    if part.split(".")[0].strip().upper() in _WINDOWS_DEVICES:  # CON, con.txt, COM1...: Windows can't save these
+        raise ValueError(f"{part!r} is a name Windows keeps for devices, so it can't be a notebook or folder name. "
+                         "Pick another name.")
     return part
+
+
+_WINDOWS_DEVICES = frozenset({"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))})
 
 
 def check_folder_part(part: str, whole: str | None = None) -> str:

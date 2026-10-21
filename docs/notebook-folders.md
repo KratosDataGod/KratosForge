@@ -15,7 +15,7 @@ In a notebook, the explorer's **Notebooks** tab shows the same folders, so you c
 **New folder** on All notebooks makes an empty folder. When you have notebooks repositories, pick the place to make it in. Type `Sales/Archive` to make a folder inside another, or use **New folder inside…** on a folder's **⋯** menu.
 
 - Folders go 3 levels deep. A notebook's name can be `Sales/Archive/2026/Q1 backfill`, no deeper.
-- Each folder name follows the notebook name rule: no `< > : " \ | ? *`, and no dot at the end. A folder name can't start with a dot, and can't end with `.resources`, which is where a notebook keeps its resources.
+- Each folder name follows the notebook name rule: no `< > : " \ | ? *`, and no dot at the end. A folder name can't start with a dot, and can't end with `.resources`, which is where a notebook keeps its resources. Names Windows keeps for devices (CON, PRN, AUX, NUL, COM1 to COM9, LPT1 to LPT9, with or without an extension, in any case) can't be a folder or notebook name.
 
 **New notebook here**, on a folder's **⋯** menu, makes a new notebook in that folder (Sales/Notebook 1).
 
@@ -62,5 +62,14 @@ Every write, in one place. In a notebooks repository each shows as a change to c
 | Rename folder | Renames the folder on disk, then moves each notebook's versions, schedules, session, environment and Fabric link to its new name | A folder or notebook with the new name is already there |
 | Delete folder | Removes the empty folder | Anything is in it |
 | Publish | The Fabric item, named without the folders | Another notebook here already publishes to that item in that workspace |
+
+If something kept by a notebook's name can't follow it (its session, environment, Fabric link, versions or this PC's schedules), the notebooks still move, every other step still runs, and a warning names what didn't follow and what to do about it.
+
+## Known limitations
+
+- The check before publishing that two notebooks would share one Fabric item only sees notebooks linked to an item from this PC. A notebook published from another PC, or an item made in Fabric, with the same name is replaced by Publish as before.
+- Renaming a folder changes only its last part; a folder can't move to another parent folder.
+- A notebook in Recently deleted keeps the folder it was deleted from, so restoring it after that folder was renamed makes the old folder again.
+- Fabric workspace folders aren't used.
 
 Fabric schedules belong to the Fabric item, so they don't change when a notebook moves. A notebook in a folder isn't searched any differently: search on All notebooks finds it by its whole name.

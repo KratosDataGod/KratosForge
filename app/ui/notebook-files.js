@@ -307,7 +307,7 @@ async function nbRenameFromList(name) {
   if (!newName || newName === name) return false;
   if (open && !(await saveNotebook())) return false;
   const ok = await attempt(() => rpc("rename_notebook", { name, new_name: newName }), "Could not rename");
-  if (ok) nbRenamedHere(name, newName);
+  if (ok) { nbRenamedHere(name, newName); nbRenameWarning(ok.problems); }
   return !!ok;
 }
 
@@ -375,6 +375,29 @@ function nbFolderProblem() {
   return h("p", { class: "error-text small", role: "alert", hidden: true });
 }
 
+// What to do about each part kept by name that didn't follow a moved notebook (the file moved).
+const NB_RENAME_FIX = {
+  session: "Close and reopen the notebook to start its session again.",
+  environment: "Pick its environment again on the notebook's status bar.",
+  "Fabric link": "Publish it once to link it to its Fabric item again.",
+  versions: "Its earlier versions are still kept under the old name in the app's notebook-versions folder.",
+  schedules: "Open Monitor > Schedules and point its schedule on this PC at the new name.",
+};
+
+// After a move or folder rename: a warning naming what didn't follow, and what to do. Pure (ui.test.cjs).
+function nbRenameProblemLines(problems) {
+  return (problems || []).map((p) => `${p.notebook} (was ${p.was}): its ${p.step} didn't follow (${p.error}). ${NB_RENAME_FIX[p.step] || ""}`.trim());
+}
+
+function nbRenameWarning(problems) {
+  const lines = nbRenameProblemLines(problems);
+  if (!lines.length) return;
+  showDialog("Moved, but some things didn't follow", h("div", { class: "nbf-form" },
+    h("div", { class: "nbf-warn", role: "alert" }, h("p", {}, "The notebook files moved. These still use the old names:"),
+      h("ul", { class: "nbf-facts" }, lines.map((l) => h("li", {}, l))))),
+  [btn("OK", null, closeDialog, "tool primary")]);
+}
+
 function nbShowProblem(el, err) {
   el.textContent = friendlyError(err).text;
   el.hidden = false;
@@ -434,6 +457,7 @@ async function nbMoveToFolderDialog(n, folders) {
       nbRenamedHere(n.name, out.name);
       done(true);
       toast(`${nbLeaf(n.name)} is now ${out.name}.${out.schedules_moved?.length ? " Its schedules on this PC follow it." : ""}`);
+      nbRenameWarning(out.problems);
     };
     showDialog(`Move ${nbLeaf(n.name)}`, h("div", { class: "nbf-form" },
       h("label", { class: "field" }, "Folder", select),
@@ -461,6 +485,7 @@ async function nbRenameFolderDialog(f, redraw) {
     for (const m of out.moved) nbRenamedHere(m.from, m.to);
     closeDialog();
     toast(`Renamed ${f.path} to ${out.new_path}. ${out.moved.length} notebook${out.moved.length === 1 ? "" : "s"} moved with it.`);
+    nbRenameWarning(out.problems);
     redraw?.();
   };
   nameInput.addEventListener("input", () => { problem.hidden = true; });

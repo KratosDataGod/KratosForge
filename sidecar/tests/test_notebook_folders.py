@@ -107,7 +107,7 @@ def test_move_to_folder_takes_resources_versions_schedules_and_link(svc):
     versions_before = len(call(svc, "notebook_versions", name="Daily load")["versions"])
     call(svc, "notebook_folder_create", path="Sales")
     out = call(svc, "notebook_move_to_folder", name="Daily load", folder="Sales")
-    assert out == {"name": "Sales/Daily load", "was": "Daily load", "moved": True, "schedules_moved": [sched["id"]]}
+    assert out == {"name": "Sales/Daily load", "was": "Daily load", "moved": True, "schedules_moved": [sched["id"]], "problems": []}
     folder = svc.notebooks.folder
     assert not (folder / "Daily load.ipynb").exists()
     assert (folder / "Sales" / "Daily load.resources" / "builtin" / "map.csv").read_text(encoding="utf-8") == "k,v"
@@ -223,3 +223,52 @@ def test_methods_are_registered_and_the_read_is_not_audited():
     assert "notebook_folders" in audit.READ_ONLY
     for m in names - {"notebook_folders"}:
         assert audit.audited(m)
+
+
+@pytest.mark.parametrize("name", ["CON/x", "NUL", "COM1/x", "LPT1", "con.txt/x", "aux /x", "Sales/prn", "Sales/Com9.ipynb", "lpt9.x/y"])
+def test_windows_device_names_are_refused_for_folders_and_notebooks(name):
+    with pytest.raises(ValueError, match="Windows keeps for devices"):
+        check_notebook_name(name)
+
+
+def test_names_that_only_start_like_a_device_are_fine():
+    assert check_notebook_name("Console/Contoso") == "Console/Contoso"
+    assert check_notebook_name("COM10/LPT0") == "COM10/LPT0"
+
+
+def test_a_folder_rename_failing_for_one_notebook_still_runs_every_other_step(svc, monkeypatch):
+    save(svc, "Sales/A")
+    save(svc, "Sales/B")
+    ids = {n: svc.add_pc_schedule({"kind": "notebook", "name": n}, {"kind": "daily", "times": ["06:00"]})["schedule"]["id"]
+           for n in ("Sales/A", "Sales/B")}
+    svc.workload_store.record_link("Sales/B", "ws1", "item-b", "Sales WS", how="recorded", by="")
+    real = type(svc.environments).rename_notebook
+
+    def boom(self, old, new):
+        if old == "Sales/B":
+            raise OSError("disk full")
+        return real(self, old, new)
+
+    monkeypatch.setattr(type(svc.environments), "rename_notebook", boom)
+    out = call(svc, "notebook_folder_rename", path="Sales", new_name="EMEA")
+    assert out["problems"] == [{"notebook": "EMEA/B", "was": "Sales/B", "step": "environment", "error": "OSError: disk full"}]
+    assert sorted(out["schedules_moved"]) == sorted(ids.values())
+    assert {n["name"] for n in svc.list_notebooks()} == {"EMEA/A", "EMEA/B"}
+    # Every other step ran for B too: its schedule, Fabric link and versions are on the new name.
+    assert svc.pc_schedules_for("notebook", "EMEA/B")[0]["id"] == ids["Sales/B"]
+    assert "EMEA/B" in svc.workload_store.links() and "Sales/B" not in svc.workload_store.links()
+    assert call(svc, "notebook_versions", name="EMEA/B")["versions"]
+    assert not notebook_versions._all(svc.root / "notebook-versions", "Sales/B")  # noqa: SLF001
+
+
+def test_a_folder_made_after_the_plan_is_never_replaced(svc):
+    from fabric_desktop import notebook_folders
+    save(svc, "Sales/A")
+    plan = notebook_folders.rename_plan(svc.notebooks, "Sales", "EMEA", None)
+    (svc.notebooks.folder / "EMEA").mkdir()  # someone made it meanwhile, empty
+    (svc.notebooks.folder / "EMEA" / ".keep").write_text("theirs", encoding="utf-8")
+    (svc.notebooks.folder / "EMEA" / ".keep").unlink()  # empty again: os.rename would replace it on POSIX
+    with pytest.raises(ValueError, match="already there. Nothing was renamed"):
+        notebook_folders.rename(svc.notebooks, plan)
+    assert (svc.notebooks.folder / "Sales" / "A.ipynb").is_file()
+    assert (svc.notebooks.folder / "EMEA").is_dir() and not any((svc.notebooks.folder / "EMEA").iterdir())

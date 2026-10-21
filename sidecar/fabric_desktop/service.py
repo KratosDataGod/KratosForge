@@ -870,15 +870,23 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
 
     def _notebook_renamed(self, name: str, new_name: str) -> dict[str, Any]:
         """After a notebook's file was renamed (or moved into a folder, notebook_folders): what is kept
-        by its name follows it. Returns {"schedules_moved": [ids]}."""
-        self.sessions.rename(name, new_name)  # its session (and variables) go with it
-        self.environments.rename_notebook(name, new_name)
-        self.workload_store.rename_link(name, new_name)  # its Fabric item stays linked
-        try:
-            notebook_versions.rename(self._versions_root, name, new_name)  # its versions follow it
-        except OSError as exc:
-            _log.warning("Couldn't move the versions of %r: %s", name, exc)
-        return {"schedules_moved": self.pc_schedules.rename_notebook(name, new_name)}  # this PC's schedules run it by name
+        by its name follows it. Every step runs even when another fails, since the file has already
+        moved: returns {"schedules_moved": [ids], "problems": [{"notebook", "step", "error"}]}."""
+        out: dict[str, Any] = {"schedules_moved": [], "problems": []}
+        steps = [
+            ("session", lambda: self.sessions.rename(name, new_name)),  # its session (and variables) go with it
+            ("environment", lambda: self.environments.rename_notebook(name, new_name)),
+            ("Fabric link", lambda: self.workload_store.rename_link(name, new_name)),  # its Fabric item stays linked
+            ("versions", lambda: notebook_versions.rename(self._versions_root, name, new_name)),
+            ("schedules", lambda: out.__setitem__("schedules_moved", self.pc_schedules.rename_notebook(name, new_name))),
+        ]
+        for step, run in steps:
+            try:
+                run()
+            except Exception as exc:  # noqa: BLE001 - logged and reported; the other steps still run
+                _log.warning("Couldn't move the %s of %r to %r: %s", step, name, new_name, describe(exc))
+                out["problems"].append({"notebook": new_name, "was": name, "step": step, "error": describe(exc)})
+        return out
 
     def delete_notebook(self, name: str) -> dict[str, Any]:
         """Kept for the API: the same as notebook_delete (to Recently deleted)."""

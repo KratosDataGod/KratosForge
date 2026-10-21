@@ -31,10 +31,13 @@ class NotebookFoldersMixin:
         plan = folders.rename_plan(self.notebooks, path, new_name, place)  # type: ignore[attr-defined]
         folders.rename(self.notebooks, plan)  # type: ignore[attr-defined]
         schedules: list[str] = []
-        for m in plan["moves"]:
-            schedules += self._notebook_renamed(m["from"], m["to"])["schedules_moved"]  # type: ignore[attr-defined]
+        problems: list[dict[str, str]] = []
+        for m in plan["moves"]:  # every notebook, every step: one failure never leaves the rest behind
+            done = self._notebook_renamed(m["from"], m["to"])  # type: ignore[attr-defined]
+            schedules += done["schedules_moved"]
+            problems += done["problems"]
         return {"path": plan["path"], "new_path": plan["new_path"], "moved": [{"from": m["from"], "to": m["to"]} for m in plan["moves"]],
-                "schedules_moved": schedules}
+                "schedules_moved": schedules, "problems": problems}
 
     def notebook_folder_delete(self, path: str, place: str | None = None) -> dict[str, Any]:
         """Deletes the folder only when it's empty; one with anything in it is refused."""
@@ -46,6 +49,7 @@ class NotebookFoldersMixin:
         notebook of that name already there stops it, and nothing moves."""
         new = folders.move_target(self.notebooks, name, folder)  # type: ignore[attr-defined]
         if new == name:
-            return {"name": name, "moved": False, "schedules_moved": []}
+            return {"name": name, "moved": False, "schedules_moved": [], "problems": []}
         out = self.rename_notebook(name, new)  # type: ignore[attr-defined]
-        return {"name": new, "was": name, "moved": True, "schedules_moved": out.get("schedules_moved", [])}
+        return {"name": new, "was": name, "moved": True, "schedules_moved": out.get("schedules_moved", []),
+                "problems": out.get("problems", [])}

@@ -3884,7 +3884,7 @@ test("variables filter on name or type and sort by name, type or memory with unk
 function notebookFolderHelpers() {
   const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   const ctx = { registerFeature() {} };
-  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth });`, ctx);
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth, nbRenameProblemLines });`, ctx);
   return ctx;
 }
 
@@ -3935,4 +3935,13 @@ test("folder actions are wired: a menu entry, New folder, the empty-only delete 
   for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
     assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
   }
+});
+
+test("a move that leaves something behind names it and says what to do", () => {
+  const { nbRenameProblemLines } = notebookFolderHelpers();
+  const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...nbRenameProblemLines([])], []);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
 });

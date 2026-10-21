@@ -129,7 +129,30 @@ def rename(shelf: NotebookShelf, plan: dict[str, Any]) -> None:
     """Renames the folder on disk, with every notebook and resources folder in it, in one step."""
     if plan["new_path"] == plan["path"]:
         return
-    plan["src"].rename(plan["dest"])
+    src, dest = plan["src"], plan["dest"]
+    if dest.exists() and _same(src, dest):
+        src.rename(dest)  # a change of case only: the same folder, nothing else is there
+        return
+    # Reserve the new folder first: mkdir refuses one made since the plan, where a rename would
+    # silently replace an empty folder on Linux and macOS. Then move what's inside into it.
+    try:
+        dest.mkdir()
+    except FileExistsError:
+        raise ValueError(f"A folder named {plan['new_path']!r} is already there. Nothing was renamed.") from None
+    moved: list[str] = []
+    try:
+        for child in sorted(p.name for p in src.iterdir()):
+            if (dest / child).exists():
+                raise OSError(f"{child} appeared in {plan['new_path']} meanwhile")
+            (src / child).rename(dest / child)
+            moved.append(child)
+        src.rmdir()
+    except OSError:
+        for child in reversed(moved):  # put back what moved, so the folder is whole where it was
+            (dest / child).rename(src / child)
+        if not any(dest.iterdir()):
+            dest.rmdir()
+        raise
 
 
 def delete(shelf: NotebookShelf, path: str, root: str | None) -> dict[str, Any]:

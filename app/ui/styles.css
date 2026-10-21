@@ -446,6 +446,7 @@ h2.flush { margin: 0; }
 .risk-remedy { margin-top: 4px; }
 .risk-ack { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .usage-preview { margin-top: 10px; }
+.nbf-preview { margin-top: 10px; }
 .usage-preview .row { gap: 8px; align-items: end; margin: 8px 0; }
 .pass-box { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-dark); font-size: 13px; }
 .info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }

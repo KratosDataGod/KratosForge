@@ -8,6 +8,7 @@ The app's **Learn more** links open the sections of this page. Two areas have th
 - **[Side by side](side-by-side.md):** running a notebook on this PC and in Fabric one after the other, comparing time and results, and the TPC-H benchmark.
 - **[Validate a notebook](validate-notebook.md):** checking a notebook works from the top with a clean run, and cleaning up its code.
 - **[Notebook files](notebook-files.md):** finding, opening, copying, deleting and restoring notebooks, and editing a Fabric notebook on this PC.
+- **[Fabric and Databricks notebook formats](notebook-import-export.md):** bringing in Fabric and Databricks source and .dbc archives (and .ipynb), and saving a notebook in those formats or as a web page.
 - **[Notebook version history](notebook-versions.md):** earlier versions of a notebook, checkpoints, Compare and Restore.
 - **[Profile](profile.md):** a private record of work KratosForge verified, and a review-ready report.
 - **[How a proof works](prove/how-proofs-work.md):** Prove this notebook: both runs from the same pinned inputs with sandboxed writes, the differences, the scorecard and the receipt.
@@ -161,6 +162,10 @@ New items:
 - **Notebook:** a new Python notebook, saved on this PC. See [Notebooks](notebooks.md).
 - **Notebook from a template** (Preview): a notebook written from a fixed template (clean a table, join and aggregate, load a file) with key checks and the columns a proof matches rows by. See [Notebooks](notebooks.md#your-first-notebook).
 - **Lakehouse:** asks for a workspace and a name, then creates a schema-enabled lakehouse in Fabric (tables live under schemas, `dbo` by default) and opens it. Needs a workspace on a capacity, and Contributor or higher on it.
+
+## Fabric and Databricks notebook formats (Preview)
+
+**Import from Fabric or Databricks** under **Start something** on Home reads Fabric or Databricks source (`.py`, `.sql`, `.scala`), a Databricks archive (`.dbc`), a percent-format script (`# %%`) or a `.ipynb`, shows each notebook it would create, and creates them as new notebooks in the app's notebooks folder. A notebook that already has the name is never replaced; the new one gets the next free name, such as `Sales (2)`, and the picked file is only read. In a notebook, **Export** on the Home tab saves it as `.ipynb` (with or without the outputs on screen), Fabric source, Databricks source or a web page, as a new file in your Downloads folder; a file already there is never replaced. Nothing is sent to Fabric. See [Fabric and Databricks notebook formats](notebook-import-export.md).
 
 ## Validate a notebook (Preview)
 

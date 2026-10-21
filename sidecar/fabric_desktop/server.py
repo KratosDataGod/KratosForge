@@ -128,6 +128,10 @@ from .notebook_files_service import METHODS as NOTEBOOK_FILES_METHODS  # noqa: E
 
 METHODS |= NOTEBOOK_FILES_METHODS
 
+# Notebook export and import in Fabric, Databricks and Jupyter formats (notebook_formats_service.py).
+from .notebook_formats_service import METHODS as NOTEBOOK_FORMATS_METHODS  # noqa: E402
+
+METHODS |= NOTEBOOK_FORMATS_METHODS
 # Profile (progress_service.py): the person's private record of verified work and its report.
 from .progress_service import METHODS as PROFILE_METHODS  # noqa: E402
 

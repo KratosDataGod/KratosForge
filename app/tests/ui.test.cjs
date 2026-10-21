@@ -3130,6 +3130,34 @@ test("the profile report preview renders headings, bullets and source tags witho
   assert.strictEqual(escaped.filter((k) => typeof k !== "string").length, 1, "an escaped name became emphasis");
 });
 
+// Notebook parity L5: export and import formats (notebook-formats.js, notebook_formats.py).
+test("notebook export sends the cells with their outputs, and says where the file goes", () => {
+  const src = fs.readFileSync(path.join(ui, "notebook-formats.js"), "utf8");
+  const ctx = { btoa: (s) => Buffer.from(s, "binary").toString("base64") };
+  vm.createContext(ctx);
+  vm.runInContext(`${src.match(/const NBF_EXPORTS = [\s\S]*?\];/)[0]}
+${src.match(/function nbfExportPayload\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfExportMenu\([\s\S]*?\n}\n/)[0]}
+${src.match(/function nbfBase64\([\s\S]*?\n}\n/)[0]}
+this.payload = nbfExportPayload; this.menu = nbfExportMenu; this.b64 = nbfBase64;`, ctx);
+  const nb = { name: "Sales", lakehouse: null, cells: [
+    { type: "markdown", source: "# T", meta: {}, cell_id: "m", outputs: [{ type: "text", text: "x" }], count: null },
+    { type: "code", source: "1", meta: {}, cell_id: "c", outputs: [{ type: "text", text: "1" }], count: 4 }] };
+  const p = JSON.parse(JSON.stringify(ctx.payload(nb, "ipynb_outputs")));
+  assert.deepStrictEqual(p.cells.map((c) => [c.outputs.length, c.count]), [[0, null], [1, 4]]);
+  assert.strictEqual(p.format, "ipynb_outputs");
+  const items = ctx.menu();
+  assert.match(items[0].info, /new file in your Downloads folder\. A file already there is never replaced/);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(items.slice(1).map((i) => i.label))), ["Jupyter notebook (.ipynb)", "Jupyter notebook with outputs (.ipynb)",
+    "Fabric source (.py)", "Databricks source (.py)", "Web page (.html)"]);
+  const bytes = new Uint8Array(70000).map((_, i) => i % 251);
+  assert.strictEqual(ctx.b64(bytes.buffer), Buffer.from(bytes).toString("base64"));
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /btn\("Save a copy", "add", \(\) => nbSaveCopyDialog\(nb\.name\)\),[^\n]*nbfExportButton\(\),/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /btn\("Import from Fabric or Databricks", "arrowUpload", nbfImportDialog, "tool outline"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /nbFormats: "Notebook import and export formats"/);
+  assert.match(src, /changes: "Writes one new notebook file \(\.ipynb\) for each notebook in the file/);
+});
+
 // Version history (notebook-versions.js): day groups, the change summary, and where it's reached.
 function notebookVersionsHelpers() {
   const ctx = { registerFeature: () => {} };

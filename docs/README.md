@@ -58,6 +58,7 @@ Formerly Fabric Desktop: [what changed with the new name, and what didn't](krato
 | [notebook-magics.md](notebook-magics.md) | Engineers, analysts | Notebook magics and cell languages: SQL results in `_sqldf`, `%sql` inside Python, what runs on this PC |
 | [notebook-files.md](notebook-files.md) | Engineers, analysts | All notebooks and search inside them, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
 | [validate-notebook.md](validate-notebook.md) | Engineers, analysts | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up (Preview) |
+| [notebook-import-export.md](notebook-import-export.md) | Engineers, analysts | Fabric and Databricks notebook formats: importing their source and .dbc archives, and exporting as .ipynb, Fabric or Databricks source or HTML (Preview) |
 | [notebook-versions.md](notebook-versions.md) | Engineers, analysts | Notebook version history: versions, checkpoints, Compare and Restore |
 | [forge-animations.md](forge-animations.md) | Engineers, analysts, IT | Motion and effects: intensity levels, every effect, performance, and the motion engine for developers |
 | [profile.md](profile.md) | Engineers, analysts | Profile: a private record of verified work, levels and achievements, and a professional report (Preview) |
@@ -129,6 +130,7 @@ KratosForge is new, and it's honest about what has been proven.
 | Profile | Account menu (private record of verified work, levels, achievements and the professional report) |
 | Edit Fabric notebooks on this PC | Workspaces, an item's preview: Edit on this PC ([notebook-files.md](notebook-files.md)) |
 | New notebook wizard | Create > Notebook from a template |
+| Notebook import and export formats | Home > Import from Fabric or Databricks; a notebook's Home tab > Export ([notebook-import-export.md](notebook-import-export.md)) |
 | Cell dependencies | Notebook ribbon, View and Run tabs (with Run stale cells) |
 | Variable history and watches | Notebook Variables pane, View tab (with hidden-state warnings) |
 | Failure replay bundles | Under a cell that failed on this PC; Create > Open replay bundle |

@@ -334,8 +334,10 @@ def coverage() -> list[dict[str, str]]:
     (raises, with why). A method is "works" only if calling it doesn't raise DuckDB's not-implemented error."""
     from duckdb.experimental.spark.exception import ContributionsAcceptedError
 
+    from . import spark_stream
     from .spark_local import LocalSparkSession
     install()
+    spark_stream.install()  # readStream, writeStream and isStreaming, as a notebook has them
     rows = []
     for area, names, owner in (("DataFrame", PYSPARK_DATAFRAME, DataFrame), ("SparkSession", PYSPARK_SESSION, LocalSparkSession)):
         for name in names:

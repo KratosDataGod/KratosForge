@@ -1625,6 +1625,12 @@ tr.click:focus-visible { outline-offset: -2px; }  /* a row's outline sits inside
 .wrangle-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .wrangle table .changed { background: var(--accent-soft); }
 @media (max-width: 760px) { .wrangle-body { flex-direction: column; } .wrangle-side { width: 100%; } }
+/* Notebook JSON outputs */
+.json-output { font-family: var(--mono); font-size: 12px; }
+.json-node > summary { cursor: pointer; }
+.json-node > :not(summary), .json-node > .json-row { margin-left: 16px; }
+.json-key { color: var(--text-2); }
+.json-str { color: #0b6a0b; } .json-num { color: #1b3664; } .json-null, .json-count { color: var(--muted); }
 /* Forge animations (motion.js): one aria-hidden element per effect, transform and opacity only */
 .fx-anchor { position: relative; }
 .fx { position: absolute; pointer-events: none; }

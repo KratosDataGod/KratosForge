@@ -421,7 +421,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 **75. Policy inheritance** · Missing · Stage 9. PR: —
 
 **76. Operational audit trail** · Enhance · Stage 1 (local action log), Stage 2B (platform audit)
-- Today: `catalog.audit`, shortcut changes, restores. Enhancement: every action from a workload page recorded with actor, target, environment, identity, before/after, outcome. Validation: U. PR: —
+- Today: `catalog.audit`, shortcut changes, restores. Enhancement: every action from a workload page recorded with actor, target, environment, identity, before/after, outcome. Validation: U. PR: stage 2B audit (each workload action and change goes to the platform's audit through `log_workload_action`, kept on the PC until the platform takes it; links get local history). Shared ownership (`catalog.workload`) is still later.
 
 **77. Sensitive-data handling posture** · Enhance · Stage 9 · Today: classification on entities and enrichment. PR: —
 

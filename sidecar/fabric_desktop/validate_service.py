@@ -119,12 +119,9 @@ class ValidateMixin:
         with self._validate_lock:
             if self._validate_running():
                 raise RuntimeError("A validation is already running. Wait for it, or cancel it.")
-            plan = validate.run_plan(cells, lakehouse_ref)
+            plan = validate.run_plan(cells, lakehouse_ref, spark=True)
             if not plan["ok"]:
                 b = plan["blockers"][0]
-                if b["text"].startswith("uses Spark"):
-                    raise ValueError(f"A clean run doesn't run Spark cells yet (cell {b['cell']} uses Spark), so this "
-                                     "notebook gets code checks only for now.")
                 raise ValueError(f"A clean run can't contain cell {b['cell']}: it {b['text']}. "
                                  "Change that cell to read and write through the lakehouse module, or run it yourself.")
             if plan["uncontained"] and not allow_uncontained:

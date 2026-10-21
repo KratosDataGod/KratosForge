@@ -42,6 +42,8 @@ With `"auto_update": false` the startup window says "Your organization rolls out
    }
    ```
 
+   If your tenant's sign-in goes through your own identity provider (AD FS, Okta, Ping and similar), add its host so people can sign in inside the app's Fabric pages, for example `"fabric_view_sign_in_hosts": ["adfs.contoso.com"]` ([the key](azure-setup.md#4-push-settings-to-everyone)).
+
 5. On one pilot PC, open the app and check **Settings > Help and about**. Anything in the policy file that was misspelled or had the wrong kind of value is listed there. A broken file leaves each PC on the last copy it could read; a PC that never read a valid one fails closed, which turns off runs in Fabric, Preview features, telemetry and AI tools until the file is fixed; people can still sign in and work on their PC ([what fails closed](azure-setup.md#4-push-settings-to-everyone)).
 
 ## Keep the exe and the engine in step
@@ -77,9 +79,12 @@ The app talks to these hosts over HTTPS (port 443). Allow them through your prox
 | --- | --- |
 | `github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | The update check and downloading the exe and the engine. Not needed after the engine is installed if `auto_update` is `false` |
 | `login.microsoftonline.com` | Sign-in |
+| `login.microsoft.com`, `login.windows.net`, `device.login.microsoftonline.com`, `autologon.microsoftazuread-sso.com`, `login.live.com` | Sign-in redirects in the Fabric pages embedded in the app (device checks, Seamless SSO, guests with a personal Microsoft account) |
 | `api.fabric.microsoft.com` | Fabric workspaces, items, jobs and schedules |
 | `onelake.dfs.fabric.microsoft.com` | Reading and writing OneLake files and tables |
 | `app.fabric.microsoft.com` | The Fabric pages embedded in the app (Monitor, Fabric) |
+| `app.powerbi.com` | Older Fabric item and report links in the embedded Fabric pages, which redirect through it |
+| Your identity provider's hosts in `fabric_view_sign_in_hosts` | Only with federated sign-in in the Fabric view ([the key](azure-setup.md#4-push-settings-to-everyone)) |
 | `api.powerbi.com` | Semantic models |
 | `graph.microsoft.com` | Looking up people when granting access |
 | `onelake.table.fabric.microsoft.com` | Listing OneLake tables and their schemas |

@@ -22,8 +22,10 @@ import platform
 from typing import Any
 
 from .. import __version__
+from ..auth import default_cache_path
 from ..fabric_run import compute_check
 from ..redact import describe
+from . import scope
 from .core import CallContext, IntegrationError, redact_secrets
 
 _log = logging.getLogger(__name__)
@@ -51,7 +53,10 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """Who is signed in and what this engine can do, without starting a sign-in."""
     user = tenant = None
     try:
-        user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
+        # Nobody has signed in on this PC: say so without building the sign-in client, which asks
+        # Microsoft for its endpoints. A tool calls this first, often several times at once.
+        if getattr(svc, "_auth", None) is not None or default_cache_path().exists():
+            user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
     except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
         _log.info("Not signed in: %s", describe(exc))
     return {"product": "KratosForge", "version": __version__, "python": platform.python_version(),
@@ -59,12 +64,18 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}
 
 
+def _notebooks(svc: Any, ctx: CallContext) -> list[dict[str, Any]]:
+    """The saved notebooks a caller may see: for a tool limited to some workspaces, those whose
+    lakehouse and publish workspace are in them (or that have neither)."""
+    return scope.keep(ctx, svc.notebooks.list(), lambda n: scope.notebook_of(svc.notebooks.load(n["name"])))
+
+
 def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The work on this PC: the notebooks folder, and the metadata project if one is open."""
     projects = [{"id": "notebooks", "kind": "notebooks", "name": "Notebooks on this PC",
-                 "items": len(svc.notebooks.list())}]
+                 "items": len(_notebooks(svc, ctx))}]
     meta = svc.meta_project()
-    if meta.get("path"):
+    if meta.get("path") and scope.keep(ctx, [meta], scope.metadata_of):
         projects.append({"id": "metadata", "kind": "metadata", "name": (meta.get("project") or {}).get("name") or "Metadata project",
                          "path": meta["path"], "entities": len(meta.get("entities", [])),
                          "layers": [l.get("name") for l in meta.get("layers", [])], "errors": len(meta.get("errors", []))})
@@ -74,7 +85,7 @@ def list_projects(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the project id
     if id == "notebooks":
         return {"id": "notebooks", "kind": "notebooks", "notebooks": [
-            {"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()]}
+            {"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)]}
     if id == "metadata":
         meta = svc.meta_project()
         if not meta.get("path"):
@@ -112,7 +123,7 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
 def list_workspaces(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
     rows = [{"id": w["id"], "name": w.get("displayName", ""), "type": w.get("type", "Workspace"),
              "capacity_id": w.get("capacityId")} for w in svc.list_workspaces()]
-    return page(rows, offset, limit)
+    return page(scope.keep(ctx, rows, lambda w: {w["id"]}), offset, limit)
 
 
 def list_artifacts(svc: Any, ctx: CallContext, workspace_id: str, type: str = "", offset: int = 0,  # noqa: A002
@@ -151,7 +162,7 @@ def get_table_schema(svc: Any, ctx: CallContext, workspace_id: str, lakehouse_id
 # ---- notebooks on this PC
 
 def list_notebooks(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 100) -> dict[str, Any]:
-    return page([{"name": n["name"], "modified": n["modified"]} for n in svc.notebooks.list()], offset, limit)
+    return page([{"name": n["name"], "modified": n["modified"]} for n in _notebooks(svc, ctx)], offset, limit)
 
 
 def get_notebook(svc: Any, ctx: CallContext, name: str, include_source: bool = True) -> dict[str, Any]:
@@ -278,7 +289,7 @@ def check_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
 
 
 def list_proofs(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.prove_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.prove_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -287,7 +298,8 @@ def get_proof(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A
 
 
 def list_receipts(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(svc.receipts_list(name or None, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, svc.receipts_list(name or None, limit=ALL), lambda r: scope.receipt_of(svc, r["id"]))
+    return page(rows, offset, limit)
 
 
 def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa: A002 - the receipt id
@@ -296,7 +308,7 @@ def get_receipt(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
 
 
 def list_side_by_side(svc: Any, ctx: CallContext, name: str = "", offset: int = 0, limit: int = 20) -> dict[str, Any]:
-    rows = svc.side_by_side_list(name or None, limit=ALL)
+    rows = scope.keep(ctx, svc.side_by_side_list(name or None, limit=ALL), scope.record_of)
     return page([_metadata_only(r) for r in rows], offset, limit)
 
 
@@ -400,7 +412,8 @@ def get_execution_logs(svc: Any, ctx: CallContext, execution_id: str, offset: in
 
 
 def list_executions(svc: Any, ctx: CallContext, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-    return page(_executions(svc).list(ctx.caller.client_id, limit=ALL), offset, limit)
+    rows = scope.keep(ctx, _executions(svc).list(ctx.caller.client_id, limit=ALL), scope.execution_of)
+    return page(rows, offset, limit)
 
 
 def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str, Any]:
@@ -409,8 +422,26 @@ def cancel_execution(svc: Any, ctx: CallContext, execution_id: str) -> dict[str,
 
 # ---- Prove this notebook: actions that ask the person first
 
-def start_proof(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
+def _proof_inputs(nb: dict[str, Any]) -> str:
+    """SHA-256 of what a proof uses: the cells, the lakehouse, the compute and where it publishes."""
+    used = [nb.get("cells"), nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")]
+    return hashlib.sha256(json.dumps(used, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def bind_proof(svc: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    """Read before the person approves a proof, so the approval is bound to this version of the
+    notebook and its lakehouse (Capability.bind), as bind_notebook does for a run."""
+    return {"notebook_sha256": _proof_inputs(svc.notebooks.load(arguments["name"]))}
+
+
+def start_proof(svc: Any, ctx: CallContext, name: str, *, notebook_sha256: str) -> dict[str, Any]:
+    """Starts only if the saved notebook still matches what was checked and approved: a lakehouse
+    changed during the approval wait would reach a workspace the tool's limit never saw."""
     nb = svc.notebooks.load(name)
+    if _proof_inputs(nb) != notebook_sha256:
+        raise IntegrationError("approval_required", NOTEBOOK_CHANGED, retryable=True,
+                               hint="Call again so the person can approve the notebook as it is now.")
+    scope.enforce_on(ctx, scope.notebook_of(nb))
     return _metadata_only(svc.prove_start(name, nb["cells"], nb.get("lakehouse"), nb.get("compute"), nb.get("workspace")))
 
 

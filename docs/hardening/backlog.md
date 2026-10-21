@@ -127,6 +127,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 - **HD-013:** the cache file is DPAPI-encrypted on Windows; an existing plaintext cache is migrated once and removed; sign-in survives the update without a prompt. Migration documented in `docs/security.md`.
 - **HD-020:** CSP set in `tauri.conf.json`; notebook HTML output, charts, the Fabric view and sign-in work on Windows (checked by hand and recorded in the PR); a UI test fails if `csp` is null or allows `unsafe-eval`.
 - **HD-021:** a push to `main` without signing configured fails the release unless an explicit unsigned-Preview variable is set; the client refuses an exe or engine whose signature doesn't name the expected publisher.
+- **HD-027:** checked by hand on Windows and recorded in the PR: sign-in inside the Fabric view; open a catalog item; sign out; a link off the allowed hosts opens in the default browser; a sign-in pop-up opened from a sign-in host can't navigate off the list (its links open in the browser) and still reports back to the view; on a federated tenant with `fabric_view_sign_in_hosts` set, sign-in finishes in the view, the identity provider's cookies survive a restart (or the provider asks again, which is acceptable but noted), and Seamless SSO, the device step and `login.windows.net` don't leave the view.
 - **HD-029:** the FD-101 harness's `summary.md` recorded in `release-readiness.md` with date, build and workspace type.
 
 ## P2
@@ -138,7 +139,7 @@ Acceptance for each P1 item is the fix and tests named in its finding. The ones 
 | HD-038 | EN-11: sanitize the CSV export name; receipts never overwrite (done: `service.file_stem` cleans the name; CSV exports and receipts open with mode `"x"`) | Hardening | S |
 | HD-039 | DI-7: `Retry-After` parsing and cap; retry 5xx on reads (done: `retrying.retry_after` reads seconds or an HTTP date, capped at 60 s; `retrying.send_with_retry` retries 5xx and dropped connections on reads only, used by the Fabric client and OneLake, lease, mailbox, Graph and Key Vault reads) | Hardening | S |
 | HD-040 | DI-8: overwrite refuses a schema change without `overwriteSchema` | Prove | S |
-| HD-041 | SH-11: reply ids checked; long calls off the shared pipe | Hardening | M |
+| HD-041 | SH-11: reply ids checked; long calls off the shared pipe (done: replies matched by id; quick calls in their own lane) | Hardening | M |
 | HD-042 | UI-4: every dialog close settles its prompt (done: `showDialog`'s `onClose` settles `askText`, `pickWorkspace` and `confirmDialog` on overlay, X and Escape) | Hardening | S |
 | HD-043 | UI-5: parsed name-clash test; remove duplicate test (done: V8 finds each script's top-level names; duplicate test removed) | Hardening | S |
 | HD-044 | UI-6: `aria-current`, modal palette (done: the rail sets `aria-current="page"`; the command bar is a modal dialog that keeps and returns focus and doesn't open over another dialog) | Hardening | S |

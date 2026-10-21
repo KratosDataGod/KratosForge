@@ -66,10 +66,21 @@ def set_aside(path: Path, then: str = "it is being started again empty", keep: b
     return dest
 
 
+def read_text(path: Path) -> str:
+    """The whole file. On Windows, opening it just as a writer swaps in a new copy (write_text) fails with
+    PermissionError for a moment, so that is waited out the same way the writer waits out a reader."""
+    for attempt in range(_REPLACE_ATTEMPTS - 1):
+        try:
+            return path.read_text(encoding="utf-8")
+        except PermissionError:
+            time.sleep(_REPLACE_BACKOFF * (2 ** attempt))
+    return path.read_text(encoding="utf-8")
+
+
 def read_json(path: Path, default: Any) -> Any:
     """The parsed file; ``default`` when it is missing or unreadable (an unreadable one is set aside first)."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(read_text(path))
     except FileNotFoundError:
         return default
     except ValueError:  # torn or not JSON (UnicodeDecodeError is a ValueError too)

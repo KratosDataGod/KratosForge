@@ -1447,6 +1447,62 @@ test("a failed shortcut rules check isn't swallowed and an incomplete reader lis
   assert.match(estate, /res\.partial \?/);
 });
 
+// Plan step 7: OneLake > Access > All workspaces reads the access cache and flags what's worth a look.
+test("the access cache view flags what's worth a look and asks before setting anything up", () => {
+  const src = fs.readFileSync(path.join(ui, "access-cache.js"), "utf8");
+  const ctx = {};
+  vm.runInNewContext(`${src}\nthis.flags = accessCacheFlags; this.filters = ACCESS_CACHE_FILTERS;`, ctx);
+  const w = {
+    people: [{ name: "Ann", type: "User", role: "Admin", guest: false }, { name: "Readers", type: "Group", role: "Viewer", guest: false },
+      { name: "Bo", type: "User", role: "Viewer", guest: true }, { name: "Loader", type: "ServicePrincipal", role: "Admin", guest: false }],
+    lakehouses: [{ item_name: "LH_Gold", known: true, roles: [] }, { item_name: "LH_Unread", known: false, roles: [] }],
+    summary: { guests: 1 }, stale: false,
+  };
+  const flags = ctx.flags(w);
+  assert.strictEqual(flags.map((f) => f.kind).join(), "byname,guests,apps,nosecurity");
+  assert.strictEqual(flags[3].lakehouse.item_name, "LH_Gold");  // a lakehouse never read isn't flagged as having no roles
+  const keep = Object.fromEntries(ctx.filters.map(([id, , fn]) => [id, fn]));
+  assert.ok(keep.byname(w, flags) && keep.guests(w, flags) && !keep.stale(w, flags));
+  assert.ok(keep.stale({ ...w, lakehouses: [{ stale: true }] }, []));
+  // The first refresh and the role change only happen after the person confirms the sidecar's plan.
+  assert.match(src, /includes\("Confirm to continue"\)[\s\S]*confirmDialog[\s\S]*approve: true/);
+  const estate = fs.readFileSync(path.join(ui, "estate.js"), "utf8");
+  const panel = estate.match(/howItWorks\("onelake\.access-all", \{[\s\S]*?\n    \}\)/)?.[0] || "";
+  assert.match(panel, /changes: "Refresh changes adds rows to the access cache in the central lakehouse/);
+  assert.match(panel, /OneLake security roles/);
+});
+
+// HD-052 (UI-8): pages are built with h(), which only makes text nodes, so data can't become markup.
+// A new raw HTML (or code) sink in app/ui fails here unless it is reviewed and added below with why
+// it is safe. Keys are the file and the exact trimmed line, so editing an allowed line needs a new review.
+test("no raw HTML sinks in app/ui outside the reviewed list", () => {
+  const sink = /\.(?:innerHTML|outerHTML)\b|\binsertAdjacentHTML\b|\bdocument\.write(?:ln)?\b|\bcreateContextualFragment\b|\bDOMParser\b|\b(?:set|parse)HTMLUnsafe\b|\bsrcdoc\b|\beval\s*\(|\bnew Function\b|\bFunction\s*\(/;
+  const allowed = new Set([
+    // markdown(): a fixed placeholder string, no data.
+    `app.js: wrap.innerHTML = '<p class="placeholder">Empty Markdown cell. Double-click to edit.</p>';`,
+    // markdown(): every piece of cell text goes through inlineMd(), which esc()apes &<>"' before adding
+    // <code>, <strong>, <em> and <u title>; headings and lists add only fixed tags. See the two
+    // Markdown tests at the top of this file.
+    `app.js: wrap.innerHTML = html.join("");`,
+    // Data mesh map links: path coordinates are numbers from getBoundingClientRect, and the only data
+    // (project and product ids in <title>) goes through esc().
+    `meshmap.js: svg.innerHTML = \`<defs><marker id="mesh-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z"/></marker></defs>\${paths.join("")}\`;`
+  ]);
+  const found = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "vendor") walk(p); continue; }
+      if (!/\.(js|html)$/.test(e.name)) continue;
+      const rel = path.relative(ui, p).split(path.sep).join("/");
+      for (const line of fs.readFileSync(p, "utf8").split("\n")) if (sink.test(line)) found.push(`${rel}: ${line.trim()}`);
+    }
+  };
+  walk(ui);
+  assert.deepStrictEqual(found.filter((f) => !allowed.has(f)), [], "a new raw HTML sink: build it with h(), or review it and add it to the list");
+  assert.deepStrictEqual([...allowed].filter((a) => !found.includes(a)), [], "an allowed sink is gone from the code: remove it from the list");
+});
+
 // HD-020 (SH-1, UI-1): the page has a Content Security Policy, and notebook HTML output runs on
 // its own origin, never in the app's, where the Tauri API is.
 test("the app has a strict CSP and notebook HTML output stays off the app's origin", () => {
@@ -2212,7 +2268,8 @@ test("Notebook files: commands, Home link, ribbon, Fabric preview and the Publis
   assert.deepStrictEqual([...registered.map((f) => f.id)], ["notebookFiles"]);
   assert.ok(registered[0].views.notebooks);
   assert.deepStrictEqual([...registered[0].commands.map((c) => c.label)],
-    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook"]);
+    ["All notebooks", "Search inside notebooks", "Open a notebook file", "Save a copy of this notebook", "New notebook folder",
+      "Move this notebook to a folder"]);
   const app = fs.readFileSync(path.join(ui, "app.js"), "utf8");
   assert.match(app, /also: \["notebooks"\]/);
   assert.match(app, /btn\("All notebooks", "notebook", \(\) => go\("notebooks"\)/);
@@ -3045,6 +3102,15 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// A running cell shows how far its spark query is when the engine can tell (spark_local.progress).
+test("a running cell shows its query's progress and drops it when the cell ends", () => {
+  const n = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(n, /cell\.progress = snap\.status === "running" \? snap\.progress \?\? null : null;/);
+  const line = /function statusLine\(cell\) \{[\s\S]*?\n\}\n/.exec(n)[0];
+  assert.match(line, /s === "running" && cell\.progress != null \? h\("span", \{ class: "cell-progress"/);
+  assert.match(line, /h\("progress", \{ max: 100, value: cell\.progress, "aria-label": "Query progress" \}\)/);
+});
+
 // PySpark on this PC: the notebooks page lists what KratosForge adds to DuckDB's Spark API.
 test("notebooks docs list the PySpark calls added on this PC", () => {
   const page = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
@@ -3276,7 +3342,7 @@ test("the profile report preview renders headings, bullets and source tags witho
 // cell's language.
 test("Ctrl+Shift+Enter runs the selection or the cursor's line, dedented, with the cell's magic", () => {
   const src = fs.readFileSync(path.join(ui, "nbselect.js"), "utf8");
-  const ctx = { document: { addEventListener() {} }, MAGIC: { sql: "%%sql", html: "%%html" } };
+  const ctx = { document: { addEventListener() {} }, registerShortcuts() {}, MAGIC: { sql: "%%sql", html: "%%html" } };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = selectionCode;`, ctx);
   ctx.cellLang = (c) => c.lang;
@@ -3365,7 +3431,7 @@ test("dropping a table or file inserts its load code on an empty line, else its 
 // the replacement, and edits applied from the end of a cell.
 test("notebook find matches every cell with case, whole word and regex, and replaces with groups", () => {
   const src = fs.readFileSync(path.join(ui, "nbfind.js"), "utf8");
-  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} } };
+  const ctx = { CM: { StateEffect: { define: () => ({}) } }, document: { addEventListener() {} }, registerShortcuts() {} };
   vm.createContext(ctx);
   vm.runInContext(`${src}\nthis.f = { findMatches, findReplacement, findApply };`, ctx);
   const { findMatches, findReplacement, findApply } = ctx.f;
@@ -3904,6 +3970,51 @@ test("variables filter on name or type and sort by name, type or memory with unk
   assert.doesNotMatch(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /function variableTable/);
 });
 
+// Notebook %pip: the magics page says installs go to the notebook's own environment.
+test("the magics page documents %pip installing into the notebook's environment", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /## Installing packages with %pip/);
+  assert.match(doc, /\(notebooks\.md#notebook-environments-preview\)/);
+});
+
+// Notebook %autoreload: the magics page documents autoreload and %aimport.
+test("the magics page documents %autoreload and %aimport", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /### Editing your own modules: %autoreload/);
+  assert.match(doc, /`%load_ext autoreload`, `%autoreload 2`, `%aimport name`/);
+});
+
+// Notebook %run -b: the magics and resources pages say how to run a file from Built-in resources.
+test("the magics page documents %run -b and the resources page links to it", () => {
+  const root = path.join(__dirname, "..", "..");
+  const magicsDoc = fs.readFileSync(path.join(root, "docs", "notebook-magics.md"), "utf8");
+  assert.match(magicsDoc, /### Running a file from the notebook's resources: %run -b/);
+  assert.match(fs.readFileSync(path.join(root, "docs", "notebook-resources.md"), "utf8"), /notebook-magics\.md#running-a-file-from-the-notebooks-resources-run--b/);
+});
+
+test("a workload page says whether its actions reached the platform's audit", () => {
+  const src = fs.readFileSync(path.join(ui, "workloads.js"), "utf8");
+  const fn = /function platformAuditNote\([\s\S]*?\n}\n/.exec(src)[0];
+  const ctx = { h: (tag, attrs, ...kids) => kids.join("") };
+  vm.runInNewContext(`${fn}this.f = platformAuditNote;`, ctx);
+  assert.strictEqual(ctx.f(null), null);
+  assert.strictEqual(ctx.f({ platform: "this_pc", waiting: 0 }), "Each one is also on Platform > Audit.");
+  assert.match(ctx.f({ platform: "fabric", waiting: 2, error: "Signed out." }),
+    /^2 actions or changes haven't reached Platform > Audit yet: Signed out\. This PC keeps them/);
+  assert.match(ctx.f({ platform: "fabric", waiting: 1, error: "" }), /^1 action or change hasn't reached Platform > Audit yet\. /);
+  assert.match(ctx.f({ platform: "none", waiting: 3 }), /^Kept on this PC only: there's no platform yet\. 3 actions/);
+  assert.strictEqual(ctx.f({ platform: "none", waiting: 0 }), "Kept on this PC only: there's no platform yet.");
+});
+
+test("the notebook, several-cells and find keys are listed in the Keyboard shortcuts dialog", () => {
+  for (const [file, group, key] of [["notebook.js", "Notebook", "Shift+Enter"], ["nbselect.js", "Notebook: several cells", "Shift+M"], ["nbfind.js", "Notebook: find and replace", "Ctrl+H"]]) {
+    const src = fs.readFileSync(path.join(ui, file), "utf8");
+    const at = src.indexOf(`registerShortcuts(${JSON.stringify(group)}`);
+    assert.ok(at > 0, `${file} registers ${group}`);
+    assert.ok(src.slice(at, src.indexOf("]);", at)).includes(`"${key}"`), `${group} lists ${key}`);
+  }
+});
+
 // ipywidgets (ipywidgets.js): the kernel holds the state; a change goes to notebook_ipywidget_event and the answer is drawn.
 function widgetsHarness(answer) {
   const src = fs.readFileSync(path.join(ui, "ipywidgets.js"), "utf8");
@@ -3993,4 +4104,78 @@ test("an Altair chart's spec can't break out of the frame's script", () => {
   const built = fs.readFileSync(path.join(ui, "vendor", "vega", "vega-frame.js"), "utf8");
   assert.match(built.split("\n")[0], /vega 6\.4\.0, vega-lite 6\.4\.3, vega-embed 7\.3\.0/);
   assert.ok(!/<\/script|<!--/i.test(built));
+});
+
+// Folders for notebooks (notebook-files.js, notebook_folders_service.py): the grouped tree, where a
+// notebook can move, and the folder actions' wiring.
+function notebookFolderHelpers() {
+  const src = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  const ctx = { registerFeature() {} };
+  vm.runInNewContext(`${src}; Object.assign(this, { nbFolderTree, nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth, nbRenameProblemLines });`, ctx);
+  return ctx;
+}
+
+test("notebooks group into a folder tree per place, with counts that include subfolders and empty folders", () => {
+  const { nbFolderTree } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const list = [{ name: "Sales/Daily load" }, { name: "Sales/Archive/Q1" }, { name: "Top" }, { name: "Silver/Orders", place: repo }];
+  const folders = [{ path: "Sales", place: null }, { path: "Sales/Archive", place: null }, { path: "Scratch", place: null }, { path: "Silver", place: repo }];
+  const tree = nbFolderTree(list, folders);
+  const plain = (f) => ({ name: f.name, count: f.count, books: f.notebooks.map((n) => n.name), sub: f.folders.map(plain) });
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(tree.folders.map(plain))), [
+    { name: "Sales", count: 2, books: ["Sales/Daily load"], sub: [{ name: "Archive", count: 1, books: ["Sales/Archive/Q1"], sub: [] }] },
+    { name: "Scratch", count: 0, books: [], sub: [] },
+    { name: "Silver", count: 1, books: ["Silver/Orders"], sub: [] },
+  ]);
+  assert.deepStrictEqual([...tree.loose.map((n) => n.name)], ["Top"]);
+  // A notebook in a folder the folder listing hasn't caught up with still gets its folder.
+  assert.strictEqual(nbFolderTree([{ name: "New/X" }], []).folders[0].count, 1);
+});
+
+test("a notebook moves to folders of its own place, keeping its own name", () => {
+  const { nbFolderChoices, nbNameInFolder, nbLeaf, nbFolderOf, nbFolderDepth } = notebookFolderHelpers();
+  const repo = { root: "C:/r", label: "repo" };
+  const folders = [{ path: "Sales" }, { path: "Finance", place: null }, { path: "Silver", place: repo }];
+  assert.deepStrictEqual([...nbFolderChoices(folders, null)], ["", "Finance", "Sales"]);
+  assert.deepStrictEqual([...nbFolderChoices(folders, repo)], ["", "Silver"]);
+  assert.strictEqual(nbNameInFolder("Explore orders", "Sales"), "Sales/Explore orders");
+  assert.strictEqual(nbNameInFolder("Sales/Archive/Q1", ""), "Q1");
+  assert.deepStrictEqual([nbLeaf("A/B/C"), nbFolderOf("A/B/C"), nbFolderOf("C"), nbFolderDepth("A/B"), nbFolderDepth("")], ["C", "A/B", "", 2, 0]);
+});
+
+test("folder actions are wired: a menu entry, New folder, the empty-only delete in red, Preview on publish, docs", () => {
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.match(files, /label: "Move to folder…", icon: "folder", action: \(\) => nbMoveToFolderDialog\(n, folders\)/);
+  assert.match(files, /btn\("New folder", "folder", \(\) => nbNewFolderDialog\(null/);
+  assert.match(files, /confirmDialog\(`Delete folder \$\{f\.path\}\?`, .*"Delete", \{ danger: true \}\)/);
+  // A folder with notebooks in it is refused before anything is asked or sent.
+  assert.match(files, /if \(f\.count\) \{\n\s+nbFolderRefusal\(f, /);
+  assert.match(files, /previewMarked\("notebookFolderPublish", /);
+  assert.match(fs.readFileSync(path.join(ui, "features.js"), "utf8"), /notebookFolderPublish: "Publishing notebooks from folders"/);
+  for (const m of ["notebook_folders", "notebook_folder_create", "notebook_folder_rename", "notebook_folder_delete", "notebook_move_to_folder"]) {
+    assert.ok(files.includes(`"${m}"`), `the UI calls ${m}`);
+  }
+  assert.match(files, /function nbFoldersHowItWorks\(\)/);
+  assert.match(fs.readFileSync(path.join(ui, "notebook.js"), "utf8"), /tab\("notebooks", "Notebooks"\)/);
+  assert.match(fs.readFileSync(path.join(ui, "app.js"), "utf8"), /rpc\("new_notebook", into\?\.folder \? \{ place, folder: into\.folder \} : \{ place \}\)/);
+  const root = path.join(__dirname, "..", "..");
+  for (const f of ["README.md", "docs/README.md", "docs/user-guide.md", "zensical.toml"]) {
+    assert.match(fs.readFileSync(path.join(root, f), "utf8"), /notebook-folders\.md/, `${f} links the folders page`);
+  }
+});
+
+test("a move that leaves something behind names it and says what to do", () => {
+  const { nbRenameProblemLines } = notebookFolderHelpers();
+  const lines = nbRenameProblemLines([{ notebook: "EMEA/B", was: "Sales/B", step: "schedules", error: "OSError: disk full" }]);
+  assert.deepStrictEqual([...lines], ["EMEA/B (was Sales/B): its schedules didn't follow (OSError: disk full). Open Monitor > Schedules and point its schedule on this PC at the new name."]);
+  assert.deepStrictEqual([...nbRenameProblemLines([])], []);
+  const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
+  assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
+});
+
+// Notebook history: the magics page documents In, Out and %history.
+test("the magics page documents In, Out and %history", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
+  assert.match(doc, /\| `%history`, `%history -n 4-6`/);
 });

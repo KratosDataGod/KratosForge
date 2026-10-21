@@ -75,6 +75,10 @@ Keys:
                      {"P1": {"acknowledge_minutes": 15, "resolve_minutes": 240}, ...}; 0 for no target
                      (default: workloads/sla.py DEFAULT_TARGETS)
 
+    fabric_view_sign_in_hosts  IT only, read by the shell: exact host names of the organization's
+                     own identity provider (AD FS, Okta, Ping), which the Fabric view may open during
+                     sign-in, e.g. ["adfs.contoso.com"] (default: none)
+
 The same file also holds the integrations_* and receipt_redactions keys; integrations/policy.py
 reads them through read_policy() here, so both read the file by the same rules.
 
@@ -150,7 +154,10 @@ TYPES["incident_sla"] = dict
 # one list of settings.
 INTEGRATION_KEYS = ("integrations", "integrations_max_permissions", "integrations_http", "integrations_extensions",
                     "receipt_redactions")
-POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS)
+# Read only by the shell (main.rs), which applies them itself; listed so the file has one list of
+# settings and policy_problems() can say what the shell will skip.
+SHELL_KEYS = ("fabric_view_sign_in_hosts",)
+POLICY_KEYS = (*DEFAULTS, *INTEGRATION_KEYS, *SHELL_KEYS)
 # No real tenant has the nil GUID, so allowed_tenants of just this lets no account sign in.
 NO_TENANT = "00000000-0000-0000-0000-000000000000"
 # The restrictions among DEFAULTS, and the value each takes when the policy file or that key can't
@@ -281,6 +288,8 @@ def policy_problems() -> list[str]:
             problems.append(f"{key} isn't a setting (settings: {', '.join(POLICY_KEYS)})")
         elif key in INTEGRATION_KEYS:
             continue  # integrations/policy.py checks these, below
+        elif key == "fabric_view_sign_in_hosts":
+            problems.extend(_sign_in_host_problems(value))
         elif not _typed(key, value):
             kind = TYPES[key]
             name = " or ".join(t.__name__ for t in kind) if isinstance(kind, tuple) else kind.__name__
@@ -312,6 +321,26 @@ def policy_problems() -> list[str]:
         from .integrations import policy as integrations_policy
         problems += integrations_policy.current()["problems"]
     return problems
+
+
+def dns_name(host: str) -> bool:
+    """An exact DNS host name, as the shell's dns_name() in main.rs accepts it: two or more labels of
+    letters, digits and inner hyphens, at most 63 each and 253 in all, not ending in a number. No
+    wildcard, scheme, port, path, user name or trailing dot; non-ASCII names in their xn-- form."""
+    labels = host.split(".")
+    return (len(host) <= 253 and len(labels) >= 2 and not labels[-1].isdigit()
+            and all(0 < len(l) <= 63 and not l.startswith("-") and not l.endswith("-")
+                    and all(c.isascii() and (c.isalnum() or c == "-") for c in l) for l in labels))
+
+
+def _sign_in_host_problems(value: Any) -> list[str]:
+    """What the shell skips in fabric_view_sign_in_hosts (it reads the key itself)."""
+    if not isinstance(value, list):
+        return [f"fabric_view_sign_in_hosts should be a list of host names, not {type(value).__name__}, "
+                "so the Fabric view opens no extra sign-in hosts"]
+    bad = [v for v in value if not (isinstance(v, str) and dns_name(v))]
+    return [f"fabric_view_sign_in_hosts: {json.dumps(v)} isn't a host name like adfs.contoso.com "
+            "(no *, https://, port or path), so it's skipped" for v in bad]
 
 
 def user_can_change(path: Path) -> bool:

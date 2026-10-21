@@ -191,11 +191,13 @@ function renderExplorer() {
   const fromLocations = nbData(state.notebook).from === "locations";
   const tab = (id, label) => h("button", { class: `tab${state.explorerTab === id ? " active" : ""}`,
     onclick: () => { state.explorerTab = id; renderNotebook(); } }, label);
-  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"));
+  const tabs = h("div", { class: "explorer-tabs" }, tab("data", "Data items"), tab("outline", "Outline"), tab("resources", "Resources"), tab("notebooks", "Notebooks"));
   const content = h("div", { class: "explorer-content" });
 
   if (state.explorerTab === "outline") {
     content.append(renderOutline());
+  } else if (state.explorerTab === "notebooks") {
+    content.append(nbExplorerNotebooks());  // grouped by folder (notebook-files.js)
   } else if (state.explorerTab === "resources") {
     content.append(nbResourcesSection(state.notebook), h("div", { class: "nb-res-head" }, h("b", {}, "Code snippets")),
       h("div", { class: "muted-text", style: "padding:4px 4px 10px" }, "Click a snippet to add it as a new cell."),
@@ -425,6 +427,8 @@ function statusLine(cell) {
     error: ["bad", "Failed"], stopped: ["bad", "Stopped"], cancelled: ["bad", "Cancelled"] }[s];
   return h("div", { class: "cell-status", "data-s": s }, h("span", { class: label[0] }, label[1]),
     s === "running" && cell.seconds != null ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
+    s === "running" && cell.progress != null ? h("span", { class: "cell-progress", title: "How far the running query is" },
+      h("progress", { max: 100, value: cell.progress, "aria-label": "Query progress" }), `Query ${Math.floor(cell.progress)}%`) : null,
     s === "ok" || s === "error" || s === "cancelled" ? h("span", {}, cell.partial ? "Ran the selection on this PC" : "Ran on this PC") : null,
     cell.seconds != null && s !== "running" && s !== "queued" ? h("span", {}, `${cell.seconds.toFixed(1)} s`) : null,
     cell.finishedAt && s !== "running" ? h("span", {}, cell.finishedAt) : null);
@@ -895,6 +899,31 @@ document.addEventListener("keydown", (e) => {
   if (handled) e.preventDefault();
 });
 
+// The keys above and the editor's own (editorKeys), listed in the Keyboard shortcuts dialog while a
+// notebook is open. The select (nbselect.js) and find (nbfind.js) keys are listed beside their handlers.
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook", [
+    { keys: ["Shift+Enter"], label: "Run the cell and select the next one", when: inNotebook },
+    { keys: ["Ctrl+Enter"], label: "Run the cell", when: inNotebook },
+    { keys: ["Alt+Enter"], label: "Run the cell and add a code cell below", when: inNotebook },
+    { keys: ["Esc"], label: "While editing: leave the cell for command mode, where the single-letter keys below work", when: inNotebook },
+    { keys: ["Enter"], label: "In command mode: edit the selected cell", when: inNotebook },
+    { keys: ["Up", "Down", "K", "J"], label: "In command mode: select the cell above or below", when: inNotebook },
+    { keys: ["A", "B"], label: "In command mode: add a code cell above or below", when: inNotebook },
+    { keys: ["DD"], label: "In command mode: delete the cell", when: inNotebook },
+    { keys: ["Z"], label: "In command mode: put the last deleted cell back", when: inNotebook },
+    { keys: ["M", "Y"], label: "In command mode: make the cell Markdown or code", when: inNotebook },
+    { keys: ["C", "X"], label: "In command mode: copy or cut the cell", when: inNotebook },
+    { keys: ["V", "Shift+V"], label: "In command mode: paste below or above", when: inNotebook },
+    { keys: ["O"], label: "In command mode: show or hide the cell's output", when: inNotebook },
+    { keys: ["Shift+L"], label: "In command mode: show or hide line numbers", when: inNotebook },
+    { keys: ["Ctrl+Space"], label: "While editing: suggest names, attributes and table names", when: inNotebook },
+    { keys: ["Ctrl+/"], label: "While editing: comment or uncomment the selected lines", when: inNotebook },
+    { keys: ["Ctrl+Shift+-"], label: "While editing: split the cell at the cursor", when: inNotebook },
+  ]);
+}
+
 // ---------- outputs ----------
 
 function renderOutput(o, cell) {
@@ -1349,6 +1378,7 @@ async function runCell(cell, { timeLimit = true, code = null, debug = false, nb 
       cell.count = snap.execution_count;
       cell.seconds = snap.seconds;
       const pauseMoved = dbgSnapshot(cell, snap);  // debugging.js
+      cell.progress = snap.status === "running" ? snap.progress ?? null : null;  // a DuckDB query's %, while one runs
       if (snap.status !== "running") break;
       // While paused, redraw only when the pause changes, so the debugger's input keeps what's typed.
       if (state.notebook?.cells.includes(cell) && (!cell.paused || pauseMoved || snap.outputs)) updateResults(cell);

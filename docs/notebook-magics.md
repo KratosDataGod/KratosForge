@@ -140,9 +140,35 @@ The everyday IPython magics that Fabric's and Databricks' notebooks inherit work
 | `%env`, `%env NAME`, `%env NAME=value` | Lists, reads or sets environment variables. Values of names that look secret (token, key, password...) show as hidden. `FABRIC_DESKTOP_*` and the proxy and certificate settings (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE` and similar) can't be set here, because the engine's signed-in Fabric calls use them |
 | `%who`, `%whos` | Lists the notebook's variables (the same ones as the **Variables** pane) |
 | `%pwd` | The kernel's working folder |
-| `%reset -f` | Clears every variable; `spark`, `notebookutils` and `display` stay |
+| `%reset -f` | Clears every variable and `Out`; `spark`, `notebookutils` and `display` stay |
+| `In`, `Out`, `_`, `__`, `___`, `_3`, `_i`, `_i3` | The notebook's history, as in IPython: `In[3]` and `_i3` are cell 3's code, `Out[3]` and `_3` its result, `_` the last result. `_i` is the cell before this one. A notebook run with `%run` isn't recorded, `Out` keeps the last 20 results (as many tables as the result viewer keeps), and Restart starts again from 1 |
+| `%history`, `%history -n 4-6`, `%history -l 3 -o` | Prints earlier cells' code, oldest first. `-n` numbers them, `-o` adds each result, `-l N` keeps the last N; ranges are cell numbers |
 | `%matplotlib inline` | Accepted: charts always show in the cell |
-| `%load_ext`, `%autoreload`, `%config` | Skipped with a note: they change IPython itself, and this kernel isn't IPython |
+| `%load_ext autoreload`, `%autoreload 2`, `%aimport name` | Reloads your own modules when you edit their files, before the next cell runs; see below |
+| `%load_ext` (other extensions), `%config` | Skipped with a note: they change IPython's own shell, and this kernel isn't IPython |
+
+### Editing your own modules: %autoreload
+
+Keep helper code in a `.py` file (for example in the notebook's resources, or a folder on
+`sys.path`), import it, and turn on autoreload. When you edit the file, the next cell uses the new
+code without restarting the session:
+
+```python
+%load_ext autoreload
+%autoreload 2
+from helpers import clean_names    # after you edit helpers.py, clean_names is the new one
+```
+
+- `%autoreload 2` (or `all`, or `3`/`complete`) reloads every module that is your own file;
+  `%autoreload 1` (`explicit`) only those named with `%aimport helpers`; `%autoreload 0` (`off`)
+  stops. `%autoreload` alone reloads changed modules now. `%aimport -name` leaves one out, and
+  `%aimport` lists both.
+- Only your own files reload: Python's own modules, installed packages and KratosForge's engine
+  never do.
+- Names taken with `from helpers import f` follow the new code. Objects made before the edit keep
+  their old class, so make them again if their class changed.
+- A file that fails to reload (a syntax error) is reported above the cell's output, and the cell
+  runs with the module as it was.
 
 Two aren't available, and say why when used: `%cd`, because the kernel shares its working folder
 with the app, and `%%javascript`, because cell output shows in a sandboxed frame without scripts.
@@ -166,6 +192,25 @@ Both products' ways of passing values work:
   as variables before it runs.
 - A name can have spaces, and can be quoted. A folder path in front (`./`, `../shared/`) and an
   `.ipynb` ending are dropped: notebooks are found by name.
+
+### Running a file from the notebook's resources: %run -b
+
+`%run -b file.py` (or `--builtin`) runs a Python file from the notebook's
+[Built-in resources](notebook-resources.md) in this session, as in Fabric, so its functions and
+variables are yours afterwards. `%run -b file.sql` runs a SQL file as a `%%sql` cell would, and
+leaves a query's result in `_sqldf`.
+
+```python
+%run -b helpers.py
+%run -b helpers.py {"factor": 2}     # set as variables before the file runs
+%run -b checks/row_counts.sql
+```
+
+- The file must be in this notebook's resources; a path that climbs out of them (`../`) is not
+  followed.
+- `-c` (`--current`) works the same in the notebook you run. Inside a notebook that another one
+  runs with `%run`, `-c` stops with a message, because this PC doesn't yet track that notebook's
+  own resources; use `-b`, which reads the resources of the notebook you run, as Fabric does.
 
 ## %%configure
 
@@ -200,14 +245,40 @@ Those engines are in Fabric, so on this PC the cell is checked instead of run:
 | `%sql` | One Spark SQL query inside Python; returns a DataFrame |
 | `%%html` | Shows the HTML in a sandboxed frame |
 | `%run Other notebook {"x": 1}`, `%run ./Other $x="1"` | Runs another notebook in this one's namespace, with parameters |
+| `%run -b file.py`, `%run -b file.sql` | Runs a file from the notebook's Built-in resources in this session |
 | `!command`, `x = !command` | Runs in this PC's shell; the assigned form keeps the output lines |
 | `%sh`, `%%sh`, `%%bash`, `%%cmd`, `%%powershell` | Runs the cell as a script on this PC |
 | `%fs command` | One `notebookutils.fs` command: ls, head, cp, mv, rm, mkdirs, put |
 | `%time`, `%%time`, `%timeit`, `%%timeit` | Times a statement or the cell |
-| `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic` | As in IPython; see above |
+| `%%capture`, `%%writefile`, `%env`, `%who`, `%whos`, `%pwd`, `%reset -f`, `%lsmagic`, `%history`, `In`/`Out` | As in IPython; see above |
 | `%%pyspark`, `%%python`, `%python` | A Python cell |
 | `%md`, `%%markdown` | A Markdown cell's text, shown under the cell |
-| `%pip`, `%conda` | Skipped with a note: the engine's packages are fixed |
+| `%pip install`, `%pip list`/`freeze`/`show` | Installs into the notebook's own environment (needs Run notebooks in their own process); see [Installing packages](#installing-packages-with-pip) |
+| `%conda` | Not on this PC; use `%pip install` |
 | `%%tsql` | Checked against the Warehouse, endpoint or SQL database rules; runs in Fabric |
 | `%%configure` | Checks the JSON as Fabric would and says what each setting does there; changes nothing here |
 | `%%spark`, `%%sparkr`, `%%csharp`, `%scala`, `%r` | Need Fabric's Spark; switch **Runs on** to Fabric |
+
+## Installing packages with %pip
+
+`%pip install` in a cell installs packages into the notebook's own
+[environment](notebooks.md#notebook-environments-preview), never into the app's own Python, and the cell waits
+until pip finishes:
+
+```python
+%pip install openpyxl==3.1.5 rich
+%pip install -r builtin/requirements.txt    # a file in the notebook's resources
+```
+
+- It needs **Run notebooks in their own process** (Settings > Preview features). Without it the
+  line is skipped with a note.
+- A notebook without an environment gets one named after it, attached to it. That session started
+  without it, so the cell says to restart the session before importing. Later installs import
+  at once; a package the session already imported needs a restart for the new version.
+- Packages come from PyPI by name, with versions as pip writes them. Paths, URLs, wheels,
+  `--index-url` and `-e` are refused, and so is a requirements file that uses them. The engine's
+  own packages (polars, DuckDB...) keep their versions.
+- Your organization can turn installs off; `%pip install` then says so.
+- `%pip list`, `freeze` and `show` read what this session can import. `%pip uninstall` is on the
+  notebook's Environment page.
+

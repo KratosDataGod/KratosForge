@@ -323,3 +323,15 @@ document.addEventListener("keydown", (e) => {
     openFind(key === "h");
   }
 }, true);
+
+// Listed in the Keyboard shortcuts dialog while a notebook is open (handled above and in nbFindBar).
+{
+  const inNotebook = () => state.view === "notebook";
+  registerShortcuts("Notebook: find and replace", [
+    { keys: ["Ctrl+H", "Ctrl+Shift+F"], label: "Find and replace across every cell", when: inNotebook },
+    { keys: ["Ctrl+F"], label: "In command mode: find across every cell (while editing: find in the cell)", when: inNotebook },
+    { keys: ["Enter", "Shift+Enter"], label: "In the find box: go to the next or previous match", when: inNotebook },
+    { keys: ["Ctrl+Enter"], label: "In the replace box: replace every match (Enter replaces one)", when: inNotebook },
+    { keys: ["Esc"], label: "Close the find bar", when: inNotebook },
+  ]);
+}

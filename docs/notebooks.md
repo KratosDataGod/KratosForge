@@ -104,7 +104,7 @@ from pyspark.sql import functions as F
 
 **`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.
 
-**Magics:** `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
+**Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
 
 ## Running cells
 

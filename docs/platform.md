@@ -11,7 +11,7 @@ One **Platform workspace per environment** (Dev, Test, Prod), named `Fabric Desk
 
 | Item | Type | What it's for |
 | --- | --- | --- |
-| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
+| `SQL_Platform` | SQL database | Surrogate keys (`keys.<name>`, until they move into [one keys database](#one-keys-database-for-dev-test-and-prod)) and the catalog (`catalog.*`: platform admins, key tables, landing zone sources and their readers, domains, projects, data products and their ports, links, access grants, requests, descriptions, glossary, and an audit trail of every change) |
 | `UDF_Platform` | User data functions | The platform's API. KratosForge, notebooks, the headless agent and Power BI buttons all call these functions; nobody connects to the database directly |
 | `LH_Landing` | Lakehouse | The one landing zone: raw files from every source system, in `Files/<source>/<entity>/`. Teams read it; they don't copy it |
 | `LH_Meta` | Lakehouse | Run history from every project |

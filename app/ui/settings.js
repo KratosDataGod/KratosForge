@@ -24,12 +24,14 @@ const MICROSOFT_SIGN_IN = "Microsoft's Fabric sign-in (no app registration)";
 
 async function loadSettings() {
   state.settings = await rpc("app_settings").catch(() => state.settings || null);
+  applyMotion();  // motion.js
   return state.settings;
 }
 
 async function saveSettings(changes, label = "Not saved") {
   const res = await attempt(() => rpc("save_app_settings", { changes }), label);
   if (res) state.settings = res;
+  applyMotion();
   return res;
 }
 
@@ -194,19 +196,12 @@ function showWhatsNew(asked = false) {
   [btn("Got it", null, closeDialog, "tool primary")]);
 }
 
-// ---------- The new name ----------
+// ---------- The forge splash ----------
 
-// Fabric Desktop became KratosForge. The first start after that update shows a full-window
-// announcement, once; then() runs when it closes (What's new waits behind it). From the command
-// palette, whenever asked. Button, Escape or Enter closes it; with reduced motion nothing moves.
-const RENAME_SEEN = "fd.rename.kratosforge.seen";
-
-function showRenameSplash(then = () => {}, asked = false) {
-  let seen = false;
-  try { seen = localStorage.getItem(RENAME_SEEN) === "1"; } catch { /* show it */ }
-  if (seen && !asked) { then(); return false; }
-  try { localStorage.setItem(RENAME_SEEN, "1"); } catch { /* shown again next start */ }
-  const done = () => { closeDialog(); then(); };
+// The full-window forge: the emblem strikes the anvil, sparks fly, embers rise behind the
+// lettering. The new name and each update use it. Button, Escape or Enter closes it; with reduced
+// motion nothing moves. Returns the button so the caller can focus it once it is on screen.
+function forgeSplash({ kicker, tag, body, link, extra, done }) {
   // Sparks leave the anvil once; embers keep rising behind the name. Spread is fixed, not random,
   // so every start looks the same.
   const sparks = Array.from({ length: 14 }, (_, i) => h("span", { class: "splash-spark",
@@ -226,20 +221,92 @@ function showRenameSplash(then = () => {}, asked = false) {
         sparks,
         h("img", { class: "splash-emblem", src: "wolf-forge-emblem.png", width: 128, height: 128, alt: "" })),
       h("h1", { id: "splash-title", class: "splash-title" },
-        h("span", { class: "splash-old" }, h("s", {}, "Fabric Desktop"), " is now"),
+        h("span", { class: "splash-old" }, kicker),
         h("img", { class: "splash-letters", src: "kratosforge-lettering.png", width: 800, height: 117, alt: "KratosForge" })),
-      h("p", { class: "splash-tag" }, "Same engine. Same projects. Forged for what's next."),
-      h("p", { id: "splash-text", class: "splash-text" },
-        "Everything you built is where you left it: notebooks, metadata projects, schedules, your sign-in and settings. " +
-        "Only the name and the look changed."),
+      h("p", { class: "splash-tag" }, tag),
+      body,
       h("div", { class: "splash-actions" }, enter,
-        h("a", { href: "#", class: "splash-link", onclick: (e) => {
-          e.preventDefault();
-          attempt(() => invoke("open_doc", { page: "kratosforge.md" }), "Could not open the guide");
-        } }, "What changed and what didn't"))));
+        h("a", { href: "#", class: "splash-link", onclick: (e) => { e.preventDefault(); link.run(); } }, link.label)),
+      extra || null));
   document.getElementById("dialog-root").replaceChildren(overlay);
-  enter.focus();
+  return enter;
+}
+
+// ---------- The new name ----------
+
+// Fabric Desktop became KratosForge. The first start after that update shows the forge, once;
+// then() runs when it closes (What's new waits behind it). From the command palette, whenever
+// asked. Returns whether it showed, so the start can show the update splash instead.
+const RENAME_SEEN = "fd.rename.kratosforge.seen";
+
+function showRenameSplash(then = () => {}, asked = false) {
+  let seen = false;
+  try { seen = localStorage.getItem(RENAME_SEEN) === "1"; } catch { /* show it */ }
+  if (seen && !asked) return false;
+  try { localStorage.setItem(RENAME_SEEN, "1"); } catch { /* shown again next start */ }
+  const done = () => { closeDialog(); then(); };
+  forgeSplash({
+    kicker: [h("s", {}, "Fabric Desktop"), " is now"],
+    tag: "Same engine. Same projects. Forged for what's next.",
+    body: h("p", { id: "splash-text", class: "splash-text" },
+      "Everything you built is where you left it: notebooks, metadata projects, schedules, your sign-in and settings. " +
+      "Only the name and the look changed."),
+    link: { label: "What changed and what didn't",
+      run: () => attempt(() => invoke("open_doc", { page: "kratosforge.md" }), "Could not open the guide") },
+    done,
+  }).focus();
   return true;
+}
+
+// ---------- After an update ----------
+
+// The first start on a new build shows the forge with what's new since the build this PC ran
+// before, once; a new install shows nothing. Turned off in Settings > Updates, the plain What's
+// new dialog shows instead. Shares What's new's "seen" mark, so only one of them shows. From the
+// command palette, whenever asked.
+const UPDATE_SPLASH_OFF = "fd.updatesplash.off";
+
+function updateSplashOn() {
+  try { return localStorage.getItem(UPDATE_SPLASH_OFF) !== "1"; } catch { return true; }
+}
+
+function showUpdateSplash(asked = false) {
+  if (!asked && !updateSplashOn()) { showWhatsNew(); return false; }
+  const release = state.release?.commit && state.release.commit === state.commit ? state.release : null;
+  let seen = "";
+  try { seen = localStorage.getItem("fd.whatsnew.seen") || ""; } catch { /* show it */ }
+  const { lines, items } = whatsNewItems(release?.notes, release?.history);
+  if (!asked && (!state.commit || seen === state.commit || (!lines.length && !items.length))) return false;
+  // A first start on this PC is an install, not an update: nothing to announce.
+  if (!asked && !seen) {
+    try { localStorage.setItem("fd.whatsnew.seen", state.commit); } catch { /* checked again next start */ }
+    return false;
+  }
+  try { localStorage.setItem("fd.whatsnew.seen", state.commit || ""); } catch { /* shown again next time */ }
+  const news = updateHighlights(lines, items, seen === state.commit ? "" : seen);
+  const shown = news.slice(0, 5);
+  const off = h("input", { type: "checkbox", checked: updateSplashOn() ? true : null,
+    onchange: (e) => { try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ } } });
+  forgeSplash({
+    kicker: `Updated to build ${state.build || "unknown"}`,
+    tag: "Fresh from the forge.",
+    body: h("div", { id: "splash-text", class: "splash-text splash-news" },
+      shown.length ? h("ul", {}, shown.map((t) => h("li", {}, t))) : h("p", {}, "Fixes and polish. Everything you built is where you left it."),
+      news.length > shown.length ? h("p", { class: "splash-more" }, `and ${news.length - shown.length} more`) : null),
+    link: { label: "See everything new", run: () => { closeDialog(); showWhatsNew(true); } },
+    extra: h("label", { class: "splash-optout" }, off, "Show this after every update"),
+    done: closeDialog,
+  }).focus();
+  return true;
+}
+
+// What reached this PC with the update, newest first: the build's own notes, then each change
+// since the build it ran before (history down to that commit). Without that build in the month's
+// history, the newest change stands in for the list.
+function updateHighlights(lines, items, since) {
+  const at = since ? items.findIndex((i) => i.commit === since) : -1;
+  const fresh = (at >= 0 ? items.slice(0, at) : items.slice(0, 1)).map((i) => i.title.trim());
+  return [...new Set([...lines, ...fresh])];
 }
 
 // The build's own notes, unless they only repeat the newest history item (on Preview the notes
@@ -310,7 +377,25 @@ async function renderSettings() {
       channel("stable", "Stable", "Builds that have been checked and released. Recommended."),
       channel("preview", "Preview", "Every new build as soon as it's ready. For testers; things may change or break.")),
     s.channel.source === "default" ? null : h("div", { class: "setting-source" }, SOURCE_TEXT[s.channel.source]),
-    h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small")));
+    settingRow("Show the forge after an update", "The first start on a new build shows what's new in a full-window splash. Off: a small What's new window instead.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: updateSplashOn() ? true : null,
+        onchange: (e) => {
+          try { localStorage.setItem(UPDATE_SPLASH_OFF, e.target.checked ? "0" : "1"); } catch { /* kept for this start */ }
+          render();
+        } }), h("span", {}, updateSplashOn() ? "On" : "Off"))),
+    h("div", { class: "row" }, btn("What's new in this build", "rocket", () => showWhatsNew(true), "tool link small"),
+      btn("Show the update splash", "rocket", () => showUpdateSplash(true), "tool link small")));
+
+  // Display
+  const motionValue = s.forge_animations?.value !== false;
+  const display = s.forge_animations ? h("section", { class: "card pad" }, h("h2", {}, "Display"),
+    settingRow("Forge animations",
+      "Show subtle wolf, forge and spark animations during application activities. Progress, results and errors show the same either way. "
+        + "Windows' \"Show animations\" setting turns these off too.",
+      h("label", { class: "switch" }, h("input", { type: "checkbox", checked: motionValue ? true : null, disabled: locked("forge_animations") ? true : null,
+        "aria-label": "Forge animations", onchange: async (e) => { await saveSettings({ forge_animations: e.target.checked }); render(); } }),
+      h("span", {}, reducedMotion() ? "Off while Windows reduces motion" : motionValue ? "On" : "Off")),
+      s.forge_animations.source === "policy" ? "policy" : null)) : null;
 
   // Preview features
   const previews = h("section", { class: "card pad" }, h("h2", {}, "Preview features"),
@@ -389,7 +474,7 @@ async function renderSettings() {
   setView(h("div", { class: "page settings" },
     h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Settings"),
       h("p", { class: "sub" }, "How KratosForge signs in, updates and talks to you. ", learnMore("settings")))),
-    tabs, tab === "integrations" ? integrations : [account, updates, previews, sql, usage, platform, notify, about].filter(Boolean)));
+    tabs, tab === "integrations" ? integrations : [account, updates, display, previews, sql, usage, platform, notify, about].filter(Boolean)));
   if (tab === "integrations") {
     renderIntegrationsTab(integrations);
     return;
@@ -660,6 +745,7 @@ registerFeature({
     { label: "Report a problem", icon: "bug", keywords: "bug support help feedback", run: reportProblem },
     { label: "What's new", icon: "rocket", keywords: "release notes update changelog", run: () => showWhatsNew(true) },
     { label: "About the new name: KratosForge", icon: "rocket", keywords: "rename fabric desktop kratosforge brand splash", run: () => showRenameSplash(() => {}, true) },
+    { label: "Show the update splash", icon: "rocket", keywords: "what's new release notes update forge splash", run: () => showUpdateSplash(true) },
     { label: "Open the user guide", icon: "help", keywords: "help docs documentation", run: () => invoke("open_doc", { page: "user-guide.md" }).catch(() => {}) },
   ],
 });

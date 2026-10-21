@@ -135,11 +135,17 @@ class Host:
     def reads(self) -> dict[str, Any]:
         return self.kernel.reads()
 
+    def frame_page(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_page(**args)
+
+    def frame_download(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_download(**args)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "variables", "complete", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "ping")
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_download", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")

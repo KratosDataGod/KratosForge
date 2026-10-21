@@ -312,6 +312,11 @@ class FabricClient:
         body = self._request("GET", "/admin/domains", params={"preview": "false"}).json()
         return body.get("domains", body.get("value", []))
 
+    def list_admin_domain_role_assignments(self, domain_id: str) -> list[dict[str, Any]]:
+        """A domain's role assignments (Admins, Contributors): [{id, principal: {id, displayName,
+        type}, role}]. Fabric admin API, Tenant.Read.All."""
+        return self._paged(f"/admin/domains/{domain_id}/roleAssignments")
+
     def list_tenant_settings(self) -> list[dict[str, Any]]:
         """Fabric's tenant settings: [{settingName, title, enabled, tenantSettingGroup, ...}]. Fabric
         administrators only (Tenant.Read.All); anyone else gets 401/403. Documented as paged

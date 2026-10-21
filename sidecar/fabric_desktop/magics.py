@@ -91,14 +91,42 @@ def _scan(text: str, quote: str, depth: int) -> tuple[str, int]:
 
 
 def words(line: str) -> list[str]:
-    """A magic's arguments split as a shell would, with quotes for names that have spaces, but a
-    backslash kept as it is, so a Windows path such as C:\\Users\\me\\req.txt arrives whole."""
-    import shlex
-    lexer = shlex.shlex(line, posix=True)
-    lexer.whitespace_split = True
-    lexer.escape = ""
-    lexer.commenters = ""
-    return list(lexer)
+    """A magic's arguments, split the way Windows' own command line splits them: spaces separate,
+    quotes group a name with spaces, and a backslash is kept as it is (C:\\Users\\me\\req.txt
+    arrives whole). Inside double quotes, \\" is a quote, as in "say \\"hi\\"", unless it ends
+    the word ("C:\\My Folder\\" is a folder). Single quotes keep everything inside them."""
+    out: list[str] = []
+    word, started, quote, i, n = [], False, "", 0, len(line)
+    while i < n:
+        c = line[i]
+        if quote == '"' and c == "\\" and line[i + 1:i + 2] == '"' and not _ends_word(line, i + 2):
+            word.append('"')
+            i += 2
+            continue
+        if quote:
+            if c == quote:
+                quote = ""
+            else:
+                word.append(c)
+        elif c in "\"'":
+            quote, started = c, True
+        elif c.isspace():
+            if started:
+                out.append("".join(word))
+            word, started = [], False
+        else:
+            word.append(c)
+            started = True
+        i += 1
+    if quote:
+        raise ValueError(f"No closing quotation ({quote}).")
+    if started:
+        out.append("".join(word))
+    return out
+
+
+def _ends_word(line: str, i: int) -> bool:
+    return i >= len(line) or line[i].isspace()
 
 
 def find(code: str) -> list[Magic]:

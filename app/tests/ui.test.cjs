@@ -4204,5 +4204,5 @@ test("the magics page documents In, Out and %history", () => {
 test("the magics page says to quote paths with spaces and keeps backslashes", () => {
   const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
   assert.match(doc, /Put a path with spaces in quotes/);
-  assert.match(doc, /backslashes in\nWindows paths are kept/);
+  assert.match(doc, /inside double quotes `\\"` is a quote/);
 });

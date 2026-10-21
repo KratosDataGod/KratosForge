@@ -3,6 +3,8 @@ accents, and files saved with a byte order mark (Notepad)."""
 
 from pathlib import Path
 
+import pytest
+
 from fabric_desktop import history, magics, pip_magic
 from fabric_desktop.notebook import Kernel
 from fabric_desktop.notebook_resources import Resources
@@ -30,6 +32,24 @@ def test_words_keep_windows_backslashes_and_quoted_spaces():
     assert magics.words(r'install -r "C:\Users\Chris Smith\req.txt" polars') == \
         ["install", "-r", r"C:\Users\Chris Smith\req.txt", "polars"]
     assert magics.words(r"ls C:\data\raw") == ["ls", r"C:\data\raw"]
+
+
+def test_words_follow_the_windows_command_line_for_quotes_inside_quotes():
+    assert magics.words(r'put Files/x.txt "say \"hi\""') == ["put", "Files/x.txt", 'say "hi"']
+    assert magics.words(r'ls "C:\My Folder\" Files') == ["ls", "C:\\My Folder\\", "Files"]
+    assert magics.words(r"put Files/x.txt 'a \"b'") == ["put", "Files/x.txt", r'a \"b']
+    assert magics.words(r"ls \\server\share") == ["ls", r"\\server\share"]
+    assert magics.words(r'cp "Files/a b.txt" Files/c.txt') == ["cp", "Files/a b.txt", "Files/c.txt"]
+    assert magics.words('x "" y') == ["x", "", "y"]
+    with pytest.raises(ValueError, match="closing quotation"):
+        magics.words('put Files/x.txt "open')
+
+
+def test_fs_put_writes_escaped_quotes(tmp_path):
+    k = Kernel()
+    target = tmp_path / "x.txt"
+    _text(k.run(f'%fs put -f "{target}" "say \\"hi\\""'))
+    assert target.read_text() == 'say "hi"'
 
 
 def test_pip_reads_a_requirements_file_with_a_bom_crlf_and_a_space_in_its_path(tmp_path):

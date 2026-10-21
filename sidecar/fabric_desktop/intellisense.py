@@ -67,7 +67,7 @@ def signature_text(obj: Any) -> str:
 def _doc(obj: Any) -> str:
     try:
         doc = inspect.getdoc(obj) or ""
-    except Exception:  # noqa: BLE001 - a broken __doc__ just means no docs
+    except Exception:  # noqa: BLE001  # silent-ok: a broken __doc__ just means no docs
         return ""
     return doc if len(doc) <= DOC_CHARS else doc[:DOC_CHARS].rstrip() + " ..."
 

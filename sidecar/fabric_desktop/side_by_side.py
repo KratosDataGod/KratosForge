@@ -17,12 +17,17 @@ run only appended to a table, the rows that run added are compared instead of th
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 from dataclasses import dataclass
 from typing import Any, Callable
 
 import pyarrow as pa
+
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 TIMING_DIR = "Files/_fabric_desktop/side_by_side"
 _MOD = 1 << 64
@@ -34,12 +39,13 @@ def _quote(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _normalized(name: str, typ: pa.DataType) -> str:
-    """A SQL expression for one column that two engines produce the same way for the same value."""
+def _normalized(name: str, typ: pa.DataType, as_number: bool = False) -> str:
+    """A SQL expression for one column that two engines produce the same way for the same value.
+    ``as_number`` normalizes an integer column as a number, to match a decimal column on the other side."""
     c = _quote(name)
-    if pa.types.is_integer(typ):
+    if pa.types.is_integer(typ) and not as_number:
         return f"CAST({c} AS HUGEINT)"
-    if pa.types.is_floating(typ) or pa.types.is_decimal(typ):
+    if pa.types.is_floating(typ) or pa.types.is_decimal(typ) or pa.types.is_integer(typ):
         x = f"CAST({c} AS DOUBLE)"
         return (f"CASE WHEN {x} IS NULL OR {x} = 0 OR NOT isfinite({x}) THEN {x} "
                 f"ELSE round({x}, 9 - CAST(floor(log10(abs({x}))) AS INTEGER)) END")
@@ -67,8 +73,9 @@ def kind(typ: pa.DataType) -> str:
     return str(typ)
 
 
-def fingerprint(data: Any) -> dict[str, Any]:
-    """Rows, columns and an order-independent checksum of a pyarrow table or dataset."""
+def fingerprint(data: Any, numbers: set[str] | frozenset[str] = frozenset()) -> dict[str, Any]:
+    """Rows, columns and an order-independent checksum of a pyarrow table or dataset. Integer columns
+    named in ``numbers`` (lower case) are summed as numbers, as a decimal column of the same values would be."""
     import duckdb
     schema: pa.Schema = data.schema
     columns = [[f.name, kind(f.type)] for f in schema]
@@ -78,7 +85,7 @@ def fingerprint(data: Any) -> dict[str, Any]:
         con.register("t", data)
         fields = sorted(schema, key=lambda f: f.name.lower())
         if fields:
-            row_hash = f"hash({', '.join(_normalized(f.name, f.type) for f in fields)})"
+            row_hash = f"hash({', '.join(_normalized(f.name, f.type, f.name.lower() in numbers) for f in fields)})"
             rows, total = con.execute(f"SELECT count(*), coalesce(sum(CAST({row_hash} AS HUGEINT)), 0) FROM t").fetchone()
         else:
             rows, total = con.execute("SELECT count(*), 0 FROM t").fetchone()
@@ -285,5 +292,6 @@ def _memory_gb() -> float | None:
         else:
             total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         return round(total / 1024 ** 3, 1)
-    except Exception:  # noqa: BLE001 - only shown as context
+    except Exception as exc:  # noqa: BLE001 - only shown as context
+        _log.info("Couldn't read this PC's memory: %s", describe(exc))
         return None

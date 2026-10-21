@@ -61,6 +61,51 @@ def test_save_checks_values(dirs):
     assert app_settings.save({"client_id": ""})["client_id"]["source"] == "default"
 
 
+def test_forge_animations_default_on_saved_and_lockable(dirs):
+    assert app_settings.load()["forge_animations"] == {"value": True, "source": "default"}
+    assert app_settings.save({"forge_animations": False})["forge_animations"] == {"value": False, "source": "user"}
+    assert app_settings.load()["forge_animations"]["value"] is False  # kept for the next start
+    dirs.write_text(json.dumps({"forge_animations": False}))
+    assert app_settings.load()["forge_animations"]["source"] == "policy"
+    with pytest.raises(ValueError, match="organization"):
+        app_settings.save({"forge_animations": True})
+
+
+def test_motion_level_defaults_to_refined_saved_checked_and_lockable(dirs):
+    assert app_settings.load()["motion_level"] == {"value": 2, "source": "default"}
+    assert app_settings.save({"motion_level": 3})["motion_level"] == {"value": 3, "source": "user"}
+    for bad in (4, -1, True, "2", 2.5):
+        with pytest.raises(ValueError, match="motion_level"):
+            app_settings.save({"motion_level": bad})
+    assert app_settings.load()["motion_level"]["value"] == 3  # kept for the next start
+    assert app_settings.save({"motion_wolf": False})["motion_wolf"] == {"value": False, "source": "user"}
+    assert app_settings.load()["motion_follow_system"] == {"value": True, "source": "default"}
+    assert app_settings.load()["motion_achievements"] == {"value": False, "source": "default"}  # turned on, not off
+    dirs.write_text(json.dumps({"motion_level": 0, "motion_sparks": False}))
+    loaded = app_settings.load()
+    assert loaded["motion_level"] == {"value": 0, "source": "policy"}
+    assert loaded["motion_sparks"] == {"value": False, "source": "policy"}
+    with pytest.raises(ValueError, match="organization"):
+        app_settings.save({"motion_level": 2})
+    dirs.write_text(json.dumps({"motion_level": 9}))
+    assert app_settings.load()["motion_level"] == {"value": 3, "source": "user"}  # out of range: ignored
+    assert "motion_level must be between 0 and 3" in app_settings.policy_problems()
+
+
+def test_forge_animations_off_still_means_motion_off(dirs):
+    app_settings.save({"forge_animations": False})
+    assert app_settings.load()["motion_level"] == {"value": 0, "source": "user"}
+    app_settings.save({"motion_level": 1})  # a level chosen since wins
+    assert app_settings.load()["motion_level"] == {"value": 1, "source": "user"}
+    dirs.write_text(json.dumps({"forge_animations": False}))
+    # An old policy file still locks motion off, whatever level the person chose.
+    assert app_settings.load()["motion_level"] == {"value": 0, "source": "policy"}
+    with pytest.raises(ValueError, match="organization"):
+        app_settings.save({"motion_level": 2})
+    dirs.write_text(json.dumps({"forge_animations": False, "motion_level": 1}))
+    assert app_settings.load()["motion_level"] == {"value": 1, "source": "policy"}  # a policy level wins over its own old switch
+
+
 def test_service_uses_the_current_app_id(dirs, tmp_path):
     svc = Service(root=tmp_path / "app")
     assert svc.auth.client_id == MICROSOFT_CLIENT_ID and svc.auth.microsoft
@@ -78,3 +123,16 @@ def test_leaves_the_sidecars_own_settings_alone(dirs, tmp_path):
     own.write_text(json.dumps({"project": "C:/metadata", "teams_webhook": "https://x"}))
     app_settings.save({"channel": "preview", "show_preview": False})
     assert json.loads(own.read_text()) == {"project": "C:/metadata", "teams_webhook": "https://x"}
+
+
+def test_save_refuses_a_client_id_the_environment_overrides(dirs, monkeypatch):
+    """UX-006: no "Saved" for a value that wouldn't apply; the file stays as it was."""
+    app_settings.save({"channel": "preview"})
+    before = app_settings.user_path().read_text(encoding="utf-8")
+    monkeypatch.setenv("FABRIC_DESKTOP_CLIENT_ID", APP)
+    for value in (OTHER, ""):
+        with pytest.raises(ValueError, match="FABRIC_DESKTOP_CLIENT_ID environment variable sets client_id"):
+            app_settings.save({"client_id": value})
+    assert app_settings.user_path().read_text(encoding="utf-8") == before
+    assert app_settings.load()["client_id"] == {"value": APP, "source": "environment"}
+    assert app_settings.save({"channel": "stable"})["channel"]["value"] == "stable"  # other settings still save

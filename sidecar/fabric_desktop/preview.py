@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,10 @@ import pyarrow.csv as pa_csv
 import pyarrow.json as pa_json
 import pyarrow.parquet as pq
 from deltalake import DeltaTable
+
+from .redact import describe
+
+_log = logging.getLogger(__name__)
 
 ROWS = 100
 # A file bigger than this is not downloaded to preview it.
@@ -59,7 +64,8 @@ def row_count(dt: DeltaTable) -> int | None:
         actions = dt.get_add_actions(flatten=True)
         actions = pa.table(actions) if not isinstance(actions, pa.Table) else actions
         counts = actions.column("num_records").to_pylist()
-    except Exception:  # an older writer without stats, or a log this reader can't flatten
+    except Exception as exc:  # an older writer without stats, or a log this reader can't flatten
+        _log.info("No row count from the Delta log's file stats: %s", describe(exc))
         return None
     return None if any(c is None for c in counts) else int(sum(counts))
 

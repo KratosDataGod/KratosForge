@@ -51,10 +51,10 @@ MAX_LOG_LINES = 2_000
 KEEP_RECORDS = 200            # finished executions kept on disk
 STOP_GRACE_SECONDS = 5.0      # after an interrupt, before the process is ended
 WRITE_REFUSED = ("External AI tools can't write lakehouse tables in this release. Run this notebook in "
-                 "Fabric Desktop by KratosBI to write.")
+                 "KratosForge to write.")
 TOKEN_REFUSED = "Code an external tool runs gets no {audience} token; only the attached lakehouse can be read."
 OTHER_NOTEBOOKS_REFUSED = ("Code an external tool runs can't run other notebooks (%run, notebookutils.notebook.run): "
-                           "only the code the person approved runs. Run this notebook in Fabric Desktop by KratosBI instead.")
+                           "only the code the person approved runs. Run this notebook in KratosForge instead.")
 
 
 def new_execution_id() -> str:
@@ -104,7 +104,7 @@ def interrupt_until_stopped(con: Any, stopped: threading.Event, seconds: float =
                 return
             try:
                 con.interrupt()
-            except Exception:  # noqa: BLE001 - the connection closed as the query ended
+            except Exception:  # silent-ok: the connection closed as the query ended
                 return
         stopped.wait(0.05)
 
@@ -365,6 +365,8 @@ class ExecutionManager:
         """Run code cells in order in a fresh process kernel, then end it."""
         kernel = self._kernel_factory()
         kernel.notebook_name = notebook
+        where = getattr(self.service, "_resources_dir", None)  # builtin/ paths, as in the notebook
+        kernel.resources_dir = where(notebook) if where else ""
         budget = [MAX_OUTPUT_CHARS]
         done: list[dict[str, Any]] = []
 

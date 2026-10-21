@@ -1,6 +1,6 @@
 # Pipeline definitions (Preview)
 
-Fabric Desktop by KratosBI can read a Microsoft Fabric Data Factory pipeline definition, check it, show what is in it and convert it between formats, all on your PC. Nothing in the pipeline runs, nothing is sent to Fabric, and no capacity is used. Running pipelines on your PC is planned ([orchestration plan](plan.md)).
+KratosForge can read a Microsoft Fabric Data Factory pipeline definition, check it, show what is in it and convert it between formats, all on your PC. Nothing in the pipeline runs, nothing is sent to Fabric, and no capacity is used. Running pipelines on your PC is planned ([orchestration plan](plan.md)).
 
 This is Preview: the formats follow Microsoft's documentation and have been tested with hand-built definitions, not yet with exports from a live tenant.
 

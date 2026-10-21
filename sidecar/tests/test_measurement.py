@@ -125,7 +125,7 @@ def _report(meta=(), fabric=(), writes=(), capacities=None):
     return costs.report(rows, CFG, 30, NOW, capacities)
 
 
-def test_fabric_runs_are_estimated_and_runs_on_this_pc_are_a_scenario():
+def test_fabric_runs_are_estimated_and_runs_on_this_pc_without_a_fabric_baseline_are_unknown():
     out = _report(meta=[{"entity": "a", "env": "dev", "compute": "local", "seconds": 3600, "run_id": "r1",
                          "started_at": "2026-10-14T10:00:00+00:00"}],
                   fabric=[{"kind": "Notebook run", "name": "nb", "engine": "python", "workspace_id": "w", "item_id": "i",
@@ -134,11 +134,16 @@ def test_fabric_runs_are_estimated_and_runs_on_this_pc_are_a_scenario():
     assert ev["fabric_job_cu"]["classification"] == "estimated" and ev["fabric_job_cu"]["value"] == 0.5
     assert ev["fabric_cost"]["classification"] == "estimated" and ev["fabric_cost"]["value"] == 0.1
     assert any("not a charge" in a for a in ev["fabric_cost"]["assumptions"])
-    assert ev["avoided_cu"]["classification"] == "scenario" and ev["avoided_cost"]["classification"] == "scenario"
+    # Table "a" never ran in Fabric, so what it avoided isn't known; the rough scenario stays apart.
+    assert ev["avoided_cu"]["classification"] == "unknown" and ev["avoided_cost"]["value"] is None
+    assert "no comparable Fabric run of the same workload" in ev["avoided_cu"]["reason"] and out["total"]["uncalibrated_runs"] == 1
+    assert ev["scenario_cu"]["classification"] == "scenario" and ev["scenario_cu"]["value"] == 1.0
+    assert ev["scenario_cost"]["classification"] == "scenario"
     nb = next(i for i in out["by_item"] if i["name"] == "nb")
     assert nb["evidence"]["fabric_job_cu"]["sources"] == ["Fabric job API"]
-    # The plain numbers older callers read are unchanged.
-    assert out["total"]["cu_hours"] == 0.5 and out["total"]["saved_cu_hours"] == 1.0 and out["total"]["saved"] == 0.2
+    # The plain numbers older callers read are unchanged; the scenario's are named as a scenario.
+    assert out["total"]["cu_hours"] == 0.5 and out["total"]["scenario_cu_hours"] == 1.0 and out["total"]["scenario_saved"] == 0.2
+    assert "saved" not in out["total"] and "saved_cu_hours" not in out["total"]
     json.dumps(out)  # goes over the engine's JSON channel as is
 
 
@@ -200,3 +205,86 @@ def test_runs_on_this_pc_used_no_fabric_job_cu_measured():
     ev = out["total"]["evidence"]
     assert ev["fabric_job_cu"]["classification"] == "measured" and ev["fabric_job_cu"]["value"] == 0
     assert ev["fabric_cost"]["classification"] == "measured" and ev["fabric_cost"]["value"] == 0
+
+
+# ---- calibrated savings (FINOPS-005)
+
+def _meta(entity, env, compute, at, seconds=600, **extra):
+    return {"entity": entity, "env": env, "compute": compute, "seconds": seconds, "started_at": at,
+            "run_id": f"{entity}-{env}-{at}"} | extra
+
+
+def test_a_run_on_this_pc_is_estimated_from_fabric_runs_of_the_same_table_not_from_its_time_here():
+    out = _report(meta=[_meta("silver.orders", "dev", "local", "2026-10-14T10:00:00+00:00", seconds=5, logic="v1"),
+                        _meta("silver.orders", "dev", "fabric", "2026-10-12T10:00:00+00:00", seconds=1800, logic="v1"),
+                        _meta("silver.orders", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=3600, logic="v1"),
+                        _meta("silver.orders", "dev", "fabric", "2026-10-11T10:00:00+00:00", seconds=5400, logic="v1")])
+    ev = out["total"]["evidence"]
+    # The median of the three Fabric runs at 1 CU (1 h), whatever the 5 s it took here.
+    assert ev["avoided_cu"]["classification"] == "estimated" and ev["avoided_cu"]["value"] == 1.0
+    assert ev["avoided_cost"]["classification"] == "estimated" and ev["avoided_cost"]["value"] == 0.2
+    assert any("time on this PC isn't used" in a for a in ev["avoided_cu"]["assumptions"])
+    assert ev["scenario_cu"]["value"] == pytest.approx(5 / 3600, abs=1e-6)  # the rough figure, kept apart
+    assert out["total"]["uncalibrated_runs"] == 0 and out["total"]["unknown_runs"] == 0
+    rows = costs.activities([_meta("silver.orders", "dev", "local", "2026-10-14T10:00:00+00:00"),
+                             _meta("silver.orders", "dev", "fabric", "2026-10-13T10:00:00+00:00")], [], [], CFG, now=NOW)
+    assert not ms.problems(next(r for r in rows if r["where"] == "local")["avoided_cu"])
+
+
+def test_fabric_runs_in_the_same_environment_are_preferred_and_others_are_noted():
+    meta = [_meta("t", "dev", "local", "2026-10-14T10:00:00+00:00"),
+            _meta("t", "prod", "fabric", "2026-10-13T10:00:00+00:00", seconds=7200)]
+    rows = costs.activities(meta, [], [], CFG, now=NOW)
+    local = next(r for r in rows if r["where"] == "local")
+    assert local["avoided_cu"]["value"] == 7200
+    assert any("another environment (prod)" in a for a in local["avoided_cu"]["assumptions"])
+    meta.append(_meta("t", "dev", "fabric", "2026-10-12T10:00:00+00:00", seconds=60))
+    local = next(r for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local")
+    assert local["avoided_cu"]["value"] == 60 and not any("another environment" in a for a in local["avoided_cu"]["assumptions"])
+
+
+def test_rows_read_scale_the_estimate_and_a_changed_definition_is_unknown():
+    meta = [_meta("t", "dev", "local", "2026-10-14T10:00:00+00:00", rows_read=2000, logic="v2"),
+            _meta("t", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=100, rows_read=1000, logic="v2")]
+    local = next(r for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local")
+    assert local["avoided_cu"]["value"] == 200 and "rows read" in local["avoided_cu"]["method"]
+    meta[1]["logic"] = "v1"
+    local = next(r for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local")
+    assert local["avoided_cu"]["classification"] == "unknown" and "unrecorded) version" in local["avoided_cu"]["reason"]
+
+
+def test_a_run_here_without_a_time_can_still_be_estimated_and_mixed_totals_dont_fail():
+    out = _report(meta=[_meta("t", "dev", "local", "2026-10-14T10:00:00+00:00", seconds=None),
+                        _meta("t", "dev", "local", "2026-10-14T11:00:00+00:00"),
+                        _meta("t", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=3600)],
+                  writes=[{"job": "Notebook write to LH", "seconds": 30, "finished_at": "2026-10-14T13:00:00Z"}])
+    t = out["total"]
+    ev = t["evidence"]
+    # Two table runs estimated from the Fabric run; the notebook write has nothing to compare with.
+    assert ev["avoided_cu"]["value"] == 2.0 and ev["avoided_cu"]["unknown_parts"] == 1
+    assert "1 of 3 runs on this PC has no comparable Fabric run" in ev["avoided_cu"]["reason"]
+    # The scenario covers the runs with a time; the one without is unknown beside it, not an error.
+    assert ev["scenario_cu"]["classification"] == "scenario" and ev["scenario_cu"]["unknown_parts"] == 1
+    assert t["unknown_runs"] == 1 and t["uncalibrated_runs"] == 1
+    json.dumps(out)
+
+
+
+def test_tables_of_one_fabric_engine_run_are_each_estimated_from_their_own_time():
+    # Real id shapes: every table of one engine run shares its run id (meta/engine.py), so nothing is keyed by it.
+    run = "r-20261013-100000-ab12"
+    meta = [_meta("a", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=600, run_id=run, logic="v1"),
+            _meta("b", "dev", "fabric", "2026-10-13T10:00:00+00:00", seconds=1200, run_id=run, logic="v1"),
+            _meta("a", "dev", "local", "2026-10-14T10:00:00+00:00", run_id="r-20261014-100000-cd34", logic="v1"),
+            _meta("b", "dev", "local", "2026-10-14T10:00:00+00:00", run_id="r-20261014-100000-cd34", logic="v1")]
+    local = {r["name"]: r["avoided_cu"] for r in costs.activities(meta, [], [], CFG, now=NOW) if r["where"] == "local"}
+    assert (local["a"]["value"], local["b"]["value"]) == (600, 1200)
+    assert all("estimated" in m["method"] for m in local.values())
+
+
+def test_items_are_ranked_by_fabric_cost_and_calibrated_avoidance_not_by_the_scenario():
+    # "big" ran 10 h here (a large scenario) but never in Fabric; "nb" cost real (estimated) Fabric CU.
+    out = _report(meta=[_meta("big", "dev", "local", "2026-10-14T10:00:00+00:00", seconds=36000)],
+                  fabric=[{"kind": "Notebook run", "name": "nb", "engine": "python", "workspace_id": "w", "item_id": "i",
+                           "job_id": "j", "started_at": "2026-10-14T13:00:00Z", "finished_at": "2026-10-14T13:30:00Z"}])
+    assert [i["name"] for i in out["by_item"]] == ["nb", "big"]

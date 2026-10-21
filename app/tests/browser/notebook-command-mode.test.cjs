@@ -141,6 +141,17 @@ test("while editing: Ctrl+/ comments the line and Ctrl+Shift+- splits the cell a
   assert.strictEqual(await selectedIndex(), 1);
 });
 
+test("a notebook saved with Windows line ends splits where the cursor is", { skip }, async () => {
+  // The editor counts \n as one character; a cell holding \r\n has to count the same way.
+  await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); },
+    [{ type: "code", cell_id: "w1", source: "a = 1\r\nb = 2\r\nc = 3", meta: {} }]);
+  await page().locator(".cell .cm-content").first().click();
+  await page().keyboard.press("Control+End");
+  await page().keyboard.press("Home");
+  await page().keyboard.press("Control+Shift+Minus");
+  assert.deepStrictEqual(await sources(), ["code:a = 1\nb = 2", "code:c = 3"]);
+});
+
 test("Alt+Enter runs the cell and adds a code cell below; Shift+Enter runs and moves on", { skip }, async () => {
   await page().evaluate((cells) => { loadIntoState({ name: "Keys", cells }); go("notebook"); },
     [{ type: "code", cell_id: "r1", source: "print('ran')", meta: {} }]);

@@ -1776,8 +1776,10 @@ function newCellId() {
   return (crypto.randomUUID?.() || `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`).replace(/-/g, "").slice(0, 12);
 }
 
+// A notebook saved on Windows can hold \r\n line ends. The editor counts \n as one character, so a
+// cell keeps \n only: cursor positions (split, run selection) then line up with its text.
 function cellFrom(c) {
-  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: c.source || "", meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
+  return { id: nextCellId++, cell_id: c.cell_id || newCellId(), type: c.type, source: (c.source || "").replace(/\r\n?/g, "\n"), meta: c.meta || {}, outputs: [], status: null, count: null, editing: !c.source };
 }
 
 function loadIntoState(nb) {

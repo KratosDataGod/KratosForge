@@ -19,6 +19,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -210,7 +211,65 @@ def read_json(path: str, **kwargs: Any) -> pl.DataFrame:
     return pl.read_json(local_path(path), **kwargs)
 
 
-def open_table(table: str) -> DeltaTable:
+def as_of(version: Any = None, timestamp: Any = None) -> int | datetime | None:
+    """A Delta time travel point, as Spark's versionAsOf / timestampAsOf give it: a version
+    number, or a time (an ISO date or date and time; without a zone it is UTC, like Fabric's
+    Spark sessions). None for the latest version."""
+    if version is not None and timestamp is not None:
+        raise ValueError("Give a version or a timestamp to read, not both.")
+    if version is not None:
+        try:
+            n = int(str(version).strip().lstrip("vV"))
+        except ValueError:
+            raise ValueError(f"versionAsOf must be a whole number, not {version!r}.") from None
+        if n < 0:
+            raise ValueError("versionAsOf can't be negative.")
+        return n
+    if timestamp is None:
+        return None
+    if isinstance(timestamp, datetime):
+        when = timestamp
+    else:
+        try:
+            when = datetime.fromisoformat(str(timestamp).strip().replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError(f"timestampAsOf must be a date or a date and time like 2026-10-20 13:00:00, "
+                             f"not {timestamp!r}.") from None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaTable:
+    """The table's Delta log, at its latest version or, with ``version`` or ``timestamp``, as it
+    was then (Delta time travel; only reads)."""
+    opened = _open_table(table)
+    point = as_of(version, timestamp)
+    if point is not None:
+        try:
+            opened.load_as_version(point)
+        except Exception as exc:
+            what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
+            raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
+                             "versions removed by VACUUM can't be read.") from None
+    return opened
+
+
+def table_history(table: str, limit: int | None = None) -> pl.DataFrame:
+    """DESCRIBE HISTORY: the table's versions, newest first, from its Delta log (only reads)."""
+    rows = _open_table(table).history(limit)
+    cols = ("version", "timestamp", "operation", "operationParameters", "operationMetrics", "userName",
+            "engineInfo", "isBlindAppend", "readVersion")
+    out = {c: [r.get(c) for r in rows] for c in cols}
+    # In UTC without a zone, as Fabric's Spark sessions show it (a zoned time needs pytz in DuckDB).
+    out["timestamp"] = [datetime.fromtimestamp(t / 1000, timezone.utc).replace(tzinfo=None) if t else None
+                        for t in out["timestamp"]]
+    for c in ("operationParameters", "operationMetrics"):
+        out[c] = [json.dumps(v, default=str) if v is not None else None for v in out[c]]
+    return pl.DataFrame(out, schema={"version": pl.Int64, "timestamp": pl.Datetime("us"), "operation": pl.Utf8,
+                                     "operationParameters": pl.Utf8, "operationMetrics": pl.Utf8, "userName": pl.Utf8,
+                                     "engineInfo": pl.Utf8, "isBlindAppend": pl.Boolean, "readVersion": pl.Int64})
+
+
+def _open_table(table: str) -> DeltaTable:
     ref = table_ref(table)
     if (p := _proof()) is not None:
         from .proof_runtime import ProofTableMissing
@@ -240,8 +299,9 @@ def table_exists(table: str) -> bool:
     return True
 
 
-def read_table(table: str) -> pl.DataFrame:
-    return pl.from_arrow(open_table(table).to_pyarrow_table())
+def read_table(table: str, version: int | None = None, timestamp: Any = None) -> pl.DataFrame:
+    """The table as a data frame; ``version`` or ``timestamp`` read it as it was then."""
+    return pl.from_arrow(open_table(table, version, timestamp).to_pyarrow_table())
 
 
 def sql(query: str) -> pl.DataFrame:

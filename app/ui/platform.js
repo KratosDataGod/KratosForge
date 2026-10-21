@@ -42,7 +42,7 @@ async function renderPlatform() {
       h("div", {}, h("h1", {}, "Platform ", previewTag()), who),
       // Only the landing zone and business keys are kept per environment; domains, glossary, governance and
       // requests are organization-wide, so the other tabs show no environment picker (Overview has its own).
-      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) ? envSeg : null,
+      h("div", { class: "head-actions" }, ["landing", "keys"].includes(p.tab) && !(p.tab === "keys" && p.keysShared) ? envSeg : null,
         btn("Refresh", "sync", () => render(), "tool outline"))),
     h("div", { class: "subtabs" }, PLATFORM_TABS.map(([id, label]) =>
       h("button", { class: `tab${p.tab === id ? " active" : ""}`, onclick: () => { if (id === "governance") govPage.open = null; goPlatform(id); } }, label))),
@@ -165,8 +165,8 @@ async function platformLandingTab(body) {
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
         h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "The landing zone is empty"),
-        h("span", { class: "text" }, "Add a source, then land its files in Files/<source>/<entity>/.")));
+      : emptyState({ title: "The landing zone is empty",
+        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
   body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
 }
 
@@ -235,13 +235,18 @@ async function platformKeysTab(body) {
   if (!k || !stillHere("keys")) return;
   const rerender = () => platformKeysTab(body);
   const admin = platformPage.me?.admin;
-  body.replaceChildren(h("div", { class: "card pad" },
-    h("div", { class: "row" }, h("b", { class: "grow" }, `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
-      admin ? btn("New key table", "add", () => keyTableDialog(rerender), "tool primary small")
+  if (!!k.shared !== !!platformPage.keysShared) { platformPage.keysShared = !!k.shared; render(); return; }  // one list: no environment picker
+  body.replaceChildren(withHowItWorks(h("div", { class: "card pad" },
+    h("div", { class: "row" }, h("b", { class: "grow" }, k.shared ? "Key tables in SQL_Keys" : `Key tables in SQL_Platform (${ENV_LABEL[k.env]})`),
+      k.shared ? h("span", { class: "pill-s pass" }, "Shared by Dev, Test and Prod") : null,
+      admin ? btn("New key table", "add", () => keyTableDialog(rerender, k.shared), "tool primary small")
         : btn("Request a key table", "add", () => requestDialog("key_table", "", rerender), "tool primary small")),
-    h("p", { class: "muted-text small" }, "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
-      admin ? "A new key table is made in Dev, Test and Prod at once." : "Only platform admins add key tables; ask for one and it appears here once approved.",
+    h("p", { class: "muted-text small" }, k.shared
+      ? "One key per business key, everywhere: customer C-10442 has the same key in Dev, Test and Prod. Test runs that meet new customers use up key numbers here too. "
+      : "One key per business key for every team: customer C-10442 from any source always gets the same key. ",
+      admin ? (k.shared ? "A new key table is made once." : "A new key table is made in Dev, Test and Prod at once.") : "Only platform admins add key tables; ask for one and it appears here once approved.",
       " Projects pick from this list in Data mesh > Surrogate keys."),
+    !k.shared && admin ? h("p", { class: "muted-text small" }, "To give every environment the same keys, use Move keys in, in Settings under Platform.") : null,
     k.key_tables.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Key table", "Business key", "Description", "Keys", "Next key", "Created"].map((x) => h("th", {}, x)))),
       h("tbody", {}, k.key_tables.map((t) => h("tr", {},
@@ -252,17 +257,28 @@ async function platformKeysTab(body) {
         h("td", { class: "n mono" }, (t.next || 1).toLocaleString()),
         h("td", { class: "muted-text small" }, t.created_at ? `${relTime(t.created_at)}${t.created_by ? `, ${t.created_by}` : ""}` : "")))))
       : h("p", { class: "muted-text" }, "No key tables yet."),
-    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null));
+    k.requested.length ? h("div", {}, h("b", {}, "Requested"), requestTable(k.requested, rerender)) : null),
+  howItWorks("platform.keys", {
+    reads: k.shared
+      ? "The key tables in SQL_Keys, the one keys database Dev, Test and Prod share. It reads when the tab opens."
+      : "The key tables in this environment's SQL_Platform, or a file on this PC until the environment has a platform. It reads when the tab opens.",
+    changes: `New key table adds sk.<name> ${k.shared ? "once, in SQL_Keys" : "in every environment's SQL_Platform"}; only platform admins can. ` +
+      "From Settings under Platform: Create or Finish makes a Keys workspace with SQL_Keys and UDF_Keys, which uses Fabric capacity. " +
+      "Move keys in shows what would move first, then copies every key table into it, keeps Prod's numbers, gives Dev and Test keys new numbers where Prod differs, closes each environment's old key tables and switches every environment to it. " +
+      "Cancel the move removes the copied tables and reopens the old ones; it's refused once the move has finished.",
+    results: "Runs in every environment issue keys from the list on this tab. After a move, re-run Dev and Test so their tables pick up the new numbers. Each change is kept on the Audit tab.",
+    anchor: "platform",
+  })));
 }
 
-function keyTableDialog(done) {
+function keyTableDialog(done, shared = false) {
   const name = h("input", { placeholder: "supplier" });
   const bk = h("input", { placeholder: "supplier_id" });
   const description = h("input", { placeholder: "A supplier, from any source" });
   showDialog("New key table", h("div", {},
     h("label", { class: "field" }, "Name", name), h("label", { class: "field" }, "Business key column", bk),
     h("label", { class: "field" }, "Description", description),
-    h("p", { class: "muted-text small" }, "Creates sk.<name> in every environment's SQL_Platform with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.")), [
+    h("p", { class: "muted-text small" }, `Creates sk.<name> ${shared ? "once, in SQL_Keys," : "in every environment's SQL_Platform"} with <name>_sk (INT), <name>_bk (unique) and create_date, and the Unknown member -1.`)), [
     btn("Cancel", null, closeDialog, "tool outline"),
     btn("Create", "add", async () => {
       if (!name.value.trim()) { name.focus(); return; }
@@ -369,12 +385,13 @@ async function platformDomainsTab(body) {
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
+      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
         h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
-        h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+        h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
@@ -469,7 +486,7 @@ const productsPage = { query: "", domain: "all", open: null };
 
 async function renderDataProducts() {
   const pp = productsPage;
-  const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
+  const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },

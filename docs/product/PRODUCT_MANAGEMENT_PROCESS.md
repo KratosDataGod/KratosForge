@@ -80,4 +80,4 @@ Then the next cycle starts at step 1.
 | [pr-ready/](pr-ready/README.md) | Implementation packages and their sequence |
 | [IMPLEMENTATION_REVIEW_PROCESS.md](IMPLEMENTATION_REVIEW_PROCESS.md) | How work is accepted |
 | [COMPETITIVE_CAPABILITY_MATRIX.md](COMPETITIVE_CAPABILITY_MATRIX.md) | Market context |
-| [schema/](schema/feature-inventory.schema.json) and [tools/product_data.py](https://github.com/KratosDataGod/fabric-desktop/blob/main/docs/product/tools/product_data.py) | Validation, scoring and rendering |
+| [schema/](schema/feature-inventory.schema.json) and [tools/product_data.py](https://github.com/KratosDataGod/KratosForge/blob/main/docs/product/tools/product_data.py) | Validation, scoring and rendering |

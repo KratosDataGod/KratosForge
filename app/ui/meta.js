@@ -210,9 +210,9 @@ async function renderEntitiesTab(body, p) {
         h("td", {}, r ? [statusPill(r.status), h("span", { class: "muted-text" }, " ", when(r.started_at))]
           : h("span", { class: "muted-text" }, "never")),
         h("td", {}, e.owner));
-    }))) : h("div", { class: "empty" }, h("span", { class: "title" }, "No entities yet"),
-    h("span", { class: "text" }, "Add one from a template. It starts out meeting your layer's standards."),
-    btn("New entity", "add", newEntityDialog, "tool primary")));
+    }))) : emptyState({ title: "No entities yet",
+    text: "Add one from a template. It starts out meeting your layer's standards.",
+    action: btn("New entity", "add", newEntityDialog, "tool primary") }));
 }
 
 function newEntityDialog(preset) {
@@ -347,7 +347,7 @@ async function renderEntity() {
         h("div", { class: "row" }, h("button", { class: "tool link", onclick: () => goMeta("entities") }, "Data mesh"), h("span", { class: "muted-text" }, "/")),
         h("h1", { class: "row" }, h("span", { class: "mono" }, e.name), layerChip(e.layer)),
         h("p", { class: "sub" }, `${MODE_LABEL[e.mode] || e.mode}${e.watermark ? ` on ${e.watermark}` : ""} · owner ${e.owner || "not set"} · `,
-          h("span", { class: "mono" }, e.path))),
+          h("span", { class: "mono" }, e.path), " ", learnMore("data-mesh"))),
       h("div", { class: "head-actions" },
         btn("Delete", "delete", async () => {
           if (!(await confirmDialog(`Delete ${e.name}?`, "The entity file is removed. Its Delta table stays in the lakehouse until you delete it there.", "Delete", { danger: true }))) return;
@@ -405,6 +405,7 @@ function keysCard(e) {
         if (res) { toast(`Created ${res.name}`); openNotebook(res.name); }
       }, "tool primary small") : null),
     e.keys_sql ? h("pre", { class: "sql-block" }, e.keys_sql)
+      : e.keys_from ? h("p", { class: "muted-text" }, `Keys come from ${e.keys_from}, so there's no MERGE into LH_Keys to copy. Each run of this entity takes its keys from ${e.keys_from}.`)
       : h("p", { class: "muted-text" }, "Fix the problems above to see the MERGE."));
 }
 
@@ -441,52 +442,58 @@ function dataTable(preview) {
 
 async function runEntities(names, opts = {}) {
   const p = state.meta.project;
-  const label = names ? names.join(", ") : `all ${p.entities.length} entities`;
+  let label = names ? names.join(", ") : `all ${p.entities.length} entities`;
   const env = state.meta.env;
   if (inFabric(p, env) && !state.user && !(await signIn())) return;
-  if (!(await metaRiskGate(p, names || p.entities.map((e) => e.name), env, label))) return;
+  const go = await metaRiskGate(p, names, env, label);
+  if (!go) return;
+  const only = go === true ? names : go;
+  if (only !== names) label = only.join(", ");  // only those that can start
   if (inFabric(p, env)) {
     toast(`Sending ${label} to Fabric for ${ENV_LABEL[env]}...`);
   } else {
     toast(`Running ${label} in ${ENV_LABEL[env]}...`);
   }
-  const results = await metaCall("meta_run", { names, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
+  const results = await metaCall("meta_run", { names: only, env, backfill: opts.backfill || null, cascade: !!opts.cascade }, "Run blocked");
   if (!results) return;
-  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], names ? label : "Run all");
+  if (results[0]?.status === "submitted") return watchMetaFabricRun(results[0], only ? label : "Run all");
   const decision = results.find((r) => r.status === "needs_decision");
-  logRunActivity(`${names ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
+  logRunActivity(`${only ? label : "Run all"} · ${ENV_LABEL[env]}`, results, "on this PC", env);
   showRunResults(results, decision);
   render();
 }
 
-// The risk check (FINOPS-004) for each entity in the run, shown as one dialog when anything should
-// stop or slow it. When every entity is blocked there is no way to run anyway; when only some are,
-// the run can go ahead and the blocked ones are refused or fail as they would without the check.
+// The risk check (FINOPS-004) for the entities in the run, read in one batch, shown as one dialog
+// when anything should stop or slow it. Resolves true to run as asked, a list of names to run only
+// those (the rest are blocked, or read from one that is), or false. When nothing can start there is
+// no way to run.
 async function metaRiskGate(p, names, env, label) {
   const wid = (n) => `meta:${p.project?.name || "project"}:${n}`;
-  const checks = await Promise.all(names.map((n) => rpc("risk_check", { id: wid(n), action: "run", env })
-    .then((r) => [n, r]).catch(() => null)));
-  const found = checks.filter((c) => c && (c[1].result === "warning" || c[1].result === "blocked"));
-  if (!found.length) return true;
-  const blocked = found.filter(([, r]) => r.result === "blocked").length;
-  const allBlocked = blocked === names.length;
+  const gate = await rpc("meta_risk_gate", { names, env }).catch(() => null);
+  if (!gate) return true;
+  const found = gate.checks.filter((c) => c.result === "warning" || c.result === "blocked").map((c) => [c.entity, c]);
+  const held = Object.entries(gate.held || {});
+  if (!found.length && !held.length) return true;
+  const stopped = gate.checks.length - gate.run.length;
+  const none = !gate.run.length;
   return new Promise((resolve) => {
     const boxes = new Map(found.map(([n, r]) => [n, riskAckBox(r)]));
     const go_ = async () => {
-      for (const [n, r] of found) {
+      for (const [n, r] of found.filter(([n]) => gate.run.includes(n))) {
         if (!(await riskProceed({ id: wid(n), action: "run", env }, r, boxes.get(n)))) return;
       }
       closeDialog();
-      resolve(true);
+      resolve(stopped ? gate.run : true);
     };
     showDialog(`Run ${label} in ${ENV_LABEL[env]}?`, h("div", { class: "wl-confirm" },
-      found.map(([n, r]) => [found.length > 1 || names.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
-      blocked && !allBlocked ? h("p", { class: "text" }, `${blocked} of ${names.length} can't start; the others run if you go ahead.`) : null,
-      h("p", { class: "muted-text small" }, found[0][1].note)),
-    allBlocked
+      found.map(([n, r]) => [gate.checks.length > 1 ? h("h3", {}, n) : null, riskPanel(r, { box: boxes.get(n) })]),
+      held.length ? h("p", { class: "text" }, `Waiting because they read from one that can't start: ${held.map(([n, ups]) => `${n} (reads ${ups.join(", ")})`).join("; ")}.`) : null,
+      stopped && !none ? h("p", { class: "text" }, `${stopped} of ${gate.checks.length} won't start; the other ${gate.run.length} run if you go ahead.`) : null,
+      h("p", { class: "muted-text small" }, (found[0]?.[1] || gate.checks[0])?.note || "")),
+    none
       ? [btn("Close", null, () => { closeDialog(); resolve(false); }, "tool primary")]
       : [btn("Cancel", null, () => { closeDialog(); resolve(false); }, "tool outline"),
-        btn("Run anyway", null, go_, "tool primary")]);
+        btn(stopped ? `Run the other ${gate.run.length}` : "Run anyway", null, go_, "tool primary")]);
   });
 }
 
@@ -748,7 +755,7 @@ function scheduleMetaRuns(env) {
   const p = state.meta.project;
   const fabric = inFabric(p, env);
   openScheduleDialog({
-    title: `Schedule ${ENV_LABEL[env]} runs`,
+    title: `Schedule ${ENV_LABEL[env]} runs`, what: `${ENV_LABEL[env]} runs`,
     mode: fabric ? "fabric" : "pc",
     pc: { target: { kind: "meta", env }, query: { kind: "meta", env },
           intro: `This PC runs every entity in ${ENV_LABEL[env]}, in layer order, from the project files as they are when it runs.` },
@@ -883,10 +890,10 @@ async function renderKeysTab(body) {
       h("td", { class: "n" }, t.created ? t.keys.toLocaleString() : h("span", { class: "muted-text" }, "not created")),
       h("td", { class: "n mono" }, t.created ? t.next.toLocaleString() : "1"),
       h("td", {}, t.used_by.length ? `${t.used_by.length} table${t.used_by.length === 1 ? "" : "s"}` : h("span", { class: "muted-text" }, "none"))))))
-    : h("div", { class: "empty" }, h("span", { class: "title" }, "No key tables yet"),
-      h("span", { class: "text" }, k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
-        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys."),
-      addKeyTableButton(k, rerender, "tool primary"));
+    : emptyState({ title: "No key tables yet",
+      text: k.central_key_tables ? "Use the platform's key table for each business key, like customer or product."
+        : "Add one per business key, like customer or product. Each gets its own table in LH_Keys.",
+      action: addKeyTableButton(k, rerender, "tool primary") });
 
   body.replaceChildren(...[head, keysPlatformCard(k, rerender),
     problems.length ? h("div", { class: "problems" }, h("b", {}, "Fix these first"), gateList(problems)) : null,
@@ -1123,6 +1130,12 @@ async function moveSourcesToPlatform(own, env, done) {
   done();
 }
 
+// The entity file editor's own keys, listed in the Keyboard shortcuts dialog on an entity page (handled in renderEntity).
+registerShortcuts("Entity page", [
+  { keys: ["Ctrl+S"], label: "In the entity file: save it", when: () => state.view === "entity" },
+  { keys: ["Tab"], label: "In the entity file: type four spaces (Tab doesn't leave the box there)", when: () => state.view === "entity" },
+]);
+
 registerFeature({
   id: "metadata", rail: { label: "Data mesh", icon: "metadata", order: 50, also: ["entity"] },
   views: { metadata: renderMetadata, entity: renderEntity },
@@ -1241,6 +1254,8 @@ async function renderModelTab(body) {
     result.replaceChildren(h("div", { class: "pass-box" }, icon("ok", 16),
       `${res.created ? "Created" : "Updated"} ${res.name}: ${res.tables.length} tables, ${res.relationships} relationship${res.relationships === 1 ? "" : "s"}.`,
       res.skipped.length ? ` Not written yet, so left out: ${res.skipped.join(", ")}.` : "",
+      res.columns_left_out?.length ? ` Direct Lake can't read these column types, so they were left out: ${res.columns_left_out.map((c) => `${c.table}.${c.column} (${c.type})`).join(", ")}.` : "",
+      res.relationships_left_out?.length ? ` Relationships left out because their column isn't in the model: ${res.relationships_left_out.join(", ")}.` : "",
       res.endpoint_refreshed ? "" : " The SQL endpoint refresh didn't run; if a table is missing, refresh the lakehouse in Fabric and build again.",
       res.url ? btn("Open in Fabric", "open", () => openInFabric(res.url), "tool link small") : null));
   };

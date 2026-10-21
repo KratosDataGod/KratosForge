@@ -5,13 +5,13 @@
 
 [project]
 site_name = "KratosForge"
-site_url = "https://kratosdatagod.github.io/fabric-desktop/"
+site_url = "https://kratosdatagod.github.io/kratosforge/"
 site_description = "Do your Microsoft Fabric data engineering on your own PC and write the results straight into OneLake."
 site_author = "KratosBI"
 copyright = "Copyright &copy; KratosBI"
 
-repo_url = "https://github.com/KratosDataGod/fabric-desktop"
-repo_name = "KratosDataGod/fabric-desktop"
+repo_url = "https://github.com/KratosDataGod/KratosForge"
+repo_name = "KratosDataGod/KratosForge"
 edit_uri = "edit/main/docs/"
 
 docs_dir = "docs"
@@ -37,7 +37,11 @@ nav = [
     { "SQL compatibility check" = "sql-compatibility.md" },
     { "Running SQL queries" = "sql-execution.md" },
     { "Side by side: PC vs Fabric" = "side-by-side.md" },
+    { "Notebook magics" = "notebook-magics.md" },
     { "Validate a notebook" = "validate-notebook.md" },
+    { "Motion and effects" = "forge-animations.md" },
+    { "Notebook files" = "notebook-files.md" },
+    { "Profile" = "profile.md" },
     { "How a proof works" = "prove/how-proofs-work.md" },
     { "Capacity and cost evidence" = "finops/cost-evidence.md" },
     { "Capacity of each environment" = "finops/capacity.md" },
@@ -194,7 +198,7 @@ toggle.name = "Switch to system preference"
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/KratosDataGod/fabric-desktop"
+link = "https://github.com/KratosDataGod/KratosForge"
 
 [project.markdown_extensions]
 abbr = {}

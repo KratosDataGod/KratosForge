@@ -24,6 +24,7 @@ from ..meta import mesh
 from ..meta.project import ENVIRONMENTS, GateError
 from ..onelake import FileStore, TableRef
 from ..redact import describe
+from . import keys_home
 from . import setup as setup_mod
 from .client import FabricPlatform, LocalPlatform, PlatformKeys
 from .migrate import migrate
@@ -69,13 +70,180 @@ class PlatformMixin:
         return self._platform(CATALOG_ENV)
 
     def _platform_keys(self, env: str) -> PlatformKeys:
-        return PlatformKeys(self._platform(env), env)
+        return PlatformKeys(self._keys_platform(env), env)
+
+    # ---- one keys database for every environment (keys_home.py)
+
+    def _keys_config(self) -> dict[str, Any]:
+        """The Keys workspace Dev, Test and Prod share; ``shared`` is set once keys have moved in."""
+        policy = app_settings.value("platform") or {}
+        mine = self._settings().get("platform", {})  # type: ignore[attr-defined]
+        return dict(policy.get("keys") or mine.get("keys") or {})
+
+    def _shared_keys(self) -> LocalPlatform | FabricPlatform:
+        cfg = self._keys_config()
+        if cfg.get("functions_id"):
+            return FabricPlatform(lambda: self.auth._token(EXECUTE_SCOPES),  # type: ignore[attr-defined]
+                                  cfg["workspace_id"], cfg["functions_id"])
+        cached = getattr(self, "_local_shared_keys", None)
+        if cached is None:
+            cached = self._local_shared_keys = LocalPlatform(self._local_keys_path(), self._user)
+        return cached
+
+    def _local_keys_path(self) -> Path:
+        return self.root / "platform" / "keys.sqlite"
+
+    def _keys_platform(self, env: str) -> LocalPlatform | FabricPlatform:
+        """Where an environment's platform keys are: the shared keys database, else its own platform."""
+        return self._shared_keys() if self._keys_config().get("shared") else self._platform(env)
+
+    def _keys_in_fabric(self, env: str) -> bool:
+        cfg = self._keys_config() if self._keys_config().get("shared") else self._platform_config().get(env, {})
+        return bool(cfg.get("functions_id"))
+
+    def _key_platforms(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
+        """Every database a new key table goes in: the shared one, else each environment's platform."""
+        return [("keys", self._shared_keys())] if self._keys_config().get("shared") else self._distinct_platforms()
+
+    def platform_keys_setup(self, name: str = "", capacity_id: str = "") -> dict[str, Any]:
+        """Create (or finish creating) the Keys workspace. Keys move in only with platform_share_keys."""
+        out = keys_home.setup(self.fabric, lambda: self.auth._token(EXECUTE_SCOPES),  # type: ignore[attr-defined]
+                              name, capacity_id, self._keys_config())
+        self._save_platform("keys", out["config"])
+        if out["ready"]:
+            self._adopt_live_keys()  # a Keys workspace someone else already moved keys into
+        return out | {"status": self.platform_status()}
+
+    def platform_keys_join(self, workspace_id: str) -> dict[str, Any]:
+        """Use a Keys workspace someone already made. If its keys are already in use, this PC uses them too."""
+        self._save_platform("keys", self._keys_config() | keys_home.join(self.fabric, workspace_id))  # type: ignore[attr-defined]
+        self._adopt_live_keys()
+        return self.platform_status()
+
+    def _adopt_live_keys(self) -> bool:
+        """Switch this PC to the shared keys database if another admin's move already made it live."""
+        cfg = self._keys_config()
+        if cfg.get("shared"):
+            return True
+        if not cfg.get("functions_id") and not self._local_keys_path().exists():
+            return False  # no keys database on this PC yet, and looking must not create one
+        if not self._shared_keys().call("keys_state").get("live"):
+            return False
+        self._save_platform("keys", cfg | {"shared": True})
+        return True
+
+    def _share_sources(self) -> list[tuple[str, LocalPlatform | FabricPlatform]]:
+        """Each environment's platform once, Prod first, so a database it shares with Dev keeps Prod's numbers."""
+        sources, seen = [], set()
+        cfg = self._platform_config()
+        for env in reversed(ENVIRONMENTS):
+            if not cfg[env].get("functions_id") and not (self.root / "platform" / f"platform-{env}.sqlite").exists():
+                continue  # no platform on this PC for it, so no keys to move (and looking must not create one)
+            client = self._platform(env)
+            ident = getattr(client, "functions_id", None) or str(getattr(client, "path", env))
+            if ident not in seen:
+                seen.add(ident)
+                sources.append((env, client))
+        return sources
+
+    def _check_can_share(self) -> dict[str, Any]:
+        if self._platform_source() == "policy":
+            raise PermissionError("Your organization sets the platform, so keys can't be moved from this PC")
+        cfg = self._keys_config()
+        if not cfg.get("functions_id") and any(c.get("functions_id") for c in self._platform_config().values()):
+            # Fabric can't reach a database on this PC, so keys already in Fabric never move here.
+            raise LookupError("Create or join the Keys workspace first, in Settings under Platform, "
+                              "then move the keys in.")
+        return cfg
+
+    def platform_share_keys(self, approve: bool = False) -> dict[str, Any]:
+        """Move every environment's key tables into the one keys database and use it from then on.
+
+        Without ``approve`` this only reports what would happen: each key table's keys and how many
+        Dev and Test keys get a different number. With it, every environment's keys close first, so
+        no run issues a key while they're copied; Prod's keep their numbers. The switch happens only
+        if every key table checked out and no environment's keys changed during the move. A move
+        that stops leaves the keys closed, so running it again copies the same keys."""
+        if self._keys_config().get("shared"):
+            return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
+        cfg = self._check_can_share()
+        if self._adopt_live_keys():  # another admin's move: the keys are already in use
+            return {"ok": True, "already": True, "tables": [], "renumbered": 0, "status": self.platform_status()}
+        sources = self._share_sources()
+        if not approve:
+            return keys_home.plan(sources) | {"ok": False, "preview": True, "message": (
+                f"Every environment's keys close while they move into {cfg.get('workspace_name') or 'the keys database on this PC'}, "
+                "so runs that need new keys wait. Prod's keys keep their numbers; Dev and Test keys that change "
+                "need one re-run of their tables. Confirm to continue.")}
+        shared = self._shared_keys()
+        if shared.call("whoami").get("can_claim"):
+            shared.call("claim_admin")
+        admins = {a["user_name"] for a in shared.call("list_admins")}
+        for _, client in sources:  # the platform admins come along, so they can still add key tables
+            for admin in client.call("list_admins"):
+                if admin["user_name"] not in admins:
+                    shared.call("add_admin", user=admin["user_name"])
+                    admins.add(admin["user_name"])
+        where = cfg.get("workspace_name") or "the keys database on this PC"
+        closed: list[LocalPlatform | FabricPlatform] = []
+        for env, client in sources:
+            try:
+                client.call("close_keys", reason=f"Keys are moving to {where}. Runs that need new keys can run "
+                                                 "again once the move finishes.")
+                closed.append(client)
+            except Exception as exc:  # noqa: BLE001 - an older platform: nothing has moved yet
+                for done in closed:
+                    done.call("close_keys", reason="")
+                raise LookupError(f"{env.title()}'s platform can't close its keys for the move ({exc}). Run Finish "
+                                  "or repair on it in Settings under Platform, then move the keys again.") from exc
+        stopped = ("Nothing switched, and every environment's keys stay closed so they can't change. "
+                   "Move the keys again, or cancel the move to reopen them.")
+        try:
+            shared.call("stage_keys", staging=True)
+            before = keys_home.snapshot(sources)
+            report = keys_home.share(sources, shared)
+        except Exception as exc:  # noqa: BLE001 - the keys stay closed, so the move can simply run again
+            _log.warning("Moving keys stopped: %s", describe(exc))
+            return {"ok": False, "tables": [], "renumbered": 0, "error": describe(exc),
+                    "message": f"The move stopped: {describe(exc)}. {stopped}", "status": self.platform_status()}
+        changed = [f"{env.title()} {name}" for (env, name), v in keys_home.snapshot(sources).items() if before.get((env, name)) != v]
+        if changed:
+            report |= {"ok": False, "changed_during_move": changed}
+        if report["ok"]:
+            shared.call("stage_keys", staging=False, live=True)
+            self._save_platform("keys", cfg | {"shared": True, "moved_at": dt.datetime.now(dt.timezone.utc)
+                                                .isoformat(timespec="seconds")})
+            for _, client in sources:
+                client.call("close_keys", reason=f"Keys moved to {where}, one keys database for Dev, Test and "
+                                                 "Prod. Join it in Settings under Platform.")
+        else:
+            report["message"] = stopped
+        return report | {"status": self.platform_status()}
+
+    def platform_cancel_share_keys(self, approve: bool = False) -> dict[str, Any]:
+        """Give up a move that didn't switch: empty what it copied and reopen every environment's keys."""
+        self._check_can_share()
+        if self._adopt_live_keys():
+            raise GateError("save", ["The keys already moved and are in use, so the move can't be cancelled."])
+        if not approve:
+            tables = [t["name"] for t in self._shared_keys().call("list_key_tables")]
+            return {"ok": False, "preview": True, "tables": tables, "message": (
+                f"The move never switched, so nothing uses these key tables yet: {', '.join(tables) or 'none'}. "
+                "They're removed from the keys database, and every environment issues its own keys again. "
+                "Confirm to continue.")}
+        cleared = self._shared_keys().call("clear_keys")
+        for _, client in self._share_sources():
+            client.call("close_keys", reason="")
+        return {"ok": True, **cleared, "status": self.platform_status()}
 
     def platform_status(self) -> dict[str, Any]:
         cfg = self._platform_config()
+        keys = self._keys_config()
         return {"source": self._platform_source(), "default_names": {e: setup_mod.default_name(e) for e in ENVIRONMENTS},
                 "environments": {env: {"kind": "fabric" if c.get("functions_id") else "local", **c}
                                  for env, c in cfg.items()},
+                "keys": {"kind": "fabric" if keys.get("functions_id") else "local", "shared": bool(keys.get("shared")),
+                         "default_name": keys_home.DEFAULT_NAME, **keys},
                 "local_path": str(self.root / "platform")}
 
     def _save_platform(self, env: str, cfg: dict[str, Any]) -> None:
@@ -131,15 +299,35 @@ class PlatformMixin:
         """Bring Fabric's domains and subdomains into the catalog, so everyone sees their names.
         Needs a Fabric administrator (Fabric's domain list is an admin API) who is also a platform admin."""
         try:
-            fabric = self._fabric_admin().list_admin_domains()
+            admin = self._fabric_admin()
+            fabric = admin.list_admin_domains()
         except FabricError as exc:
             if re.search(r"failed with 40[13]\b", str(exc)):
                 raise PermissionError("Only a Fabric administrator can read Fabric's domains. Ask one to open "
                                       "Platform > Domains and choose Import from Fabric; after that, everyone "
                                       "sees the domains here.") from exc
             raise
+        unread = self._read_domain_admins(admin, fabric)
         result = self._catalog().call("import_fabric_domains", domains=fabric)
-        return {"result": result, "fabric": len(fabric), "domains": self.platform_domains()}
+        return {"result": result, "fabric": len(fabric), "owners_unread": unread, "domains": self.platform_domains()}
+
+    @staticmethod
+    def _read_domain_admins(admin: FabricClient, fabric: list[dict[str, Any]]) -> list[str]:
+        """Add each Fabric domain's admins (names and kinds, no email) as ``admins``. A domain whose
+        admins can't be read gets no ``admins``, so the catalog keeps what it had; its name is returned."""
+        unread = []
+        for d in fabric:
+            try:
+                roles = admin.list_admin_domain_role_assignments(str(d["id"]))
+            except (FabricError, KeyError) as exc:
+                name = str(d.get("displayName") or d.get("id") or "")
+                busy = getattr(exc, "status", None) == 429  # still throttled after the client's retries
+                unread.append(f"{name} (Fabric is busy: import again later)" if busy else name)
+                continue
+            d["admins"] = [{"name": (r.get("principal") or {}).get("displayName") or "",
+                            "type": (r.get("principal") or {}).get("type") or "User"}
+                           for r in roles if str(r.get("role") or "").lower() in ("admin", "admins")]
+        return unread
 
     def mesh_workspace_domains(self) -> dict[str, Any]:
         """The Fabric domain of each workspace the open project writes to. Any workspace member can
@@ -217,6 +405,8 @@ class PlatformMixin:
         """Run one change on every environment's platform (admins and key tables live in each).
         The catalog's goes first, so a refusal there stops the rest."""
         envs = sorted(self._distinct_platforms(), key=lambda e: e[0] != CATALOG_ENV)
+        if self._keys_config().get("shared") and op != "ensure_key_table":
+            envs.append(("keys", self._shared_keys()))  # admins of the shared keys database too
         done = []
         for i, (env, client) in enumerate(envs):
             try:
@@ -240,14 +430,19 @@ class PlatformMixin:
         return self.platform_admins()
 
     def platform_key_tables(self, env: str = "dev") -> dict[str, Any]:
-        tables = self._platform(env).call("list_key_tables")
+        tables = self._keys_platform(env).call("list_key_tables")
         waiting = [r for r in self._catalog().call("list_requests", status="waiting") if r["kind"] == "key_table"]
-        return {"env": env, "key_tables": tables, "requested": waiting}
+        return {"env": env, "key_tables": tables, "requested": waiting, "shared": bool(self._keys_config().get("shared"))}
 
     def platform_create_key_table(self, name: str, business_key: str = "", description: str = "",
                                   domain_id: str = "") -> dict[str, Any]:
-        """A new key table in every environment's platform at once, so Dev, Test and Prod match."""
+        """A new key table in the shared keys database, or in every environment's platform at once
+        so Dev, Test and Prod match."""
         name = name.strip().lower()
+        if self._keys_config().get("shared"):
+            created = self._shared_keys().call("ensure_key_table", name=name, business_key=business_key,
+                                               description=description, domain_id=domain_id)
+            return {"name": name, "environments": [{"env": "keys", "ok": True, "result": created}]}
         report = self._each_platform("ensure_key_table", name=name, business_key=business_key,
                                      description=description, domain_id=domain_id)
         return {"name": name, "environments": report}
@@ -347,9 +542,9 @@ class PlatformMixin:
     def platform_decide(self, id: str, approve: bool, note: str = "") -> dict[str, Any]:
         out = self._catalog().call("decide_request", id=id, approve=approve, note=note)
         if approve and out.get("kind") == "key_table":
-            # The catalog's platform made it; the other environments get the same key table.
+            # The catalog's platform made it; the shared keys database, or the other environments, get it too.
             d = out.get("detail") or {}
-            for env, client in self._distinct_platforms():
+            for env, client in self._key_platforms():
                 if env == CATALOG_ENV:
                     continue
                 try:
@@ -376,7 +571,7 @@ class PlatformMixin:
         products = catalog.call("list_products")
         requests = catalog.call("list_requests", status="waiting")
         try:
-            keys = self._platform(env).call("list_key_tables")
+            keys = self._keys_platform(env).call("list_key_tables")
         except Exception as exc:  # noqa: BLE001
             keys, problems = [], problems + [str(exc)]
         try:
@@ -411,7 +606,8 @@ class PlatformMixin:
         links = [{"from": c["consumer_project"], "product": p["id"], "to": p["project"]}
                  for p in products for c in p.get("consumers", [])]
         return {"me": me, "problem": "",
-                "domains": [{k: d.get(k) for k in ("id", "name", "parent_id", "fabric_domain")} for d in domains],
+                "domains": [{k: d.get(k) for k in ("id", "name", "parent_id", "fabric_domain", "owners", "fabric_owners")}
+                            for d in domains],
                 "projects": [{k: p.get(k) for k in ("name", "domain_id", "subdomain_id", "team")} for p in projects],
                 "products": [{k: p.get(k) for k in ("id", "project", "name", "domain_id", "access", "status")}
                              for p in products if p["status"] != "draft"],
@@ -658,7 +854,12 @@ class PlatformMixin:
         if self._keys_in_platform(project, env):  # type: ignore[attr-defined]
             return {"env": env, "ok": True, "already": True, "tables": []}
         lakehouse_keys = self._keys_store(project, env)  # type: ignore[attr-defined]
-        report = migrate(project, lakehouse_keys, self._platform_keys(env))
+        if self._keys_config().get("shared") and env != "prod":
+            # One keys database: Prod's numbers are already there, so Dev and Test keys Prod
+            # doesn't have get new ones, and their tables need one re-run.
+            report = migrate(project, lakehouse_keys, self._platform_keys(env), keep_numbers=False)
+        else:
+            report = migrate(project, lakehouse_keys, self._platform_keys(env))
         if report["ok"]:
             envs = {k: dict(v) for k, v in project.environments.items()}
             envs[env]["keys"] = "platform"

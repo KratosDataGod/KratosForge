@@ -89,6 +89,37 @@ function nbDataText(data) {
   return "";
 }
 
+// A platform repository compared with what is deployed (item 37, stage 3).
+const PLATFORM_STATES = { same: "same", changed: "changed", only_git: "only in Git", only_deployed: "removed in Git" };
+const PLATFORM_GROUPS = { admins: "Admins", domains: "Domains", sources: "Source systems", key_tables: "Key tables",
+  glossary: "Glossary", shortcut_rules: "Shortcut rules", policies: "Policies" };
+
+function platformValue(v) {
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
+  if (v && typeof v === "object") return JSON.stringify(v);
+  if (v === "" || v === null || v === undefined) return "empty";
+  return typeof v === "string" ? `"${v}"` : String(v);
+}
+
+// What changed in one object, a line per field.
+function platformChangeLines(item) {
+  if (item.kind === "admins") {
+    const [adds, removes] = [item.changes[0]?.git || [], item.changes[0]?.deployed || []];
+    return [adds.length ? `Git adds ${adds.join(", ")}` : null, removes.length ? `Git removes ${removes.join(", ")}` : null].filter(Boolean);
+  }
+  return item.changes.map((c) => `${c.field || "value"}: Git ${platformValue(c.git)}, deployed ${platformValue(c.deployed)}`);
+}
+
+function platformItemName(item, labels = {}) {
+  return `${labels[item.kind] || item.kind} ${item.id}`;
+}
+
+// One line per deploy step, for the plan.
+function platformStepText(step, labels = {}) {
+  const what = step.what || { create: "create", update: "save the changes", remove: "remove" }[step.action] || step.action;
+  return `${platformItemName(step, labels)}: ${what}`;
+}
+
 // ---------- state ----------
 
 const gitPage = {
@@ -97,6 +128,7 @@ const gitPage = {
   diff: null, diffMode: "inline", notebookView: true,
   message: "", branches: null, log: null, logRef: null, detail: null, compare: [], compared: null,
   settings: null, op: null, opTimer: null, refreshTimer: null, loading: false,
+  platform: { env: "prod", key: null, diff: null, error: null },  // the Platform tab of a platform repository
 };
 
 function gitCurrent() {
@@ -136,7 +168,7 @@ async function gitSwitchRepo(path) {
 
 async function renderSourceControl() {
   if (!gitPage.info) {
-    setView(h("div", { class: "page" }, h("h1", {}, "Source control"), h("p", { class: "muted-text" }, "Loading…")));
+    setView(h("div", { class: "page" }, h("h1", {}, "Source control"), loading("Loading…")));
     const ok = await attempt(gitLoadInfo, "Couldn't read Git on this PC");
     if (!ok || state.view !== "source") return;
   }
@@ -144,11 +176,10 @@ async function renderSourceControl() {
   const head = h("div", { class: "row" }, h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview"));
   gitPage.title = () => [h("h1", {}, "Source control"), preview("sourceControl", h("span")), learnMore("source-control-preview")];
   if (!info.installed) {
-    setView(h("div", { class: "page narrow" }, head, h("div", { class: "empty" }, icon("branch", 32),
-      h("div", { class: "title" }, "Git isn't installed on this PC"),
-      h("div", { class: "text" }, "Source control uses Git for Windows. Install it from git-scm.com with Git Credential Manager (the default), then open this page again."),
-      btn("Get Git for Windows", "open", () => openLink("https://git-scm.com/download/win"), "tool primary"),
-      btn("Check again", "sync", async () => { gitPage.info = null; render(); }, "tool outline"))));
+    setView(h("div", { class: "page narrow" }, head, emptyState({ icon: "branch", title: "Git isn't installed on this PC",
+      text: "Source control uses Git for Windows. Install it from git-scm.com with Git Credential Manager (the default), then open this page again.",
+      action: [btn("Get Git for Windows", "open", () => openLink("https://git-scm.com/download/win"), "tool primary"),
+        btn("Check again", "sync", async () => { gitPage.info = null; render(); }, "tool outline")] })));
     return;
   }
   if (!gitCurrent()) {
@@ -168,23 +199,25 @@ async function renderSourceControl() {
     await gitRefresh();
     if (state.view !== "source") return;
     if (!gitPage.status) {
-      setView(h("div", { class: "page narrow" }, head, h("div", { class: "empty" },
-        h("div", { class: "title" }, "This repository can't be read"),
-        h("div", { class: "text" }, `${gitCurrent()} may have moved or been deleted.`),
-        h("div", { class: "row" }, btn("Choose another", "folderOpen", (e) => gitRepoMenu(e.currentTarget), "tool outline"),
+      setView(h("div", { class: "page narrow" }, head, emptyState({ title: "This repository can't be read",
+        text: `${gitCurrent()} may have moved or been deleted.`,
+        action: h("div", { class: "row" }, btn("Choose another", "folderOpen", (e) => gitRepoMenu(e.currentTarget), "tool outline"),
           btn("Take it off the list", "delete", async () => {
             await attempt(() => rpc("git_forget", { repo: gitCurrent() }), "Not removed");
             gitPage.repo = null; await gitLoadInfo(); render();
-          }, "tool link")))));
+          }, "tool link")) })));
       return;
     }
   }
   const st = gitPage.status;
   const counts = st.staged.length + st.unstaged.length + st.untracked.length + st.conflicts.length;
   const tab = (id, label) => h("button", { class: `tab${gitPage.tab === id ? " active" : ""}`, onclick: () => { gitPage.tab = id; render(); } }, label);
-  const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"), tab("branches", "Branches"),
+  const isPlatform = gitKindOf(st.root).kind === "platform";
+  if (gitPage.tab === "platform" && !isPlatform) gitPage.tab = "changes";
+  const tabs = h("div", { class: "subtabs" }, tab("changes", counts ? `Changes ${counts}` : "Changes"),
+    isPlatform ? tab("platform", "Platform") : null, tab("branches", "Branches"),
     tab("history", "History"), tab("settings", "Repository settings"));
-  const bodies = { changes: gitChangesTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
+  const bodies = { changes: gitChangesTab, platform: gitPlatformTab, branches: gitBranchesTab, history: gitHistoryTab, settings: gitSettingsTab };
   setView(h("div", { class: "page git-page" }, gitHeader(st), gitOpBand(), gitMergeBanner(st), gitKindBanner(st), tabs,
     h("div", { class: "git-body" }, bodies[gitPage.tab](st))));
 }
@@ -852,6 +885,11 @@ window.addEventListener("focus", () => { if (gitCurrent() && !gitPage.loading) g
 setInterval(() => { if (gitCurrent() && document.hasFocus()) gitRefresh({ quiet: true }); }, 60000);
 setTimeout(() => { gitLoadInfo().then(() => gitRefresh({ quiet: true })).catch(() => {}); }, 1500);
 
+// Listed in the Keyboard shortcuts dialog on Source control (handled on the commit message box).
+registerShortcuts("Source control", [
+  { keys: ["Ctrl+Enter"], label: "In the commit message: commit", when: () => state.view === "source" },
+]);
+
 registerFeature({
   id: "sourceControl",
   preview: true,
@@ -1013,4 +1051,132 @@ async function gitLocationsDialog(root, label, after) {
       if (after) after();
     } catch (e) { err.textContent = friendlyError(e).text; }
   }, "tool primary")]);
+}
+
+// ---------- Platform (a platform repository: compare, export, deploy) ----------
+
+function gitPlatformReload() {
+  gitPage.platform.key = null;
+  if (state.view === "source" && gitPage.tab === "platform") render();
+}
+
+function gitPlatformTab(st) {
+  const p = gitPage.platform;
+  const key = `${st.root}|${p.env}`;
+  if (p.key !== key) {
+    Object.assign(p, { key, diff: null, error: null });
+    rpc("git_platform_diff", { repo: st.root, env: p.env })
+      .then((d) => { if (p.key === key) p.diff = d; })
+      .catch((err) => { if (p.key === key) p.error = friendlyError(err).text; })
+      .finally(() => { if (state.view === "source" && gitPage.tab === "platform") render(); });
+  }
+  const envSelect = h("select", { "aria-label": "Compare with", onchange: (e) => { p.env = e.target.value; render(); } },
+    ["dev", "test", "prod"].map((e) => h("option", { value: e, selected: p.env === e ? true : null }, e[0].toUpperCase() + e.slice(1))));
+  const d = p.diff;
+  const c = d?.counts;
+  const bar = h("section", { class: "card pad" }, h("div", { class: "row wrap" },
+    h("b", {}, "Compare with"), envSelect,
+    c ? h("span", { class: "muted-text small" }, `${c.same} same · ${c.changed} changed · ${c.only_git} only in Git · ${c.only_deployed} removed in Git`) : null,
+    h("span", { class: "spacer" }),
+    btn("Refresh", "sync", gitPlatformReload, "tool outline small"),
+    btn("Export from platform…", "arrowDownload", () => gitPlatformExport(st.root), "tool outline"),
+    btn("Deploy…", "arrowUpload", () => gitPlatformDeploy(st.root), "tool primary")),
+    h("p", { class: "muted-text small" }, "Git is the source of truth for platform definitions; the platform holds what is deployed. Comparing only reads: nothing changes in Git or in Fabric."));
+  if (p.error) return h("div", { class: "git-platform" }, bar, h("div", { class: "callout git-warn" }, icon("warning", 16), p.error));
+  if (!d) return h("div", { class: "git-platform" }, bar, h("p", { class: "muted-text" }, "Comparing with the platform…"));
+  const problems = d.problems.length ? h("div", { class: "callout git-warn" }, icon("warning", 16),
+    h("div", {}, h("b", {}, "These files can't be used, so a deploy won't start:"), d.problems.map((x) => h("div", { class: "small" }, x)))) : null;
+  const kinds = [...new Set(d.items.map((i) => i.kind))];
+  const groups = kinds.map((k) => {
+    const items = d.items.filter((i) => i.kind === k);
+    const shown = items.filter((i) => i.state !== "same");
+    const same = items.length - shown.length;
+    return h("section", { class: "card pad" }, h("h2", {}, PLATFORM_GROUPS[k] || k),
+      shown.map((i) => h("div", { class: "git-platform-item" },
+        h("div", { class: "row" }, h("span", { class: "grow" }, i.id), h("span", { class: `pill-s ${i.state === "changed" ? "warn" : i.state === "only_deployed" ? "fail" : "info"}` }, PLATFORM_STATES[i.state])),
+        i.state === "changed" ? h("div", { class: "mono small git-platform-changes" }, platformChangeLines(i).map((l) => h("div", {}, l))) : null)),
+      same ? h("p", { class: "muted-text small" }, shown.length ? `${same} more ${same === 1 ? "is" : "are"} the same.`
+        : same === 1 ? "Same as deployed." : `All ${same} are the same as deployed.`) : null);
+  });
+  return h("div", { class: "git-platform" }, bar, problems,
+    d.policies_set_up ? null : h("p", { class: "muted-text small" }, "Policies aren't set up on this platform yet."),
+    d.items.length ? groups : h("p", { class: "muted-text" }, "Nothing to compare yet. Export from the platform to start the files."));
+}
+
+// Writes what is deployed into the repository as changes to review. Nothing is committed and
+// nothing in Fabric changes. Uncommitted edits are replaced only after a second confirm.
+async function gitPlatformExport(root) {
+  if (!(await confirmDialog("Export from the platform?",
+    "Writes what the platform holds into this repository, one file per object, as changes to review. Nothing is committed and nothing in Fabric changes. Files for objects that aren't deployed are left as they are. Source connections, keys, requests and grants are never exported.",
+    "Export"))) return;
+  let out = await attempt(() => rpc("git_platform_export", { repo: root }), "Couldn't export");
+  if (!out) return;
+  if (out.needs_confirm) {
+    if (!(await confirmDialog("Replace files you haven't committed?", `${out.message}`, "Replace and export", { danger: true }))) return;
+    out = await attempt(() => rpc("git_platform_export", { repo: root, confirm: true }), "Couldn't export");
+    if (!out) return;
+  }
+  const extra = [out.skipped.length ? `${out.skipped.length} skipped` : null, out.left.length ? `${out.left.length} not deployed left as they are` : null,
+    out.disagree.length ? `${out.disagree.length} key table${out.disagree.length === 1 ? " differs" : "s differ"} between environments` : null].filter(Boolean);
+  toast(out.written.length ? `Exported ${out.written.length} file${out.written.length === 1 ? "" : "s"}. Review them in Changes, then commit.${extra.length ? ` ${extra.join("; ")}.` : ""}`
+    : `The files already match the platform.${extra.length ? ` ${extra.join("; ")}.` : ""}`);
+  await gitAfterChange(out.status);
+  gitPlatformReload();
+}
+
+// Deploy: shows the plan (steps, what is skipped and why, removals to tick), then runs exactly that
+// plan after one confirm. The engine refuses a plan that changed since it was shown.
+async function gitPlatformDeploy(root) {
+  const ticked = new Set();
+  let plan = await attempt(() => rpc("git_platform_deploy", { repo: root, remove: [] }), "Can't deploy");
+  if (!plan) return;
+  const body = h("div", { class: "git-form git-deploy" });
+  const go = btn("Deploy", null, () => run(), "tool danger-solid");
+  const replan = async () => {
+    const next = await attempt(() => rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)) }), "Can't deploy");
+    if (next) { plan = next; draw(); }
+  };
+  const draw = (note) => {
+    const L = plan.labels;
+    const n = plan.steps.length;
+    body.replaceChildren(...[
+      h("p", {}, `Deploys commit ${plan.commit.slice(0, 8)}: the catalog in ${plan.catalog_env[0].toUpperCase() + plan.catalog_env.slice(1)}, and admins and key tables in every environment. Platform admins only; each step is recorded in the platform's audit as you.`),
+      note ? h("div", { class: "callout git-warn small" }, icon("warning", 16), note) : null,
+      plan.stops.length ? h("div", { class: "callout git-warn" }, icon("warning", 16),
+        h("div", {}, h("b", {}, "The deploy can't start:"), plan.stops.map((x) => h("div", { class: "small" }, x)))) : null,
+      h("h3", {}, n ? `Will do (${n} step${n === 1 ? "" : "s"})` : "Nothing to deploy"),
+      h("div", { class: "small" }, plan.steps.map((s) => h("div", {}, `✓ ${platformStepText(s, L)}`))),
+      plan.removable.length ? h("div", {}, h("h3", {}, "Removed in Git: tick each one to remove it"),
+        [...new Map(plan.removable.map((r) => [JSON.stringify({ kind: r.kind, id: r.id }), r])).entries()].map(([k, r]) =>
+          h("label", { class: "row small" }, h("input", { type: "checkbox", checked: ticked.has(k) ? true : null,
+            onchange: (e) => { if (e.target.checked) ticked.add(k); else ticked.delete(k); replan(); } }), platformItemName(r, L))),
+        h("p", { class: "muted-text small" }, "A removed policy is retired, never deleted. A domain or source still in use is refused. Key tables are never removed: their keys stay.")) : null,
+      plan.blocked.length ? h("div", {}, h("h3", {}, `Skipped (${plan.blocked.length})`),
+        plan.blocked.map((b) => h("div", { class: "small" }, `${platformItemName(b, L)} ${b.why}`))) : null,
+      plan.notes.length ? h("div", { class: "muted-text small" }, plan.notes.map((x) => h("div", {}, x))) : null,
+      h("p", { class: "muted-text small" }, "A changed policy is published as a new version; published versions never change. Source ids are never renumbered.")].filter(Boolean));
+    go.disabled = !!plan.stops.length || !n;
+    go.lastChild.textContent = n ? `Deploy ${n} step${n === 1 ? "" : "s"}` : "Deploy";
+  };
+  const run = async () => {
+    go.disabled = true;
+    const out = await attempt(() => rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)), confirm: plan.plan_id }), "Deploy failed");
+    if (!out) { go.disabled = false; return; }
+    if (out.deployed) {
+      closeDialog();
+      toast(`Deployed ${out.done.length} step${out.done.length === 1 ? "" : "s"}.`);
+      forgeEvent("deploy.succeeded", document.getElementById("toast"));  // Anvil Strike (motion.js)
+      gitPlatformReload();
+    } else if (out.failed) {
+      const note = `Stopped at ${platformStepText(out.failed, out.labels)}: ${out.message} ${out.done.length} of ${out.total} steps applied; the rest didn't run.`;
+      plan = (await rpc("git_platform_deploy", { repo: root, remove: [...ticked].map((k) => JSON.parse(k)) }).catch(() => null)) || { ...out, steps: [] };
+      draw(`${note} What is left is below. Fix the file and commit, then deploy again.`);
+      gitPlatformReload();
+    } else {
+      plan = out;
+      draw("The platform or the files changed since this plan was shown. Check the new plan, then deploy.");
+    }
+  };
+  draw();
+  showDialog("Deploy the platform repository", body, [btn("Cancel", null, closeDialog, "tool outline"), go]);
 }

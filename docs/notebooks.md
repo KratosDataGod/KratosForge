@@ -86,13 +86,15 @@ from pyspark.sql import functions as F
 - **Writing tables follows Delta's rules, as in Fabric.** An overwrite or append whose columns don't match the table, or that would change a column's type (decimals into a whole-number column, numbers into a text column), stops with nothing written, with or without `mergeSchema`. A narrower type of the same kind, such as `INT` into a `BIGINT` column, still writes. Add `.option("overwriteSchema", "true")` to an overwrite to replace the schema, or `.option("mergeSchema", "true")` to add new columns; `mergeSchema` never changes an existing column's type. `insertInto` writes to an existing table, matches columns by position, and appends unless you pass `overwrite=True`; SQL `INSERT` matches by position too.
 - **Writer options:** `overwriteSchema`, `mergeSchema` and, for CSV files, `header` are honored. `optimizeWrite`, `maxRecordsPerFile` and `compression` only change file layout and are skipped with a note. Any other option stops the cell before anything is written. In particular, `replaceWhere`, `partitionOverwriteMode`, `INSERT ... PARTITION` and `INSERT ... REPLACE WHERE` replace part of a table, and ignoring them would replace all of it, so they run in Fabric only.
 - **`read.schema(...)`** takes a `StructType`. CSV columns get its names and types by position; Parquet and JSON columns are matched by name. A value that doesn't fit the type becomes null, as in Spark's default mode. A schema on a table, a Delta path or text files stops the cell.
+- **Delta time travel and history** read a table as it was, as in Fabric and Databricks, and never change it:
+  `spark.read.option("versionAsOf", 3).table("dbo.sales")` (or `"timestampAsOf", "2026-10-20 13:00:00"`, in UTC), the same options on `spark.read.format("delta").load("Tables/dbo/sales")`, `SELECT * FROM dbo.sales VERSION AS OF 3`, `TIMESTAMP AS OF '...'` and `dbo.sales@v3` in SQL (also on the SQL query page), and `lakehouse.read_table("dbo.sales", version=3)`. `DESCRIBE HISTORY dbo.sales`, `lakehouse.table_history("dbo.sales")` and `from delta.tables import DeltaTable` (`forName`, `forPath`, `history`, `detail`, `toDF`) list a table's versions from its Delta log. Reading uses OneLake, so it uses capacity like any other read. `RESTORE` and `DeltaTable` changes (`restoreToVersion`, `merge`, `update`, `delete`, `vacuum`, `optimize`) run in Fabric; on this PC, read the old version and overwrite the table with it if you mean to. A version removed by `VACUUM` can't be read.
 - **Not available on this PC:** RDDs, UDFs, streaming, Scala and R cells, and `MERGE`, `UPDATE` or `DELETE` in SQL. A notebook that uses them runs in Fabric only (see [Where a notebook runs](#where-a-notebook-runs)).
 
 **`notebookutils` (and `mssparkutils`)** cover:
 
 | Area | What works here |
 | --- | --- |
-| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths |
+| `fs` | `ls`, `head`, `put`, `append`, `cp`, `mv`, `rm`, `mkdirs`, `exists`, over the attached lakehouse and local `file:` paths. Each `ls` entry has `name`, `path`, `size`, `isDir`, `isFile` and `modifyTime` (milliseconds since 1970, UTC; Databricks' `modificationTime` works too) |
 | `notebook` | `run`, `exit` and `runMultiple`, against the notebooks on this PC. `runMultiple` runs one notebook at a time, passes each activity's `args`, runs it after its `dependencies`, honors `retry`, and skips an activity whose dependency failed; when any activity fails it raises after all have run, with every result on the error's `results`. Timeouts and `concurrency` aren't enforced here (a note says so). |
 | `credentials` | `getToken`, and `getSecret` from Azure Key Vault as you (needs the Key Vault Secrets User role and the Azure Key Vault permission) |
 | `runtime.context` | Works; `isLocal` is true here |
@@ -102,7 +104,7 @@ from pyspark.sql import functions as F
 
 **`fs` changes follow Fabric's rules:** `rm` removes a folder that isn't empty only with `recurse=True`; `Tables/` can be read but not changed through `fs` (write tables with `write_table` or `saveAsTable`); `mv` keeps the source until the copy has every file at its size; and a run that can't write the lakehouse (an external AI tool's run, or a proof) can't change files either.
 
-**Magics:** `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
+**Magics:** a `%%sql` cell keeps a query's result in `_sqldf`, and `df = %sql SELECT ...` runs one query inside Python (see [Notebook magics](notebook-magics.md)). `%run Other notebook` runs another notebook in this one's namespace. `%pip` lines are skipped with a note, because the engine's packages are fixed. `%%configure` does nothing here.
 
 ## Running cells
 
@@ -118,7 +120,7 @@ from pyspark.sql import functions as F
 
 Printed output shows while a cell runs. Code stuck inside a library call can't always be interrupted; the app then offers **Restart kernel**.
 
-**Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process and any processes its cells started, a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
+**Settings > Preview features > Run notebooks in their own process** (Preview) runs cells in a Python process of their own instead of inside the app's engine. Then **Restart kernel** on a stuck cell ends only that process and any processes its cells started (including ones that started their own session, like a server), a crash in a library ends only that process (the cell says so and the next cell starts a fresh one), and the rest of the app keeps answering meanwhile. Switching it clears variables.
 
 With that setting on, two more Preview settings appear under it.
 
@@ -162,6 +164,7 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - Replay needs **Run notebooks in their own process** (Settings > Preview features), and the bundle's lakehouse attached. A bundle saved without workspace and lakehouse IDs replays against the lakehouse you attach; check it's the same one.
 - **Replay to cell N** starts a fresh kernel process in which every table is read at the bundle's version, and every write goes to a sandbox under `Files/_fabric_desktop/proofs/replay-<id>/pc/` in the attached lakehouse, never its tables, as in a proof. Then the cells up to the failed one run as usual, so their output, variables and watches are there to debug. The banner then says whether the cell **failed the same way** (reproduced), failed with the same kind of error but another message, failed differently or earlier, or didn't fail.
+- Each replay's sandbox stays in the lakehouse's Files after the replay ends, and the notebook remembers it. **Delete replay outputs** on the banner deletes those folders (it asks first). The lakehouse's own tables aren't touched. **Keep as a normal notebook** removes the banner, so it asks first when outputs are still there.
 - If a table's version can no longer be read (vacuumed, or its log cleaned up), the banner says so and replay waits for you to choose: the bundle's sample (when it has one) or the table's latest version. Either is marked in the result as not the same input. Files are read as they are now; a file whose SHA-256 differs from the bundle's is listed.
 - The banner also lists how this PC's Python and packages differ from the bundle's.
 - While the replay runs, the kernel runs nothing else: other notebooks' cells wait until you click **End replay**. Restarting the kernel also ends it. A replay notebook's cells don't run outside a replay, and it can't be proven, run side by side or published, until you click **Keep as a normal notebook**. After that its cells read and write the lakehouse's tables like any notebook's.
@@ -170,6 +173,9 @@ A bundle also lists what it can't promise: cells that hadn't run, ran in a diffe
 
 - A cell's last expression shows below it. `display(x)` shows a value mid-cell.
 - Data frames (Spark, Polars, pandas, Arrow, DuckDB) show the first 1,000 rows with three views: **Table** (search, click a heading to sort), **Chart** (bar, line or scatter, with the X axis, values and aggregate you pick) and **Inspect** (missing, distinct, min, max, mean and a histogram per column). `display(df, summary=True)` opens Inspect.
+- **Table** works on the whole result, not only the first 1,000 rows. Pages hold 100 rows (**Previous**, **Next**); **Search all rows** and clicking a heading search and sort every row, and each heading shows its column type. The kernel keeps the last 20 results; a lakehouse query is read once, the first time you page, search or sort it, and that copy is reused. After a restart, or once 20 newer results have replaced it, the table asks you to run the cell again.
+- **Copy** puts the rows on the page on the clipboard, tab-separated, ready to paste into Excel.
+- **Download** (Preview) saves the whole result to your Downloads folder as **CSV**, **Excel** (.xlsx, up to 1,048,575 rows) or **Parquet**. The file is always new (`<notebook> result <date time>.csv`, then `(2)` and so on); a file already there is never replaced, and a download that fails leaves nothing behind. In Excel, values that look like formulas (`=...`) are saved as text, so opening the file never runs them. CSV and Parquet keep every value exactly as it is, for loading into other tools; open a CSV from someone else's data in Excel with care, or download Excel instead. Downloading writes only to your PC; it reads nothing new from OneLake once the result is held.
 - Matplotlib charts show as images. Objects with an HTML view (Plotly, `%%html` cells) render in a sandboxed frame.
 
 ## Editing
@@ -226,7 +232,7 @@ The note has a button to switch when the other place would work.
 
 **Schedule** opens one dialog for both places:
 
-- **On this PC:** Windows Task Scheduler runs the saved notebook, every cell in order, with its attached lakehouse. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
+- **On this PC:** Windows Task Scheduler runs the saved notebook in a fresh kernel of its own (not the one open in the app), every code cell in order with its attached lakehouse. Frozen cells are skipped, as Run all skips them, and the run record says how many were. It runs even when the app is closed, as long as the PC is on and you're signed in to Windows. Save your changes first: it runs what's saved.
 - **In Fabric:** publishes what's on screen and adds a Fabric schedule. It runs on capacity even when your PC is off.
 
 For either, choose **Repeat** (Every day, Some days of the week, or Every few minutes), the **Times of day** (24-hour, comma between, for example `06:00, 18:00`), the **Days**, or **Minutes between runs**, and the **Time zone**. The same dialog lists the notebook's schedules and removes them. All schedules are also in **Monitor > Schedules**.
@@ -297,4 +303,4 @@ Format SQL uses sqlglot to read the query in the tab's dialect and print it back
 
 ## Job files
 
-For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/fabric-desktop/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.
+For repeatable transforms without a notebook, a job file runs DuckDB SQL or a Polars script and publishes the result. See [Job files in the README](https://github.com/KratosDataGod/KratosForge/blob/main/README.md#job-files). From a terminal: `fabric-desktop preview job.toml` shows the result without writing it, and `fabric-desktop run job.toml` writes it. With a metadata project open, `run` refuses a table the project manages and any workspace Test or Prod uses.

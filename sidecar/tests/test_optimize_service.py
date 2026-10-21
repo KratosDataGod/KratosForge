@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from fabric_desktop import app_settings, audit, server
+from fabric_desktop.fabric_api import FabricError
 from fabric_desktop.optimize import setup
 from fabric_desktop.optimize.lakehouse import LocalLakehouse
 from fabric_desktop.service import Service
@@ -184,6 +185,60 @@ def test_other_features_reach_the_central_lakehouse_for_their_own_tables(svc, mo
     svc.optimize_registry.add(dict(conn, access="read"))
     with pytest.raises(PermissionError, match="read"):
         svc.central_family(fam)
+
+
+def test_central_restrict_keeps_a_family_from_default_reader_after_asking(svc, monkeypatch):
+    import polars as pl
+
+    from fabric_desktop.optimize import schema
+    fam = schema.Family("fdtst_", "Access cache", [schema.Migration(1, "Create", {
+        "who": {"name": pl.String}, "schema_version": schema.TABLES_V1["schema_version"]})], schema="access")
+    monkeypatch.setitem(schema.FAMILIES, fam.prefix, fam)
+    everyone = {"name": "DefaultReader", "decisionRules": [{"effect": "Permit", "permission": [
+        {"attributeName": "Path", "attributeValueIncludedIn": ["*"]},
+        {"attributeName": "Action", "attributeValueIncludedIn": ["Read"]}]}],
+        "members": {"fabricItemMembers": [{"itemAccess": ["ReadAll"]}]}}
+    store = {"roles": [everyone]}
+    puts = []
+    store["etag"] = '"v1"'
+
+    def put(self, ws, lh, r, etag=None):
+        if etag != store["etag"]:
+            raise FabricError("PUT failed with 412", "PreconditionFailed", 412)
+        puts.append(r)
+        # Fabric returns each role with an id and eTag of its own, and a new list ETag
+        store.update(roles=[dict(x, id=x.get("id", f"id-{i}"), eTag='"r"') for i, x in enumerate(r)],
+                     etag=f'"v{len(puts) + 1}"')
+    api = type("Api", (), {"list_data_access_roles_tagged": lambda self, ws, lh: (list(store["roles"]), store["etag"]),
+                           "put_data_access_roles": put})()
+    monkeypatch.setattr(Service, "_scoped", lambda self, scopes: api, raising=False)
+    monkeypatch.setattr(svc.auth, "signed_in_tenant", lambda: "tenant", raising=False)
+    svc.optimize_create("w1", workspace_name="Platform")
+    lake, _me = svc.central_family(fam, approve=True)
+    with pytest.raises(PermissionError, match="DefaultReader no longer reads /Tables/access.*later.*Confirm") as asked:
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])
+    assert asked.value.changes[1] == "New role AccessCacheReaders reads /Tables/access"
+    assert puts == []  # asking changes nothing
+    with pytest.raises(ValueError, match="shown="):  # approving needs what the person was shown
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
+    with pytest.raises(PermissionError, match="changed since you looked"):  # not what the person was shown
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=["something else"])
+    store["etag"], stale = '"v0"', store["etag"]
+    api.list_data_access_roles_tagged = lambda ws, lh: (list(store["roles"]), stale)  # changed after this read
+    with pytest.raises(PermissionError, match="changed since you looked"):
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=asked.value.changes)
+    del api.list_data_access_roles_tagged
+    assert puts == []
+    out = svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True, shown=asked.value.changes)
+    assert out["changed"] and out["default_reader_paths"] == ["/Tables/dbo", "/Files"]
+    assert [r["name"] for r in puts[0]] == ["DefaultReader", "AccessCacheReaders"]
+    audit = lake.rows("fdopt_audit").filter(pl.col("action") == "restrict")
+    assert audit["target"].to_list() == ["/Tables/access role AccessCacheReaders"]
+    assert svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"])["changed"] is False  # nothing left to do
+    conn = svc.central_lakehouse()
+    svc.optimize_registry.add(dict(conn, schemas=False))
+    with pytest.raises(ValueError, match="no schemas"):
+        svc.central_restrict(fam, "AccessCacheReaders", ["obj-1"], approve=True)
 
 
 def xray_result(partial=False):

@@ -33,7 +33,7 @@ import traceback
 import types
 import warnings
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 import pyarrow as pa
 
@@ -299,6 +299,26 @@ class _Run:
             return snap
 
 
+class _OutputSink:
+    """Where a block inside ``with out:`` writes: the Output widget (widgets.py), not the cell."""
+
+    def __init__(self, out: Any):
+        self.out = out
+
+    def write(self, text: str) -> None:
+        self.out._write(text)
+
+    def add(self, output: dict[str, Any]) -> None:
+        self.out._add(output)
+
+    def clear(self, wait: bool = False) -> None:
+        self.out.clear_output(wait)
+
+
+WIDGET_SECONDS = 60
+WIDGET_GONE = "This control is no longer held by the kernel (it restarted). Run the cell again."
+
+
 class _Router(io.TextIOBase):
     """sys.stdout / sys.stderr: what a running cell's thread writes goes to that cell's output."""
 
@@ -359,6 +379,8 @@ class Kernel:
         self.widget_values: dict[str, str] = {}
         self.resources_dir = ""  # the running notebook's resources folder, "" for none (notebook_resources)
         self._current: _Run | None = None
+        self._widget_lock = threading.Lock()
+        self._widget_thread: threading.Thread | None = None  # a handler stuck in native code outlives its event
         self._local = threading.local()
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
@@ -374,6 +396,8 @@ class Kernel:
                               "displayHTML": self._display_html}
         from . import ipython_display
         ipython_display.install(ipython_display.build(self._display, self._clear_output))
+        from . import widgets as ipywidgets_local
+        ipywidgets_local.install(self._display, self._capture_output)
         host = notebookutils_local.Host(
             token=self.token, run_notebook=self.run_notebook, notebook_name=lambda: self.notebook_name,
             variables=self.variable_libraries, display=self._display, tasks=self._tasks,
@@ -409,7 +433,11 @@ class Kernel:
     def restart(self) -> None:
         if self._current is not None and not self._current.done.is_set():
             self.interrupt()
+        self._widget_thread = None  # a stuck handler keeps the old namespace; the new one is free
         self._reset()
+
+    def _handler_alive(self) -> bool:
+        return self._widget_thread is not None and self._widget_thread.is_alive()
 
     def _reset(self) -> None:
         """A fresh namespace and spark session; restart() once nothing is running."""
@@ -425,10 +453,88 @@ class Kernel:
 
     def _show(self, value: Any) -> dict[str, Any]:
         """``display(value)``; a table also keeps its whole result for the result viewer (frames.py)."""
+        from . import widgets
+        if isinstance(value, widgets.Widget):
+            return {"type": "widget", "model": value.model_id, "view": widgets.view(value)}
         out = display(value)
         if out["type"] == "table":
             out["frame"] = self.frames.keep(value)
         return out
+
+    # ---- ipywidgets (widgets.py): a control changed in the app
+
+    @contextlib.contextmanager
+    def _capture_output(self, out: Any) -> Iterator[None]:
+        """``with out:`` for an Output widget: this thread's prints, displays and figures go to it."""
+        stdout, stderr = _routers()
+        ident = threading.get_ident()
+        sink = _OutputSink(out)
+        saved = (stdout.targets.get(ident), stderr.targets.get(ident), getattr(self._local, "run", None))
+        stdout.targets[ident] = stderr.targets[ident] = sink  # type: ignore[assignment]
+        self._local.run = sink
+        try:
+            yield
+        finally:
+            self._flush_figures(sink)  # type: ignore[arg-type]
+            for router, before in ((stdout, saved[0]), (stderr, saved[1])):
+                if before is None:
+                    router.targets.pop(ident, None)
+                else:
+                    router.targets[ident] = before
+            self._local.run = saved[2]
+
+    def ipywidget_event(self, model: str, event: dict[str, Any], root: str | None = None) -> dict[str, Any]:
+        """Apply a control's change and run its handlers, as a cell runs: on its own thread, with
+        what they print and display coming back as ``outputs``, for at most ``WIDGET_SECONDS``."""
+        from . import widgets
+        if self._current is not None and not self._current.done.is_set():
+            raise RuntimeError("A cell is running. The control works again when it finishes.")
+        if self._handler_alive() or not self._widget_lock.acquire(blocking=False):
+            raise RuntimeError("The last change is still running. Try again when it finishes, or restart the kernel.")
+        try:
+            run = _Run(0)
+            status = {"value": "ok"}
+
+            def work() -> None:
+                stdout, stderr = _routers()
+                ident = threading.get_ident()
+                stdout.targets[ident] = stderr.targets[ident] = run
+                self._local.run = run
+                try:
+                    self._patch_pyplot(run)
+                    widgets.handle(model, event)
+                    self._flush_figures(run)
+                except LookupError:
+                    status["value"] = "gone"
+                except KeyboardInterrupt:
+                    status["value"] = "cancelled"
+                    run.add({"type": "text", "text": f"Stopped: the handler ran longer than {WIDGET_SECONDS} seconds."})
+                except Exception as exc:  # noqa: BLE001 - the handler's error shows under the control
+                    status["value"] = "error"
+                    run.add(self._error(exc))
+                finally:
+                    stdout.targets.pop(ident, None)
+                    stderr.targets.pop(ident, None)
+                    self._local.run = None
+            thread = threading.Thread(target=work, daemon=True, name="widget-event")
+            self._widget_thread = thread
+            thread.start()
+            thread.join(WIDGET_SECONDS)
+            if thread.is_alive():
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(thread.ident), ctypes.py_object(KeyboardInterrupt))
+                thread.join(2.0)
+                if thread.is_alive():  # stuck in native code (a sleep, a query): stop waiting for it
+                    status["value"] = "cancelled"
+                    run.add({"type": "text", "text": f"Stopped waiting: the handler ran longer than {WIDGET_SECONDS} "
+                             "seconds. It ends when the native call it's in returns; until then cells and controls "
+                             "wait, or restart the kernel."})
+            if status["value"] == "gone":
+                return {"gone": True, "message": WIDGET_GONE}
+            w = widgets.registry.get(root or model)
+            return {"status": status["value"], "outputs": run.snapshot()["outputs"],
+                    "view": widgets.view(w) if w is not None else None}
+        finally:
+            self._widget_lock.release()
 
     def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
                    desc: bool = False, q: str = "") -> dict[str, Any]:
@@ -478,6 +584,8 @@ class Kernel:
         cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        if self._widget_lock.locked() or self._handler_alive():
+            raise RuntimeError("A widget's handler is still running. Run the cell when it finishes, or restart the kernel.")
         widgets = getattr(self.namespace.get("dbutils"), "widgets", None)
         if widgets is not None:
             widgets.set_in_app = dict(self.widget_values)

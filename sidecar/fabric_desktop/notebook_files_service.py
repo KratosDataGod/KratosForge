@@ -78,11 +78,13 @@ class NotebookFilesMixin:
                 self.set_pc_schedule_enabled(s["id"], False)  # type: ignore[attr-defined]
                 off.append(s["id"])
         try:
-            return files.delete(self.notebooks, name, off)  # type: ignore[attr-defined]
+            deleted = files.delete(self.notebooks, name, off)  # type: ignore[attr-defined]
         except BaseException:
             for sid in off:  # the notebook is still there: so are its schedules
                 self.set_pc_schedule_enabled(sid, True)  # type: ignore[attr-defined]
             raise
+        self.sessions.forget(name)  # type: ignore[attr-defined]  # its kernel, if it had one of its own
+        return deleted
 
     def notebook_deleted(self) -> list[dict[str, Any]]:
         return files.deleted(self.notebooks)  # type: ignore[attr-defined]

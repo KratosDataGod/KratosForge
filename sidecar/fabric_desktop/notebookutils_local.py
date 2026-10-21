@@ -608,6 +608,24 @@ def _make_runtime(host: Host) -> types.SimpleNamespace:
             self.refresh()
             return dict(super().items())
 
+        def __eq__(self, other: object) -> bool:
+            self.refresh()
+            return super().__eq__(other)
+
+        def __ne__(self, other: object) -> bool:
+            self.refresh()
+            return super().__ne__(other)
+
+        __hash__ = None  # type: ignore[assignment] - a dict, so unhashable
+
+        def pop(self, key: str, *default: Any) -> Any:
+            self.refresh()
+            return super().pop(key, *default)
+
+        def setdefault(self, key: str, default: Any = None) -> Any:
+            self.refresh()
+            return super().setdefault(key, default)
+
         def refresh(self) -> None:
             lh = lakehouse._attached
             self.update({

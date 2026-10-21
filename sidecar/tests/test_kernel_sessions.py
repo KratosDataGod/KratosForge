@@ -178,6 +178,26 @@ def test_a_lookup_while_the_sweep_has_a_session_out_gets_that_session_back(cell_
     assert sessions.kernels() == [held] and sessions.take_notes() == []
 
 
+def test_a_switch_while_the_sweep_has_a_session_out_hands_it_over_to_close():
+    sessions = KernelSessions(lambda _p: FakeKernel(), lambda: True, idle_minutes=lambda: 10)
+    held = sessions.kernel("nb")
+    sessions.session("nb").last_used = time.time() - 3600
+    old, checks = [], []
+    checked = held.poll
+
+    def poll(*args, **kwargs):  # idle at the sweep's check; then, before it closes, Settings switch twice
+        checks.append(1)
+        if len(checks) == 2:
+            old.extend(sessions.switch(False))
+            sessions.switch(True)
+        return checked(*args, **kwargs)
+
+    held.poll = poll
+    sessions.reap_idle()
+    assert old == [held]  # for the caller to close, as with the other sessions
+    assert sessions.kernel("nb") is not held  # a fresh kernel after the switch, not one from before it
+
+
 def test_settings_limits_are_checked(svc):
     with pytest.raises(Exception, match="between 0 and 20"):
         call(svc, "save_app_settings", changes={"kernel_max_sessions": 50})

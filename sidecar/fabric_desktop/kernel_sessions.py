@@ -112,8 +112,8 @@ class KernelSessions:
         """Settings changed in-engine <-> own process: every session starts over. Returns the old
         kernels for the caller to close (only once nothing is running)."""
         with self._lock:
-            old = self.kernels()
-            self._sessions = {}
+            old = self.kernels() + [s.kernel for s in self._reaping.values()]
+            self._sessions, self._reaping = {}, {}
             self.in_process = process
             return old
 

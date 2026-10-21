@@ -1,13 +1,15 @@
 # Permissions
 
-Fabric Desktop by KratosBI never gets more access than the person using it. It signs in as you and can only do what your own Fabric workspace roles let you do. It has no app-level (application) permissions of its own.
+KratosForge never gets more access than the person using it. It signs in as you and can only do what your own Fabric workspace roles let you do. It has no app-level (application) permissions of its own.
 
 There are two ways it signs in:
 
-- **Microsoft's Fabric sign-in (the default).** Nobody registers an app, grants consent or types an app ID. Fabric Desktop by KratosBI signs in through the same Microsoft app that Fabric's own command-line tool (Fabric CLI, `fab auth login`) uses, which every Microsoft Entra tenant already trusts for Fabric and OneLake. On Windows it signs in through Windows itself (Web Account Manager), so you are often signed in with your Windows work account and see no prompt.
+- **Microsoft's Fabric sign-in (the default).** Nobody registers an app, grants consent or types an app ID. KratosForge signs in through the same Microsoft app that Fabric's own command-line tool (Fabric CLI, `fab auth login`) uses, which every Microsoft Entra tenant already trusts for Fabric and OneLake. On Windows it signs in through Windows itself (Web Account Manager), so you are often signed in with your Windows work account and see no prompt.
 - **Your organization's own app registration (optional).** For organizations whose policy says every app must be registered in their own tenant, or that want to choose the exact permissions. See [Using your own app registration](#using-your-own-app-registration).
 
 The [headless agent](#the-headless-agent) is separate: it runs unattended, so it signs in as a managed identity or service principal.
+
+Permissions decide what the app may read. Once data is read to the PC for a local run, OneLake data access roles, row-level and column-level security no longer apply to that copy: see [Data copied to this PC](security.md#data-copied-to-this-pc).
 
 ## Microsoft's Fabric sign-in: what IT may need to check
 
@@ -17,12 +19,12 @@ Nothing, in most tenants. These are the things that can stop it:
 | --- | --- | --- |
 | Fabric tenant setting **Users can access data stored in OneLake with apps external to Fabric** is off | Every OneLake read and write is refused | Turn it on, for everyone or for a group ([azure-setup.md](azure-setup.md#1-check-your-fabric-tenant-settings)) |
 | Conditional Access requires a compliant or managed device | Sign-in is refused on a PC your organization doesn't manage | Nothing to change if the PC is managed: Windows sign-in passes the device check. On an unmanaged PC, use a managed one |
-| Conditional Access blocks Microsoft's developer tools (Azure CLI, Fabric CLI) for some users | Sign-in is refused with AADSTS53003 | Allow the **Fabric CLI** app for Fabric Desktop by KratosBI's users, or use [your own app registration](#using-your-own-app-registration) |
+| Conditional Access blocks Microsoft's developer tools (Azure CLI, Fabric CLI) for some users | Sign-in is refused with AADSTS53003 | Allow the **Fabric CLI** app for KratosForge's users, or use [your own app registration](#using-your-own-app-registration) |
 | Your organization doesn't allow apps it hasn't registered | Policy, not a technical block | Use [your own app registration](#using-your-own-app-registration) |
 
 ### What each feature uses
 
-With Microsoft's sign-in, Fabric Desktop by KratosBI asks each Microsoft API for its default access (`/.default`), which Microsoft sets for the Fabric CLI app. The table says which API each feature calls. A feature that needs something Microsoft's app doesn't cover says so, and still works with your own app registration.
+With Microsoft's sign-in, KratosForge asks each Microsoft API for its default access (`/.default`), which Microsoft sets for the Fabric CLI app. The table says which API each feature calls. A feature that needs something Microsoft's app doesn't cover says so, and still works with your own app registration.
 
 | Feature | API | Expected with Microsoft's sign-in |
 | --- | --- | --- |
@@ -36,37 +38,37 @@ With Microsoft's sign-in, Fabric Desktop by KratosBI asks each Microsoft API for
 | Adding someone to a data access role who has no role in the workspace yet | Microsoft Graph | Possibly not. Give them a workspace role first, or paste their object ID |
 | The [platform](platform.md): creating its SQL database and user data functions, and calling the functions for keys and the catalog | Fabric | Expected, not yet tried. Calls use the same run access as Run in Fabric |
 | Importing Fabric's domains and subdomains into the platform (**Platform > Domains > Import from Fabric**) | Fabric admin API | Only for Fabric administrators, and not yet tried. Reading the domain list needs the Fabric administrator role; everyone else is refused |
-| Reading the tenant settings history (`tenant_settings_read`, Preview, engine only so far) | Fabric admin API (`GET /v1/admin/tenantsettings`) | Only for Fabric administrators, and not yet tried. Anyone else's read is recorded as unreadable. It only reads; it never changes a setting |
+| Reading the tenant settings history (`tenant_settings_read`, Preview: Optimize > Settings history) | Fabric admin API (`GET /v1/admin/tenantsettings`) | Only for Fabric administrators, and not yet tried. Anyone else's read is recorded as unreadable. It only reads; it never changes a setting |
 | Seeing which Fabric domain a project's workspaces are in | Fabric | Yes. Any workspace member can read it |
 | The [live test](live-testing.md): creating and deleting a throwaway lakehouse, OneLake files and a Delta table in a workspace marked for tests | Fabric, OneLake (Azure Storage) | Yes. Nothing new is asked; you need Contributor or higher on the test workspace |
 | `notebookutils.credentials.getSecret` in notebooks on the PC | Azure Key Vault | Possibly not. Needs your own app registration |
 
-"Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from Fabric Desktop by KratosBI on a live tenant yet.
+"Expected" means Fabric CLI itself does these things with the same app. None of it has been tried from KratosForge on a live tenant yet.
 
-Endorsement (Certified, Promoted) isn't shown in Fabric Desktop by KratosBI's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
+Endorsement (Certified, Promoted) isn't shown in KratosForge's own list, because it needs an admin-only permission. Fabric's admin API is used for two reads only, both by a Fabric administrator: domain names and each domain's admins, when they choose **Import from Fabric** (the names are then kept in the platform, so nobody else needs that permission), and tenant settings, for the tenant settings history (kept in the central lakehouse, where people with access to it read the history without the admin role). The Fabric catalog embedded on the same page shows it.
 
 ## Using your own app registration
 
 You only need this if your organization requires it. Everything below is optional.
 
-1. **Register the app.** Entra admin center: **App registrations > New registration**, any name (for example `Fabric Desktop`). For people from one organization choose single tenant; for several, **Accounts in any organizational directory**. Under **Authentication > Add a platform > Mobile and desktop applications**, add the redirect URI `http://localhost`.
+1. **Register the app.** Entra admin center: **App registrations > New registration**, any name (for example `KratosForge`). For people from one organization choose single tenant; for several, **Accounts in any organizational directory**. Under **Authentication > Add a platform > Mobile and desktop applications**, add the redirect URI `http://localhost`.
 2. **Add the delegated permissions** below. **API permissions > Add a permission**, then **Microsoft APIs**, or **APIs my organization uses** if you search by name. Choose **Delegated permissions** each time.
 3. **Grant admin consent** (optional). None of these permissions requires an admin, so people can consent for themselves at first sign-in if your tenant lets users consent to apps. If it doesn't, select **Grant admin consent for <your tenant>** (Global Administrator, Privileged Role Administrator or Cloud Application Administrator).
-4. **Give the app's ID to Fabric Desktop by KratosBI**: see [Rolling out to your organization](#rolling-out-to-your-organization).
+4. **Give the app's ID to KratosForge**: see [Rolling out to your organization](#rolling-out-to-your-organization).
 
-With your own app, Fabric Desktop by KratosBI signs in with the browser (not Windows sign-in) and asks for each permission the first time a feature needs it.
+With your own app, KratosForge signs in with the browser (not Windows sign-in) and asks for each permission the first time a feature needs it.
 
 | API (as Entra shows it) | Permission | Needed for | Asked |
 | --- | --- | --- | --- |
 | Azure Key Vault | `user_impersonation` | Notebooks reading secrets with `notebookutils.credentials.getSecret` on this PC | Optional, when a notebook asks |
 | Azure Storage | `user_impersonation` | Reading and writing OneLake: tables, files, the Fabric runner bundle; listing the platform's landing zone | At first sign-in |
 | Microsoft Graph | `User.ReadBasic.All` | Adding someone to a data access role who has no role in the workspace yet | Optional, on first use |
-| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, and the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments) | On first use |
+| Power BI Service | `Capacity.Read.All` | Listing capacities when you create a workspace, the size and status of each environment's capacity (Optimize > Cost and savings, Data mesh > Environments), and reading capacities for the capacity settings history (`capacity_settings_read`, Preview: Optimize > Settings history; it only reads) | On first use |
 | Power BI Service | `Connection.Read.All` | Cloud connections when you create a shortcut | On first use |
 | Power BI Service | `Item.Execute.All` | Running or scheduling notebooks, the Fabric runner and table maintenance in Fabric; calling the platform's functions (keys, catalog) | On first use |
-| Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview | At first sign-in |
+| Power BI Service | `Item.ReadWrite.All` | Creating, updating and (in the [live test](live-testing.md) only) deleting lakehouses, notebooks, pipelines, semantic models, variable libraries, the platform's SQL database and functions; reading a notebook's cells for its preview, for Edit on this PC and for the check before Publish ([Notebook files](notebook-files.md)) | At first sign-in |
 | Power BI Service | `OneLake.ReadWrite.All` | OneLake shortcuts and data access roles | On first use |
-| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), and reading tenant settings for the tenant settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses Fabric Desktop by KratosBI | Optional, when a Fabric administrator imports domains or reads tenant settings |
+| Power BI Service | `Tenant.Read.All` | Importing Fabric's domains and subdomains (**Platform > Domains > Import from Fabric**), reading tenant settings for the tenant settings history, and, when chosen, each capacity's tenant setting overrides for the capacity settings history. Only works for a Fabric administrator; leave it out if no Fabric administrator uses KratosForge | Optional, when a Fabric administrator imports domains or reads tenant settings |
 | Power BI Service | `Workspace.ReadWrite.All` | Listing and creating workspaces, workspace roles (also by email) | At first sign-in |
 
 The Fabric permissions are listed under **Power BI Service** in Entra, even though the app calls `api.fabric.microsoft.com`. Only add what your people will use: without a permission, the feature that needs it says which one, and everything else works.
@@ -151,7 +153,7 @@ The scheduled [T-SQL contract job](live-testing.md#t-sql-contract-cases) isn't p
 
 ## External AI tools
 
-People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to Fabric Desktop by KratosBI through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. The app never hands a tool a token. But Python a tool runs (after the person approves it) runs as the person, like any notebook, and today can read the person's token cache on the PC; treat approving it like running a script you were sent (see [Security model](security.md)). Integrations are off until the person switches them on, and IT can keep them off.
+People can connect AI tools they already use (Claude, Codex, Copilot, Cursor, any MCP client) to KratosForge through **Settings > Integrations**. This asks for **no new Entra permission**: an AI tool works only through the app, which uses the person's own sign-in, so it can never do more in Fabric than the person can. The app never hands a tool a token. But Python a tool runs (after the person approves it) runs as the person, like any notebook, and today can read the person's token cache on the PC; treat approving it like running a script you were sent (see [Security model](security.md)). Integrations are off until the person switches them on, and IT can keep them off.
 
 Each connected tool gets some of these categories, in alphabetical order:
 

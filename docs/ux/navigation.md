@@ -1,6 +1,6 @@
 # Navigation architecture
 
-How Fabric Desktop by KratosBI is organized today, what goes wrong, and a target that keeps what 5,000 people have already learned. The rules in [ui-guidelines.md](../ui-guidelines.md) stay: at most 8 rail items, new features become tabs inside existing pages, every page and action registers commands for Ctrl+K, untried features carry a Preview tag.
+How KratosForge is organized today, what goes wrong, and a target that keeps what 5,000 people have already learned. The rules in [ui-guidelines.md](../ui-guidelines.md) stay: at most 8 rail items, new features become tabs inside existing pages, every page and action registers commands for Ctrl+K, untried features carry a Preview tag.
 
 ## Current structure (main `3bee0db`)
 

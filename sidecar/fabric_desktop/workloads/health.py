@@ -62,7 +62,7 @@ def findings(w: dict[str, Any]) -> list[dict[str, Any]]:
             elif run["state"] == "running":
                 add("notice", "run", f"Running in {where}", "", ev, [], env)
             elif run["state"] == "unknown":
-                add("unknown", "run", f"Last run in {where} has a status Fabric Desktop by KratosBI doesn't know",
+                add("unknown", "run", f"Last run in {where} has a status KratosForge doesn't know",
                     str(run.get("native_status") or ""), ev, [], env)
         f = dep.get("freshness")
         if f and f.get("status") == "late":

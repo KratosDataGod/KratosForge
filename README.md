@@ -1,14 +1,18 @@
-# Fabric Desktop by KratosBI
+# KratosForge
+
+![KratosForge](docs/brand/kratosforge-wordmark.png)
+
+*Formerly Fabric Desktop. [What changed and what didn't](docs/kratosforge.md).*
 
 Do your Microsoft Fabric data engineering on your own Windows PC: notebooks, Spark SQL queries, jobs and a metadata-driven medallion framework. Results are written straight into OneLake as Delta tables. A run on this PC starts no Fabric job, which cuts Fabric CU use; its OneLake reads and writes still use capacity.
 
-![Fabric Desktop by KratosBI in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/fabric-desktop-solution.png)
+![KratosForge in a Microsoft Fabric solution: develop locally, execute on your infrastructure, store and consume in Microsoft Fabric](docs/fabric-desktop-solution.png)
 
-**Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.** The picture above is where the product is headed. Today the desktop app and a single-node [headless agent](docs/agent.md) are built; multiple workers, resource governance and pipeline hand-off are later milestones in the [enterprise roadmap](docs/enterprise-roadmap.md).
+**Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.** The picture above is where the product is headed. Today the desktop app and a single-node [headless agent](docs/agent.md) are built; multiple workers, resource governance and pipeline hand-off are later milestones in the [enterprise roadmap](docs/enterprise-roadmap.md).
 
-**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. Fabric Desktop by KratosBI brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-fabric-desktop.md)**.
+**Why it exists:** Power BI took off because developers could build on their own machine and deploy to the cloud. KratosForge brings that model to data engineering. Read the story in **[Bringing the Power BI Model to Data Engineering](docs/why-fabric-desktop.md)**.
 
-![Fabric Desktop by KratosBI architecture](docs/architecture.svg)
+![KratosForge architecture](docs/architecture.svg)
 
 - **Local compute:** notebooks run in a Python kernel on the PC, SQL runs in DuckDB, and Python transforms run in Polars.
 - **Direct to OneLake:** delta-rs writes each table straight to the lakehouse. It commits the Delta log only after the data files are written, so Fabric never sees a half-written version.
@@ -22,10 +26,11 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 
 ## Documentation
 
-**Read the docs at [kratosdatagod.github.io/fabric-desktop](https://kratosdatagod.github.io/fabric-desktop/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
+**Read the docs at [kratosdatagod.github.io/kratosforge](https://kratosdatagod.github.io/kratosforge/)**, or start at the [documentation home](docs/README.md) in this repository. It says which guide to read for what you're doing, and what is tested and what isn't. The site is built from `docs/` by [Zensical](https://zensical.org) (`zensical.toml`) and published on every merge to main.
 
 | Document | What it covers |
 | --- | --- |
+| [docs/kratosforge.md](docs/kratosforge.md) | Fabric Desktop is now KratosForge: what changed, and which names stay so nothing breaks |
 | [docs/install.md](docs/install.md) | Installing on a PC: requirements, first start, Windows blocking the engine, updates and channels, where files live, uninstalling |
 | [docs/backup.md](docs/backup.md) | Backing up and restoring what the app keeps only on your PC, without sign-in tokens |
 | [docs/enterprise-install.md](docs/enterprise-install.md) | Rolling the app out with Intune or Configuration Manager: what to deploy, self-updating or managed updates, rollback, failed updates, network access |
@@ -36,9 +41,26 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/hardening/README.md](docs/hardening/README.md) | The enterprise hardening audit: evidence-based scorecard, [findings](docs/hardening/findings.md), [backlog](docs/hardening/backlog.md) and [release gates](docs/hardening/readiness-checklist.md) |
 | [docs/user-guide.md](docs/user-guide.md) | Every page of the app and how to use it |
 | [docs/notebooks.md](docs/notebooks.md) | Notebooks and SQL on your PC, Fabric code that works here, publishing, Run in Fabric and schedules |
+| [docs/notebook-spark-on-this-pc.md](docs/notebook-spark-on-this-pc.md) | Which PySpark methods and Spark settings work in a notebook on this PC |
 | [docs/sql-compatibility.md](docs/sql-compatibility.md) | The SQL compatibility check: what each Fabric SQL engine supports, findings, export, rules |
 | [docs/sql-execution.md](docs/sql-execution.md) | Running SQL page queries on this PC: states, Stop, limits, paging, export, what a query may do |
 | [docs/local-data.md](docs/local-data.md) | Local data projects (Preview): folders of CSV, JSON and Parquet files as SQL tables on your PC, kept between sessions, starting no Fabric job |
+| [docs/notebook-resources.md](docs/notebook-resources.md) | Notebook resources: files kept beside a notebook and read as `builtin/<file>`, like Fabric's built-in resources |
+| [docs/notebook-magics.md](docs/notebook-magics.md) | Notebook magics and cell languages: `%%sql` results in `_sqldf`, `%sql` inside Python, and which magics run on this PC |
+| [docs/notebook-files.md](docs/notebook-files.md) | Notebook files: search inside notebooks, open a notebook file, save a copy, delete and restore, and edit a Fabric notebook on this PC (Preview) |
+| [docs/validate-notebook.md](docs/validate-notebook.md) | Validate a notebook: code checks, a clean run from the top with sandboxed writes, and Clean up for imports, spacing and suggestions (Preview) |
+| [docs/notebook-import-export.md](docs/notebook-import-export.md) | Fabric and Databricks notebook formats: import Fabric or Databricks source and .dbc archives, export as .ipynb, Fabric or Databricks source or HTML (Preview) |
+| [docs/notebook-versions.md](docs/notebook-versions.md) | Notebook version history: a version per save, checkpoints, Compare and Restore |
+| [docs/forge-animations.md](docs/forge-animations.md) | Motion and effects: the four visual intensity levels, every spark, wolf and ember effect, and how to turn them down or off |
+| [docs/profile.md](docs/profile.md) | Profile: a private record of verified work, levels and achievements, and a review-ready professional report (Preview) |
+| [docs/notebook-editor/select-and-run-parts.md](docs/notebook-editor/select-and-run-parts.md) | Select several notebook cells to run, copy, merge, freeze or delete together; run selected text with Ctrl+Shift+Enter |
+| [docs/notebook-editor/organise-cells.md](docs/notebook-editor/organise-cells.md) | Organise notebook cells: collapse heading sections, cell titles and tags, duplicate, drag to move |
+| [docs/notebook-editor/load-data-items.md](docs/notebook-editor/load-data-items.md) | Drag lakehouse tables and files into notebook cells, or right-click them to load with Polars, Spark, SQL or pandas |
+| [docs/notebook-editor/find-and-replace.md](docs/notebook-editor/find-and-replace.md) | Find and replace across every cell of a notebook: match case, whole word, regular expressions, Replace all with undo |
+| [docs/engines.md](docs/engines.md) | Execution engines with honest capability levels, remote compute approval, and connection profiles for Fabric, Databricks or both (Preview) |
+| [docs/notebook-comments.md](docs/notebook-comments.md) | Comments on notebook cells: threads on a cell or lines of its code, replies, resolve, and the Comments panel, kept in the notebook file |
+| [docs/notebook-editor/intellisense.md](docs/notebook-editor/intellisense.md) | Notebook IntelliSense: hover docs, signature help, docs in autocomplete and syntax errors as you type, all from the local kernel |
+| [docs/notebook-editor/variables.md](docs/notebook-editor/variables.md) | The notebook Variables pane: filter, sort by memory, open data frames, lists and dicts |
 | [docs/side-by-side.md](docs/side-by-side.md) | Running a notebook on this PC and in Fabric side by side: time, cost and a check that both wrote the same results, plus the TPC-H benchmark ([examples/benchmark](examples/benchmark)) |
 | [docs/finops/capacity.md](docs/finops/capacity.md) | The capacity each environment is on and whether it is running: read only, with freshness and what to do when it can't be read |
 | [docs/finops/risk-check.md](docs/finops/risk-check.md) | The risk check before a run: pass, warning, blocked or unknown, with evidence for each finding |
@@ -48,10 +70,10 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/metadata-guide.md](docs/metadata-guide.md) | The metadata framework from a new project to Prod, with a reference for every setting |
 | [docs/platform.md](docs/platform.md) | The central platform: one business key system and one landing zone for every team, the catalog, and moving keys into it |
 | [docs/governance.md](docs/governance.md) | Governance policies (Preview): define standards once in the platform, publish versions that never change, apply them by enterprise, domain, project or table, and see why each applies |
-| [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what Fabric Desktop, Fabric, Purview and Entra can each enforce |
+| [docs/governance-guide.md](docs/governance-guide.md) | Governance guide (Preview): how a policy goes from draft to result, three worked examples, and what KratosForge, Fabric, Purview and Entra can each enforce |
 | [docs/data-mesh.md](docs/data-mesh.md) | Domains, workspace designations, data products, links between teams and catalog text |
 | [docs/shortcuts.md](docs/shortcuts.md) | The shortcut command center: every OneLake shortcut's health, who can read it, rules, change history with undo, and requests |
-| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, and what it doesn't do yet |
+| [docs/source-control.md](docs/source-control.md) | Source control (Preview): clone, diffs, branches, commit, pull and push in the app, the secret check, repository kinds, the platform repository (compare, export, deploy), and what it doesn't do yet |
 | [docs/orchestration/pipeline-definitions.md](docs/orchestration/pipeline-definitions.md) | Reading, checking and converting Fabric pipeline definitions on your PC, with nothing run in Fabric (Preview) |
 | [docs/orchestration/activity-registry.md](docs/orchestration/activity-registry.md) | Which pipeline activities can run on your PC, are only checked, or can only run in Fabric, per activity and property (Preview) |
 | [docs/orchestration/local-runs.md](docs/orchestration/local-runs.md) | Running a Fabric pipeline's control flow on your PC, with mocks for data activities and nothing run in Fabric (Preview) |
@@ -60,10 +82,10 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [docs/release-management/README.md](docs/release-management/README.md) | How a merge becomes a Preview build and a Stable release, who approves each step, integrating parallel pull requests, rollback and versioning, with the current [release status](docs/release-management/release-status.md) |
 | [docs/live-testing.md](docs/live-testing.md) | Checking sign-in, the Fabric API, OneLake and Delta on your own tenant against a workspace set aside for tests (`fabric-desktop live-test`) |
 | [docs/ideas.md](docs/ideas.md) | Submitting ideas to the public Ideas forum, voting, and how ideas are prioritized |
-| [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why Fabric Desktop by KratosBI is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
+| [docs/why-fabric-desktop.md](docs/why-fabric-desktop.md) | Why KratosForge is needed: bringing Power BI's build-locally, deploy-to-the-cloud model to data engineering |
 | [docs/architecture.md](docs/architecture.md) | How the app, the sidecar and OneLake fit together |
-| [docs/ai/README.md](docs/ai/README.md) | Connecting your own AI tool to Fabric Desktop by KratosBI: setup for each tool, workflows and instructions to paste |
-| [docs/architecture/ai-integration.md](docs/architecture/ai-integration.md) | Using your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client) with Fabric Desktop by KratosBI: architecture, permissions, plan |
+| [docs/ai/README.md](docs/ai/README.md) | Connecting your own AI tool to KratosForge: setup for each tool, workflows and instructions to paste |
+| [docs/architecture/ai-integration.md](docs/architecture/ai-integration.md) | Using your own AI tool (Claude, Codex, Copilot, Cursor, any MCP client) with KratosForge: architecture, permissions, plan |
 | [docs/xray-fixes.md](docs/xray-fixes.md) | Each Estate X-ray finding: what it means, what the app's fix button does, and how to fix it by hand in Fabric |
 | [docs/agent.md](docs/agent.md) | The headless agent: identity setup, `agent.toml`, installing on Linux (systemd or container) and Windows, operating it, and what to verify on your tenant |
 | [docs/enterprise-roadmap.md](docs/enterprise-roadmap.md) | The enterprise local execution assessment: feature inventory, gap analysis, architecture changes, roadmap milestones M0 to M6 and work items |
@@ -82,7 +104,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ideas, bug reports, and setting up to change the code |
 | [deploy/agent.example.toml](deploy/agent.example.toml) | Every agent setting, with comments |
 
-**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/fabric-desktop/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
+**Ideas and feature requests** go to the [Ideas forum](https://github.com/KratosDataGod/KratosForge/discussions/categories/ideas), where people vote on them. See [docs/ideas.md](docs/ideas.md).
 
 ## Layout
 
@@ -90,7 +112,7 @@ How the pieces fit together, how a request flows and how writes reach OneLake: s
 | --- | --- |
 | `sidecar/` | Python package `fabric_desktop`: auth, Fabric REST client, OneLake I/O, notebook kernel, SQL engine, metadata framework, job runner and the JSON-lines server |
 | `app/` | Tauri 2 shell (`src-tauri/`) and the Fabric-style UI (`ui/`, plain HTML and JavaScript). The shell starts the sidecar and forwards UI actions to it |
-| `docs/` | The [documentation](docs/README.md): install, Azure setup, user guide, notebooks, metadata, teams, troubleshooting and ideas guides, plus architecture, agent, roadmap and the KratosBI logo files (`docs/brand/`) |
+| `docs/` | The [documentation](docs/README.md): install, Azure setup, user guide, notebooks, metadata, teams, troubleshooting and ideas guides, plus architecture, agent, roadmap and the KratosBI logo and Wolf Forge emblem files (`docs/brand/`) |
 | `deploy/` | Headless agent packaging: example `agent.toml`, systemd unit and Dockerfile (`linux/`), and the Windows install script (`windows/`) |
 | `examples/` | Sample jobs (`sales_by_region.toml` for DuckDB, `top_products.toml` for Polars), sample data, and the TPC-H benchmark notebooks (`benchmark/`) |
 
@@ -113,11 +135,11 @@ fabric-desktop run ..\examples\sales_by_region.toml   # set workspace_id in the 
 
 ### Desktop app
 
-Download [fabric-desktop.exe](https://github.com/KratosDataGod/fabric-desktop/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
+Download [fabric-desktop.exe](https://github.com/KratosDataGod/KratosForge/releases/download/stable/fabric-desktop.exe) from the **Releases** section of the repository page and double-click it. There are two update channels: **Stable** (the default) moves only when someone runs the **Promote to stable** workflow, and **Preview** gets every green build of `main` (the `latest` release). People pick theirs in **Settings > Updates**. Windows SmartScreen may warn while the exe is not signed; choose **More info > Run anyway**. The app brings its own engine (Python plus the sidecar and its packages) in `%LOCALAPPDATA%\FabricDesktop\engine`, so the PC needs no Python. To run the sidecar with a Python of your own instead, set `FABRIC_DESKTOP_PYTHON` to its full path and pip-install the sidecar there.
 
 Each time it starts, the app checks its components before anything else runs. The check only shows a window when something is updating or needs attention:
 
-- **Fabric Desktop by KratosBI:** if a newer build has been released on this PC's channel, it downloads it straight away, checks the file really is that build, replaces the exe in place and restarts. The account menu shows which build is running.
+- **KratosForge:** if a newer build has been released on this PC's channel, it downloads it straight away, checks the file really is that build, replaces the exe in place and restarts. The account menu shows which build is running.
 - **Local engine:** the engine built from the same commit as the exe, so the two always match. A missing or older engine is downloaded from the release (`fabric-desktop-engine.zip`) and unpacked automatically. With `FABRIC_DESKTOP_PYTHON` set, the sidecar is pip-installed into that Python instead (it must be 3.11 or later), and an editable (`pip install -e`) install is left alone.
 - **Blocked by Windows:** if Smart App Control or an organization's App Control policy refuses the engine's DLLs, the check names the blocked packages and says what to do instead of reinstalling.
 
@@ -154,7 +176,7 @@ The top bar holds the **Environment** picker (Dev, Test or Prod), which every pa
 
 The app looks and works like the Fabric service: the same left rail (Home, Create, Workspaces, OneLake, Data mesh, Platform, Fabric, Monitor), and Python notebooks with a ribbon, an Explorer pane and **Add data items** to attach a lakehouse. Cells run in a Python kernel on this PC, so no Fabric job starts; reading and writing lakehouse tables in OneLake still uses capacity.
 
-**Add data items** opens a OneLake catalog: every lakehouse in every workspace you can open, in one list you can filter, with each lakehouse's tables and files shown before you attach it. The left side filters by Favorites, Endorsed or one workspace. Favorites are the stars you click in the list. They are saved on this PC, because Fabric has no public API for its own favorites. Endorsed (Certified or Promoted) needs an admin-only permission that Fabric Desktop by KratosBI doesn't ask for, so that filter is greyed out; the Fabric catalog embedded below the list shows endorsement.
+**Add data items** opens a OneLake catalog: every lakehouse in every workspace you can open, in one list you can filter, with each lakehouse's tables and files shown before you attach it. The left side filters by Favorites, Endorsed or one workspace. Favorites are the stars you click in the list. They are saved on this PC, because Fabric has no public API for its own favorites. Endorsed (Certified or Promoted) needs an admin-only permission that KratosForge doesn't ask for, so that filter is greyed out; the Fabric catalog embedded below the list shows endorsement.
 
 ```python
 import polars as pl
@@ -198,9 +220,9 @@ Notebooks written for Fabric run here without changes in most cases:
 
 **SQL query** works like Fabric's SQL query tab. Open it from a lakehouse page, or from **SQL query** on a lakehouse row in OneLake. Write Spark SQL against the lakehouse's tables by the names Fabric uses (`SELECT * FROM sales`, or `schema.table`). The query runs on this PC: sqlglot translates it to DuckDB SQL and DuckDB reads only the columns and files it needs from OneLake. No Fabric job starts, though those OneLake reads still use capacity. Ctrl+Enter runs the query, or just the selected text. Results show the first 1,000 rows. **Save as table** writes the full result to the lakehouse, **Download CSV** saves it to your Downloads folder, and **Open in notebook** turns the query into `lakehouse.sql(...)` in a new notebook. Query tabs are kept per lakehouse between launches. Queries only read; nothing in the lakehouse changes unless you save a table.
 
-**Monitor** has two halves. The top lists what Fabric Desktop by KratosBI ran: metadata runs in Dev, notebook table writes, and the notebook runs and table maintenance jobs it started in Fabric (with their live status), newest first. The bottom is Fabric's own Monitoring hub, the live page from the Fabric service shown in a second webview inside the app window, so Fabric Desktop by KratosBI adds no monitoring code of its own there. That view signs in with your Windows account when it is the same work account you use in the app, so there is no password prompt. It opens in the tenant of your app sign-in, which skips Fabric's email page. If Windows is signed in with another account, Fabric asks you to sign in once. The app saves that sign-in's cookies, encrypted for your Windows account (DPAPI), in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` and restores them on the next launch, so you don't sign in again each time. Delete that file to forget the sign-in. Links that leave Fabric open in your default browser.
+**Monitor** has two halves. The top lists what KratosForge ran: metadata runs in Dev, notebook table writes, and the notebook runs and table maintenance jobs it started in Fabric (with their live status), newest first. The bottom is Fabric's own Monitoring hub, the live page from the Fabric service shown in a second webview inside the app window, so KratosForge adds no monitoring code of its own there. That view signs in with your Windows account when it is the same work account you use in the app, so there is no password prompt. It opens in the tenant of your app sign-in, which skips Fabric's email page. If Windows is signed in with another account, Fabric asks you to sign in once. The app saves that sign-in's cookies, encrypted for your Windows account (DPAPI), in `%LOCALAPPDATA%\FabricDesktop\fabric-view-signin.bin` and restores them on the next launch, so you don't sign in again each time. Delete that file to forget the sign-in. Links that leave Fabric open in your default browser.
 
-Fabric Desktop by KratosBI is made by [KratosBI](https://kratosbi.com). The KratosBI logo and app icon in `docs/brand/` and `app/ui/` belong to KratosBI. Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT).
+KratosForge is made by [KratosBI](https://kratosbi.com). The KratosBI logo, the Wolf Forge emblem and the app icon in `docs/brand/`, `app/ui/` and `app/src-tauri/icons/` belong to KratosBI. Interface icons are [Fluent UI System Icons](https://github.com/microsoft/fluentui-system-icons) (MIT).
 
 ## Metadata framework
 

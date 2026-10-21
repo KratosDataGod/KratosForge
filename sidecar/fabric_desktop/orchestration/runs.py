@@ -86,7 +86,7 @@ class RunStore:
                     if act.get("state") == "running":
                         act["state"], act["status"] = "interrupted", "Interrupted"
                 record.setdefault("notes", []).append(
-                    "Fabric Desktop by KratosBI stopped while this run was going. It wasn't resumed: activities "
+                    "KratosForge stopped while this run was going. It wasn't resumed: activities "
                     "that were running may have finished part of their work.")
                 self.save(record)
                 count += 1

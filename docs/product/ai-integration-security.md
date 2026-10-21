@@ -1,20 +1,20 @@
 # AI integration security
 
-Threat model and controls for external AI tools that use Fabric Desktop by KratosBI through MCP or the local API. Architecture: [ai-integration.md](../architecture/ai-integration.md).
+Threat model and controls for external AI tools that use KratosForge through MCP or the local API. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 
 ## Assumptions
 
-- An external AI client can be compromised, misconfigured, or steered by text it has read (prompt injection), including text inside notebooks, tables, file names and metadata that Fabric Desktop returns.
+- An external AI client can be compromised, misconfigured, or steered by text it has read (prompt injection), including text inside notebooks, tables, file names and metadata that KratosForge returns.
 - Everything a client sends is untrusted input. Everything a client reads is untrusted content and is never treated as an instruction or as permission.
 - The person using the PC is trusted, and so is the app's own UI, which talks to its engine over a private pipe.
 
 ## What the boundary protects against
 
-A client whose only access is Fabric Desktop's MCP server or local API. That covers AI tools running in a sandbox, IDE assistants limited to MCP, and any agent being manipulated into doing something the person didn't ask for.
+A client whose only access is KratosForge's MCP server or local API. That covers AI tools running in a sandbox, IDE assistants limited to MCP, and any agent being manipulated into doing something the person didn't ask for.
 
 ## What it does not protect against
 
-A program that can already run commands as you on this PC. It can read your files, the sign-in cache and Fabric Desktop's own settings directly, whatever Fabric Desktop allows. Granting `EXECUTE_LOCAL_CODE` gives a client that level of access for the code you approve, which is why every such call is shown to you first.
+A program that can already run commands as you on this PC. It can read your files, the sign-in cache and KratosForge's own settings directly, whatever KratosForge allows. Granting `EXECUTE_LOCAL_CODE` gives a client that level of access for the code you approve, which is why every such call is shown to you first.
 
 ## Threats and controls
 
@@ -48,13 +48,13 @@ In `%ProgramData%\FabricDesktop\policy.json`:
 | `integrations_http` | `false` stops the local HTTP API being switched on |
 | `integrations_extensions` | The extensions that may be turned on, by id, for example `["notebook-outline"]`; `[]` allows none |
 
-A value of the wrong type fails closed: integrations off, or no permission categories, or no HTTP, or no extensions, or every receipt part left out. A policy file that exists but can't be read is replaced by the last copy that could be read, or, with no copy, applies all of those at once, and both the integrations and the rest of Fabric Desktop by KratosBI read it through the same loader (`app_settings.read_policy()`).
+A value of the wrong type fails closed: integrations off, or no permission categories, or no HTTP, or no extensions, or every receipt part left out. A policy file that exists but can't be read is replaced by the last copy that could be read, or, with no copy, applies all of those at once, and both the integrations and the rest of KratosForge read it through the same loader (`app_settings.read_policy()`).
 
 ## Residual risks
 
 - A person can approve a harmful request. The approval screen shows the client, operation, target and code, but it can't judge intent.
 - Approved code runs as you. It gets a storage token, and code written to use that token directly (not through the engine) could write OneLake files. The approval screen shows the code in full; approve only what you've read. Code, a query or a notebook too long to show in full (over 20,000 characters) is refused before you're asked, never cut.
-- Approving a notebook run shows the notebook's name, its lakehouse and every code cell that will run (markdown, empty and frozen cells are left out), read from the saved notebook when the tool asks. The approval is bound to a SHA-256 of those cells: exactly those cells run, and if the saved notebook changes before the run starts it is refused with "The notebook changed after it was approved. Ask again." and nothing runs. Asking again shows the new code. A notebook run by an external tool can't run other notebooks: `%run` and `notebookutils.notebook.run` are refused, because their code wasn't shown. Notebooks you run in the app are unchanged. A notebook whose code cells are too long to show (over 20,000 characters) is refused with "This notebook is too long to show for approval (N characters, limit 20,000). Run it in Fabric Desktop by KratosBI instead."
+- Approving a notebook run shows the notebook's name, its lakehouse and every code cell that will run (markdown, empty and frozen cells are left out), read from the saved notebook when the tool asks. The approval is bound to a SHA-256 of those cells: exactly those cells run, and if the saved notebook changes before the run starts it is refused with "The notebook changed after it was approved. Ask again." and nothing runs. Asking again shows the new code. A notebook run by an external tool can't run other notebooks: `%run` and `notebookutils.notebook.run` are refused, because their code wasn't shown. Notebooks you run in the app are unchanged. A notebook whose code cells are too long to show (over 20,000 characters) is refused with "This notebook is too long to show for approval (N characters, limit 20,000). Run it in KratosForge instead."
 - Token redaction recognises known shapes (JWTs, bearer headers, SAS signatures, key-value secrets); a secret in an unusual format can pass through.
 - The audit trail is evidence, not a lock: someone who controls the PC can delete the whole folder, which the chain check can't see. Ship `integrations\audit` to a log store if that matters.
 - An extension's code runs inside the engine with the engine's rights. Only extensions shipped with the app exist in this release; installing others, signing and isolating them is the Git-native program's Phase 4.

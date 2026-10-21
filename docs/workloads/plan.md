@@ -1,6 +1,6 @@
 # Workload operations: program plan and backlog
 
-How Fabric Desktop by KratosBI becomes the place where a data engineer manages the workloads they build and run on their PC, on their own servers and in Microsoft Fabric: what they own, what runs where and as whom, what needs attention, what changed, what it affects, and what they can safely do next. Chris asked for it on 2026-10-16 with a 100-capability backlog. This page is the source of truth for that program; [continuation.md](continuation.md) is the handoff note every PR updates.
+How KratosForge becomes the place where a data engineer manages the workloads they build and run on their PC, on their own servers and in Microsoft Fabric: what they own, what runs where and as whom, what needs attention, what changed, what it affects, and what they can safely do next. Chris asked for it on 2026-10-16 with a 100-capability backlog. This page is the source of truth for that program; [continuation.md](continuation.md) is the handoff note every PR updates.
 
 Assessed against `main` at `af11938` (sidecar 0.19.0, PR #53 merged; 322 tests pass, 2 skipped, on Linux). Nothing here has run against a live Fabric tenant unless it says so.
 
@@ -10,10 +10,10 @@ Assessed against `main` at `af11938` (sidecar 0.19.0, PR #53 merged; 322 tests p
 
 | Program | Plan | Owns (as far as this program is concerned) |
 | --- | --- | --- |
-| Scale and operations (roadmap) | [PR #57](https://github.com/KratosDataGod/fabric-desktop/pull/57), `docs/scale-and-operations-plan.md` | Large-table execution, ingestion, Git and release records that tie promotions to immutable revisions, the Fabric pipeline job contract, agent-side status and queue records (`agents/<name>.json`), run correlation fields (`ran_on`, `job_id`, [PR #58](https://github.com/KratosDataGod/fabric-desktop/pull/58)), column lineage and versioned product contracts. |
-| Prove this notebook | [PR #55](https://github.com/KratosDataGod/fabric-desktop/pull/55), `docs/prove/plan.md` | Notebook execution, environments and profiles, local-vs-Fabric comparisons, compatibility analysis, isolated kernels, run receipts (`receipts.py`), the per-run planner, placement recommendation and the cost model with run scorecards. |
+| Scale and operations (roadmap) | [PR #57](https://github.com/KratosDataGod/KratosForge/pull/57), `docs/scale-and-operations-plan.md` | Large-table execution, ingestion, Git and release records that tie promotions to immutable revisions, the Fabric pipeline job contract, agent-side status and queue records (`agents/<name>.json`), run correlation fields (`ran_on`, `job_id`, [PR #58](https://github.com/KratosDataGod/KratosForge/pull/58)), column lineage and versioned product contracts. |
+| Prove this notebook | [PR #55](https://github.com/KratosDataGod/KratosForge/pull/55), `docs/prove/plan.md` | Notebook execution, environments and profiles, local-vs-Fabric comparisons, compatibility analysis, isolated kernels, run receipts (`receipts.py`), the per-run planner, placement recommendation and the cost model with run scorecards. |
 
-Always-on monitoring and incident handling (the roadmap's capability 9) moved to this program on 2026-10-16: items 41 to 50 here. Concurrent writes and leases belong to the review thread ([PR #54](https://github.com/KratosDataGod/fabric-desktop/pull/54)). Platform requests and audit ([platform.md](../platform.md)) and the shortcut command center ([shortcuts.md](../shortcuts.md)) are extended, never duplicated.
+Always-on monitoring and incident handling (the roadmap's capability 9) moved to this program on 2026-10-16: items 41 to 50 here. Concurrent writes and leases belong to the review thread ([PR #54](https://github.com/KratosDataGod/KratosForge/pull/54)). Platform requests and audit ([platform.md](../platform.md)) and the shortcut command center ([shortcuts.md](../shortcuts.md)) are extended, never duplicated.
 
 ## 1. What exists today
 
@@ -379,7 +379,7 @@ Status: **Adequate** (already good enough), **Enhance** (present, needs work), *
 **58. Rollback planning** · Enhance · Stage 7 · *Dep roadmap 5.3*. Today: per-table restore. PR: —
 
 **59. Progressive rollout management** · Not doing (now)
-- Fabric Desktop by KratosBI deploys a whole project per environment, and Test before Prod is already the staged path. Pilot groups need several production destinations for one project, which the deployment model does not have. Revisit when multi-worker agents (roadmap 7.3) exist.
+- KratosForge deploys a whole project per environment, and Test before Prod is already the staged path. Pilot groups need several production destinations for one project, which the deployment model does not have. Revisit when multi-worker agents (roadmap 7.3) exist.
 
 **60. Release calendar** · Missing · Stage 7 (with maintenance windows, 20). PR: —
 

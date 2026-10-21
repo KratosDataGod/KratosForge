@@ -6,12 +6,14 @@ use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 use tauri::webview::{NewWindowResponse, WebviewBuilder};
 use tauri::{Emitter, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl};
 
+mod replies;
 mod watchdog;
 use watchdog::Reply;
 
@@ -318,13 +320,36 @@ fn stream(app: &tauri::AppHandle, mut cmd: Command) -> Result<(), String> {
     Err(tail.iter().skip(start).cloned().collect::<Vec<_>>().join("\n"))
 }
 
+/// Several calls can be in flight at once: each writes its request line, then waits for the
+/// reply carrying its id, which a reader thread hands over (replies::Pending).
 struct Sidecar {
     // Shared with SidecarState so Stop can kill the process while a call is blocked on it.
     child: Arc<Mutex<Child>>,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    next_id: u64,
+    stdin: Mutex<ChildStdin>,
+    pending: Arc<Mutex<replies::Pending<String>>>,
+    next_id: AtomicU64,
     log: PathBuf,
+}
+
+/// Reads the engine's reply lines and hands each to the call that sent its id. A reply nobody
+/// waits for (its call timed out) is dropped. When the output closes, every waiting call hears so.
+fn read_replies(stdout: ChildStdout, pending: Arc<Mutex<replies::Pending<String>>>) {
+    let mut stdout = BufReader::new(stdout);
+    loop {
+        let mut line = String::new();
+        match stdout.read_line(&mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let id = replies::reply_id(&line);
+        let Ok(mut waiting) = pending.lock() else { break };
+        if !waiting.deliver(id, line) {
+            eprintln!("engine reply for {id:?} had no call waiting for it; dropped");
+        }
+    }
+    if let Ok(mut waiting) = pending.lock() {
+        waiting.close();
+    }
 }
 
 impl Sidecar {
@@ -343,9 +368,18 @@ impl Sidecar {
             .stderr(stderr);
         hide_window(&mut cmd);
         let mut child = cmd.spawn()?;
-        let stdin = child.stdin.take().expect("sidecar stdin");
-        let stdout = BufReader::new(child.stdout.take().expect("sidecar stdout"));
-        Ok(Self { child: Arc::new(Mutex::new(child)), stdin, stdout, next_id: 1, log })
+        let stdin = Mutex::new(child.stdin.take().expect("sidecar stdin"));
+        let stdout = child.stdout.take().expect("sidecar stdout");
+        let pending = Arc::new(Mutex::new(replies::Pending::default()));
+        let reader = pending.clone();
+        std::thread::Builder::new().name("engine-replies".into()).spawn(move || read_replies(stdout, reader))?;
+        Ok(Self { child: Arc::new(Mutex::new(child)), stdin, pending, next_id: AtomicU64::new(1), log })
+    }
+
+    fn forget(&self, id: u64) {
+        if let Ok(mut waiting) = self.pending.lock() {
+            waiting.forget(id);
+        }
     }
 
     /// The exit message plus the last thing the sidecar wrote to its log, which is
@@ -361,25 +395,36 @@ impl Sidecar {
         }
     }
 
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.next_id;
-        self.next_id += 1;
+    fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        // Waiting is set up before the request goes out, so even an instant reply finds its call.
+        let reply = self.pending.lock().map_err(|e| e.to_string())?.register(id);
+        let Some(reply) = reply else { return Err(self.exited()) };
         let request = json!({ "id": id, "method": method, "params": params });
-        if writeln!(self.stdin, "{request}").and_then(|_| self.stdin.flush()).is_err() {
+        let sent = {
+            let mut stdin = self.stdin.lock().map_err(|e| e.to_string())?;
+            writeln!(stdin, "{request}").and_then(|_| stdin.flush())
+        };
+        if sent.is_err() {
+            self.forget(id);
             return Err(self.exited());
         }
 
-        let line = match watchdog::read_reply(&mut self.stdout, &self.child, watchdog::limit(method))
-            .map_err(|e| e.to_string())?
-        {
+        let line = match watchdog::wait_reply(&reply, &self.child, watchdog::limit(method)) {
             Reply::Line(line) => line,
             Reply::Closed => return Err(self.exited()),
-            Reply::TimedOut => return Err(format!(
-                "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
-                 run the notebook's cells again. Details are in {}",
-                watchdog::QUICK_SECONDS, self.log.display())),
+            Reply::TimedOut => {
+                self.forget(id);
+                return Err(format!(
+                    "{SIDECAR_STUCK} {method} had no answer after {} seconds. Notebook variables were cleared; \
+                     run the notebook's cells again. Details are in {}",
+                    watchdog::QUICK_SECONDS, self.log.display()));
+            }
         };
         let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+        if response.get("id").and_then(Value::as_u64) != Some(id) {
+            return Err(format!("The engine's answer to {method} did not match the request. Try again."));
+        }
         if let Some(error) = response.get("error") {
             return Err(error.as_str().unwrap_or("Unknown sidecar error").to_string());
         }
@@ -388,7 +433,7 @@ impl Sidecar {
 }
 
 struct SidecarState {
-    sidecar: Mutex<Option<Sidecar>>,
+    sidecar: Mutex<Option<Arc<Sidecar>>>,
     child: Mutex<Option<Arc<Mutex<Child>>>>,
 }
 
@@ -398,25 +443,36 @@ async fn rpc(
     method: String,
     params: Option<Value>,
 ) -> Result<Value, String> {
-    let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
-    if guard.is_none() {
-        let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
-        *state.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
-        *guard = Some(sidecar);
-    }
-    let sidecar = guard.as_mut().expect("sidecar started");
-    let first_call = sidecar.next_id == 1;
-    let result = sidecar.call(&method, params.unwrap_or_else(|| json!({})));
-    if matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK)) {
-        // Ended by the time limit: the next call starts a fresh one.
-        *guard = None;
-    } else if matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
-        *guard = None;
-        if first_call {
-            // It would not even start: have the next startup check load the engine again
-            // rather than trusting that this build worked before.
-            let _ = std::fs::remove_file(data_dir().join("engine-verified.json"));
+    // The lock is held only to find or start the engine, not for the call, so a long call
+    // doesn't hold up the others.
+    let sidecar = {
+        let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
+        if guard.is_none() {
+            let sidecar = Sidecar::start().map_err(|e| format!("Could not start the Python sidecar: {e}"))?;
+            *state.child.lock().map_err(|e| e.to_string())? = Some(sidecar.child.clone());
+            *guard = Some(Arc::new(sidecar));
         }
+        guard.clone().expect("sidecar started")
+    };
+    let first_call = sidecar.next_id.load(Ordering::SeqCst) == 1;
+    let engine = sidecar.clone();
+    let params = params.unwrap_or_else(|| json!({}));
+    let result = tauri::async_runtime::spawn_blocking(move || engine.call(&method, params))
+        .await
+        .map_err(|e| e.to_string())?;
+    let ended = matches!(&result, Err(e) if e.starts_with(SIDECAR_STUCK) || e.starts_with(SIDECAR_EXITED));
+    if ended {
+        // Ended by the time limit, Stop or a crash: the next call starts a fresh one, unless
+        // another call already did.
+        let mut guard = state.sidecar.lock().map_err(|e| e.to_string())?;
+        if guard.as_ref().is_some_and(|current| Arc::ptr_eq(current, &sidecar)) {
+            *guard = None;
+        }
+    }
+    if first_call && matches!(&result, Err(e) if e.starts_with(SIDECAR_EXITED)) {
+        // It would not even start: have the next startup check load the engine again
+        // rather than trusting that this build worked before.
+        let _ = std::fs::remove_file(data_dir().join("engine-verified.json"));
     }
     result
 }

@@ -96,3 +96,37 @@ If your tenant has item recovery turned on, Fabric may keep a deleted lakehouse 
 - Shortcuts, data access roles and the platform's SQL database.
 
 These need longer runs or capacity time; they will be added as more opt-in checks.
+
+## T-SQL contract cases
+
+Fabric Desktop by KratosBI never runs T-SQL on this PC: it checks and formats it ([SQL compatibility check](sql-compatibility.md)) and runs Spark SQL and DuckDB here. The T-SQL contract cases (HD-054) pin that behavior and say what Fabric is expected to do with the same SQL, so a change on either side shows up.
+
+The cases are in `sidecar/tests/tsql_contract/cases.jsonl`, one JSON object per line after the first, and `sidecar/tests/test_tsql_contract.py` runs them with the rest of the tests. Each case has:
+
+| Field | Holds |
+| --- | --- |
+| `id`, `area`, `target`, `sql` | A unique name; the area (`top`, `cast_convert`, `date`, `string`, `null_handling`, `cte`, `window`, `merge`, `unsupported`); the engine (`warehouse`, `endpoint`, `sqldb`, or `spark` for SQL run on this PC); the SQL |
+| `local.check` | The compatibility check's outcome and exact rules |
+| `local.format` | `formats` or `left_alone` (Format SQL left it as it was). Formatting must never change the check's findings |
+| `local.run` | Spark SQL cases only: the rows, or part of the error, that running it on this PC gives. T-SQL cases are always refused here, and the test checks that |
+| `local.equivalent` | Optional: the Spark SQL spelling of the same query, run on this PC, and its rows |
+| `fabric` | `expect` (`accepts`, `rejects` or `unknown`), `why`, and the `rows` Fabric should return. They must equal the local equivalent's rows unless `known_difference` says why not (for example, `7 / 2` is 3 in T-SQL and 3.5 in Spark SQL) |
+| `verification` | `local_pinned`, or `verified_against_fabric` with a `verified` block (`on`, `engine`, `run`: the date, the engine and a link to the live run). Every case is `local_pinned` today: passing on this PC proves nothing about Fabric |
+| `xfail` | A known local bug, by part (`check`, `format_outcome`, `format_keeps_findings`, `run`, `equivalent`) and why. The test then expects that part to fail, and fails when the bug is fixed, so the case gets updated |
+
+To add a case, add a line, run `python -m pytest -q tests/test_tsql_contract.py` in `sidecar/`, and pin what the app does. If what it does is wrong, keep the right expectation and add an `xfail` with the reason instead of pinning the wrong one. Only change `verification` from a live run's results.
+
+### The live job
+
+`.github/workflows/tsql-contract-live.yml` runs the same cases against a real Fabric warehouse or SQL analytics endpoint, every Monday and on demand. Each run uses Fabric capacity on the test workspace (its queries run in Fabric), so every run waits for a maintainer to approve it. Until it is set up it stops at once with "No test workspace configured" and runs nothing.
+
+It must only ever point at a **dedicated test workspace**, never at production or a workspace with data anyone needs. The test refuses a workspace without `fabric-desktop-live-test` in its description, one whose name or item name looks like production, and any Platform workspace in the policy file, the same as the live test above. It reads the server address from Fabric for the named item in that workspace, so it can't be pointed anywhere else. It only runs cases it can prove read-only (no writes, no `SELECT ... INTO`), each in a transaction it rolls back; MERGE, CREATE and other writes stay offline.
+
+To turn it on, a maintainer:
+
+1. Creates the test workspace, marks it as described in [Before you start](#before-you-start), and creates a warehouse in it (or a lakehouse, for its SQL analytics endpoint).
+2. Creates a service principal, adds it to the workspace as **Viewer**, and allows it to use Fabric APIs ([permissions](permissions.md#the-t-sql-contract-job-maintainers-only)).
+3. Creates the GitHub environment `tsql-contract-live` (**Settings > Environments**) with **Required reviewers**, so no run, scheduled or manual, starts without a person's approval.
+4. Sets the repository variables `FABRIC_TSQL_TEST_WORKSPACE_ID`, `FABRIC_TSQL_TEST_ITEM` (the warehouse or lakehouse name), `FABRIC_TSQL_TEST_TARGET` (`warehouse` or `endpoint`), `FABRIC_TSQL_TENANT_ID` and `FABRIC_TSQL_CLIENT_ID`, and `FABRIC_TSQL_CLIENT_SECRET` as an **environment secret** of `tsql-contract-live` (not a repository secret), so only an approved run can read it.
+
+Each run uploads `tsql-contract-results.json`: every case's outcome, rows and (with tokens removed) error. A case Fabric answers differently from its `fabric` block fails the run; `unknown` cases are only recorded. Locally, the same run is `FABRIC_DESKTOP_TSQL_LIVE=1` plus the `FABRIC_DESKTOP_TSQL_*` settings named in the workflow, with `pyodbc` and ODBC Driver 18 for SQL Server installed.

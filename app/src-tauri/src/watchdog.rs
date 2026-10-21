@@ -1,24 +1,25 @@
 // Time limits on engine calls. Only std, so `rustc --test src/watchdog.rs` checks it without
 // building the whole app.
 
-use std::io::BufRead;
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
 
 /// Calls that only read local state or the kernel, which answer in well under a second. One
-/// that takes longer than this means the engine is stuck, and every later call would queue
-/// behind it with the app frozen. Everything else (runs, publishing, Fabric calls) can
-/// legitimately take hours and has no limit; Stop ends those.
+/// that takes longer than this means the engine is stuck, and every later quick call would
+/// queue behind it with the app frozen. Everything else (runs, publishing, Fabric calls) can
+/// legitimately take hours and has no limit; Stop ends those. The engine runs these in their
+/// own lane (QUICK in sidecar/fabric_desktop/server.py, kept the same as this list), so they
+/// never wait behind a long call. Calls that write notebook files (new, save, rename) are left
+/// out: they must stay in order with publish and delete, which save the notebook too, or a
+/// publish queued behind a long call would write older cells over a newer autosave.
 pub const QUICK: &[&str] = &[
     "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "new_notebook", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
+    "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
     "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
-    "receipt_get", "receipts_list", "rename_notebook", "save_notebook", "side_by_side_list",
+    "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
     "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
     "sql_page", "sql_start", "sql_status",
@@ -40,72 +41,77 @@ pub enum Reply {
     TimedOut,
 }
 
-/// Reads one line from `reader`. If none comes within `limit`, ends `child`, which closes the
-/// pipe and frees the read, and says so.
-pub fn read_reply(reader: &mut impl BufRead, child: &Arc<Mutex<Child>>, limit: Option<Duration>)
-    -> std::io::Result<Reply> {
-    let timed_out = Arc::new(AtomicBool::new(false));
-    let (done, wait) = mpsc::channel::<()>();
-    if let Some(limit) = limit {
-        let (child, timed_out) = (child.clone(), timed_out.clone());
-        thread::spawn(move || {
-            if wait.recv_timeout(limit) == Err(mpsc::RecvTimeoutError::Timeout) {
-                timed_out.store(true, Ordering::SeqCst);
-                if let Ok(mut child) = child.lock() {
-                    let _ = child.kill();
-                }
+/// Waits for this call's reply line (the engine's reader thread sends it, or drops the sender
+/// when the engine's output closes). If none comes within `limit`, ends `child`, which ends
+/// every other call too, and says so.
+pub fn wait_reply(reply: &Receiver<String>, child: &Arc<Mutex<Child>>, limit: Option<Duration>) -> Reply {
+    let got = match limit {
+        Some(limit) => reply.recv_timeout(limit).map_err(|e| e == RecvTimeoutError::Timeout),
+        None => reply.recv().map_err(|_| false),
+    };
+    match got {
+        Ok(line) => Reply::Line(line),
+        Err(false) => Reply::Closed,
+        Err(true) => {
+            if let Ok(mut child) = child.lock() {
+                let _ = child.kill();
             }
-        });
+            Reply::TimedOut
+        }
     }
-    let mut line = String::new();
-    let read = reader.read_line(&mut line);
-    let _ = done.send(());
-    if timed_out.load(Ordering::SeqCst) {
-        return Ok(Reply::TimedOut);
-    }
-    Ok(if read? == 0 { Reply::Closed } else { Reply::Line(line) })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::BufReader;
     use std::process::{Command, Stdio};
+    use std::sync::mpsc::channel;
     use std::time::Instant;
 
-    fn spawn(script: &str) -> (Arc<Mutex<Child>>, BufReader<std::process::ChildStdout>) {
-        let mut child = if cfg!(windows) {
-            Command::new("powershell").args(["-NoProfile", "-Command", script]).stdout(Stdio::piped()).spawn()
+    fn spawn(script: &str) -> Arc<Mutex<Child>> {
+        let child = if cfg!(windows) {
+            Command::new("powershell").args(["-NoProfile", "-Command", script]).stdout(Stdio::null()).spawn()
         } else {
-            Command::new("sh").args(["-c", script]).stdout(Stdio::piped()).spawn()
+            Command::new("sh").args(["-c", script]).stdout(Stdio::null()).spawn()
         }.expect("spawn");
-        let out = BufReader::new(child.stdout.take().unwrap());
-        (Arc::new(Mutex::new(child)), out)
+        Arc::new(Mutex::new(child))
+    }
+
+    fn sleeper() -> Arc<Mutex<Child>> {
+        spawn(if cfg!(windows) { "Start-Sleep 30" } else { "exec sleep 30" })
     }
 
     #[test]
     fn a_call_that_answers_in_time_returns_its_line() {
-        let (child, mut out) = spawn("echo ok");
-        match read_reply(&mut out, &child, Some(Duration::from_secs(30))).unwrap() {
-            Reply::Line(line) => assert_eq!(line.trim(), "ok"),
+        let child = sleeper();
+        let (send, reply) = channel();
+        send.send("ok".to_string()).unwrap();
+        match wait_reply(&reply, &child, Some(Duration::from_secs(30))) {
+            Reply::Line(line) => assert_eq!(line, "ok"),
             _ => panic!("expected a line"),
         }
+        assert!(child.lock().unwrap().try_wait().unwrap().is_none(), "the engine was left running");
+        let _ = child.lock().unwrap().kill();
     }
 
     #[test]
     fn a_call_that_does_not_answer_ends_the_process() {
-        let script = if cfg!(windows) { "Start-Sleep 30" } else { "exec sleep 30" };
-        let (child, mut out) = spawn(script);
+        let child = sleeper();
+        let (_send, reply) = channel::<String>();
         let start = Instant::now();
-        assert!(matches!(read_reply(&mut out, &child, Some(Duration::from_millis(300))).unwrap(), Reply::TimedOut));
+        assert!(matches!(wait_reply(&reply, &child, Some(Duration::from_millis(300))), Reply::TimedOut));
         assert!(start.elapsed() < Duration::from_secs(10));
         assert!(child.lock().unwrap().wait().is_ok());
     }
 
     #[test]
-    fn a_process_that_exits_is_closed_not_timed_out() {
-        let (child, mut out) = spawn("exit 0");
-        assert!(matches!(read_reply(&mut out, &child, Some(Duration::from_secs(30))).unwrap(), Reply::Closed));
+    fn an_engine_whose_output_closed_is_closed_not_timed_out() {
+        let child = sleeper();
+        let (send, reply) = channel::<String>();
+        drop(send);
+        assert!(matches!(wait_reply(&reply, &child, Some(Duration::from_secs(30))), Reply::Closed));
+        assert!(matches!(wait_reply(&reply, &child, None), Reply::Closed));
+        let _ = child.lock().unwrap().kill();
     }
 
     #[test]

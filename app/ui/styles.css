@@ -1898,3 +1898,17 @@ html[data-fx-ambient="on"] .flow-node[data-state="running"] .flow-link::after { 
 .nb-intel-doc { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border-soft); max-height: 220px; overflow: hidden; white-space: pre-wrap; color: var(--text-2); font-size: 12px; line-height: 1.45; }
 .nb-intel-info { max-width: 460px; padding: 4px 2px; font-size: 12px; }
 .cm-diagnostic-error { border-left-color: var(--danger); }
+
+/* Platform notices (platform-notices.js): the bell's Platform filter and Settings > Notifications. */
+.pn-note { margin: 0; padding: 8px 16px; }
+.pn-settings { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.pn-settings h3 { margin: 0; font-size: 15px; }
+.pn-settings .table-scroll { overflow-x: auto; }
+.pn-quiet { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.pn-quiet fieldset, .pn-route fieldset { border: 0; margin: 0; padding: 0; }
+.pn-quiet legend, .pn-route legend { padding: 0; margin-bottom: 4px; font-weight: 600; }
+.pn-waiting-line { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--hover); border-radius: 6px; font-size: 13px; }
+.pn-domains { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 4px 12px; max-height: 160px; overflow: auto; }
+.pn-route .note-box { padding: 10px 12px; background: var(--hover); border-radius: 6px; font-size: 13px; }
+.pn-route .note-box p { margin: 4px 0 0; }
+.pn-waiting-line .pill-s { white-space: nowrap; }

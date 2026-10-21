@@ -186,6 +186,25 @@ def test_the_external_environment_is_the_allowlist_and_nothing_else():
     assert env["PYTHONPATH"] != "/elsewhere" and Path(env["PYTHONPATH"], "fabric_desktop", "kernel_host.py").exists()
 
 
+@pytest.mark.parametrize("proxy,sent", [
+    ("http://user:s3cret@proxy.contoso.com:8080", "http://proxy.contoso.com:8080"),
+    ("http://CONTOSO%5Cme:p%40ss@proxy:3128/", "http://proxy:3128/"),
+    ("user:p@ss@proxy:3128", "proxy:3128"),  # no scheme, and an "@" left unencoded in the password
+    ("socks5h://me@proxy:1080", "socks5h://proxy:1080"),
+    ("http://proxy:8080", "http://proxy:8080"),
+    ("http://proxy:8080/path@x", "http://proxy:8080/path@x"),  # an "@" after the host isn't a password
+    ("http://u:pa/ss@proxy:8080", "http://proxy:8080"),  # an unencoded "/" in the password
+    ("  http://u:p@h:1 ", "http://h:1"),  # spaces around the value
+    ("http://u:p@[::1]:3128", "http://[::1]:3128"),
+    ("socks5h://u:p@@h:1080", "socks5h://h:1080"),
+])
+def test_a_proxy_password_doesnt_reach_the_tool(proxy, sent):
+    from fabric_desktop.kernel_proc import external_environment
+    env = external_environment({"HTTPS_PROXY": proxy, "http_proxy": proxy, "ALL_PROXY": proxy, "NO_PROXY": "a@b"})
+    assert env["HTTPS_PROXY"] == env["http_proxy"] == env["ALL_PROXY"] == sent
+    assert env["NO_PROXY"] == "a@b"  # a host list, not an address
+
+
 def test_python_cant_write_lakehouse_tables(svc):
     code = "import pyarrow as pa\nfrom fabric_desktop import lakehouse\nlakehouse.write_table(pa.table({'a': [1]}), 'dbo.t')"
     out = call(svc, "fabric_desktop_execute_python", code=code, workspace_id="ws1", lakehouse_id="lh1")

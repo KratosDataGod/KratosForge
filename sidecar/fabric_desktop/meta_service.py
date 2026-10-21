@@ -28,6 +28,7 @@ from .meta.promote import promote_checks, releases, rollback
 from .meta.store import LANDING_LAKEHOUSE, META_LAKEHOUSE, Store, ran_on
 from .meta.templates import TEMPLATES, describe, entity_text, init_project
 from .redact import describe as describe_error
+from .jsonfile import read_json, write_json, write_text
 
 _log = logging.getLogger(__name__)
 
@@ -102,14 +103,11 @@ class MetaMixin:
         return self.root / "settings.json"
 
     def _settings(self) -> dict[str, Any]:
-        try:
-            return json.loads(self.settings_file.read_text(encoding="utf-8"))
-        except (FileNotFoundError, ValueError):
-            return {}
+        settings = read_json(self.settings_file, {})
+        return settings if isinstance(settings, dict) else {}
 
     def _save_settings(self, **changes: Any) -> None:
-        self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-        self.settings_file.write_text(json.dumps(self._settings() | changes, indent=2), encoding="utf-8")
+        write_json(self.settings_file, self._settings() | changes)
 
     def _source_options(self) -> dict[str, str]:
         """OneLake access for source tables outside the environment (adopted lakehouse tables)."""
@@ -276,7 +274,7 @@ class MetaMixin:
             lines.append(f"[{name}]")
             lines += [f"{k} = {_toml(v)}" for k, v in envs.get(name, {}).items()]
             lines.append("")
-        (project.root / "environments.toml").write_text("\n".join(lines), encoding="utf-8")
+        write_text(project.root / "environments.toml", "\n".join(lines))
 
     def meta_set_environment(self, env: str, workspace_id: str | None = None, workspace_name: str | None = None,
                              target: str | None = None) -> dict[str, Any]:
@@ -369,8 +367,9 @@ class MetaMixin:
             downstream = impact(project, name) if name in project.entities else []
             if downstream:
                 raise GateError("save", [f"can't rename {name}: {', '.join(downstream)} read it"])
+        write_text(path, text)
+        if new_name != name:  # only once the new file is in place, so a failed save loses neither
             (project.entities_dir / f"{name}.toml").unlink(missing_ok=True)
-        path.write_text(text, encoding="utf-8")
         return self.meta_entity(new_name)
 
     def meta_new_entity(self, template: str, name: str, source: str = "", keys: list[str] | None = None,
@@ -401,8 +400,8 @@ class MetaMixin:
             p = project.root / rel
             if not p.exists():
                 p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(content, encoding="utf-8")
-        (project.entities_dir / f"{name}.toml").write_text(text, encoding="utf-8")
+                write_text(p, content)
+        write_text(project.entities_dir / f"{name}.toml", text)
         return self.meta_entity(name)
 
     def meta_delete_entity(self, name: str) -> dict[str, Any]:
@@ -900,7 +899,7 @@ class MetaMixin:
             if old is None:
                 path.unlink()
             else:
-                path.write_text(old, encoding="utf-8")
+                write_text(path, old)
             raise GateError("save", problems)
         return self.meta_keys(env)
 

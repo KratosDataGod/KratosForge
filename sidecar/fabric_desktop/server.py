@@ -2,6 +2,8 @@
 
 Request:  {"id": 1, "method": "list_workspaces", "params": {}}
 Response: {"id": 1, "result": [...]}  or  {"id": 1, "error": "message"}
+
+Replies can arrive in a different order from the requests (see QUICK); the shell matches them by id.
 """
 
 from __future__ import annotations
@@ -9,10 +11,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import sys
 import threading
 import time
-from typing import IO
+from typing import IO, Callable
 
 from . import audit
 from .redact import secrets
@@ -153,6 +156,24 @@ from .comments_service import METHODS as COMMENT_METHODS  # noqa: E402
 METHODS |= COMMENT_METHODS
 
 
+# The calls the shell gives a short time limit (QUICK in app/src-tauri/src/watchdog.rs): they read
+# local state or the kernel and answer at once. They run in their own lane, so a long run, publish
+# or sign-in can't hold them up (and the shell's time limit can't end the engine because one waited
+# behind it). Everything else runs one at a time in the order it arrives, as before. Notebook writes
+# (new, save, rename) stay ordered with publish and delete, which save too: a publish queued behind a
+# long call must not write its older cells over an autosave that overtook it.
+QUICK = frozenset({
+    "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
+    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
+    "receipt_get", "receipts_list", "side_by_side_list",
+    "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",
+    "sql_compat_profiles", "sql_executions", "sql_export", "sql_export_cancel", "sql_export_status",
+    "sql_page", "sql_start", "sql_status",
+    "wizard_preview", "wizard_templates",
+})
+
+
 def handle(service: Service, line: str) -> dict:
     try:
         req = json.loads(line)
@@ -205,11 +226,49 @@ def _count(service: Service, method: str, reply: dict, seconds: float) -> None:
 
 
 def serve(service: Service | None = None, stdin: IO[str] = sys.stdin, stdout: IO[str] = sys.stdout) -> None:
+    """Hands each request to its lane (QUICK, or everything else in order). Replies can come back
+    in a different order from the requests: each carries its request's id, which the shell matches."""
     service = service or Service()
+    write = threading.Lock()  # one whole reply line at a time
+
+    def answer(line: str) -> None:
+        reply = handle(service, line)
+        try:
+            text = json.dumps(reply, default=str)
+        except Exception as exc:  # noqa: BLE001 - the caller still gets an answer
+            text = json.dumps({"id": reply.get("id"), "error": f"Could not send the result: {type(exc).__name__}"})
+        with write:
+            stdout.write(text + "\n")
+            stdout.flush()
+
+    lanes: dict[str, queue.Queue] = {"quick": queue.Queue(), "ordered": queue.Queue()}
+    workers = [threading.Thread(target=_lane, args=(q, answer), daemon=True, name=f"rpc-{name}")
+               for name, q in lanes.items()]
+    for worker in workers:
+        worker.start()
     for line in stdin:
         if line.strip():
-            stdout.write(json.dumps(handle(service, line), default=str) + "\n")
-            stdout.flush()
+            lanes["quick" if _method(line) in QUICK else "ordered"].put(line)
+    for q in lanes.values():
+        q.put(None)  # finish what was asked, then stop
+    for worker in workers:
+        worker.join()
+
+
+def _method(line: str) -> object:
+    try:
+        req = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    return req.get("method") if isinstance(req, dict) else None
+
+
+def _lane(requests: queue.Queue, answer: Callable[[str], None]) -> None:
+    while (line := requests.get()) is not None:
+        try:
+            answer(line)
+        except Exception as exc:  # noqa: BLE001 - e.g. a broken pipe: the shell is gone; keep draining
+            print(f"rpc: could not answer: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def _log_file() -> IO[str]:

@@ -11,6 +11,7 @@ import polars as pl
 
 from . import keys as keys_mod
 from .project import Layer, Project, write_layers_file
+from ..jsonfile import write_text
 
 PRESETS: dict[str, list[Layer]] = {
     "2": [Layer("raw", "evolve", [], description="Data as it arrived"),
@@ -304,7 +305,7 @@ SAMPLE_FILES = {
 def _write(root: Path, rel: str, text: str) -> None:
     p = root / rel
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(text, encoding="utf-8")
+    write_text(p, text)
 
 
 def init_project(root: Path, preset: str = "3", owner: str = "", sample: bool = True) -> Project:

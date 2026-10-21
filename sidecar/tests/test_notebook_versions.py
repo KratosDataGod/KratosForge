@@ -107,7 +107,7 @@ def test_versions_live_outside_the_notebooks_folder_and_old_ones_are_pruned(svc,
     call(svc, "notebook_checkpoint", name="NB", label="keep")
     folder = svc.root / "notebook-versions" / "NB"
     assert not list((svc.root / "notebooks").glob("**/*.json"))
-    assert len([p for p in folder.glob("*.json") if json.loads(p.read_text())["kind"] == "auto"]) == versions.MAX_AUTO
+    assert len([p for p in folder.glob("*.json") if p.name != versions.INDEX and json.loads(p.read_text())["kind"] == "auto"]) == versions.MAX_AUTO
     clock["now"] += (versions.KEEP_DAYS + 1) * 86400
     save(svc, "NB", "fresh = 1")
     kinds = sorted(v["kind"] for v in call(svc, "notebook_versions", name="NB")["versions"])
@@ -148,3 +148,34 @@ def test_a_record_missing_fields_is_skipped_and_never_breaks_a_save(svc, clock):
     save(svc, "NB", "a = 2")
     assert len(call(svc, "notebook_versions", name="NB")["versions"]) == 2
     assert "isn't a version" in error(svc, "notebook_version", name="NB", version_id="20000101000000-deadbeef\n")
+
+
+def test_a_save_reads_the_index_not_every_version(svc, clock, monkeypatch):
+    big = "x = '" + "y" * 200_000 + "'"  # about 200 KB a version, so 60 of them make a 12 MB history
+    for i in range(60):
+        clock["now"] += 6 * 60
+        save(svc, "NB", f"a = {i}", big)
+    reads = []
+    real = versions._read
+    monkeypatch.setattr(versions, "_read", lambda p: reads.append(p) or real(p))
+    clock["now"] += 6 * 60
+    save(svc, "NB", "a = new", big)
+    listed = call(svc, "notebook_versions", name="NB")["versions"]
+    assert reads == []  # neither the save nor the list opened a version file
+    assert len(listed) == 61 and listed[0]["current"] and listed[0]["cells"] == 2
+    assert call(svc, "notebook_version", name="NB", version_id=listed[1]["id"])["cells"][0]["source"] == "a = 59"
+
+
+def test_the_index_is_rebuilt_when_it_is_torn_or_out_of_step(svc, clock):
+    save(svc, "NB", "a = 1")
+    clock["now"] += 6 * 60
+    save(svc, "NB", "a = 2")
+    folder = svc.root / "notebook-versions" / "NB"
+    (folder / versions.INDEX).write_text('{"versions": [', encoding="utf-8")
+    assert len(call(svc, "notebook_versions", name="NB")["versions"]) == 2
+    oldest = sorted(p for p in folder.glob("*.json") if p.name != versions.INDEX)[0]
+    oldest.unlink()  # removed by hand: the index names a file that isn't there
+    assert len(call(svc, "notebook_versions", name="NB")["versions"]) == 1
+    clock["now"] += 6 * 60
+    save(svc, "NB", "a = 3")
+    assert [v["current"] for v in call(svc, "notebook_versions", name="NB")["versions"]] == [True, False]

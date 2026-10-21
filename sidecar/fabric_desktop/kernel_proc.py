@@ -23,6 +23,7 @@ import functools
 import itertools
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -58,13 +59,36 @@ EXTERNAL_ENV_ALLOW = (
     "HOME",          # the same on Linux and macOS
     "LANG", "LANGUAGE", "LC_ALL",  # locale: text encoding and formatting; LC_* below
     # Networks that set their proxy or TLS-inspection certificate only here: without them OneLake
-    # reads fail. A proxy address can carry the proxy's own password; that is the network's, not Fabric's.
+    # reads fail. A user name and password in a proxy address are removed (_without_credentials).
     "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
     "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
 )
 EXTERNAL_ENV_PREFIXES = ("LC_",)
 # Set by the engine itself, never copied from its environment (the library paths at each start).
 EXTERNAL_ENV_SET = ("PYTHONUNBUFFERED", "PYTHONPATH", "FABRIC_DESKTOP_LIBRARY_PATHS")
+_PROXY_ENV = {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
+_PROXY_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_HOST_PORT = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d+)?")
+
+
+def _without_credentials(proxy: str) -> str:
+    """``http://user:secret@proxy:8080`` as ``http://proxy:8080``: the tool's code gets the proxy's
+    address but not the password for it. A proxy that needs one refuses the tool's requests.
+
+    The user name and password end at the last "@" before the host. A password may hold an
+    unencoded "/" (``u:pa/ss@proxy``), so an "@" after a "/" counts as part of the path only
+    when what comes before that "/" is already a host and port (``proxy:8080/path@x``)."""
+    proxy = proxy.strip()
+    scheme = m.group(0) if (m := _PROXY_SCHEME.match(proxy)) else ""
+    rest = proxy[len(scheme):]
+    if "@" not in rest:
+        return proxy
+    head = rest.split("/", 1)[0]
+    if "@" in head:
+        return scheme + head.rpartition("@")[2] + rest[len(head):]
+    if _HOST_PORT.fullmatch(head):
+        return proxy  # the "@" is in the path
+    return scheme + rest.rpartition("@")[2]
 
 
 def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]:
@@ -73,6 +97,8 @@ def external_environment(parent: dict[str, str] | None = None) -> dict[str, str]
     parent = dict(os.environ if parent is None else parent)
     allow = {name.upper() for name in EXTERNAL_ENV_ALLOW}
     env = {k: v for k, v in parent.items() if k.upper() in allow or k.upper().startswith(EXTERNAL_ENV_PREFIXES)}
+    for name in [k for k in env if k.upper() in _PROXY_ENV]:
+        env[name] = _without_credentials(env[name])
     # The kernel imports the engine's own code from where this engine runs it (a source checkout in
     # development; the embeddable Python's own ._pth ignores PYTHONPATH in release builds).
     env["PYTHONPATH"] = str(Path(__file__).resolve().parent.parent)

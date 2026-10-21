@@ -350,23 +350,35 @@ _AUDIENCES = {
 }
 
 
-_VAULT_NAME = re.compile(r"^[A-Za-z0-9-]{1,24}$")
-_SECRET_NAME = re.compile(r"^[A-Za-z0-9-]{1,127}$")
+_VAULT_NAME = re.compile(r"[A-Za-z0-9-]{1,24}")
+_SECRET_NAME = re.compile(r"[A-Za-z0-9-]{1,127}")
 
 
 def vault_url(akv: str) -> str:
     """``https://<name>.vault.azure.net`` for a Key Vault name or URL. Anything else is refused:
     the request carries your Key Vault token, which must not reach another host."""
     akv = str(akv).strip()
-    if _VAULT_NAME.match(akv):
-        return f"https://{akv}.vault.azure.net"
+    if _VAULT_NAME.fullmatch(akv):
+        return f"https://{akv.lower()}.vault.azure.net"
     url = urlsplit(akv)
     host = (url.hostname or "").lower()
-    if url.scheme == "https" and host.endswith(".vault.azure.net") and _VAULT_NAME.match(host[:-len(".vault.azure.net")]) \
+    if url.scheme == "https" and host.endswith(".vault.azure.net") and _VAULT_NAME.fullmatch(host[:-len(".vault.azure.net")]) \
             and url.port is None and not url.username and url.path.strip("/") == "" and not url.query and not url.fragment:
         return f"https://{host}"
     raise ValueError(f"{akv!r} isn't a Key Vault: give its name or its https://<name>.vault.azure.net URL. "
                      "Your Key Vault token is only sent there.")
+
+
+def on_vault(url: str, vault: str) -> bool:
+    """Whether ``url`` is on the Key Vault ``vault`` (from vault_url), as Key Vault's own next-page
+    links write it: https, that host, on the default port (which they spell :443)."""
+    u = urlsplit(str(url))
+    try:
+        port = u.port
+    except ValueError:
+        return False
+    return (u.scheme == "https" and (u.hostname or "").lower() == urlsplit(vault).hostname
+            and port in (None, 443) and not u.username and u.path.startswith("/secrets"))
 
 
 def _make_credentials(host: Host) -> types.SimpleNamespace:
@@ -380,7 +392,7 @@ def _make_credentials(host: Host) -> types.SimpleNamespace:
 
     def getSecret(akvName: str, secret: str, linkedService: str | None = None) -> str:  # noqa: N802, N803, ARG001
         vault = vault_url(akvName)
-        if not _SECRET_NAME.match(str(secret)):
+        if not _SECRET_NAME.fullmatch(str(secret)):
             raise ValueError(f"{secret!r} isn't a Key Vault secret name (letters, digits and dashes, up to 127).")
         headers = {"Authorization": f"Bearer {getToken('keyvault')}"}
         resp = send_with_retry(lambda: http_session.session().get(f"{vault.rstrip('/')}/secrets/{secret}",

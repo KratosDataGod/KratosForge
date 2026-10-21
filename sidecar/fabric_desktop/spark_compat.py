@@ -179,7 +179,9 @@ def monotonically_increasing_id() -> Column:
     return _sql("(row_number() OVER () - 1)")
 
 
-def percentile_approx(col: Any, percentage: Any, accuracy: int = 10000) -> Column:  # noqa: ARG001
+def percentile_approx(col: Any, percentage: Any, accuracy: int = 10000) -> Column:
+    if accuracy != 10000:
+        print("Note: percentile_approx's accuracy is ignored on this PC; DuckDB's approximation is used.")
     return _call(f"percentile_approx({{0}}, {_lit(percentage)})", col)
 
 
@@ -231,11 +233,13 @@ def nanvl(col1: Any, col2: Any) -> Column:
 
 
 def format_number(col: Any, d: int) -> Column:
-    # Spark: #,###,###.## rounded half-even to d places.
-    return _sql(f"printf('%,.{int(d)}f', {_col_sql(col)})")
+    # Spark: #,###,###.## rounded half-even to d places (2.345 -> 2.34, 0.125 -> 0.12).
+    return _sql(f"printf('%,.{int(d)}f', round_even({_col_sql(col)}, {int(d)}))")
 
 
-def to_json(col: Any, options: Any = None) -> Column:  # noqa: ARG001
+def to_json(col: Any, options: Any = None) -> Column:
+    if options:
+        print(f"Note: to_json options ({', '.join(options)}) are ignored on this PC.")
     return _call("to_json({0})", col)
 
 
@@ -580,6 +584,12 @@ _CONF_DEFAULTS = {"spark.sql.session.timeZone": "UTC", "spark.sql.shuffle.partit
 
 def _conf_set(self: Any, key: str, value: Any) -> None:
     text = str(value).lower() if isinstance(value, bool) else str(value)
+    if key.lower() == "spark.sql.sources.partitionoverwritemode" and text.strip().lower() == "dynamic":
+        # Fabric then overwrites only the partitions written; this PC's tables have none, so an
+        # overwrite would replace the whole table. Refused here and again at write time.
+        raise NotImplementedError("partitionOverwriteMode=dynamic isn't supported on this PC: tables here have "
+                                  "no partitions, so an overwrite would replace the whole table. Run the cell "
+                                  "in Fabric, or filter, union and overwrite the table yourself.")
     if key == "spark.sql.session.timeZone":
         _session_sql(f"SET TimeZone = {exp.convert(text).sql('duckdb')}")
     _conf_values(self)[key] = text

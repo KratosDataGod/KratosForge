@@ -50,6 +50,22 @@ _REFUSED = {
 }
 
 
+_OVERWRITE_MODE = "spark.sql.sources.partitionOverwriteMode"
+
+
+def _refuse_dynamic_overwrite(session: Any) -> None:
+    """A dynamic partitionOverwriteMode set on the session (spark.conf, the builder) replaces only the
+    written partitions in Fabric. Tables here have no partitions, so an overwrite would replace the
+    whole table: refuse it, as the writer option is refused."""
+    try:
+        mode = session.conf.get(_OVERWRITE_MODE, "static")
+    except Exception:  # noqa: BLE001 - a conf that can't answer has nothing set
+        return
+    if str(mode).strip().lower() == "dynamic":
+        raise NotImplementedError(_REFUSED["partitionoverwritemode"] + " Unset it first: "
+                                  f"spark.conf.unset({_OVERWRITE_MODE!r}).")
+
+
 def _true(value: Any) -> bool:
     return value is True or str(value).strip().lower() == "true"
 
@@ -117,6 +133,8 @@ class LakehouseWriter:
         return "merge" if _true(self._options.get("mergeschema")) else None
 
     def _write(self, data: pa.Table, name: str, how: str, schema_mode: str | None) -> None:
+        if how == "overwrite":
+            _refuse_dynamic_overwrite(self._df.session)
         if schema_mode is None:
             current = _columns(name)
             extra = [c for c in data.column_names if c.lower() not in {x.lower() for x in current or []}]
@@ -476,7 +494,10 @@ class _Builder:
     def appName(self, *_a: Any) -> _Builder:  # noqa: N802
         return self
 
-    def config(self, *_a: Any, **_kw: Any) -> _Builder:
+    def config(self, key: Any = None, value: Any = None, *_a: Any, **_kw: Any) -> _Builder:
+        """A ``key, value`` setting goes to spark.conf, so one the writer must honor isn't dropped."""
+        if isinstance(key, str) and value is not None:
+            session().conf.set(key, value)
         return self
 
     master = enableHiveSupport = appName

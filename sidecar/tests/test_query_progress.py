@@ -2,14 +2,22 @@
 
 import time
 
+import pytest
+
 from fabric_desktop import spark_local
 from fabric_desktop.notebook import Kernel
 
 
-def test_a_running_query_reports_its_progress_and_a_finished_one_doesnt():
+QUERY = "SELECT a % 1000 AS k, max(md5(a::varchar)) FROM big GROUP BY 1"
+
+
+@pytest.mark.parametrize("cell", [f"spark.sql(\"{QUERY}\").collect()",  # in the Spark API
+                                  f"%%sql\n{QUERY}",  # shown as the cell's table (as_table)
+                                  f"spark.sql(\"{QUERY}\")"])  # a DataFrame as the cell's last line
+def test_a_running_query_reports_its_progress_and_a_finished_one_doesnt(cell):
     k = Kernel()
     assert k.run("spark.conn.execute('CREATE OR REPLACE TABLE big AS SELECT range AS a FROM range(20000000)')")["status"] == "ok"
-    k.start("spark.sql(\"SELECT a % 1000 AS k, max(md5(a::varchar)) FROM big GROUP BY 1\").collect()")
+    k.start(cell)
     seen = None
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:

@@ -331,11 +331,15 @@ def _query_progress(thread: int | None) -> float | None:
     module = sys.modules.get("fabric_desktop.spark_local")
     if module is None or thread is None:
         return None
+    # The cell's thread is waiting on the query when the Spark API, or the table output that runs a
+    # DataFrame shown as the cell's result or a %%sql cell (as_table), is on its stack.
     frame = sys._current_frames().get(thread)
-    # Waiting in DuckDB's C code, the thread's newest Python frame is the Spark API that called it.
-    if frame is None or not str(frame.f_globals.get("__name__", "")).startswith(("duckdb", "fabric_desktop.spark")):
-        return None
-    return module.progress()
+    while frame is not None:
+        name = str(frame.f_globals.get("__name__", ""))
+        if name.startswith(("duckdb", "fabric_desktop.spark")) or (name == __name__ and frame.f_code.co_name == "as_table"):
+            return module.progress()
+        frame = frame.f_back
+    return None
 
 
 class _Router(io.TextIOBase):

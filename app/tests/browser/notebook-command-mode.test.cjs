@@ -97,6 +97,18 @@ test("M on a Databricks %md cell keeps its text and drops %md", { skip }, async 
   }
 });
 
+test("a magic whose name only starts like %%sql or %%md is kept as written", { skip }, async () => {
+  for (const source of ["%%mdx\n# Title", "%%markdownish\n# Title", "%%sqlx\nselect 1", "%%htmlx\n<b>x</b>", "%%pythonic\nx = 1"]) {
+    await page().evaluate((cells) => {
+      loadIntoState({ name: "Keys", cells }); go("notebook");
+      selectCell(state.notebook.cells[0]); enterCommandMode(state.notebook.cells[0]);
+    }, [{ type: "code", cell_id: "b1", source, meta: {} }]);
+    assert.strictEqual(await page().evaluate(() => cellLang(state.notebook.cells[0])), "python", source);
+    await page().keyboard.press("m");
+    assert.deepStrictEqual(await sources(), [`markdown:${source}`], source);
+  }
+});
+
 test("C then V pastes a copy below; X then Shift+V moves a cell above", { skip }, async () => {
   await reset(0);
   await page().keyboard.press("c");

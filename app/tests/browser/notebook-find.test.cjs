@@ -128,9 +128,8 @@ test("the bar stays open while the notebook redraws, and Esc closes it", { skip 
   await page().evaluate(() => renderNotebook());
   const bar = page().locator(".nb-find");
   assert.strictEqual(await bar.count(), 1);
-  await bar.getByLabel("Find in notebook").focus();
-  await page().keyboard.press("Escape");
-  assert.strictEqual(await bar.count(), 0);
+  await bar.getByLabel("Find in notebook").press("Escape");  // on the box itself, whatever else takes focus
+  await bar.waitFor({ state: "detached" });
   assert.strictEqual(await page().locator(".cm-editor .nb-find-match").count(), 0);
   assert.deepStrictEqual(app.errors, []);
 });

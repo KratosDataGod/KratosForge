@@ -201,7 +201,7 @@ class Transforms:
                     r = self.engine.make_table(step.name, step.sql, dialect=step.dialect, params=values)
                     item.update(status="ok", rows=r["rows"])
                 if not dry_run:
-                    state["tables"][step.name] = step.materialize
+                    state["tables"][step.name] = {"materialize": step.materialize, "mark": self._mark(step)}
                     self._save_state(state)
             except Exception as exc:  # noqa: BLE001 - a failing step is reported, and the run stops
                 item.update(status="failed", error=str(exc))
@@ -214,13 +214,21 @@ class Transforms:
         return run
 
     def _may_replace(self, step: Step, state: dict[str, Any]) -> None:
-        """A step replaces only the table a transformation made, or makes a new one."""
+        """A step replaces only the table a transformation made, or makes a new one. What a run made is
+        checked against the table itself, not only .state.json: a table someone made since with the
+        same name, or a Delta table written since, is left alone."""
         made = state["tables"].get(step.name)
-        if made is not None and made != step.materialize:
-            raise ValueError(f"{step.name} was made as a {'Delta table' if made == 'delta' else 'table'} by an "
-                             f"earlier run. Drop it first to change how it's kept.")
-        if made is not None:
+        if not isinstance(made, dict):
+            made = None  # an entry this build can't check is treated as unknown
+        if made is not None and made.get("materialize") != step.materialize:
+            kind = "Delta table" if made.get("materialize") == "delta" else "table"
+            raise ValueError(f"{step.name} was made as a {kind} by an earlier run. Drop it first to change how "
+                             "it's kept.")
+        if made is not None and (not self._built(step) or self._current_mark(step) == made.get("mark")):
             return
+        if made is not None:
+            raise ValueError(f"{step.name} has changed since a transformation made it (it was replaced or written "
+                             "to another way), so it isn't replaced. Drop it, or rename the step.")
         engine = self.engine
         if step.materialize == "delta" and engine._is_own(step.schema, step.table):
             raise ValueError(f"{step.name} is a Delta table that wasn't made by a transformation, so it isn't "
@@ -239,6 +247,28 @@ class Transforms:
                             f"SELECT * FROM ({step.sql}) AS q LIMIT 0", dialect=step.dialect, limit=0,
                             count=False, params=values)
         return []
+
+    def _mark(self, step: Step) -> str:
+        """Mark the table a step just made, and return the mark. A database table gets a comment (which
+        CREATE OR REPLACE by anyone else clears); a Delta table is known by its version."""
+        if step.materialize == "delta":
+            return f"version:{self._current_version(step)}"
+        mark = "fd-transform:" + uuid.uuid4().hex
+        self.engine.execute(f"COMMENT ON TABLE {_qname(step.schema, step.table)} IS '{mark}'", count=False)
+        return mark
+
+    def _current_mark(self, step: Step) -> str | None:
+        if step.materialize == "delta":
+            return f"version:{self._current_version(step)}"
+        rows = self.engine.execute(
+            "SELECT comment FROM duckdb_tables() WHERE lower(schema_name) = lower('%s') AND lower(table_name) = "
+            "lower('%s') AND database_name = current_database()" % (_lit(step.schema), _lit(step.table)),
+            count=False)["rows"]
+        return rows[0][0] if rows else None
+
+    def _current_version(self, step: Step) -> int | None:
+        history = self.engine.delta_history(step.name, 1).get("versions") or []
+        return history[0]["version"] if history else None
 
     def _built(self, step: Step) -> bool:
         if step.materialize == "delta":
@@ -312,6 +342,14 @@ def _order(steps: list[Step]) -> tuple[list[str], str]:
         for deps in waiting.values():
             deps.difference_update(ready)
     return order, ""
+
+
+def _qname(schema: str, table: str) -> str:
+    return ".".join('"' + part.replace('"', '""') + '"' for part in (schema, table))
+
+
+def _lit(text: str) -> str:
+    return text.replace("'", "''")
 
 
 def _now() -> str:

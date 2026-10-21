@@ -172,3 +172,15 @@ def test_app_calls_for_transformations(tmp_path):
     assert len(call("local_transform_runs", project=pid)["runs"]) == 1
     assert svc.audit.recent(10, "local_transform_run") and not svc.audit.recent(10, "local_transform_plan")
     svc.local_data.close_all()
+
+
+def test_a_table_replaced_since_the_last_run_is_left_alone(engine):
+    step(engine, "eu", "SELECT * FROM orders WHERE region = 'EU'")
+    step(engine, "lake", "-- materialize: delta\nSELECT * FROM orders")
+    t = Transforms(engine)
+    assert t.run()["status"] == "ok" and t.run()["status"] == "ok"  # a rerun replaces its own tables
+    engine.execute("CREATE OR REPLACE TABLE dbo.eu AS SELECT 'mine' AS who")
+    engine.execute("INSERT INTO dbo.lake SELECT * FROM orders")
+    r = t.run()
+    assert r["status"] == "failed" and "has changed since" in r["steps"][0]["error"]
+    assert rows(engine, "SELECT who FROM dbo.eu") == [["mine"]]

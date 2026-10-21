@@ -464,7 +464,7 @@ def parse_dbc(data: bytes) -> list[dict[str, Any]]:
         for info in infos:
             if info.is_dir():
                 continue
-            if not _safe_entry(info.filename):
+            if not _safe_entry(info.orig_filename):  # the raw name: Windows reads "\\" as "/"
                 raise ValueError(f"The archive has a file with an unsafe path ({info.filename[:120]!r}), so it wasn't imported.")
             if info.flag_bits & 0x1:
                 raise ValueError("The archive is encrypted, so it can't be read.")

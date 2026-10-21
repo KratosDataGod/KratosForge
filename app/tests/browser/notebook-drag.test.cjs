@@ -85,7 +85,7 @@ test("right-click a file lists the ways to load it, and one adds a cell", { skip
   const menu = page().locator("#menu");
   await menu.waitFor();
   const items = await menu.getByRole("menuitem").allInnerTexts();
-  assert.deepStrictEqual(items.map((t) => t.trim()), ["Load with Polars", "Load with Spark", "Read the file's text", "Copy path"]);
+  assert.deepStrictEqual(items.map((t) => t.trim()), ["Load with Polars", "Load with Spark", "Load with pandas", "Read the file's text", "Copy path"]);
   if (SHOTS) await page().screenshot({ path: path.join(SHOTS, "notebook-load-menu.png") });
   await menu.getByRole("menuitem", { name: "Load with Spark" }).click();
   const all = await sources();

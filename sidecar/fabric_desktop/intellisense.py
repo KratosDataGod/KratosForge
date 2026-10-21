@@ -153,7 +153,9 @@ _CELL_MAGIC = re.compile(r"^\s*%%(\w+)")
 _PY_CELL_MAGICS = ("pyspark", "python")
 
 
-_ASSIGN_MAGIC = re.compile(r"^(\s*[A-Za-z_][\w.]*(?:\s*,\s*[A-Za-z_][\w.]*)*\s*=\s*)[%!].*$")
+# A plain assignment target: a name, attribute or subscript (`d["k"]`, `a[0].b`), or several.
+_TARGET = r"[A-Za-z_][\w.]*(?:\[[^\]=\n]*\][\w.]*)*"
+_ASSIGN_MAGIC = re.compile(rf"^(\s*{_TARGET}(?:\s*,\s*{_TARGET})*\s*=\s*)[%!].*$")
 
 
 def syntax_problems(source: str) -> list[dict[str, Any]]:

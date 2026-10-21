@@ -726,7 +726,8 @@ function languageFor(cell) {
     const schema = Object.fromEntries(currentTables().map((t) => [t, []]));
     return [CM.sql({ dialect: CM.StandardSQL, schema, upperCaseKeywords: true }), CM.autocompletion()];
   }
-  return [CM.python(), CM.autocompletion({ override: [pythonCompletions], activateOnTypingDelay: 150 })];
+  return [CM.python(), CM.autocompletion({ override: [pythonCompletions], activateOnTypingDelay: 150 }),
+    ...intelExtensions()];  // nbintel.js: hover, signature help, syntax errors
 }
 
 function currentTables() {
@@ -773,7 +774,9 @@ async function pythonCompletions(ctx) {
   }
   if (ctx.aborted) return null;
   const from = line.from + result.from;
-  const options = result.items.map((i) => ({ label: i.label, type: CM_TYPES[i.type] || "variable" }));
+  const base = (word?.text || "").includes(".") ? word.text.slice(0, word.text.lastIndexOf(".") + 1) : "";
+  const options = result.items.map((i) => ({ label: i.label, type: CM_TYPES[i.type] || "variable",
+    info: intelCompletionInfo(base, i.label) }));  // nbintel.js
   if (!(word?.text || "").includes(".")) {
     const seen = new Set(options.map((o) => o.label));
     for (const m of ctx.state.doc.toString().matchAll(/(?:^|\s)(?:def\s+|class\s+)?([A-Za-z_]\w*)\s*(?==[^=]|\()/gm)) {

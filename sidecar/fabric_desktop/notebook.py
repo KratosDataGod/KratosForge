@@ -978,6 +978,33 @@ class Kernel:
         items = [{"label": n, "type": t} for n, t in sorted(names.items()) if n.startswith(prefix) and n != prefix]
         return {"from": len(text) - len(prefix), "items": items[:300]}
 
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        """Hover docs for the name at ``cursor`` in ``code``, or with ``call`` the signature of the
+        call the cursor is inside (intellisense.py). Reads objects like ``complete``: nothing runs."""
+        from . import intellisense
+        cursor = len(code) if cursor is None else cursor
+        if call:
+            found = intellisense.open_call(code[:cursor])
+            if not found:
+                return None
+            name, index, kw = found
+            obj = self._lookup(name)
+            return None if obj is _MISSING else intellisense.call_help(obj, name, index, kw)
+        at = intellisense.dotted_at(code, cursor)
+        if not at:
+            return None
+        name, start, end = at
+        obj = self._lookup(name)
+        if obj is _MISSING:
+            return None
+        from .redact import secrets
+        # Credential-shaped text in a value or a default argument is removed, as in the Variables pane.
+        out = intellisense.describe(name, obj, hidden=self._hidden(name.split(".")[-1], obj),
+                                    preview=lambda v: secrets(_preview(v)))
+        if "signature" in out:
+            out["signature"] = secrets(out["signature"])
+        return {**out, "from": start, "to": end}
+
     def _lookup(self, dotted: str) -> Any:
         """The object a plain dotted name refers to, without calling anything (properties aren't run)."""
         first, *rest = dotted.split(".")

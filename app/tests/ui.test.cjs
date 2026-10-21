@@ -3684,6 +3684,21 @@ test("a Data Wrangler step that can't run is marked with its reason and blocks a
   assert.ok(allNodes(box2).some((n) => /Run the cell again to clean this result/.test(n.textContent)));
 });
 
+// IntelliSense (nbintel.js): Python cells get hover, signature help and the syntax check, and
+// completions carry lazy docs; other languages get none of it.
+test("Python cells get hover, signature help, syntax errors and completion docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /CM\.autocompletion\(\{ override: \[pythonCompletions\], activateOnTypingDelay: 150 \}\),\n\s+\.\.\.intelExtensions\(\)\]/);
+  assert.match(nb, /info: intelCompletionInfo\(base, i\.label\)/);
+  const intel = fs.readFileSync(path.join(ui, "nbintel.js"), "utf8");
+  assert.match(intel, /rpc\("kernel_inspect", \{ code: line\.text, cursor: pos - line\.from \}\)/);
+  assert.match(intel, /rpc\("kernel_inspect", \{ code, call: true \}\)/);
+  assert.match(intel, /rpc\("notebook_syntax", \{ source \}\)/);
+  assert.match(intel, /function intelLive\(\) \{\n\s+return state\.notebook && !nbWhere\(state\.notebook\)\.fabric;/);
+  const html = fs.readFileSync(path.join(ui, "index.html"), "utf8");
+  assert.ok(html.indexOf('src="nbintel.js"') > html.indexOf('src="notebook.js"'));
+});
+
 // Notebook utilities: notebookutils.lakehouse reads on this PC; changes stay in Fabric.
 test("notebookutils.lakehouse and isValidToken are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");

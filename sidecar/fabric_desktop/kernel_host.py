@@ -99,6 +99,9 @@ class Host:
     def complete(self, code: str, cursor: int | None = None) -> dict[str, Any]:
         return self.kernel.complete(code, cursor)
 
+    def inspect(self, code: str, cursor: int | None = None, call: bool = False) -> dict[str, Any] | None:
+        return self.kernel.inspect(code, cursor, call)
+
     def variable_detail(self, name: str) -> dict[str, Any]:
         return self.kernel.variable_detail(name)
 
@@ -161,7 +164,7 @@ class Host:
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
-    OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "attach", "bind_proof", "unbind_proof",
+    OPS = ("start", "poll", "interrupt", "debug", "variables", "variable_detail", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
            "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_download", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:

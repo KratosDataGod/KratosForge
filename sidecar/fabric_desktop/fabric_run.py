@@ -194,9 +194,11 @@ _FABRIC_ONLY = [
     (re.compile(r"\b(sparkContext|\.rdd\b|pandas_udf|spark\.udf|\.mapInPandas|\.applyInPandas)"),
      "uses a Spark feature this PC's Spark doesn't have"),
     (re.compile(r"\b(spark\.readStream|\.writeStream)\b"), "uses Spark streaming"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|session|lakehouse|warehouse|"
+    (re.compile(r"\b(notebookutils|mssparkutils)\.(fs\.(mount|unmount)|lakehouse|warehouse|"
                 r"variableLibrary|udf|connections)\b"), "uses Fabric notebook utilities that need Fabric"),
 ]
+# Databricks' utilities: this PC has them, Fabric has notebookutils instead.
+_DBUTILS = re.compile(r"\bdbutils\.\w+|\bfrom\s+databricks\.sdk\.runtime\s+import\b")
 _SQL_WRITE = re.compile(r"\b(MERGE\s+INTO|UPDATE\s+\S+\s+SET|DELETE\s+FROM)\b", re.I)
 # A path on this PC's disk, like C:\data or D:/exports. Fabric can't reach it.
 _LOCAL_PATH = re.compile(r"""["'][A-Za-z]:[\\/]""")
@@ -228,6 +230,9 @@ def compute_check(cells: list[dict[str, Any]], lakehouse: dict[str, Any] | None)
             hit = next(((m, text) for rx, text in _FABRIC_ONLY if (m := rx.search(source))), None)
             if hit:
                 local.append({"cell": n, "text": hit[1], "code": _snippet(source, hit[0])})
+        if m := _DBUTILS.search(source):
+            fabric.append({"cell": n, "text": "uses Databricks dbutils, which Fabric doesn't have; "
+                                               "use notebookutils in Fabric", "code": _snippet(source, m)})
         if m := _LOCAL_PATH.search(source):
             fabric.append({"cell": n, "text": "reads or writes a path on this PC, which Fabric can't reach",
                            "code": _snippet(source, m)})

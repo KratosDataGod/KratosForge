@@ -30,8 +30,8 @@ _BLOCKERS = [
     (re.compile(r"\bwrite_deltalake\s*\("), "writes a Delta table directly with deltalake, outside the proof's folder"),
     (re.compile(r"\bDeltaTable\s*\("),
      "opens a Delta table directly with deltalake, so the proof can't pin or contain it; use lakehouse.read_table or open_table"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.fs\.(put|cp|mv|rm|mkdirs|append|fastcp)\b"),
-     "changes files in the lakehouse with notebookutils.fs, outside the proof's folder"),
+    (re.compile(r"\b(notebookutils|mssparkutils|dbutils)\.fs\.(put|cp|mv|rm|mkdirs|append|fastcp)\b"),
+     "changes files in the lakehouse with notebookutils.fs or dbutils.fs, outside the proof's folder"),
     (re.compile(r"\.write_(parquet|csv|delta|ndjson|json|ipc)\s*\(\s*[\"'](abfss://|/lakehouse/|Files/|Tables/)"),
      "writes a file into the lakehouse directly, outside the proof's folder"),
 ]
@@ -43,12 +43,13 @@ _WARNINGS = [
                 r"|\.write_(text|bytes)\s*\(|\bos\.(remove|unlink|rename|makedirs)\b|\bshutil\."
                 r"|\.to_(csv|parquet|excel|json|pickle|feather)\s*\(\s*(?![A-Za-z_]\w*\s*=)[^)\s]"),
      "writes or changes files on the machine running it; those aren't compared"),
-    (re.compile(r"\b(notebookutils|mssparkutils)\.notebook\.(run|runMultiple)\b|^\s*%run\b", re.M),
+    (re.compile(r"\b(notebookutils|mssparkutils|dbutils)\.notebook\.(run|runMultiple)\b|^\s*%run\b", re.M),
      "runs another notebook, which isn't checked or contained by the proof"),
 ]
 _NONDETERMINISM = re.compile(r"\b(datetime\.(now|utcnow|today)|date\.today|time\.time|uuid\.uuid[14]|"
                              r"current_timestamp|current_date|now\(\)|random\.(?!seed)\w+|np\.random\.|default_rng)\b", re.I)
-_CREDENTIALS = re.compile(r"\b(notebookutils|mssparkutils)\.credentials\.(getToken|getSecret)\b")
+_CREDENTIALS = re.compile(r"\b(notebookutils|mssparkutils)\.credentials\.(getToken|getSecret)\b"
+                          r"|\bdbutils\.secrets\.(get|getBytes)\b")
 
 
 def _line(source: str, pos: int) -> tuple[int, str]:

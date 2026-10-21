@@ -1958,6 +1958,22 @@ test("the keys card says where keys come from instead of an LH_Keys MERGE", () =
   assert.match(card, /Keys come from \$\{e\.keys_from\}/);
 });
 
+// Notebook utilities: Databricks dbutils works on this PC; the snippets and docs say how.
+test("Databricks dbutils snippets and docs", () => {
+  const nb = fs.readFileSync(path.join(ui, "notebook.js"), "utf8");
+  assert.match(nb, /\["Databricks widget", 'dbutils\.widgets\.text\("run_date"/);
+  assert.match(nb, /\["Databricks secret \(Key Vault scope\)", 'secret = dbutils\.secrets\.get\("<vault-name>"/);
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
+  assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
+});
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});
+
 // Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
 test("notebook.run timeouts and validateDAG are documented", () => {
   const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");

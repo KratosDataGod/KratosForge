@@ -428,6 +428,13 @@ function sqlCompletionSource(provider, getDialect) {
   };
 }
 
+// CodeMirror puts its styles in a <style> element, which the CSP (style-src 'self') allows only
+// with the nonce the shell gives each page load: Tauri sets it on index.html's empty <style> and
+// adds it to the policy. Without a CSP (the browser tests) there is none and none is needed.
+function cmStyleNonce() {
+  return CM.EditorView.cspNonce.of(document.getElementById("style-nonce")?.nonce || "");
+}
+
 // The SQL page's editor. `on` holds the page's actions: change(text), run(), save(), format().
 // `check(text, dialect)`, when given, returns a compatibility report (or null), shown as diagnostics.
 function createSqlEditor({ doc, dialect, provider, on, check = null, extensions = [] }) {
@@ -451,7 +458,7 @@ function createSqlEditor({ doc, dialect, provider, on, check = null, extensions 
     state: CM.EditorState.create({
       doc,
       extensions: [
-        CM.lineNumbers(), CM.foldGutter(), CM.highlightActiveLineGutter(),
+        cmStyleNonce(), CM.lineNumbers(), CM.foldGutter(), CM.highlightActiveLineGutter(),
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(),
         CM.EditorState.allowMultipleSelections.of(true), CM.rectangularSelection(), CM.crosshairCursor(),
         CM.indentOnInput(), CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),

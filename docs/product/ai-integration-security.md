@@ -21,7 +21,7 @@ A program that can already run commands as you on this PC. It can read your file
 | Threat | Control | Where |
 | --- | --- | --- |
 | Client reads a token or secret | No capability returns tokens, connection strings or credentials; results and errors pass through secret redaction; Python output is scanned for token-shaped strings | Registry, `invoke` |
-| Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout | Permissions, executions |
+| Client runs code it shouldn't | `EXECUTE_LOCAL_CODE` not granted by default; every execution needs approval in the app showing the code; runs in a process kernel with a timeout and only an allowlisted environment (no secrets from environment variables; still not a sandbox: it can read the sign-in cache) | Permissions, executions |
 | Client reads local files through SQL | External SQL is one read-only statement and runs with DuckDB external access off and configuration locked | Executions |
 | Code reaches Fabric or writes OneLake | Code gets only a storage token; table writes through the engine are refused; workspace-limited tools can't run code | Executions, permissions |
 | Client reads data it shouldn't | Rows need `READ_DATA`; resources are schema-only; Fabric enforces the person's own access on every OneLake read | Permissions, resources |

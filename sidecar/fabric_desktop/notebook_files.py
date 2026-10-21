@@ -122,8 +122,8 @@ def create(shelf: NotebookShelf, name: str, place: str | None, cells: list[dict[
     if shelf._taken(name):  # noqa: SLF001
         raise ValueError(f"A notebook named {name!r} already exists. Pick another name.")
     _, folder = shelf._place(place)  # noqa: SLF001
-    folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{name}.ipynb"
+    path.parent.mkdir(parents=True, exist_ok=True)  # its folder, for a name like "Sales/Daily load"
     try:
         open(path, "xb").close()  # reserve the name: a file made in the meantime stops this
     except FileExistsError:
@@ -404,8 +404,8 @@ def restore(shelf: NotebookShelf, tid: str, name: str | None = None) -> dict[str
     except ValueError:
         _, folder = shelf._place(None)  # noqa: SLF001
         moved = True
-    folder.mkdir(parents=True, exist_ok=True)
     dest = folder / f"{target}.ipynb"
+    dest.parent.mkdir(parents=True, exist_ok=True)  # its folder comes back too, if it was removed
     try:
         with open(dest, "xb") as f:
             f.write(data)

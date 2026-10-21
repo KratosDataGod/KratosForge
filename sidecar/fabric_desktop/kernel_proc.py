@@ -53,6 +53,9 @@ EXTERNAL_ENV_ALLOW = (
     "SYSTEMROOT",    # Windows: Python's sockets, random numbers and DLL loading fail without it
     "WINDIR",        # Windows: same folder as SYSTEMROOT; some native libraries read this name
     "COMSPEC",       # Windows: the shell for subprocess(shell=True) and os.system
+    # Windows: platform.machine() falls back to these when its WMI query fails (as it can on a busy
+    # PC); without them it is "" and Polars' CPU check refuses to import ("unknown feature flag").
+    "PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "PROCESSOR_IDENTIFIER", "NUMBER_OF_PROCESSORS",
     "TEMP", "TMP",   # tempfile, DuckDB and Arrow spill files; otherwise they fall back to the current folder
     "TMPDIR",        # the same on Linux and macOS
     "USERPROFILE",   # Windows: the home folder (Path.home(), "~"); DuckDB keeps its extensions there

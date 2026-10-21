@@ -186,6 +186,23 @@ def test_the_external_environment_is_the_allowlist_and_nothing_else():
     assert env["PYTHONPATH"] != "/elsewhere" and Path(env["PYTHONPATH"], "fabric_desktop", "kernel_host.py").exists()
 
 
+
+def test_the_tool_can_tell_which_processor_it_runs_on(monkeypatch):
+    """Windows: when platform's WMI query fails, platform.machine() reads PROCESSOR_ARCHITECTURE.
+    Without it the answer is "" and Polars won't import ("unknown feature flag: 'sse3'")."""
+    import platform
+    from fabric_desktop.kernel_proc import external_environment
+    parent = {"PATH": "/bin", "PROCESSOR_ARCHITECTURE": "AMD64", "PROCESSOR_IDENTIFIER": "Intel64 Family 6",
+              "NUMBER_OF_PROCESSORS": "4"}
+    env = external_environment(parent)
+    assert {k: env[k] for k in parent} == parent
+
+    def wmi_fails(*args, **kwargs):
+        raise OSError("WMI timed out")
+    monkeypatch.setattr(platform, "_wmi_query", wmi_fails, raising=False)
+    monkeypatch.setattr("os.environ", env)
+    assert platform._get_machine_win32() == "AMD64"
+
 @pytest.mark.parametrize("proxy,sent", [
     ("http://user:s3cret@proxy.contoso.com:8080", "http://proxy.contoso.com:8080"),
     ("http://CONTOSO%5Cme:p%40ss@proxy:3128/", "http://proxy:3128/"),

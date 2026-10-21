@@ -30,6 +30,8 @@ import re
 import sys
 from typing import Any
 
+from . import magics
+
 # Named as preinstalled in Microsoft's "Use Python experience on Notebook" page (checked
 # 2026-10-16): DuckDB, Polars, Scikit-learn and delta-rs (the ``deltalake`` package). No versions
 # are published. Kernels offered: Python 3.10, 3.11, 3.12 (3.12 is Fabric's default).
@@ -55,7 +57,7 @@ def _cell_python(source: str) -> str | None:
     if re.match(r"%%(pyspark|python)\b", head):
         head = head.split("\n", 1)[1] if "\n" in head else ""
     # Line magics aren't Python; blank them out, keeping line numbers.
-    return "\n".join("" if re.match(r"^\s*[%!]", ln) else ln for ln in head.split("\n"))
+    return magics.blank("\n".join("" if re.match(r"^\s*(!|%%)", ln) else ln for ln in head.split("\n")))
 
 
 def imports(source: str) -> dict[str, Any]:

@@ -35,6 +35,7 @@ async function formatCells(cells, { notebook = false } = {}) {
   const where = `cell ${nb.cells.indexOf(first.cell) + 1}`;
   toast(`${done} ${problems.length === 1 ? "One cell was" : `${problems.length} cells were`} left as written: ${where}. ${first.error}`, true, {
     action: { label: "Show cell", run: () => {
+      if (state.notebook !== nb || !nb.cells.includes(first.cell)) { toast("That cell was deleted."); return; }
       revealCell(first.cell);  // nbcells.js: open a folded section that hides it
       selectCell(first.cell);
       document.querySelector(`[data-cell="${first.cell.id}"]`)?.scrollIntoView({ block: "center" });

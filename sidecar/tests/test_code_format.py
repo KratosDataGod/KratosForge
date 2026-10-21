@@ -42,6 +42,8 @@ def test_python_cells_that_name_their_language_are_formatted_and_keep_the_magic(
     assert a == {"source": "%%pyspark\nx = 1\n%time y = x", "changed": True, "error": ""}
     assert b["source"] == "%python\nx = 1"
     assert c == {"source": "%%pyspark", "changed": False, "error": ""}
+    [spaced] = format_cells(["%%pyspark  \nx=1"])
+    assert spaced["source"] == "%%pyspark  \nx = 1"
     [bad] = format_cells(["%%pyspark\nx = 1\ndef f( :"])
     assert bad["source"] == "%%pyspark\nx = 1\ndef f( :" and bad["error"].startswith("Not formatted, because Python can't read it (line 3:")
 

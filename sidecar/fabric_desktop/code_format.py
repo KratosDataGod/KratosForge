@@ -77,7 +77,7 @@ def format_cells(sources: list[str]) -> list[dict[str, Any]]:
         # A notebook saved on Windows can hold \r\n line ends; ruff would leave a stray \r behind.
         source = str(source).replace("\r\n", "\n")
         if (m := _PY.match(source)):
-            head, body = source[:m.end(1)], source[m.end():]
+            head, body = source[:m.start(2)], source[m.end():]  # the magic line as typed
             if not body.strip() or ruff is None:
                 return {"source": source, "changed": False,
                         "error": "" if not body.strip() else "The code formatter (ruff) isn't installed in this engine."}

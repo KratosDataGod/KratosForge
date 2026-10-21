@@ -96,3 +96,13 @@ test("a cell deleted while the notebook formats isn't named or shown", { skip },
     await page().evaluate(() => { window.__fdCall = window.__fdCallFast; });
   }
 });
+
+test("Show cell after the cell was deleted says so", { skip }, async () => {
+  await page().evaluate((cells) => { loadIntoState({ name: "Format", cells }); renderNotebook(); }, CELLS);
+  await page().evaluate(() => formatNotebook());
+  await page().locator("#toast", { hasText: "left as written" }).waitFor();
+  await page().evaluate(() => { state.notebook.cells = state.notebook.cells.filter((c) => c.cell_id !== "bad"); renderNotebook(); });
+  await page().locator("#toast").getByRole("button", { name: "Show cell" }).click();
+  await page().locator("#toast", { hasText: "That cell was deleted." }).waitFor();
+  assert.deepStrictEqual(app.errors, []);
+});

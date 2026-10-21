@@ -446,8 +446,7 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
             self._attach(lakehouse_ref)
             self.kernel.notebook_name = notebook or ""
             # Values set in the Widgets bar, so a cell that creates a widget and reads it gets them.
-            saved = self.notebooks.extra(notebook, "inputs") if notebook else None
-            self.kernel.widget_values = dict((saved or {}).get("widgets") or {})
+            self.kernel.widget_values = dict((self._saved_inputs(notebook) or {}).get("widgets") or {})
             self.kernel.resources_dir = self._resources_dir(notebook)
             if isinstance(self.kernel, ProcessKernel):
                 return self.kernel.start(code, time_limit=time_limit, watches=check_watches(watches))
@@ -749,7 +748,16 @@ class Service(NotebookResourcesMixin, PipelineMixin, PipelineRunMixin, GitMixin,
     def notebook_inputs(self, name: str, cells: list[dict[str, Any]]) -> dict[str, Any]:
         """The Parameters and Widgets bar for these cells, with the values saved for the notebook."""
         from .notebook_inputs import inputs
-        return inputs(cells, self.notebooks.extra(name, "inputs"))
+        return inputs(cells, self._saved_inputs(name))
+
+    def _saved_inputs(self, name: str | None) -> dict[str, Any] | None:
+        """The bar's values kept with the notebook; None for a notebook that isn't saved yet."""
+        if not name:
+            return None
+        try:
+            return self.notebooks.extra(name, "inputs")
+        except (OSError, ValueError):  # not saved yet, or a name no file can have
+            return None
 
     def notebook_inputs_set(self, name: str, cells: list[dict[str, Any]], values: dict[str, Any]) -> dict[str, Any]:
         """Keeps the bar's values with the notebook (its code doesn't change); empty values forget them."""

@@ -124,3 +124,19 @@ def test_start_cell_gives_the_kernel_the_saved_widget_values(tmp_path, monkeypat
             break
         time.sleep(0.05)
     assert snap["outputs"][-1]["text"] == "'prod'", snap
+
+
+def test_cells_of_a_notebook_that_isnt_saved_yet_still_run(tmp_path, monkeypatch):
+    # Quality's repro: start_cell must not need the notebook's file for the bar's values.
+    import time
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    monkeypatch.setenv("ProgramData", str(tmp_path / "pd"))
+    s = Service(root=tmp_path / "app")
+    call(s, "start_cell", code="a = 1\na", notebook="Never saved")
+    for _ in range(200):
+        snap = call(s, "poll_cell", wait=0.1)
+        if snap["status"] != "running":
+            break
+        time.sleep(0.05)
+    assert snap["status"] == "ok" and snap["outputs"][-1]["text"] == "1", snap
+    assert call(s, "notebook_inputs", name="Never saved", cells=[PARAMS])["parameters"][0]["value"] == "2026-01-01"

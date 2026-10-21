@@ -3700,6 +3700,20 @@ test("dbutils docs say bare absolute paths are refused", () => {
   assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
 });
 
+// Notebook utilities: notebook.run and runMultiple honor timeouts on this PC; the docs say so.
+test("notebook.run timeouts and validateDAG are documented", () => {
+  const docs = fs.readFileSync(path.join(ui, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(docs, /`run` returns the exit value as a string and stops the other notebook with a `TimeoutError` after `timeout_seconds`/);
+  assert.match(docs, /`run`, `exit`, `runMultiple` and `validateDAG`/);
+  assert.doesNotMatch(docs, /Timeouts and `concurrency` aren't enforced here/);
+});
+
+// notebook.run timeouts land between Python steps; the docs say so.
+test("notebook.run docs say where the timeout lands", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /The timeout lands between Python steps, so a single long call such as `time\.sleep\(4\)` finishes before it stops/);
+});
+
 // The Variables pane (nbvars.js): filtering on name or type, and the sort orders.
 test("variables filter on name or type and sort by name, type or memory with unknown sizes last", () => {
   const src = fs.readFileSync(path.join(ui, "nbvars.js"), "utf8");

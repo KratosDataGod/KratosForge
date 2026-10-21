@@ -252,7 +252,7 @@ def test_run_multiple_passes_args_and_runs_dependencies_first(tmp_path):
                 "(builtins.order, r['load']['exitVal'], r['report']['exitVal'])")
     assert out["status"] == "ok", out
     assert out["outputs"][-1]["text"] == "(['load:West', 'report'], 'West', 'done')"
-    assert "isn't enforced on this PC" in out["outputs"][0]["text"]
+    assert "concurrency doesn't apply" in out["outputs"][0]["text"]
 
 
 def test_run_multiple_records_failures_and_skips_dependents(tmp_path):

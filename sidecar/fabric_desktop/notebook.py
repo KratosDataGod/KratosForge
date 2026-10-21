@@ -795,18 +795,35 @@ class Kernel:
         from . import spark_local
         return spark_local.session().sql(query)
 
-    def run_notebook(self, name: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None) -> Any:
-        """notebookutils.notebook.run: the other notebook runs in a fresh namespace; returns its exit value."""
+    def run_notebook(self, name: str, timeout_seconds: int = 90, arguments: dict[str, Any] | None = None,
+                     cell_timeout: float | None = None) -> Any:
+        """notebookutils.notebook.run: the other notebook runs in a fresh namespace, within
+        ``timeout_seconds`` (each cell within ``cell_timeout``); returns its exit value."""
         ns = self._base_namespace()
         ns[magics.CALL] = self._magic
-        return self._run_notebook_in(name, ns, arguments or {})
+        with _deadline(timeout_seconds, f"Notebook {name!r} didn't finish within {timeout_seconds} seconds."):
+            return self._run_notebook_in(name, ns, arguments or {}, cell_timeout)
 
-    def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any]) -> Any:
-        from .dbutils_local import RestartPython
+    def _run_notebook_in(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
+                         cell_timeout: float | None = None) -> Any:
         from .notebookutils_local import NotebookExit
         if self.load_notebook is None:
             raise RuntimeError("Other notebooks can't be opened here.")
-        cells = self.load_notebook(name.rsplit("/", 1)[-1])
+        depth = getattr(self._local, "depth", 0)
+        if depth >= MAX_RUN_DEPTH:
+            raise RecursionError(f"Notebook {name!r} would be the {depth + 1}th notebook run inside another. "
+                                 f"KratosForge stops at {MAX_RUN_DEPTH}, so a notebook that runs itself can't loop.")
+        self._local.depth = depth + 1
+        try:
+            return self._run_cells(name, namespace, arguments, cell_timeout)
+        finally:
+            self._local.depth = depth
+
+    def _run_cells(self, name: str, namespace: dict[str, Any], arguments: dict[str, Any],
+                   cell_timeout: float | None) -> Any:
+        from .dbutils_local import RestartPython
+        from .notebookutils_local import NotebookExit
+        cells = self.load_notebook(name.rsplit("/", 1)[-1])  # type: ignore[misc]
         has_parameters = any("parameters" in (c.get("meta") or {}).get("tags", []) for c in cells)
         widgets = getattr(namespace.get("dbutils"), "widgets", None)
         if arguments and widgets is not None:
@@ -818,7 +835,11 @@ class Kernel:
             if cell.get("type") == "markdown" or not cell.get("source", "").strip():
                 continue
             try:
-                status = self._exec(cell["source"], namespace, run)
+                late = f"A cell of {name!r} didn't finish within {cell_timeout or 0:g} seconds."
+                with _deadline(cell_timeout, late) as fired:
+                    status = self._exec(cell["source"], namespace, run)
+                if fired.is_set():
+                    raise RunTimeout(late)
             except NotebookExit as done:
                 if isinstance(done, RestartPython):
                     raise RuntimeError(f"Notebook {name!r} asked to restart Python, which only the notebook "
@@ -985,6 +1006,59 @@ class Kernel:
 
 
 _MISSING = object()
+
+
+# How many notebooks notebook.run and %run may nest, so a notebook that runs itself stops.
+MAX_RUN_DEPTH = 5
+
+
+class RunTimeout(TimeoutError):
+    """A notebook or one of its cells ran past the timeout notebook.run or runMultiple gave it."""
+
+    def __init__(self, message: str = "The run went past its timeout, so it was stopped."):
+        super().__init__(message)
+
+
+@contextlib.contextmanager
+def _deadline(seconds: float | None, message: str):
+    """Raise RunTimeout in this thread if the block runs longer than ``seconds`` (None or 0: no limit).
+
+    Like Cancel, it lands between Python steps: a long DuckDB query is asked to stop too. The
+    block gets an Event that is set once the time ran out (a cell reports its own errors)."""
+    ident = threading.get_ident()
+    fired = threading.Event()
+    if not seconds or seconds <= 0:
+        yield fired
+        return
+
+    def expire() -> None:
+        fired.set()
+        with contextlib.suppress(Exception):
+            from . import spark_local
+            spark_local.interrupt()
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), ctypes.py_object(RunTimeout))
+
+    timer = threading.Timer(seconds, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        yield fired
+    except RunTimeout:
+        raise RunTimeout(message) from None
+    except Exception as exc:
+        # The interrupt can surface as DuckDB's own error when it lands inside a query.
+        if fired.is_set():
+            raise RunTimeout(message) from exc
+        raise
+    else:
+        # Code that catches Exception can swallow the timeout; the run still ran out of time.
+        if fired.is_set():
+            raise RunTimeout(message)
+    finally:
+        timer.cancel()
+        if fired.is_set():
+            # The timer may have fired as the block ended: clear the exception it left pending.
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(ident), None)
 
 
 def _databricks_runtime(dbutils: Any) -> None:

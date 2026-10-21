@@ -4152,3 +4152,10 @@ test("a move that leaves something behind names it and says what to do", () => {
   const files = fs.readFileSync(path.join(ui, "notebook-files.js"), "utf8");
   assert.strictEqual(files.match(/nbRenameWarning\((out|ok)\.problems\)/g).length, 3);
 });
+
+// Notebook history: the magics page documents In, Out and %history.
+test("the magics page documents In, Out and %history", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebook-magics.md"), "utf8");
+  assert.match(doc, /\| `In`, `Out`, `_`, `__`, `___`/);
+  assert.match(doc, /\| `%history`, `%history -n 4-6`/);
+});

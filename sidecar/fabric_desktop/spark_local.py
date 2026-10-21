@@ -501,7 +501,61 @@ class LocalSparkSession(SparkSession):
         if module.startswith(("polars", "pyarrow")):
             arrow = data.to_arrow() if module.startswith("polars") else data
             return DataFrame(self.conn.from_arrow(arrow), self)
+        if isinstance(schema, str) and _DDL.search(schema):  # "id int, name string", as in PySpark
+            schema = ddl_schema(schema)
         return super().createDataFrame(data, schema, **kw)
+
+
+# A DDL schema string has a type after a name ("id int") or a comma; one bare word is a column name.
+_DDL = re.compile(r"[,:]|\w\s+\w")
+_ATOMIC = {"int": "IntegerType", "integer": "IntegerType", "bigint": "LongType", "long": "LongType",
+           "smallint": "ShortType", "short": "ShortType", "tinyint": "ByteType", "byte": "ByteType",
+           "string": "StringType", "varchar": "StringType", "char": "StringType", "double": "DoubleType",
+           "float": "FloatType", "real": "FloatType", "boolean": "BooleanType", "bool": "BooleanType",
+           "date": "DateType", "timestamp": "TimestampType", "timestamp_ntz": "TimestampNTZType",
+           "binary": "BinaryType"}
+
+
+def _split_top(text: str) -> list[str]:
+    """``text`` split at commas outside <> and ()."""
+    parts, depth, start = [], 0, 0
+    for i, c in enumerate(text):
+        depth += c in "<(" and 1 or (-1 if c in ">)" else 0)
+        if c == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _ddl_type(text: str) -> Any:
+    from duckdb.experimental.spark.sql import types as T
+    t = text.strip()
+    low = t.lower()
+    if low in _ATOMIC:
+        return getattr(T, _ATOMIC[low])()
+    if m := re.fullmatch(r"(?:decimal|numeric|dec)\s*(?:\(\s*(\d+)\s*(?:,\s*(\d+)\s*)?\))?", low):
+        return T.DecimalType(int(m[1] or 10), int(m[2] or 0))
+    if m := re.fullmatch(r"array\s*<(.*)>", t, re.I | re.S):
+        return T.ArrayType(_ddl_type(m[1]))
+    if m := re.fullmatch(r"map\s*<(.*)>", t, re.I | re.S):
+        key, value = (_split_top(m[1]) + ["", ""])[:2]
+        return T.MapType(_ddl_type(key), _ddl_type(value))
+    raise ValueError(f"The schema type {t!r} isn't supported on this PC. Use a StructType, or types such as "
+                     "int, bigint, string, double, boolean, date, timestamp, decimal(p,s), array<...>, map<...>.")
+
+
+def ddl_schema(text: str) -> Any:
+    """A PySpark DDL schema string, ``"id int, name string"`` or ``"id: int, name: string"``, as a StructType."""
+    from duckdb.experimental.spark.sql import types as T
+    fields = []
+    for part in _split_top(text):
+        m = re.fullmatch(r"(?:`([^`]+)`|([^`:\s]+))\s*(?::\s*|\s+)(.+)", part, re.S)
+        if not m:
+            raise ValueError(f"Couldn't read {part!r} in the schema {text!r}. Write it as \"name type\", like \"id int\".")
+        name, kind = m[1] or m[2], m[3]
+        fields.append(T.StructField(name, _ddl_type(kind), True))
+    return T.StructType(fields)
 
 
 # What DuckDB's API leaves out (Window, agg, fillna, pivot, row_number...), on DuckDB SQL.

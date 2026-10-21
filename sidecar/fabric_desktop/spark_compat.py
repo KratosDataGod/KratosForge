@@ -54,6 +54,11 @@ def _call(spark_sql: str, *cols: Any) -> Column:
     return _sql(text)
 
 
+def _name_of(c: Any) -> str:
+    """A column's name, given its name or a plain column."""
+    return c if isinstance(c, str) else str(c.expr).strip('"').replace('""', '"')
+
+
 def _lit(value: Any) -> str:
     return exp.convert(value).sql("spark")
 
@@ -353,9 +358,14 @@ def _over(self: Column, window: WindowSpec) -> Column:
 
 # ---- DataFrame
 
-def _named(df: DataFrame, sql: str) -> DataFrame:
-    """A DataFrame from SQL over this one, which the SQL calls ``t``."""
-    return DataFrame(df.relation.query("t", sql), df.session)
+_SAMPLE_ROW = "__fd_row"
+
+
+def _frame(df: DataFrame, relation: Any) -> DataFrame:
+    """A DataFrame on ``relation``, built from ``df``'s with DuckDB's relation API. No view is
+    named for it: a named view lives on the session and keeps its data in memory until the
+    kernel restarts, and a notebook's own view could share the name."""
+    return DataFrame(relation, df.session)
 
 
 def _agg(self: DataFrame, *exprs: Any) -> DataFrame:
@@ -435,7 +445,7 @@ def _dropna(self: DataFrame, how: str = "any", thresh: int | None = None, subset
         return self
     present = " + ".join(f"CAST({_col_sql(c)} IS NOT NULL AS INT)" for c in cols)
     need = thresh if thresh is not None else (len(cols) if how == "any" else 1)
-    return _named(self, f"SELECT * FROM t WHERE ({present}) >= {int(need)}")
+    return _frame(self, self.relation.filter(f"({present}) >= {int(need)}"))
 
 
 def _replace(self: DataFrame, to_replace: Any, value: Any = None, subset: Any = None) -> DataFrame:
@@ -484,8 +494,11 @@ def _describe(self: DataFrame, *cols: str) -> DataFrame:
             sql = {"count": f"count({q})", "mean": f"avg({q})" if numeric else "NULL",
                    "stddev": f"stddev_samp({q})" if numeric else "NULL", "min": f"min({q})", "max": f"max({q})"}[stat]
             parts.append(f"CAST({sql} AS VARCHAR) AS {q}")
-        rows.append(f"SELECT '{stat}' AS summary, {', '.join(parts)} FROM t")
-    return _named(self, " UNION ALL ".join(rows))
+        rows.append(self.relation.aggregate(f"'{stat}' AS summary, {', '.join(parts)}"))
+    out = rows[0]
+    for row in rows[1:]:
+        out = out.union(row)
+    return _frame(self, out)
 
 
 def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None = None,  # noqa: N803
@@ -494,9 +507,14 @@ def _sample(self: DataFrame, withReplacement: Any = None, fraction: float | None
         withReplacement, fraction, seed = None, withReplacement, fraction  # noqa: N806
     if withReplacement:
         raise NotImplementedError("sample(withReplacement=True) isn't supported on this PC. Leave it out to sample without replacement.")
-    pct = max(0.0, min(100.0, float(fraction or 0) * 100))
-    repeat = f", {int(seed)}" if seed is not None else ""
-    return _named(self, f"SELECT * FROM t USING SAMPLE {pct}% (bernoulli{repeat})")
+    keep = max(0.0, min(1.0, float(fraction or 0)))
+    if seed is None:
+        return _frame(self, self.relation.filter(f"random() < {keep!r}"))
+    # A seed picks the same rows each time: each row's place, hashed with the seed, against the fraction.
+    cols = ", ".join(_col_sql(c) for c in self.columns)
+    numbered = self.relation.project(f"*, row_number() OVER () AS {_SAMPLE_ROW}")
+    picked = numbered.filter(f"hash({_SAMPLE_ROW}, {int(seed)}) % 1000000 < {int(keep * 1000000)}")
+    return _frame(self, picked.project(cols))
 
 
 def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
@@ -506,9 +524,21 @@ def _subtract(self: DataFrame, other: DataFrame) -> DataFrame:
 def _unpivot(self: DataFrame, ids: Any, values: Any, variableColumnName: str, valueColumnName: str) -> DataFrame:  # noqa: N803
     ids = [ids] if isinstance(ids, (str, Column)) else list(ids)
     values = [values] if isinstance(values, (str, Column)) else list(values or [c for c in self.columns if c not in ids])
-    return _named(self, f"SELECT {', '.join(_col_sql(c) for c in ids)}, {_col_sql(variableColumnName)}, "
-                        f"{_col_sql(valueColumnName)} FROM (UNPIVOT t ON {', '.join(_col_sql(c) for c in values)} "
-                        f"INTO NAME {_col_sql(variableColumnName)} VALUE {_col_sql(valueColumnName)})")
+    if not values:
+        raise ValueError("unpivot needs at least one value column.")
+    # One projection per value column, stacked, then put back in row order (each row's values together),
+    # as Spark's DataFrame.unpivot returns them. Unlike SQL's UNPIVOT, it keeps a null value.
+    id_cols = ", ".join(_col_sql(c) for c in ids)
+    numbered = self.relation.project(f"*, row_number() OVER () AS {_SAMPLE_ROW}")
+    parts = [numbered.project(f"{id_cols + ', ' if ids else ''}{_lit(_name_of(v))} AS {_col_sql(variableColumnName)}, "
+                              f"{_col_sql(v)} AS {_col_sql(valueColumnName)}, {_SAMPLE_ROW}, {i} AS {_SAMPLE_ROW}_col")
+             for i, v in enumerate(values)]
+    out = parts[0]
+    for part in parts[1:]:
+        out = out.union(part)
+    out = out.order(f"{_SAMPLE_ROW}, {_SAMPLE_ROW}_col")
+    keep = [c for c in (*map(_name_of, ids), variableColumnName, valueColumnName)]
+    return _frame(self, out.project(", ".join(_col_sql(c) for c in keep)))
 
 
 def _same_self(fn: Any) -> Any:

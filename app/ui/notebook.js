@@ -804,11 +804,13 @@ function editorFor(cell) {
         CM.highlightSpecialChars(), CM.history(), CM.drawSelection(), CM.dropCursor(), CM.indentOnInput(),
         CM.bracketMatching(), CM.closeBrackets(), CM.highlightActiveLine(), CM.highlightSelectionMatches(),
         CM.syntaxHighlighting(editorHighlight),
+        // Before langComp: its completion keymap, also at highest precedence, would otherwise take Esc
+        // while suggestions are still being fetched, with nothing on screen.
+        CM.Prec.highest(CM.keymap.of(keys)),
         langComp.of(languageFor(cell)),
         readOnlyComp.of(readOnly(cell)),
         findHighlighter(cell),  // nbfind.js
         dataItemDrop(cell),  // nbdrag.js: tables and files dragged from the Explorer
-        CM.Prec.highest(CM.keymap.of(keys)),
         CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap,
           ...CM.foldKeymap, ...CM.completionKeymap, CM.indentWithTab]),
         CM.placeholder(cell.type === "markdown" ? "Write Markdown. Press Shift+Enter to render."
@@ -860,8 +862,14 @@ function cellKeymap(cell) {
     { key: "Shift-Enter", run: run(true, false) },
     { key: "Mod-Enter", run: run(false, false) },
     { key: "Alt-Enter", run: run(false, true) },
-    { key: "Escape", run: () => { editors.get(cell.id)?.contentDOM.blur(); enterCommandMode(cell); return true; } },
-    { key: "Mod-Shift-Minus", run: () => { splitCell(cell); return true; } },
+    // A suggestion list on screen takes Esc first (it closes); otherwise Esc leaves for command mode.
+    { key: "Escape", run: (view) => {
+      if (view.dom.querySelector(".cm-tooltip-autocomplete")) return false;
+      view.contentDOM.blur();
+      enterCommandMode(cell);
+      return true;
+    } },
+    { key: "Mod-Shift--", run: () => { splitCell(cell); return true; } },  // CodeMirror names keys by their character
     { key: "Mod-/", run: CM.toggleComment },
     { key: "F9", run: () => dbgToggleAtCursor(cell) },
     { key: "Shift-Alt-f", run: () => { formatCells([cell]); return true; } },

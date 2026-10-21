@@ -87,13 +87,17 @@ async function platformOverviewTab(body) {
     const e = o.status.environments[env];
     return h("tr", {}, h("td", {}, h("b", {}, ENV_LABEL[env])),
       h("td", { class: "grow" }, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC")),
-      h("td", {}, e.kind === "fabric" ? null : adminOnly(btn("Set up in Fabric", null, () => goPlatform("settings"), "tool link small"))));
+      h("td", {}, e.kind === "fabric" ? null : o.status.source === "policy"
+        ? h("span", { class: "muted-text small" }, "Set by your organization's policy")
+        : (adminOnly(btn("Set up in Fabric", null, () => platformSetupDialog(env, o.status), "tool link small"))
+          || h("span", { class: "muted-text small" }, "A platform admin sets it up"))));
   })));
   body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,
     h("div", { class: "tiles plat-stats" },
       platStat(c.domains, "Domains", c.subdomains ? `${c.subdomains} subdomain${c.subdomains === 1 ? "" : "s"}` : "", () => goPlatform("domains")),
-      platStat(c.projects, "Projects", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}` : "joined to a domain"),
+      platStat(c.projects, "Projects joined", c.teams ? `${c.teams} team${c.teams === 1 ? "" : "s"}, joined to a domain` : "joined to a domain in Data mesh",
+        () => goMeta("domains")),
       platStat(c.key_tables, "Business key tables", `${c.keys.toLocaleString()} keys in ${ENV_LABEL[o.env]}`, () => goPlatform("keys")),
       platStat(c.products, "Data products", `${c.published} published`, () => go("onelake")),
       platStat(c.requests, "Requests waiting", o.needs_you.length ? `${o.needs_you.length} for you` : "", () => goPlatform("requests"))),
@@ -165,8 +169,8 @@ async function platformLandingTab(body) {
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
         h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "The landing zone is empty"),
-        h("span", { class: "text" }, "Add a source, then land its files in Files/<source>/<entity>/.")));
+      : emptyState({ title: "The landing zone is empty",
+        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
   body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
 }
 
@@ -385,17 +389,20 @@ async function platformDomainsTab(body) {
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
+      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
-        h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
-        h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+        h("td", { class: d.parent_id ? "plat-subdomain" : null }, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.parent_id ? `${d.id} · subdomain` : d.id)),
+        h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
-          btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
+          btn(d.fabric_domain ? "Edit owners" : "Edit", null, () => domainDialog(o, d, rerender), "tool small"),
           btn("Delete", null, async () => {
-            if (!(await confirmDialog(`Delete ${d.name}?`, "Only a domain no project or subdomain uses can be deleted.", "Delete", { danger: true }))) return;
+            const why = "Only a domain no project or subdomain uses can be deleted." + (d.fabric_domain
+              ? " It follows a domain in Fabric: delete that one in Fabric's admin portal first, or the next Import from Fabric brings it back." : "");
+            if (!(await confirmDialog(`Delete ${d.name}?`, why, "Delete", { danger: true }))) return;
             if (await platformCall("platform_delete_domain", { id: d.id }, "Not deleted")) rerender();
           }, "tool small danger"))))))))
       : h("p", { class: "muted-text" }, "No domains yet.")));
@@ -485,7 +492,7 @@ const productsPage = { query: "", domain: "all", open: null };
 
 async function renderDataProducts() {
   const pp = productsPage;
-  const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
+  const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },

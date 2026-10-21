@@ -350,3 +350,71 @@ def test_variable_library_rest_calls():
 
 def test_layer_default_retention():
     assert Layer("x").retention_days == 7 and Layer("x").to_dict()["retention_days"] == 7
+
+
+def _vl_parts():
+    return {
+        "variables.json": json.dumps({"variables": [
+            {"name": "server", "type": "String", "value": "dev-sql"},
+            {"name": "batch_size", "type": "Integer", "value": 500},
+            {"name": "full_load", "type": "Boolean", "value": False},
+            {"name": "ratio", "type": "Number", "value": "0.5"}]}),
+        "valueSets/Prod.json": json.dumps({"name": "Prod", "variableOverrides": [
+            {"name": "server", "value": "prod-sql"}, {"name": "batch_size", "value": "2000"}]}),
+        "settings.json": json.dumps({"valueSetsOrder": ["Prod"]}),
+    }
+
+
+def test_any_variable_library_reads_its_active_value_set():
+    assert varlib.read(_vl_parts(), "Default value set") == {"server": "dev-sql", "batch_size": 500, "full_load": False, "ratio": 0.5}
+    assert varlib.read(_vl_parts(), "Prod") == {"server": "prod-sql", "batch_size": 2000, "full_load": False, "ratio": 0.5}
+    with pytest.raises(LookupError, match="Test"):
+        varlib.read(_vl_parts(), "Test")
+    bad = _vl_parts() | {"valueSets/Prod.json": json.dumps({"name": "Prod", "variableOverrides": [
+        {"name": "batch_size", "value": "secret-ish text"}]})}
+    with pytest.raises(ValueError) as err:
+        varlib.read(bad, "Prod")
+    assert "batch_size is Integer" in str(err.value) and "secret-ish" not in str(err.value)
+
+
+def test_other_variable_libraries_come_from_the_attached_lakehouse_workspace(svc, monkeypatch, capsys):
+    from fabric_desktop import lakehouse
+    calls = []
+
+    class Fake:
+        def read_variable_library(self, ws, name):
+            calls.append((ws, name))
+            return (_vl_parts(), "Prod") if name == "VL_App" else None
+    monkeypatch.setattr(type(svc), "fabric", property(lambda self: Fake()))
+    nbu = build(Host(variables=svc._notebook_variables))
+    # Nothing attached: no workspace to read from, and nothing is called.
+    with pytest.raises(LookupError, match="Attach a lakehouse"):
+        nbu.variableLibrary.getLibrary("VL_App")
+    assert calls == []
+    monkeypatch.setattr(lakehouse, "_attached", types.SimpleNamespace(workspace_id="ws-1", workspace_name="Sales Landing"))
+    assert nbu.variableLibrary.get("$(/**/VL_App/batch_size)") == 2000
+    lib = nbu.variableLibrary.getLibrary("VL_App")
+    assert lib.server == "prod-sql" and "__fd_from__" not in dir(lib)
+    # It says once which workspace it read, since Fabric reads the notebook's own.
+    said = capsys.readouterr().out
+    assert said.count("Read VL_App from workspace Sales Landing, the attached lakehouse's") == 1
+    with pytest.raises(LookupError, match="no variable library named VL_Missing"):
+        nbu.variableLibrary.getLibrary("VL_Missing")
+    assert calls[0] == ("ws-1", "VL_App")
+    # VL_Sources still comes from the metadata project, with no Fabric call.
+    n = len(calls)
+    assert nbu.variableLibrary.getLibrary("VL_Sources").ENVIRONMENT == "dev"
+    assert len(calls) == n
+
+
+def test_read_variable_library_rest_calls():
+    import base64
+    enc = lambda t: base64.b64encode(t.encode()).decode()
+    c, s = client([
+        Resp(200, {"value": [{"id": "v9", "displayName": "VL_App", "properties": {"activeValueSetName": "Prod"}}]}),
+        Resp(200, {"definition": {"parts": [{"path": "variables.json", "payload": enc('{"variables": []}')}]}})])
+    parts, active = c.read_variable_library("ws", "VL_App")
+    assert parts == {"variables.json": '{"variables": []}'} and active == "Prod"
+    assert s.calls[1][0] == "POST" and s.calls[1][1].endswith("/items/v9/getDefinition")
+    c, s = client([Resp(200, {"value": []})])
+    assert c.read_variable_library("ws", "VL_App") is None

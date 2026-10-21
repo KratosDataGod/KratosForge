@@ -73,3 +73,4 @@ Entries are in `sidecar/fabric_desktop/orchestration/activities.py`; the rules a
 | 1 | First registry (ORCH-002): 28 types, all `static` or `cloud`. Unknown types are `unsupported`. |
 | 2 | ORCH-003: Set Variable, Append Variable, If Condition, Switch, ForEach, Until, Wait, Fail, Filter, Execute Pipeline and Invoke Pipeline are `local`, with adapters and tests. Notebook's planned local support moved to a later stage. |
 | 3 | Wording only: the product is now called KratosForge in limitations and notes. No classification changed. |
+| 4 | ORCH-004: Notebook (`TridentNotebook`) is `local`. It runs a Python notebook saved in KratosForge, with its parameters, writing to the run's own folder; Spark notebooks still need a mock. Its `parameters` are checked. |

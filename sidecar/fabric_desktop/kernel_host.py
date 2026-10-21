@@ -78,8 +78,10 @@ class Host:
 
     # ---- requests
 
-    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, notebook_name: str = "", watches: list[str] | None = None,
+              resources_dir: str = "") -> dict[str, Any]:
         self.kernel.notebook_name = notebook_name
+        self.kernel.resources_dir = resources_dir
         return self.kernel.start(code, watches)
 
     def poll(self, version: int = -1, wait: float = 0.0) -> dict[str, Any]:
@@ -138,11 +140,26 @@ class Host:
     def reads(self) -> dict[str, Any]:
         return self.kernel.reads()
 
+    def frame_page(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_page(**args)
+
+    def frame_chart(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_chart(**args)
+
+    def frame_profile(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_profile(**args)
+
+    def frame_wrangle(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_wrangle(**args)
+
+    def frame_download(self, **args: Any) -> dict[str, Any]:
+        return self.kernel.frame_download(**args)
+
     def ping(self) -> dict[str, Any]:
         return {"pid": os.getpid(), "python": sys.version.split()[0]}
 
     OPS = ("start", "poll", "interrupt", "variables", "complete", "inspect", "attach", "bind_proof", "unbind_proof",
-           "finish_proof", "proof_log", "reads", "ping")
+           "finish_proof", "proof_log", "reads", "frame_page", "frame_profile", "frame_chart", "frame_wrangle", "frame_download", "ping")
 
     def handle(self, message: dict[str, Any]) -> None:
         mid = message.get("id")

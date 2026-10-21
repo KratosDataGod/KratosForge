@@ -7,6 +7,8 @@ The calls Fabric notebooks use most work the same here:
 - ``notebook``: run another notebook from this PC's notebooks folder, exit with a value.
 - ``credentials``: getToken for storage and Fabric, getSecret from Azure Key Vault as you.
 - ``runtime.context``: the notebook, lakehouse and workspace, with ``isLocal`` set.
+- ``nbResPath``: the notebook's resources folder on this PC; its files are in ``builtin/``
+  (notebook_resources).
 - ``variableLibrary``: VL_Sources from the metadata project, with the values of the environment
   whose workspace the attached lakehouse is in (Dev's when it is in none).
 
@@ -15,6 +17,7 @@ What only Fabric has (mounting other storage, session settings) raises an error 
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import shutil
@@ -45,10 +48,15 @@ class FileInfo:
     path: str
     size: int
     isDir: bool  # noqa: N815 - Fabric's name
+    modifyTime: int = 0  # noqa: N815 - Fabric's name: last change, in milliseconds since 1970 (UTC)
 
     @property
     def isFile(self) -> bool:  # noqa: N802
         return not self.isDir
+
+    @property
+    def modificationTime(self) -> int:  # noqa: N802 - Databricks' name for modifyTime
+        return self.modifyTime
 
     def __repr__(self) -> str:
         return f"FileInfo(path={self.path}, name={self.name}, size={self.size})"
@@ -60,11 +68,13 @@ class Host:
     def __init__(self, token: Callable[[str], str] | None = None,
                  run_notebook: Callable[[str, int, dict[str, Any]], Any] | None = None,
                  notebook_name: Callable[[], str] | None = None,
-                 variables: Callable[[str], dict[str, str] | None] | None = None):
+                 variables: Callable[[str], dict[str, str] | None] | None = None,
+                 resources: Callable[[], str] | None = None):
         self.token = token
         self.run_notebook = run_notebook
         self.notebook_name = notebook_name or (lambda: "")
         self.variables = variables
+        self.resources = resources or (lambda: "")
 
 
 def _store() -> FileStore:
@@ -104,15 +114,24 @@ def _writable(path: str, p: str) -> lakehouse.Attached:
     return lh
 
 
+def _millis(iso: str | None) -> int:
+    """An ISO 8601 time as milliseconds since 1970, or 0 when there isn't one."""
+    try:
+        return int(dt.datetime.fromisoformat(iso).timestamp() * 1000) if iso else 0
+    except ValueError:
+        return 0
+
+
 def _make_fs() -> types.SimpleNamespace:
     def ls(path: str) -> list[FileInfo]:
         where, p = _split(path)
         if where == "local":
             base = Path(p)
-            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir())
+            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir(),
+                             int(e.stat().st_mtime * 1000))
                     for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
         lh = lakehouse._current()
-        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"])
+        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified")))
                 for e in _store().list(lh.workspace_id, lh.lakehouse_id, p)]
 
     def _read(path: str) -> bytes:
@@ -481,5 +500,15 @@ def build(host: Host) -> types.ModuleType:
     mod.runtime = _make_runtime(host)
     mod.variableLibrary = _make_variable_library(host)
     mod.mssparkutils = mod  # ``from notebookutils import mssparkutils`` still works
-    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary")
+    mod.help = lambda *_a: print("notebookutils on this PC: fs, notebook, credentials, runtime, variableLibrary, nbResPath")
+
+    def attribute(name: str) -> Any:
+        # nbResPath follows the notebook that is running, so it is looked up on each use.
+        if name == "nbResPath":
+            folder = host.resources()
+            if not folder:
+                raise AttributeError("nbResPath is the notebook's resources folder; it is set while a saved notebook runs.")
+            return folder
+        raise AttributeError(f"notebookutils on this PC has no {name}")
+    mod.__getattr__ = attribute  # type: ignore[method-assign]
     return mod

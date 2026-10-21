@@ -1967,3 +1967,9 @@ test("Databricks dbutils snippets and docs", () => {
   assert.match(docs, /\*\*Databricks `dbutils`\*\* is there too/);
   assert.match(docs, /the scope is an \*\*Azure Key Vault name\*\*/);
 });
+
+// dbutils.fs: a bare absolute path is DBFS in Databricks, so it never means this PC's disk.
+test("dbutils docs say bare absolute paths are refused", () => {
+  const doc = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "notebooks.md"), "utf8");
+  assert.match(doc, /A bare absolute path like `\/mnt\/raw` or `\/tmp\/x` is DBFS in Databricks, so it is refused here/);
+});

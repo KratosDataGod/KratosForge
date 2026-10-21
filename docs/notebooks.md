@@ -101,7 +101,7 @@ from pyspark.sql import functions as F
 
 | Area | What works here |
 | --- | --- |
-| `fs` | `ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`, the same as `notebookutils.fs`. `dbfs:/`, `/dbfs/` and `/Volumes/` paths are Databricks storage, which this PC can't reach: use `Files/...` or a `file:` path |
+| `fs` | `ls`, `head`, `put`, `cp`, `mv`, `rm`, `mkdirs`, the same as `notebookutils.fs`. `dbfs:/`, `/dbfs/` and `/Volumes/` paths are Databricks storage, which this PC can't reach: use `Files/...` or a `file:` path. A bare absolute path like `/mnt/raw` or `/tmp/x` is DBFS in Databricks, so it is refused here rather than read as this PC's disk; write `file:/mnt/raw` for a local folder |
 | `notebook` | `run` (returns the exit value as a string, as in Databricks) and `exit`. Arguments passed to `run` are what the child notebook's widgets return. `entry_point...getContext()` gives `notebookPath`, `userName` and `tags` |
 | `widgets` | `text`, `dropdown`, `combobox`, `multiselect`, `get`, `getAll`, `getArgument`, `remove`, `removeAll`. A widget's value is the argument the run passed, else its default |
 | `secrets` | `get`, `getBytes` and `list`, where the scope is an **Azure Key Vault name** (as with Key Vault backed scopes), read as you with the Key Vault Secrets User role. Databricks-backed scopes live in Databricks and can't be read here. Secret values are hidden in Variables |

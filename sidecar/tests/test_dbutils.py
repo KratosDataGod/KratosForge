@@ -160,3 +160,44 @@ def test_notebookutils_session_restarts_python_too():
     assert out["outputs"][-1]["text"] == "Python restarted. Variables were cleared."
     assert "x" not in k.namespace
     assert compute_check([{"type": "code", "source": "mssparkutils.session.stop()"}], {"id": "lh"})["local"]["ok"]
+
+
+@pytest.mark.parametrize("call", ["rm({p!r}, True)", "rm(dir={p!r}, recurse=True)", "put({p!r}, 'a', True)", "ls({p!r})", "mkdirs({p!r})",
+                                  "cp('file:/tmp/a', {p!r})"])
+def test_bare_absolute_paths_mean_dbfs_so_nothing_on_this_pc_changes(tmp_path, call):
+    victim = tmp_path / "mnt" / "raw"
+    victim.mkdir(parents=True)
+    (victim / "keep.csv").write_text("precious")
+    out = Kernel().run("dbutils.fs." + call.format(p=victim.as_posix()))
+    assert out["status"] == "error" and "DBFS path" in out["outputs"][-1]["evalue"]
+    assert (victim / "keep.csv").read_text() == "precious"
+    assert Kernel().run(r"dbutils.fs.ls('C:\\data')")["status"] == "error"
+
+
+def test_dbfs_scheme_is_caught_in_any_case():
+    out = Kernel().run("dbutils.fs.ls('DBFS:/tmp')")
+    assert out["status"] == "error" and "Databricks storage" in out["outputs"][-1]["evalue"]
+
+
+def test_secrets_list_stays_on_the_vault_host(monkeypatch):
+    sent = []
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"value": [{"id": "https://kv.vault.azure.net/secrets/a"}], "nextLink": "https://evil.example/steal"}
+
+        def raise_for_status(self):
+            pass
+
+    class Session:
+        def get(self, url, params=None, headers=None, timeout=None):
+            sent.append(url)
+            return Resp()
+
+    from fabric_desktop import http_session
+    monkeypatch.setattr(http_session, "session", lambda: Session())
+    out = Kernel(token=lambda audience: "tok").run("dbutils.secrets.list('kv')")
+    assert out["status"] == "error" and "another host" in out["outputs"][-1]["evalue"]
+    assert sent == ["https://kv.vault.azure.net/secrets"]

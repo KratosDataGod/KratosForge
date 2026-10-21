@@ -16,6 +16,7 @@ Databricks notebooks run here unchanged where the same thing exists locally:
 from __future__ import annotations
 
 import json
+import re
 import types
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -36,21 +37,29 @@ class InputWidgetNotDefined(Exception):
     """Databricks' error for a widget that was neither created nor passed in."""
 
 
-_DATABRICKS_STORAGE = ("dbfs:", "/dbfs/", "/Volumes/", "/Workspace/")
+_DATABRICKS_STORAGE = ("dbfs:", "/dbfs/", "/volumes/", "/workspace/")
+_PATH_ARGS = {"dir", "file", "from_", "to", "path", "src", "dest"}
+_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 def _local_path(path: str) -> str:
+    """The path, if it means the same place here as notebookutils would read. In Databricks a bare
+    absolute path (``/mnt/raw``, ``/tmp/x``, ``/FileStore/...``) is DBFS, so it is refused rather than
+    read as this PC's disk: a local path says ``file:``."""
     p = str(path)
-    if p.startswith(_DATABRICKS_STORAGE):
+    if p.lower().startswith(_DATABRICKS_STORAGE):
         raise ValueError(f"{path} is Databricks storage, which this PC can't reach. Use the attached lakehouse "
                          f"(Files/... or /lakehouse/default/Files/...) or a file: path on this PC.")
+    if (p.startswith("/") and not p.startswith("/lakehouse/")) or _DRIVE.match(p):
+        raise ValueError(f"In Databricks, {path} is a DBFS path, so it isn't read as this PC's disk. "
+                         f"Write file:{p} for a folder on this PC, or Files/... for the attached lakehouse.")
     return p
 
 
 def _make_fs(nbu_fs: types.SimpleNamespace) -> types.SimpleNamespace:
     def wrap(fn: Callable[..., Any], paths: int = 1) -> Callable[..., Any]:
         def call(*args: Any, **kwargs: Any) -> Any:
-            for a in args[:paths]:
+            for a in [*args[:paths], *(v for k, v in kwargs.items() if k in _PATH_ARGS)]:
                 _local_path(a)
             return fn(*args, **kwargs)
         call.__name__ = fn.__name__
@@ -177,6 +186,8 @@ def _make_secrets(get_secret: Callable[..., str], token: Callable[[str], str]) -
             body = resp.json()
             names += [SecretMetadata(item["id"].rstrip("/").rsplit("/", 1)[-1]) for item in body.get("value", [])]
             url, params = body.get("nextLink"), None
+            if url and not url.startswith(f"{vault(scope).rstrip('/')}/"):
+                raise ValueError(f"Key Vault {vault(scope)} answered with a next page on another host; stopped listing.")
         return names
 
     def listScopes() -> list[SecretScope]:  # noqa: N802

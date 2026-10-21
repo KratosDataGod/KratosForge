@@ -165,8 +165,8 @@ async function platformLandingTab(body) {
         h("td", {}, s.late ? h("span", { class: "pill-s fail" }, s.newest ? `late, ${relTime(s.newest)}` : "nothing yet") : s.newest ? when(s.newest) : h("span", { class: "muted-text" }, "nothing yet")),
         h("td", {}, s.expected_hours ? `every ${s.expected_hours} h` : h("span", { class: "muted-text" }, "not set")),
         h("td", {}, s.readers.length || h("span", { class: "muted-text" }, "none"))))))
-      : h("div", { class: "empty" }, h("span", { class: "title" }, "The landing zone is empty"),
-        h("span", { class: "text" }, "Add a source, then land its files in Files/<source>/<entity>/.")));
+      : emptyState({ title: "The landing zone is empty",
+        text: "Add a source, then land its files in Files/<source>/<entity>/." }));
   body.replaceChildren(h("div", { class: "keys-grid" }, list, sel ? sourceDetail(sel, l, rerender) : null));
 }
 
@@ -385,12 +385,13 @@ async function platformDomainsTab(body) {
     h("p", { class: "muted-text small" }, domains.some((d) => d.fabric_domain)
       ? "These follow the domains in Fabric's admin portal. Import again after a domain is added, renamed or moved there. "
       : "Start from the domains already in Fabric: Import from Fabric copies their names and subdomains here, so everyone can see them. ",
-      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights."),
+      "Reading Fabric's domain list needs a Fabric administrator; after that nobody else needs admin rights. ",
+      "Each domain's admins in Fabric show as owners marked From Fabric until you set the platform's own."),
     domains.length ? h("table", { class: "list" },
       h("thead", {}, h("tr", {}, ["Domain", "Description", "Owners", "Source", ""].map((x) => h("th", {}, x)))),
       h("tbody", {}, domains.map((d) => h("tr", {},
         h("td", {}, d.parent_id ? h("span", { class: "muted-text" }, "↳ ") : null, h("b", {}, d.name), h("div", { class: "muted-text small mono" }, d.id)),
-        h("td", {}, d.description || ""), h("td", {}, d.owners || h("span", { class: "muted-text" }, "not set")),
+        h("td", {}, d.description || ""), h("td", {}, domainOwnersCell(d)),
         h("td", {}, d.fabric_domain ? h("span", { class: "badge", title: d.fabric_domain }, "From Fabric") : h("span", { class: "muted-text" }, "Only here")),
         h("td", {}, adminOnly(h("span", { class: "row tight" },
           btn("Edit", null, () => domainDialog(o, d, rerender), "tool small"),
@@ -485,7 +486,7 @@ const productsPage = { query: "", domain: "all", open: null };
 
 async function renderDataProducts() {
   const pp = productsPage;
-  const list = h("div", {}, h("p", { class: "muted-text" }, "Loading data products..."));
+  const list = h("div", {}, loading("Loading data products..."));
   const search = h("input", { class: "catalog-search", placeholder: "Search products, ports and owners", value: pp.query, "aria-label": "Search data products" });
   setView(h("div", { class: "page monitor onelake" }, onelakeTabs(), withHowItWorks(
     h("section", { class: "card pad" },

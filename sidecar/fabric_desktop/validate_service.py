@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import logging
 import re
 import threading
 import time
@@ -33,6 +34,8 @@ from .proof_runtime import PROOF_ROOT
 METHODS = {"notebook_validate_check", "notebook_validate_start", "notebook_validate_status",
            "notebook_validate_cancel", "notebook_validate_list", "notebook_validate_save",
            "notebook_cleanup_plan", "notebook_cleanup_apply"}
+
+_log = logging.getLogger(__name__)
 
 MAX_KEPT = 100
 LIMIT_NAMES = {"time": "the cell time limit", "memory": "the notebook memory limit"}
@@ -306,6 +309,10 @@ class ValidateMixin:
             self._validation_keep(record)
         except OSError as exc:
             record["message"] = (record["message"] + f" The result couldn't be saved on this PC: {exc}").strip()
+        try:
+            record["earned"] = self._progress_observe(record)  # type: ignore[attr-defined]
+        except Exception as exc:  # noqa: BLE001 - the profile never changes a validation's result
+            _log.warning("The validation couldn't be added to the profile: %s", redact.describe(exc))
         record["state"] = "cancelled" if run["status"] == "cancelled" else "done"  # last: whoever sees done sees it all
 
 

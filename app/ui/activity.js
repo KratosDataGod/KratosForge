@@ -42,8 +42,35 @@ function runReason(r) {
 // text stays available under Details.
 function friendlyError(err) {
   const raw = String((err && typeof err === "object" ? err.message : err) || "").trim();  // new Error("") has no reason, not "Error"
-  const known = [
+  // Errors about files and folders on this PC, and the engine's own time limits ("TimeoutError: The
+  // query ran longer than..."): Python's exception name dropped, "[Errno 2] No such file or
+  // directory: 'x'" said in words, the raw text kept under Details.
+  function localError(raw) {
+    const m = /^(FileNotFoundError|FileExistsError|IsADirectoryError|NotADirectoryError|PermissionError|TimeoutError): ([\s\S]*)$/.exec(raw);
+    if (!m) return null;
+    const [, name, message] = m;
+    const os = /^\[(?:Errno|WinError) \d+\] [^:]*(?::\s*'?(.*?)'?)?$/.exec(message.trim());
+    if (!os) return { text: message.replace(/^'(.*)'$/, "$1") || "The app couldn't use a file on this PC.", details: raw };
+    if (name === "TimeoutError") return null;  // "[Errno 110] Connection timed out" is the network: the patterns below say so
+    const at = os[1] ? ` ${os[1].replace(/\\\\/g, "\\")}` : "";  // Python's repr doubles Windows backslashes
+    const text = {
+      FileNotFoundError: `There is no file or folder at${at || " that path"} on this PC. Check the path, or pick the file again.`,
+      FileExistsError: `Something already exists at${at || " that path"} on this PC. Pick another name or folder.`,
+      IsADirectoryError: `${at ? at.trim() : "That path"} is a folder, and a file was expected. Pick a file.`,
+      NotADirectoryError: `Part of${at || " that path"} is a file, and a folder was expected. Check the path.`,
+      PermissionError: `This PC didn't allow access to${at || " that file or folder"}. Close any program that has it open, or pick a folder you can write to.`,
+    }[name];
+    return { text, details: raw };
+  }
+  // Order matters (PR-UX-02): the engine's own hung, stopped and blocked messages first, then errors about
+  // files on this PC (localError, above), and only then Fabric's HTTP patterns, so a missing local
+  // file is never "Fabric couldn't find that item" and a local time limit is never "Couldn't reach Fabric".
+  const engine = [
     [/^The engine stopped answering/, "The local engine stopped answering, so the app restarted it. Notebook variables were cleared, so run the notebook's cells again. The details below name the request that hung."],
+    [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
+    [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
+  ];
+  const known = [
     [/AADSTS53000|AADSTS53001|AADSTS53003|AADSTS530003|ConditionalAccess/i, "Your organization's sign-in rules (Conditional Access) blocked this sign-in, for example because this PC isn't managed by your organization. Ask IT; docs/permissions.md says what they can allow."],
     [/AADSTS700016|AADSTS90094|AADSTS90008|admin_consent|needs? admin approval/i, "Your organization hasn't allowed this sign-in yet. Ask a Microsoft Entra admin; docs/permissions.md says what they can do."],
     [/Capacity\.Read\.All|list_?capacities/i, "Your sign-in can't list capacities, so pick the workspace's capacity in Fabric instead. docs/permissions.md explains why and what IT can change."],
@@ -58,13 +85,14 @@ function friendlyError(err) {
     [/\b404\b|NotFound|ItemNotFound|does not exist/i, "Fabric couldn't find that item. It may have been deleted or renamed."],
     [/\b429\b|TooManyRequests|throttl/i, "Fabric is busy and asked the app to slow down. Try again in a minute."],
     [/ConnectionError|Max retries|timed out|Timeout|NameResolution|getaddrinfo|ECONN|network/i, "Couldn't reach Fabric. Check the internet connection and try again."],
-    [/Application Control policy|WinError 4551/i, "Windows blocked part of the local engine (Smart App Control or an App Control policy). Restart KratosForge to see which files and what to do."],
     [/DisplayName is Invalid|InvalidDisplayName/i, "Fabric doesn't accept that name. A lakehouse name can use only letters, numbers and underscores, and must start with a letter."],
     [/CapacityNotActive|capacity.*paused|CapacityLimitExceeded/i, "The workspace's Fabric capacity is paused or full."],
-    [/^The Python sidecar stopped/, "The local engine stopped while doing this. It restarts on your next action; if it keeps stopping, the details below show why."],
   ];
   if (/^SignInCancelled: /.test(raw)) return { text: "", details: "", cancelled: true };  // closed the sign-in window: not a failure
   if (!raw) return { text: "Something went wrong and no reason was given. Try again; if it keeps happening, report a problem.", details: "" };
+  for (const [re, text] of engine) if (re.test(raw)) return { text, details: raw };
+  const local = localError(raw);
+  if (local) return local;
   for (const [re, text] of known) if (re.test(raw)) return { text, details: raw };
   // The sidecar's own errors already explain themselves; only drop the exception name.
   const m = /^(ValueError|LookupError|KeyError|RuntimeError|PermissionError|FileNotFoundError|GateError|GitError): ([\s\S]*)$/.exec(raw);
@@ -73,6 +101,31 @@ function friendlyError(err) {
     return { text: "Something went wrong inside the app. The details below help with a bug report.", details: raw };
   }
   return { text: raw, details: "" };
+}
+
+// UX-011: one way to show a failure inside a page or panel. A sentence from friendlyError, what to
+// do, Retry when the caller passes one, and the raw text under Details with Copy. Pass retry only
+// for a read, or an action that is safe to repeat: it runs again with no further question.
+// Returns null for a cancelled sign-in, which isn't a failure.
+function errorPanel(err, { retry = null, label = "", hint = "" } = {}) {
+  const f = friendlyError(err);
+  if (f.cancelled) return null;
+  const raw = f.details || "";
+  const what = hint || (retry ? "Try again. If it keeps failing, copy the details into Report a problem."
+    : raw ? "If it keeps happening, copy the details into Report a problem." : "");
+  const again = retry && btn("Retry", "sync", async () => {
+    again.disabled = true;
+    try { await retry(); } finally { if (again.isConnected) again.disabled = false; }
+  }, "tool small error-panel-retry");
+  const copy = () => navigator.clipboard.writeText(raw)
+    .then(() => toast("Copied the details"), () => toast("Couldn't copy. Select the text and copy it instead.", true, { quiet: true }));
+  return h("div", { class: "error-panel", role: "alert" },
+    label && !f.text.startsWith(label) ? h("b", { class: "error-panel-label" }, label) : null,
+    h("p", { class: "error-panel-text" }, f.text),
+    what ? h("p", { class: "error-panel-hint" }, what) : null,
+    again || null,
+    raw ? h("details", { class: "error-panel-details" }, h("summary", {}, "Details"),
+      h("pre", {}, raw), btn("Copy", null, copy, "tool small", { "aria-label": "Copy the details" })) : null);
 }
 
 // ---------- activity ----------

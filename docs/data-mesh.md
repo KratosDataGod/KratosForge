@@ -25,6 +25,7 @@ All of it happens on the **Platform** page (central team, and requests from ever
 1. **Domains.** Every domain, its subdomains, and how many projects and products it has. **How domains feed each other** lists, for each pair of domains, the products one domain's projects read from the other's.
 2. **A domain.** Its projects, filtered by subdomain, each with its products, who reads them and what it reads. The project open on this PC also shows its layers with a table count; other projects' tables show when their folder is opened on this PC.
 3. **A layer.** The layer's tables. Pick one to see what it comes from, which tables and products read it, and **Open in Design** to edit it.
+4. **A table's lineage.** Every hop both ways, one column per hop. Upstream it starts at the files, landing source or link the chain begins with. Downstream it ends at the data products it feeds and the other projects that read them. **Only what it reads** and **Only what reads it** narrow it. Pick any table in a column to put it in the middle, and choose **Columns** to see where each column comes from. Tables come from the project open on this PC, and other projects come from the catalog's links. It reads only and changes nothing.
 
 ## The pieces
 
@@ -62,7 +63,7 @@ The mesh's domains and subdomains are the ones defined in Fabric (Admin portal >
 
 | Step | Who | Needs |
 | --- | --- | --- |
-| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. No app registration |
+| **Platform > Domains > Import from Fabric** copies every Fabric domain and subdomain into the platform's catalog | A platform admin who is also a **Fabric administrator** | Fabric's domain list is an admin API (`GET /v1/admin/domains`, `Tenant.Read.All`). KratosForge asks for it only at this step. Each domain's admins are read too (`GET /v1/admin/domains/{id}/roleAssignments`, same permission). No app registration |
 | Seeing the domains, joining one, and the mesh map on Home | Everyone | Nothing: the names are read from the platform's catalog |
 | **Data mesh > Domains** shows which Fabric domain each of the project's workspaces is in, with **Use it** to pick it | Anyone who can see the workspace | Nothing new: each workspace says its domain to its members. Without an import, only the domain's id is known, so the tab asks for a Fabric administrator to import |
 
@@ -70,6 +71,7 @@ How the import works:
 
 - A Fabric domain matches the catalog domain already linked to it, else one with the same name (domains created by hand before are kept and linked, so their projects don't change), else it's added with an id made from its name (`Finance & Risk` becomes `finance-risk`).
 - Imported domains follow Fabric: rename or move one in Fabric, then import again; the catalog id stays, so projects keep their domain. Their name and parent can't be changed in KratosForge. Owners and description are the platform's and stay as you set them.
+- Each domain's admins in Fabric are kept by name (no email) and shown as owners marked **From Fabric** on Platform > Domains, Data mesh > Domains and Home's mesh map, until you set the platform's own owners; then both show. They're for reading only: only the platform's owners can keep a domain's glossary terms or apply its policies. A domain whose admins can't be read keeps what the last import read, and the import says which.
 - A domain deleted in Fabric is reported and kept in the catalog, because projects may still use it. Delete it on **Platform > Domains** once nothing uses it.
 - Fabric allows one level of subdomains, like the mesh. Anything deeper is skipped and reported.
 - **New domain** on **Platform > Domains** still works for organizations that don't use Fabric domains; those show as "Only here".

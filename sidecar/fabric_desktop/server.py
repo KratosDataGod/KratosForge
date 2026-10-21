@@ -164,7 +164,8 @@ METHODS |= COMMENT_METHODS
 # long call must not write its older cells over an autosave that overtook it.
 QUICK = frozenset({
     "app_settings", "debug_cell", "interrupt_cell", "kernel_complete", "kernel_info", "kernel_variables",
-    "list_notebooks", "notebook_debug_get", "notebook_dependencies", "notebook_environment",
+    "list_notebooks", "notebook_comments_list", "notebook_debug_get", "notebook_dependencies",
+    "notebook_environment", "notebook_folders", "notebook_resources", "notebook_version", "notebook_versions",
     "open_notebook", "poll_cell", "prove_list", "prove_rules_get", "prove_status",
     "receipt_get", "receipts_list", "side_by_side_list",
     "side_by_side_status", "side_by_side_writes", "sql_analyze", "sql_cancel",

@@ -126,7 +126,9 @@ def _dbc(entries):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w") as zf:
         for name, data in entries:
-            zf.writestr(name, data)
+            info = zipfile.ZipInfo()
+            info.filename = name  # as given: ZipInfo(name) turns "\\" into "/" on Windows
+            zf.writestr(info, data)
     return buf.getvalue()
 
 

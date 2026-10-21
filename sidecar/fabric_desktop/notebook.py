@@ -34,6 +34,8 @@ from typing import Any, Callable
 
 import pyarrow as pa
 
+from .frames import Frames, type_name
+
 # Charts are drawn off screen and shown as images in the cell.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
@@ -102,7 +104,7 @@ def display(value: Any) -> dict[str, Any]:
     if table is not None:
         rows = [[_json_value(v) for v in row.values()] for row in table.slice(0, PREVIEW_ROWS).to_pylist()]
         total = _total_rows(value, table)
-        return {"type": "table", "columns": table.schema.names, "rows": rows,
+        return {"type": "table", "columns": table.schema.names, "types": [type_name(f.type) for f in table.schema], "rows": rows,
                 "total_rows": total if total is not None else f"more than {PREVIEW_ROWS}"}
     module = type(value).__module__
     if module.startswith("matplotlib"):
@@ -226,6 +228,7 @@ class Kernel:
         self._secrets: set[str] = set()
         self._tasks: list[str] = []
         self.task_values: dict[str, dict[str, Any]] = {}
+        self.frames = Frames()
         self.restart()
 
     # ---- namespace
@@ -280,11 +283,26 @@ class Kernel:
         self.task_values.clear()
         self.namespace: dict[str, Any] = self._base_namespace()
         self.count = 0
+        self.frames.clear()
+
+    def _show(self, value: Any) -> dict[str, Any]:
+        """``display(value)``; a table also keeps its whole result for the result viewer (frames.py)."""
+        out = display(value)
+        if out["type"] == "table":
+            out["frame"] = self.frames.keep(value)
+        return out
+
+    def frame_page(self, frame: str, offset: int = 0, limit: int = 100, sort: int | None = None,
+                   desc: bool = False, q: str = "") -> dict[str, Any]:
+        return self.frames.page(frame, offset, limit, sort, desc, q)
+
+    def frame_download(self, frame: str, format: str, path: str) -> dict[str, Any]:  # noqa: A002 - RPC name
+        return self.frames.download(frame, format, path)
 
     def _display(self, *values: Any, summary: bool = False, **_kw: Any) -> None:
         run = getattr(self._local, "run", None)
         for value in values:
-            out = display(value)
+            out = self._show(value)
             if summary and out["type"] == "table":
                 out["summary"] = True
             if run is not None:
@@ -429,7 +447,7 @@ class Kernel:
                     value = eval(compile(ast.Expression(last.value), _CELL_FILE, "eval"), namespace)
                 if value is not None:
                     namespace["_"] = value
-                    self._emit(run, display(value))
+                    self._emit(run, self._show(value))
         except NotebookExit as done:
             if not isinstance(done, RestartPython):
                 print(f"Notebook exited with value: {done.value}")
@@ -478,7 +496,7 @@ class Kernel:
             from . import spark_local
             result = spark_local.session().sql(query)
             if result is not None and result.columns:
-                self._emit(run, display(result))
+                self._emit(run, self._show(result))
             return "ok"
         except Exception as exc:  # noqa: BLE001
             self._emit(run, self._error(exc))

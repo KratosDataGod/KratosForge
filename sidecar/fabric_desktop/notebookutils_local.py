@@ -15,6 +15,7 @@ What only Fabric has (mounting other storage, session settings) raises an error 
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 import shutil
@@ -45,10 +46,15 @@ class FileInfo:
     path: str
     size: int
     isDir: bool  # noqa: N815 - Fabric's name
+    modifyTime: int = 0  # noqa: N815 - Fabric's name: last change, in milliseconds since 1970 (UTC)
 
     @property
     def isFile(self) -> bool:  # noqa: N802
         return not self.isDir
+
+    @property
+    def modificationTime(self) -> int:  # noqa: N802 - Databricks' name for modifyTime
+        return self.modifyTime
 
     def __repr__(self) -> str:
         return f"FileInfo(path={self.path}, name={self.name}, size={self.size})"
@@ -111,15 +117,24 @@ def _writable(path: str, p: str) -> lakehouse.Attached:
     return lh
 
 
+def _millis(iso: str | None) -> int:
+    """An ISO 8601 time as milliseconds since 1970, or 0 when there isn't one."""
+    try:
+        return int(dt.datetime.fromisoformat(iso).timestamp() * 1000) if iso else 0
+    except ValueError:
+        return 0
+
+
 def _make_fs() -> types.SimpleNamespace:
     def ls(path: str) -> list[FileInfo]:
         where, p = _split(path)
         if where == "local":
             base = Path(p)
-            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir())
+            return [FileInfo(e.name, "file:" + str(e), 0 if e.is_dir() else e.stat().st_size, e.is_dir(),
+                             int(e.stat().st_mtime * 1000))
                     for e in sorted(base.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))]
         lh = lakehouse._current()
-        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"])
+        return [FileInfo(e["name"], e["path"], e["size"], e["is_dir"], _millis(e.get("modified")))
                 for e in _store().list(lh.workspace_id, lh.lakehouse_id, p)]
 
     def _read(path: str) -> bytes:

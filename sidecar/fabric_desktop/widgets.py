@@ -573,9 +573,29 @@ class Output(DOMWidget):
 
     def __init__(self, **kw: Any):
         super().__init__(**kw)
-        object.__setattr__(self, "outputs", [])
+        object.__setattr__(self, "_outputs", [])
+        object.__setattr__(self, "_tail", [])  # text printed since, joined onto the last stream output when read
+        object.__setattr__(self, "_lock", threading.Lock())
         object.__setattr__(self, "_stack", [])
         self._recount()
+
+    @property
+    def outputs(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._join()
+            return self._outputs
+
+    @outputs.setter
+    def outputs(self, value: Any) -> None:  # ``out.outputs = ()`` clears it, as in ipywidgets
+        with self._lock:
+            object.__setattr__(self, "_outputs", list(value))
+            object.__setattr__(self, "_tail", [])
+
+    def _join(self) -> None:
+        """Join the printed text kept in pieces; one join instead of copying the text on every print."""
+        if self._tail:
+            self._outputs[-1] = {"type": "stream", "text": self._outputs[-1]["text"] + "".join(self._tail)}
+            self._tail.clear()
 
     def _recount(self) -> None:
         # The same caps as a cell's own output (notebook.STREAM_CHARS, RICH_CHARS), counted from the
@@ -598,7 +618,7 @@ class Output(DOMWidget):
         return False
 
     def clear_output(self, wait: bool = False) -> None:
-        self.outputs.clear()
+        self.outputs = []
         self._recount()
 
     def append_stdout(self, text: str) -> None:
@@ -629,14 +649,15 @@ class Output(DOMWidget):
         room = STREAM_CHARS - self._chars
         part = text[:room]
         object.__setattr__(self, "_chars", self._chars + len(part))
-        if part and self.outputs and self.outputs[-1].get("type") == "stream":
-            self.outputs[-1] = {"type": "stream", "text": self.outputs[-1]["text"] + part}
-        elif part:
-            self.outputs.append({"type": "stream", "text": part})
+        with self._lock:
+            if part and self._outputs and self._outputs[-1].get("type") == "stream":
+                self._tail.append(part)
+            elif part:
+                self._outputs.append({"type": "stream", "text": part})
         if len(text) > room:
             self._cut.add("stream")
-            self.outputs.append({"type": "text", "text": f"Output truncated: this output printed more than "
-                                                         f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
+            self._append({"type": "text", "text": f"Output truncated: this output printed more than "
+                                                  f"{STREAM_CHARS:,} characters. clear_output() starts it again."})
 
     def _add(self, output: dict[str, Any]) -> None:
         from .notebook import RICH_CHARS
@@ -650,10 +671,18 @@ class Output(DOMWidget):
                                                   f"{RICH_CHARS // 1_000_000} MB, so later ones aren't shown."}
             else:
                 object.__setattr__(self, "_rich", self._rich + size)
-        self.outputs.append(output)
+        self._append(output)
+
+    def _append(self, output: dict[str, Any]) -> None:
+        with self._lock:
+            self._join()
+            self._outputs.append(output)
 
     def _extra(self, depth: int, seen: set[str]) -> dict[str, Any]:
-        return {"outputs": [_nested(o, depth, seen) for o in self.outputs]}
+        with self._lock:
+            self._join()
+            outputs = list(self._outputs)
+        return {"outputs": [_nested(o, depth, seen) for o in outputs]}
 
 
 def _nested(output: dict[str, Any], depth: int, seen: set[str]) -> dict[str, Any]:

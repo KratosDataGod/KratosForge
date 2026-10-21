@@ -245,3 +245,17 @@ def test_an_error_in_an_output_widget_shows_past_the_cap(monkeypatch):
         out._add({"type": "html", "html": "x" * 300})
     out._add({"type": "error", "ename": "ValueError", "evalue": "boom", "traceback": ""})
     assert [o["type"] for o in out.outputs] == ["html", "text", "error"]
+
+
+def test_an_output_widget_joins_printed_text_in_order():
+    out = widgets.Output()
+    for part in "abc":
+        out.append_stdout(part)
+    out._add({"type": "html", "html": "<b>x</b>"})
+    out.append_stdout("d")
+    out.append_stdout("e")
+    assert out.outputs == [{"type": "stream", "text": "abc"}, {"type": "html", "html": "<b>x</b>"},
+                           {"type": "stream", "text": "de"}]
+    out.outputs = ()
+    out.append_stdout("f")
+    assert out.outputs == [{"type": "stream", "text": "f"}]

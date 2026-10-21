@@ -160,6 +160,18 @@ The **Variables** pane (**View > Variables**) has three more parts for cells tha
 
 None of these run for notebooks that run in Fabric.
 
+### Breakpoints and stepping (Preview)
+
+For cells that run on this PC, with the same Preview setting as watches:
+
+- **Set a breakpoint** by clicking a line number (with **Line numbers** on) or pressing **F9** on a line. A red bar marks it. Breakpoints follow their lines as you edit, and they're kept for this session only, not saved in the notebook file.
+- **A cell with breakpoints pauses at them** whenever it runs, whether you run it alone or with **Run all**. **Debug cell (pause at the first line)** in the cell's **...** menu pauses before its first line.
+- **While paused**, the paused line is highlighted and a panel under the cell shows the call stack, that frame's variables (names, types, sizes and short previews; a variable whose name looks like a secret, or whose value is a secret from `getSecret`, shows as `hidden`, but a value built from a secret, such as a connection string, isn't hidden, as in watches), and your watches as they are in that frame. **Evaluate** runs an expression in the paused frame, such as `df.shape` or `n + 1`. Like a watch, it runs as notebook code, so keep it to reads.
+- **Continue** (F5) runs to the next breakpoint, **Step over** (F10) to the next line, **Step into** (F11) into a function the cell defines, and **Step out** (Shift+F11) to the next line after the function returns. **Stop** cancels the cell like **Cancel**, keeping variables.
+- Only the cell's own code stops: functions and classes it defines pause wherever the cell calls them. Libraries, functions from earlier cells, `%run` notebooks and threads the cell starts run at full speed and never pause. A cell running under the debugger has no time limit, because time spent paused counts as running. The memory limit still applies.
+
+Proofs, side by side, Validate and scheduled runs never stop at breakpoints, because they don't run cells from the editor.
+
 ### Failure replay bundles (Preview)
 
 When a cell fails on this PC, **Save replay bundle** under its error saves a file someone else (or you, later) can use to run the notebook again up to that cell, against the same inputs. The dialog shows exactly what goes in before anything is saved:

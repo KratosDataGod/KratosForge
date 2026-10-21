@@ -20,6 +20,7 @@ import contextlib
 import ctypes
 import inspect
 import io
+import itertools
 import json
 import keyword
 import os
@@ -150,6 +151,13 @@ class _Run:
         self.thread: threading.Thread | None = None
         self.done = threading.Event()
         self.watches: list[dict[str, Any]] | None = None
+        self.debugger: Any = None  # debugger.Debugger when the cell runs with breakpoints
+        self.paused: dict[str, Any] | None = None  # where a debugged cell is paused
+
+    def set_paused(self, paused: dict[str, Any] | None) -> None:
+        with self.lock:
+            self.paused = json.loads(json.dumps(paused, default=str)) if paused is not None else None
+            self.version += 1
 
     def write(self, text: str) -> None:
         if not text:
@@ -181,6 +189,8 @@ class _Run:
                     "outputs": list(self.outputs) if changed else None}
             if self.watches is not None:
                 snap["watches"] = list(self.watches)
+            if self.debugger is not None:
+                snap["paused"] = self.paused
             return snap
 
 
@@ -308,15 +318,25 @@ class Kernel:
 
     # ---- running a cell
 
-    def start(self, code: str, watches: list[str] | None = None) -> dict[str, Any]:
+    def start(self, code: str, watches: list[str] | None = None, breakpoints: list[int] | None = None,
+              step: bool = False) -> dict[str, Any]:
         """Start ``code`` on its own thread; ``poll`` reports its output as it comes.
 
         ``watches`` are expressions evaluated after the cell, in its namespace and on its thread
-        (so Cancel and the cell time limit cover them); their values come back in ``watches``."""
+        (so Cancel and the cell time limit cover them); their values come back in ``watches``.
+        ``breakpoints`` (line numbers in the cell) or ``step`` (pause at the first line) run the
+        cell under the debugger (debugger.py): ``poll`` reports ``paused`` and ``debug`` resumes."""
         if self._current is not None and not self._current.done.is_set():
             raise RuntimeError("A cell is already running. Wait for it, or Cancel it.")
+        from .debugger import Debugger, check_breakpoints
+        lines = check_breakpoints(breakpoints)
         self.count += 1
         run = _Run(self.count)
+        if lines or step:
+            from .redact import secrets
+            run.debugger = Debugger(lines, step, self._frame_row, redact=secrets, watches=watches,
+                                    on_change=run.set_paused)
+            run.debugger.skip = set(self._base_namespace_keys())
         self._current = run
         run.thread = threading.Thread(target=self._execute, args=(code, run, list(watches or [])), daemon=True,
                                       name=f"cell-{self.count}")
@@ -340,12 +360,23 @@ class Kernel:
         run = self._current
         if run is None or run.done.is_set() or run.thread is None:
             return {"interrupted": False}
+        # Paused: the cell's thread ends it itself. If it doesn't (busy evaluating an expression),
+        # interrupt it the usual way.
+        if run.debugger is not None and run.debugger.stop() and run.done.wait(0.5):
+            return {"interrupted": True, "stopped": True}
         with contextlib.suppress(Exception):
             from . import spark_local
             spark_local.interrupt()
         ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_ulong(run.thread.ident), ctypes.py_object(KeyboardInterrupt))
         run.done.wait(2.0)
         return {"interrupted": True, "stopped": run.done.is_set()}
+
+    def debug(self, action: str, expression: str | None = None) -> dict[str, Any]:
+        """Resume a paused cell (continue, step, next, out) or evaluate ``expression`` where it is paused."""
+        run = self._current
+        if run is None or run.done.is_set() or run.debugger is None:
+            raise RuntimeError("No cell is running under the debugger.")
+        return run.debugger.command(action, expression)
 
     def run(self, code: str) -> dict[str, Any]:
         """Run ``code`` to the end and return its result (used by tests and scripts)."""
@@ -365,7 +396,13 @@ class Kernel:
         status = "error"
         try:
             try:
-                status = self._exec(code, self.namespace, run)
+                if run.debugger is not None:
+                    sys.settrace(run.debugger.trace)
+                try:
+                    status = self._exec(code, self.namespace, run, run.debugger)
+                finally:
+                    if run.debugger is not None:
+                        sys.settrace(None)
                 self._flush_figures(run)
             except NotebookExit:
                 status = "ok"
@@ -403,8 +440,9 @@ class Kernel:
         with run.lock:
             run.watches = results
 
-    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
-        """Run one cell's code in ``namespace``; returns "ok" or "error"."""
+    def _exec(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
+        """Run one cell's code in ``namespace``; returns "ok" or "error". ``debugger`` traces the
+        code compiled here (not %run notebooks), so its line numbers are the cell's own."""
         from .notebookutils_local import NotebookExit
         cell = magics.cell(code)
         if cell.language == "sql":
@@ -438,16 +476,16 @@ class Kernel:
         self._patch_pyplot(run)
         if cell.header == "%%time":
             started = time.monotonic()
-            status = self._exec_python(code, namespace, run)
+            status = self._exec_python(code, namespace, run, debugger)
             print(f"Wall time: {_duration(time.monotonic() - started)}")
             return status
         if cell.header == "%%timeit":
             return self._guarded(run, lambda: self._timeit(cell.args, code, namespace))
         if cell.header == "%%capture":
-            return self._capture(cell.args, code, namespace, run)
-        return self._exec_python(code, namespace, run)
+            return self._capture(cell.args, code, namespace, run, debugger)
+        return self._exec_python(code, namespace, run, debugger)
 
-    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+    def _exec_python(self, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         from .notebookutils_local import NotebookExit
         try:
             with warnings.catch_warnings():
@@ -456,10 +494,16 @@ class Kernel:
                 if self.resources_dir and os.path.isdir(self.resources_dir):  # a notebook with resources
                     tree = ast.fix_missing_locations(_BuiltinPaths(self.resources_dir).visit(tree))
                 last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
-                exec(compile(tree, _CELL_FILE, "exec"), namespace)
+                body = compile(tree, _CELL_FILE, "exec")
+                tail = compile(ast.Expression(last.value), _CELL_FILE, "eval") if last is not None else None
+                if debugger is not None:
+                    debugger.add(body)
+                    if tail is not None:
+                        debugger.add(tail)
+                exec(body, namespace)
                 value = None
-                if last is not None:
-                    value = eval(compile(ast.Expression(last.value), _CELL_FILE, "eval"), namespace)
+                if tail is not None:
+                    value = eval(tail, namespace)
                 if value is not None:
                     namespace["_"] = value
                     self._emit(run, self._show(value))
@@ -493,7 +537,7 @@ class Kernel:
         print(f"{_duration(statistics.mean(times))} ± {_duration(spread)} per loop (mean ± std. dev. of "
               f"{len(times)} run{'s' * (len(times) != 1)}, {number} loop{'s' * (number != 1)} each)")
 
-    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None) -> str:
+    def _capture(self, args: str, code: str, namespace: dict[str, Any], run: _Run | None, debugger: Any = None) -> str:
         """``%%capture [name]``: the cell's output is kept instead of shown; ``name.show()`` shows it.
         An error still shows, so a failing cell isn't silent."""
         captured = _Run(0)
@@ -502,7 +546,7 @@ class Kernel:
         before = out.targets.get(ident), err.targets.get(ident), getattr(self._local, "run", None)
         out.targets[ident] = err.targets[ident] = self._local.run = captured
         try:
-            status = self._exec_python(code, namespace, captured)
+            status = self._exec_python(code, namespace, captured, debugger)
             self._flush_figures(captured)
         finally:
             for router, target in ((out, before[0]), (err, before[1])):
@@ -788,9 +832,47 @@ class Kernel:
             if (name.startswith("_") and name != "_sqldf") or name in skip or inspect.ismodule(value) or inspect.isclass(value) \
                     or inspect.isroutine(value):
                 continue
-            rows.append({"name": name, "type": type(value).__name__, "size": _size(value),
-                         "value": "hidden" if self._hidden(name, value) else _preview(value)})
+            rows.append(self._describe(name, value))
         return sorted(rows, key=lambda r: r["name"].lower())
+
+    def _describe(self, name: str, value: Any) -> dict[str, Any]:
+        """A Variables pane row: name, type, size, a short preview ("hidden" for a secret), the
+        memory it holds and whether variable_detail can open it."""
+        hidden = self._hidden(name, value)
+        return {"name": name, "type": type(value).__name__, "size": _size(value),
+                "value": "hidden" if hidden else _preview(value), "memory": _memory(value),
+                "expandable": not hidden and _expandable(value)}
+
+    def _frame_row(self, name: str, value: Any) -> dict[str, Any]:
+        """A paused frame's local: never expandable, since variable_detail reads the namespace,
+        where the same name may be another value."""
+        return {**self._describe(name, value), "expandable": False}
+
+    def variable_detail(self, name: str) -> dict[str, Any]:
+        """One variable opened up, read without running code: a data frame's columns and their
+        types, or the first VAR_ITEMS items of a list, tuple, set or dict. Secrets stay hidden."""
+        value = self.namespace.get(name, _MISSING)
+        if value is _MISSING or (name.startswith("_") and name != "_sqldf"):
+            return {"name": name, "missing": True}
+        out: dict[str, Any] = {"name": name, "type": type(value).__name__}
+        if self._hidden(name, value):
+            return {**out, "hidden": True}
+        columns = _columns(value)
+        if columns is not None:
+            return {**out, "columns": columns}
+        kind = type(value)
+        if kind is dict:
+            entries = [(repr(k), str(k), v) for k, v in itertools.islice(value.items(), VAR_ITEMS)]
+        elif kind in (list, tuple):
+            entries = [(str(i), "", v) for i, v in enumerate(value[:VAR_ITEMS])]
+        elif kind in (set, frozenset):  # sorted for a stable view of the items read, not the whole set
+            entries = [(str(i), "", v) for i, v in enumerate(sorted(itertools.islice(value, VAR_ITEMS), key=repr))]
+        else:
+            return out
+        out["items"] = [{"key": key, "type": type(v).__name__, "size": _size(v),
+                         "value": "hidden" if self._hidden(label, v) else _preview(v)} for key, label, v in entries]
+        out["total"] = len(value)
+        return out
 
     @staticmethod
     def _base_namespace_keys() -> tuple[str, ...]:
@@ -1112,6 +1194,72 @@ def _size(value: Any) -> str:
     if isinstance(value, (str, bytes, list, tuple, dict, set)):
         return str(len(value))
     return ""
+
+
+VAR_ITEMS = 100  # items shown when a variable is opened in the Variables pane
+
+
+# Only the built-in containers are opened or measured item by item: a subclass's own __iter__ or
+# __len__ is the user's code.
+_CONTAINERS = (dict, list, tuple, set, frozenset)
+_SCALARS = (str, bytes, bytearray, int, float, bool, complex, type(None))
+
+
+def _expandable(value: Any) -> bool:
+    if type(value) in _CONTAINERS:
+        return len(value) > 0
+    return _columns(value) is not None
+
+
+def _columns(value: Any) -> list[dict[str, str]] | None:
+    """A data frame's columns and types, from its schema; None for anything else. Nothing is
+    computed: Spark (DuckDB) frames give their types without running the query."""
+    module = type(value).__module__
+    if type(value).__name__ == "LazyFrame":  # its schema would be resolved from the query plan
+        return None
+    try:
+        if module.startswith("polars") and hasattr(value, "schema"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.schema.items()]
+        if isinstance(value, (pa.Table, pa.RecordBatch)):
+            return [{"name": f.name, "type": str(f.type)} for f in value.schema]
+        if module.startswith("duckdb.experimental.spark") and hasattr(value, "dtypes"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.dtypes]
+        if module.startswith("pandas") and hasattr(value, "dtypes") and hasattr(value, "columns"):
+            return [{"name": str(k), "type": str(t)} for k, t in value.dtypes.items()]
+    except Exception:  # noqa: BLE001  # silent-ok: a frame whose schema can't be read just isn't expandable
+        return None
+    return None
+
+
+def _memory(value: Any) -> int | None:
+    """Bytes a variable holds, estimated: a frame's or array's buffers, or a container and its
+    first 10,000 items scaled up. None when it can't be told cheaply (a Spark frame, an object)."""
+    module = type(value).__module__
+    try:
+        if module.startswith("polars") and hasattr(value, "estimated_size"):
+            return int(value.estimated_size())
+        if isinstance(value, (pa.Table, pa.RecordBatch, pa.Array, pa.ChunkedArray)):
+            return int(value.nbytes)
+        if module.startswith("numpy") and hasattr(value, "nbytes"):
+            return int(value.nbytes)
+        if module.startswith("pandas") and hasattr(value, "memory_usage"):
+            usage = value.memory_usage(deep=False)
+            return int(usage.sum() if hasattr(usage, "sum") else usage)
+        if type(value) in _SCALARS:
+            return sys.getsizeof(value)
+        if type(value) in _CONTAINERS:
+            items = value.items() if type(value) is dict else value
+            sample = 0
+            n = 0
+            for item in itertools.islice(items, 10_000):
+                parts = item if type(value) is dict else (item,)
+                # A user object's own __sizeof__ isn't called: its base size counts instead.
+                sample += sum(sys.getsizeof(p) if type(p) in _SCALARS else type(p).__basicsize__ for p in parts)
+                n += 1
+            return sys.getsizeof(value) + (sample * len(value) // n if n else 0)
+    except Exception:  # noqa: BLE001  # silent-ok: an estimate that fails is shown as unknown
+        return None
+    return None
 
 
 def _count(n: Any) -> str:

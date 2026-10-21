@@ -107,6 +107,15 @@ The column types come from the project, so the integer rules hold for its tables
 
 **Differences that stay.** Dividing by zero gives `NULL` here and an error in T-SQL. Strings compare by code point, as with a warehouse's default `Latin1_General_100_BIN2_UTF8` collation, not case-insensitively as in a Fabric SQL database. `CREATE TABLE` and `SELECT ... INTO` make a database table, not a Delta table; write a Delta table with `CREATE TABLE ... USING DELTA AS` in DuckDB or Spark SQL, or add rows to one with `INSERT INTO` in T-SQL.
 
+## Why is a query slow
+
+`local_explain` shows how DuckDB runs one query that reads, in any of the project's dialects, as a tree of operators (`plan`) and as indented text (`text`).
+
+- Without `analyze`, it gives the plan with DuckDB's row estimates and runs nothing.
+- With `analyze = true`, it runs the query and reports each operator's rows, rows scanned and time, the three slowest operators with their share of the time, and the query's totals: seconds, CPU seconds, rows, rows scanned, peak memory, bytes spilled to the project's `tmp` folder and bytes read. A query that spilled says so, with what to change.
+
+Only a single `SELECT`, `WITH ... SELECT`, `FROM` or `VALUES` query is explained, because `analyze` runs it: statements that change data, and scripts of several statements, are refused before anything runs. Profiling is switched off again afterwards, so later queries aren't slowed by it.
+
 ## Where it is kept
 
 Each project is a folder under `%LOCALAPPDATA%\FabricDesktop\local-data\` (or one you choose, for example inside a Git repository):
@@ -132,6 +141,7 @@ Only one program can write to a project's database at a time. If another KratosF
 | `list_local_tables(project)` | Schemas, tables, views, temporary tables and columns, with each file's format, size and status |
 | `local_set_types(project, table, columns)` | Read a discovered table's columns as these types |
 | `local_query(project, query, dialect, limit, timeout)` | Run SQL (`dialect`: `duckdb`, `spark` or `tsql`) and return columns, up to `limit` rows, the row count, whether rows were left out, and timings per statement |
+| `local_explain(project, query, dialect, analyze, timeout)` | How the engine runs one query that reads: its plan, or with `analyze` the plan as it ran (see [Why is a query slow](#why-is-a-query-slow)) |
 | `sql_start(query, target="local", project, dialect, confirm, dry_run)` | The same, in the background, as a [managed SQL run](sql-execution.md#queries-in-a-local-data-project): `sql_status`, `sql_page`, `sql_cancel` and `sql_export` follow it. `DROP`, `TRUNCATE`, `CREATE OR REPLACE`, `INSERT OVERWRITE`, and `DELETE` or `UPDATE` without `WHERE` run only with `confirm`; file reads and `SET`/`PRAGMA` are refused; `dry_run` says what would run and runs nothing |
 | `local_query_start(project, query, dialect, limit, timeout, confirm)` / `local_query_status` / `local_query_cancel` | Deprecated: forward to `sql_start` and answer as before (`state` running, done, cancelled or error, and the first `limit` rows) |
 | `local_write_delta(project, table, query, mode, partition_by, schema_mode, dry_run)` | Write a query's rows to a Delta table in the project (`mode`: `create`, `append` or `overwrite`) |

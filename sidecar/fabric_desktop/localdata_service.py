@@ -10,7 +10,7 @@ from .localdata import LocalData
 METHODS = {"list_local_projects", "local_create_project", "local_forget_project", "local_close_project",
            "local_project_settings", "local_add_source", "local_remove_source", "local_refresh",
            "list_local_tables", "local_set_types", "local_query", "local_query_start", "local_query_status",
-           "local_query_cancel", "local_write_delta", "local_delta_history", "local_drop_delta"}
+           "local_query_cancel", "local_explain", "local_write_delta", "local_delta_history", "local_drop_delta"}
 
 
 # A managed run's state, as local_query_status named it before KF-DE-027.
@@ -81,6 +81,11 @@ class LocalDataMixin:
     def local_query(self, project: str, query: str, dialect: str = "duckdb", limit: int = 1000,
                     timeout: float | None = None) -> dict[str, Any]:
         return self.local_data.engine(project).execute(query, dialect=dialect, limit=limit, timeout=timeout)
+
+    def local_explain(self, project: str, query: str, dialect: str = "duckdb", analyze: bool = False,
+                      timeout: float | None = None) -> dict[str, Any]:
+        """How the local engine runs one query; ``analyze`` runs it and reports each operator's rows and time."""
+        return self.local_data.engine(project).explain(query, dialect=dialect, analyze=analyze, timeout=timeout)
 
     # Deprecated (KF-DE-027): background queries run as managed SQL runs now, sql_start with
     # target="local" (sql_exec.py): one lifecycle, with paging and export. These three forward to it

@@ -8,9 +8,10 @@ let app;
 const skip = !playwright && "Playwright is not installed";
 const page = () => app.page;
 const long = "chris.wagner@expertpcpros.onmicrosoft.com";
+let source = "settings";
 const overview = (p) => ({ env: p.env, counts: { domains: 9, subdomains: 1, projects: 0, teams: 0, key_tables: 0, keys: 0, products: 0, published: 0, requests: 0 },
   landing: { sources: [] }, problems: [], me: { admin: true }, needs_you: [], mine: [],
-  status: { default_names: { dev: "Platform - Dev", test: "Platform - Test", prod: "Platform - Prod" }, environments: { dev: { kind: "pc" }, test: { kind: "pc" }, prod: { kind: "fabric", workspace_name: "Platform - Prod" } } },
+  status: { source, default_names: { dev: "Platform - Dev", test: "Platform - Test", prod: "Platform - Prod" }, environments: { dev: { kind: "pc" }, test: { kind: "pc" }, prod: { kind: "fabric", workspace_name: "Platform - Prod" } } },
   recent: [{ at: "2026-10-18T10:00:00Z", by_user: long, action: "import domains from Fabric", target: long }] });
 
 before(async () => {
@@ -53,6 +54,18 @@ test("Set up in Fabric opens the setup itself, and Projects says it counts joine
   await page().waitForSelector('[role=dialog] >> text="Create the Dev platform"');
   assert.strictEqual(await page().inputValue("[role=dialog] input"), "Platform - Dev");
   await page().evaluate(() => closeDialog());
+});
+
+test("a platform set by policy offers no setup on Overview, as on Settings", { skip }, async () => {
+  source = "policy";
+  try {
+    await open("domains");
+    await open("overview");
+    await page().waitForSelector("text=Set by your organization's policy");
+    assert.strictEqual((await page().$$('text="Set up in Fabric"')).length, 0);
+  } finally {
+    source = "settings";
+  }
 });
 
 test("Domains: subdomains are indented without a tree glyph, and Fabric domains edit owners only", { skip }, async () => {

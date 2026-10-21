@@ -87,8 +87,10 @@ async function platformOverviewTab(body) {
     const e = o.status.environments[env];
     return h("tr", {}, h("td", {}, h("b", {}, ENV_LABEL[env])),
       h("td", { class: "grow" }, e.kind === "fabric" ? h("span", { class: "pill-s pass" }, e.workspace_name || "In Fabric") : h("span", { class: "pill-s neu" }, "On this PC")),
-      h("td", {}, e.kind === "fabric" ? null : (adminOnly(btn("Set up in Fabric", null, () => platformSetupDialog(env, o.status), "tool link small"))
-        || h("span", { class: "muted-text small" }, "A platform admin sets it up"))));
+      h("td", {}, e.kind === "fabric" ? null : o.status.source === "policy"
+        ? h("span", { class: "muted-text small" }, "Set by your organization's policy")
+        : (adminOnly(btn("Set up in Fabric", null, () => platformSetupDialog(env, o.status), "tool link small"))
+          || h("span", { class: "muted-text small" }, "A platform admin sets it up"))));
   })));
   body.replaceChildren(withHowItWorks([
     o.problems.length || o.landing.problem ? h("div", { class: "problems" }, h("b", {}, "Couldn't read everything"), gateList([...o.problems, o.landing.problem].filter(Boolean))) : null,

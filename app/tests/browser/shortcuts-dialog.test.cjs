@@ -74,6 +74,9 @@ test("a notebook lists its cell, several-cell and find keys, with Ctrl+S in the 
   const text = await dialog().textContent();
   assert.match(text, /Save the notebook/);
   assert.match(text, /Run the cell and select the next one/);
+  const notebookRows = await dialog().locator("h3", { hasText: /^Notebook$/ }).locator("xpath=following-sibling::*[1]").textContent();
+  assert.match(notebookRows, /run only the selected text/);
+  assert.doesNotMatch(notebookRows, /Merge the selected cells/);
   assert.match(text, /merge/i);
   await page().keyboard.press("Escape");
   await page().evaluate(() => { state.view = "home"; });

@@ -47,6 +47,13 @@ def test_lakehouse_reads_a_version_or_a_time(lake):
         lakehouse.read_table("dbo.sales", version=1, timestamp=when)
 
 
+def test_a_replay_records_the_version_a_time_travel_read_used(lake):
+    lakehouse.reads_reset()
+    assert run("from fabric_desktop import lakehouse\nlakehouse.read_table('dbo.sales', version=1)")[0] == "ok"
+    assert [r["version"] for r in lakehouse.reads["tables"].values()] == [1]
+    lakehouse.reads_reset()
+
+
 def test_history_lists_versions_newest_first(lake):
     h = lakehouse.table_history("dbo.sales")
     assert h["version"].to_list() == [2, 1, 0]

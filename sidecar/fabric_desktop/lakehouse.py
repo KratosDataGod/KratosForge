@@ -241,8 +241,8 @@ def as_of(version: Any = None, timestamp: Any = None) -> int | datetime | None:
 def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaTable:
     """The table's Delta log, at its latest version or, with ``version`` or ``timestamp``, as it
     was then (Delta time travel; only reads)."""
-    opened = _open_table(table)
     point = as_of(version, timestamp)
+    opened = _open_table(table, record=point is None)
     if point is not None:
         try:
             opened.load_as_version(point)
@@ -250,6 +250,7 @@ def open_table(table: str, version: Any = None, timestamp: Any = None) -> DeltaT
             what = f"version {point}" if isinstance(point, int) else f"{point.isoformat()}"
             raise ValueError(f"{table} has no {what} to read: {exc}. DESCRIBE HISTORY {table} lists its versions; "
                              "versions removed by VACUUM can't be read.") from None
+        _record_table(table_ref(table), opened.version(), "read")  # the version it read, for a replay
     return opened
 
 
@@ -269,7 +270,7 @@ def table_history(table: str, limit: int | None = None) -> pl.DataFrame:
                                      "engineInfo": pl.Utf8, "isBlindAppend": pl.Boolean, "readVersion": pl.Int64})
 
 
-def _open_table(table: str) -> DeltaTable:
+def _open_table(table: str, record: bool = True) -> DeltaTable:
     ref = table_ref(table)
     if (p := _proof()) is not None:
         from .proof_runtime import ProofTableMissing
@@ -281,7 +282,8 @@ def _open_table(table: str) -> DeltaTable:
     opts = storage_options(_current().storage_token())
     try:
         opened = DeltaTable(ref.uri, storage_options=opts)
-        _record_table(ref, opened.version(), "read")
+        if record:
+            _record_table(ref, opened.version(), "read")
         return opened
     except TableNotFoundError as e:
         folder = ref.uri.split("/Tables/", 1)[1]

@@ -28,11 +28,15 @@ Notebooks in KratosForge look and work like Fabric's, but every cell runs in a P
 | Load data | Load a file into a table | Reads one CSV, Parquet or JSON file under Files/, checks its keys and writes a table |
 | Load data | Load a folder of files | Reads every file of one type directly in a folder, adds `source_file` and `loaded_at` to each row and writes one table. A proof ignores `loaded_at` |
 | Load data | Incremental load with a watermark | Appends only the rows whose watermark column (a date, time or ID that only grows) is higher than the highest already in the target, reading only that column of the target. A row that arrives late with a lower value isn't picked up |
+| Load data | Flatten a nested JSON file | Reads a JSON file under Files/ and turns each nested object into columns named after its path (`customer.name` becomes `customer_name`); a name that would clash, even only by case, stops the run. Lists stay as list columns |
 | Clean and check | Clean a table | Keeps columns, drops rows with no key and duplicate keys |
+| Clean and check | Keep the latest row per key | Keeps each key's row with the highest value in a column you name (an empty value counts as oldest). Two newest rows with the same value, or a key whose rows all have no value, stop the run, because either could be kept |
+| Clean and check | Profile a table | One row per column: type, rows, empty values and their share, distinct values, and the lowest and highest value as text. Replaces the last profile, and can't write to the table it profiles |
 | Clean and check | Standardize names and types | Renames columns to snake_case, trims text, and turns the columns you name into dates or numbers. A value that can't be read stops the run, so nothing is quietly lost |
 | Clean and check | Data quality checks | Checks required columns, unique keys, allowed values (`status: open\|closed`) and ranges (`amount: 0..1000000`). Rows that pass go to one table; rows that fail go to a rejects table with a `reason` |
 | Model | Join and aggregate | Joins two tables on a column and groups by columns |
 | Model | Date dimension | One row per day between two dates, with year, quarter, month, ISO week, weekday, weekend, and a fiscal year named by the calendar year it ends in |
+| Model | Daily snapshot | Appends today's rows of a table to a history table with a `snapshot_date` (UTC). A second run on the same day writes nothing, so a retry can't double a day. It can't write to the table it reads |
 | Compare | Reconcile two tables | Compares row counts, keys on one side only and column totals; the run fails when they differ, so a schedule stops. Writes nothing |
 | Orchestrate | Run notebooks in order | Runs other notebooks one after another with `notebookutils.notebook.runMultiple`, each only after the one before succeeds, with retries. Writes nothing itself |
 

@@ -30,6 +30,8 @@ cd app\src-tauri
 cargo run
 ```
 
+`FABRIC_DESKTOP_PYTHON` must be the full path to `python.exe`. A debug build (`cargo run`) without it falls back to `python` on `PATH`; a release build (`cargo build --release`, `cargo tauri build` or CI) never does, and refuses a bare name such as `python`, so set the full path to test one with your own Python. The browser tests read `FABRIC_DESKTOP_PYTHON` themselves to start the sidecar and don't go through the shell.
+
 The UI is plain HTML and JavaScript in `app/ui/` with no build step; reload the window to see a change. How the pieces fit is in [docs/architecture.md](docs/architecture.md).
 
 ## Rules for changes

@@ -101,10 +101,12 @@ def alive(pid):
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    if not Path("/proc").is_dir():
+        return True  # macOS: the signal is all there is to go on
     try:
         return "\tZ" not in Path(f"/proc/{pid}/status").read_text()
-    except OSError:
-        return True
+    except (FileNotFoundError, ProcessLookupError):
+        return False  # a zombie reaped between the signal and the read: it ended
 
 
 def test_stop_ends_the_processes_a_cell_started_too(kernel):

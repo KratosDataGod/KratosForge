@@ -1,5 +1,5 @@
 {
-  "_about": "Shared cases for redaction in the engine (sidecar/fabric_desktop/redact.py) and the UI (redactReport in app/ui/settings.js). level is secrets or support.",
+  "_about": "Shared cases for redaction in the engine (sidecar/fabric_desktop/redact.py) and the UI (redactReport in app/ui/settings.js). level is secrets or support. An \"in\" given as a list is joined first, so a token-shaped test value never sits in the repository whole (GitHub push protection blocks it).",
   "cases": [
     {"level": "secrets", "in": "GET failed: Authorization: Bearer abc.DEF-123_xyz/+=", "out": "GET failed: Authorization: Bearer [removed]"},
     {"level": "secrets", "in": "token eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl end", "out": "token [removed] end"},
@@ -26,6 +26,7 @@
     {"level": "secrets", "in": "token ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA rejected", "out": "token [removed] rejected"},
     {"level": "secrets", "in": "client secret abc8Q~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx expired", "out": "client secret [removed] expired"},
     {"level": "secrets", "in": "key AKIAABCDEFGHIJKLMNOP and xoxb-1234567890-abcdef", "out": "key [removed] and [removed]"},
+    {"level": "secrets", "in": ["Databricks said 401 for dapi", "0123456789abcdef0123456789abcdef-2 today"], "out": "Databricks said 401 for [removed] today"},
     {"level": "secrets", "in": "see https://dev.azure.com/contoso and ann@contoso.com", "out": "see https://dev.azure.com/contoso and ann@contoso.com"}
   ]
 }

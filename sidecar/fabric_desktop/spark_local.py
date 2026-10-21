@@ -28,6 +28,7 @@ from duckdb.experimental.spark.sql.session import SparkSession
 from . import lakehouse, sql as _sql
 
 _UNSUPPORTED_SQL = re.compile(r"^\s*(MERGE\s+INTO|UPDATE|DELETE\s+FROM)\b", re.I)
+_RESTORE = re.compile(r"^\s*RESTORE\s+(TABLE\s+)?", re.I)
 
 
 def _arrow(df: DataFrame) -> pa.Table:
@@ -287,8 +288,16 @@ class LakehouseReader:
             raise NotImplementedError(f"read.schema() can't be applied to {what} on this PC. Leave it out and cast "
                                       "the columns after reading.")
 
+    def _as_of(self) -> dict[str, Any]:
+        """versionAsOf / timestampAsOf: Delta time travel, which only reads."""
+        point = {"version": self._options.get("versionasof"), "timestamp": self._options.get("timestampasof")}
+        return {k: v for k, v in point.items() if v is not None}
+
     def table(self, name: str) -> DataFrame:
         self._no_schema("a table")
+        if self._as_of():
+            data = lakehouse.open_table(name, **self._as_of()).to_pyarrow_dataset()
+            return self._session._from_arrow_dataset(data)
         return self._session.table(name)
 
     def _local(self, path: str) -> str:
@@ -301,9 +310,13 @@ class LakehouseReader:
         if fmt == "delta":
             self._no_schema("a Delta table")
             if rel and rel.startswith("Tables/"):
-                return self._session.table(".".join(p for p in rel.split("/")[1:] if p))
+                return self.table(".".join(p for p in rel.split("/")[1:] if p))
             from deltalake import DeltaTable
-            return self._session._from_arrow_dataset(DeltaTable(path).to_pyarrow_dataset())
+            opened = DeltaTable(path)
+            point = lakehouse.as_of(**self._as_of())
+            if point is not None:
+                opened.load_as_version(point)
+            return self._session._from_arrow_dataset(opened.to_pyarrow_dataset())
         if fmt == "csv":
             return self.csv(path)
         if fmt == "json":
@@ -381,6 +394,9 @@ class LocalSparkSession(SparkSession):
     def sql(self, sqlQuery: str, **kwargs: Any) -> DataFrame:  # noqa: N803
         if kwargs:
             sqlQuery = sqlQuery.format(**kwargs)
+        if _RESTORE.match(sqlQuery):
+            raise ValueError("RESTORE rewrites a table to an older version, which runs in Fabric. On this PC, read the "
+                             "older version (SELECT * FROM t VERSION AS OF n) and overwrite the table with it if you mean to.")
         if _UNSUPPORTED_SQL.match(sqlQuery):
             raise ValueError("MERGE, UPDATE and DELETE change tables in place, which runs in Fabric. "
                              "On this PC, read with spark.sql and write with df.write.saveAsTable.")
@@ -392,6 +408,7 @@ class LocalSparkSession(SparkSession):
 
     def _statement(self, statement: Any) -> DataFrame | None:
         from sqlglot import exp
+        statement = _sql.history_query(statement, self.conn, self._bound())  # DESCRIBE HISTORY t
         # CREATE TABLE ... AS SELECT and INSERT INTO ... SELECT write a lakehouse table.
         if isinstance(statement, (exp.Create, exp.Insert)) and isinstance(statement.expression, (exp.Query, exp.Select)):
             target = statement.this
@@ -452,6 +469,83 @@ class LocalSparkSession(SparkSession):
 _dataframe.DataFrame.write = property(lambda self: LakehouseWriter(self))  # type: ignore[assignment]
 
 
+class LocalDeltaTable:
+    """``from delta.tables import DeltaTable`` on this PC: reading a table's history and details.
+    Changes made through it (merge, update, delete, restore, vacuum, optimize) run in Fabric."""
+
+    def __init__(self, name: str):
+        self._name = name
+
+    @classmethod
+    def forName(cls, sparkSession: Any, tableOrViewName: str) -> LocalDeltaTable:  # noqa: N802, N803, ARG003
+        lakehouse.open_table(tableOrViewName)  # a missing table fails here, as in Spark
+        return cls(tableOrViewName)
+
+    @classmethod
+    def forPath(cls, sparkSession: Any, path: str) -> LocalDeltaTable:  # noqa: N802, N803, ARG003
+        rel = lakehouse.relative_path(path) or ""
+        if not rel.startswith("Tables/"):
+            raise NotImplementedError("On this PC, DeltaTable.forPath reads tables of the attached lakehouse "
+                                      "(Tables/...). Use DeltaTable.forName for other tables.")
+        return cls.forName(sparkSession, ".".join(p for p in rel.split("/")[1:] if p))
+
+    @staticmethod
+    def isDeltaTable(sparkSession: Any, identifier: str) -> bool:  # noqa: N802, ARG004
+        rel = lakehouse.relative_path(identifier) or identifier
+        name = ".".join(p for p in rel.split("/")[1:] if p) if rel.startswith("Tables/") else rel
+        return lakehouse.table_exists(name)
+
+    def toDF(self) -> DataFrame:  # noqa: N802
+        return session().table(self._name)
+
+    def history(self, limit: int | None = None) -> DataFrame:
+        return session()._from_arrow_dataset(lakehouse.table_history(self._name, limit).to_arrow())
+
+    def detail(self) -> DataFrame:
+        t = lakehouse.open_table(self._name)
+        meta = t.metadata()
+        row = {"format": ["delta"], "name": [self._name], "location": [t.table_uri], "version": [t.version()],
+               "numFiles": [len(t.file_uris())], "partitionColumns": [list(meta.partition_columns)],
+               "createdAt": [meta.created_time], "properties": [str(meta.configuration)]}
+        return session()._from_arrow_dataset(pa.table(row))
+
+    def _in_fabric(self, what: str) -> Any:
+        raise NotImplementedError(f"DeltaTable.{what} changes the table, which runs in Fabric. On this PC, read "
+                                  "with spark.read and write with df.write.saveAsTable.")
+
+    def restoreToVersion(self, version: int) -> Any:  # noqa: N802, ARG002
+        return self._in_fabric("restoreToVersion")
+
+    def restoreToTimestamp(self, timestamp: str) -> Any:  # noqa: N802, ARG002
+        return self._in_fabric("restoreToTimestamp")
+
+    def merge(self, *_a: Any, **_kw: Any) -> Any:
+        return self._in_fabric("merge")
+
+    def update(self, *_a: Any, **_kw: Any) -> Any:
+        return self._in_fabric("update")
+
+    def delete(self, *_a: Any, **_kw: Any) -> Any:
+        return self._in_fabric("delete")
+
+    def vacuum(self, *_a: Any, **_kw: Any) -> Any:
+        return self._in_fabric("vacuum")
+
+    def optimize(self, *_a: Any, **_kw: Any) -> Any:
+        return self._in_fabric("optimize")
+
+
+def _alias_delta() -> None:
+    """``from delta.tables import DeltaTable`` resolves to LocalDeltaTable when delta-spark isn't installed."""
+    if "delta" in sys.modules or importlib.util.find_spec("delta") is not None:
+        return
+    import types
+    delta, tables = types.ModuleType("delta"), types.ModuleType("delta.tables")
+    tables.DeltaTable = LocalDeltaTable  # type: ignore[attr-defined]
+    delta.tables = tables  # type: ignore[attr-defined]
+    sys.modules.update({"delta": delta, "delta.tables": tables})
+
+
 def _alias_pyspark() -> None:
     """``import pyspark...`` resolves to DuckDB's API when real PySpark isn't installed."""
     if "pyspark" in sys.modules or importlib.util.find_spec("pyspark") is not None:
@@ -503,6 +597,7 @@ def reset() -> None:
 
 def install(namespace: dict[str, Any]) -> None:
     _alias_pyspark()
+    _alias_delta()
     namespace["spark"] = session()
 
 

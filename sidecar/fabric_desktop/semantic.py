@@ -33,6 +33,13 @@ def tmdl_type(delta_type: str) -> str | None:
     return _TYPES.get(t)
 
 
+def left_out(t: "ModelTable") -> list[dict[str, str]]:
+    """The table's columns the model leaves out because Direct Lake can't read their type (arrays,
+    maps, structs, anything not in ``_TYPES``), so the person can be told instead of finding out later."""
+    return [{"table": t.name, "column": col, "type": delta_type} for col, delta_type in t.columns
+            if tmdl_type(delta_type) is None]
+
+
 def quote(name: str) -> str:
     return name if _PLAIN.match(name) else "'" + name.replace("'", "''") + "'"
 
@@ -117,7 +124,7 @@ def _table_tmdl(t: ModelTable, expression: str) -> str:
     for col, delta_type in t.columns:
         dtype = tmdl_type(delta_type)
         if dtype is None:
-            continue  # e.g. arrays and structs, which Direct Lake can't read
+            continue  # arrays, maps and structs, which Direct Lake can't read; reported by left_out
         lines.append(f"\tcolumn {quote(col)}")
         lines.append(f"\t\tdataType: {dtype}")
         if _hidden(t, col):

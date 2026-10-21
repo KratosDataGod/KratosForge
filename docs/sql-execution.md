@@ -52,7 +52,7 @@ The storage token for the lakehouse is handed to the query's process only when i
 
 ## Limits
 
-Set them in **Settings › SQL queries**. Your IT team can set any of them in the policy file (see [Azure setup](azure-setup.md#4-push-settings-to-everyone)); a value they set shows as *Set by your organization*.
+Set them in **Settings › Advanced › SQL queries**. Your IT team can set any of them in the policy file (see [Azure setup](azure-setup.md#4-push-settings-to-everyone)); a value they set shows as *Set by your organization's policy* and can't be edited.
 
 | Setting | Key | Default | Range |
 | --- | --- | --- | --- |

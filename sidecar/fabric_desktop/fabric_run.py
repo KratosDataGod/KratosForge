@@ -33,6 +33,7 @@ _SHIM = '''# Fabric Desktop setup: lets `from fabric_desktop import lakehouse` r
 import os as _os, sys as _sys, types as _types
 import polars as _pl
 from deltalake import DeltaTable as _DeltaTable, write_deltalake as _write_deltalake
+from deltalake.exceptions import TableNotFoundError as _TableNotFoundError
 import notebookutils as _nbu
 
 def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None, mount="/lakehouse/default"):
@@ -87,6 +88,16 @@ def _fabric_desktop_module(workspace_id, lakehouse_id, name, schemas, root=None,
                                                                                          storage_options=opts()))
         return _DeltaTable(uri(table), storage_options=opts())
     lh.open_table = open_table
+
+    def table_exists(table):
+        # Only "not found" means no (a proof's ProofTableMissing is a LookupError): any other
+        # failure is raised, so it can't turn into an overwrite. As on the PC.
+        try:
+            lh.open_table(table)
+        except (_TableNotFoundError, LookupError):
+            return False
+        return True
+    lh.table_exists = table_exists
     lh.read_table = lambda table: _pl.from_arrow(lh.open_table(table).to_pyarrow_table())
     lh.files = lambda directory="Files": sorted(f"{directory.rstrip('/')}/{n}" for n in _os.listdir(f"{mount}/{directory}"))
 

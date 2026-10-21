@@ -11,8 +11,8 @@ from .localdata.transform import Transforms
 METHODS = {"list_local_projects", "local_create_project", "local_forget_project", "local_close_project",
            "local_project_settings", "local_add_source", "local_remove_source", "local_refresh",
            "list_local_tables", "local_set_types", "local_query", "local_query_start", "local_query_status",
-           "local_query_cancel", "local_explain", "local_write_delta", "local_delta_history", "local_drop_delta",
-           "local_transform_plan", "local_transform_run", "local_transform_runs"}
+           "local_query_cancel", "local_explain", "local_write_delta", "local_change_delta", "local_delta_history",
+           "local_drop_delta", "local_transform_plan", "local_transform_run", "local_transform_runs"}
 
 
 # A managed run's state, as local_query_status named it before KF-DE-027.
@@ -144,6 +144,14 @@ class LocalDataMixin:
         return self.local_data.engine(project).write_delta(table, query, mode=mode, dialect=dialect,
                                                            partition_by=partition_by, schema_mode=schema_mode,
                                                            dry_run=dry_run, timeout=timeout)
+
+    def local_change_delta(self, project: str, query: str, dialect: str = "duckdb", dry_run: bool = False,
+                           confirm: bool = False, timeout: float | None = None) -> dict[str, Any]:
+        """Run one MERGE INTO, UPDATE or DELETE on a Delta table in the project, in one commit.
+        ``dry_run`` says how many rows would change, changing nothing; an UPDATE or DELETE without
+        WHERE needs ``confirm``."""
+        return self.local_data.engine(project).change_delta(query, dialect=dialect, dry_run=dry_run,
+                                                            confirm=confirm, timeout=timeout)
 
     def local_transform_plan(self, project: str) -> dict[str, Any]:
         """The project's SQL steps (transforms/<schema>/<name>.sql) in the order a run takes them."""

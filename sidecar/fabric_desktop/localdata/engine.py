@@ -17,7 +17,9 @@ mapping) is listed but not made into a view.
 
 The project's own Delta tables (delta.py) are folders under ``<project>/Tables/<schema>/<table>``,
 each a view in the same way. SQL that creates or adds to one is run here, between the other
-statements: DuckDB runs the query, and delta-rs writes its Arrow stream in one commit.
+statements: DuckDB runs the query, and delta-rs writes its Arrow stream in one commit. MERGE INTO,
+UPDATE and DELETE on one are run by delta-rs too (delta_dml.py), with DuckDB finding a MERGE's
+source rows.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ from typing import Any
 import duckdb
 import pyarrow as pa
 
-from .. import delta_profile
+from .. import delta_dml, delta_profile
 from . import delta, tsql
 from .discovery import Found, Source, discover
 from .projects import Project, ProjectStore
@@ -487,8 +489,8 @@ class LocalEngine:
 
     @contextmanager
     def _query(self, sql: str, dialect: str, timeout: float | None, query_id: str | None,
-               write: "delta.Write | None" = None, dry_run: bool = False,
-               params: dict[str, Any] | None = None, explain: str | None = None):
+               write: "delta.Write | None" = None, dry_run: bool = False, change: bool = False,
+               confirm: bool = False, params: dict[str, Any] | None = None, explain: str | None = None):
         if dialect not in DIALECTS:
             raise ValueError(f"dialect must be one of {DIALECTS}, got {dialect!r}")
         if not (sql or "").strip():
@@ -520,6 +522,9 @@ class LocalEngine:
                 statements = self._statements(con, sql, dialect, run)
                 if write is not None:
                     statements = [self._as_write(statements, write, sql)]
+                if change and (len(statements) != 1 or statements[0]["change"] is None):
+                    raise ValueError("Give one MERGE INTO, UPDATE or DELETE on one of the project's Delta tables, "
+                                     "with no other statements.")
                 if explain is not None:
                     _one_read(con, statements)
                 result = None
@@ -540,6 +545,15 @@ class LocalEngine:
                             'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS mode, ?::BIGINT AS version, '
                             '?::BIGINT AS rows_written',
                             [summary["table"], summary["mode"], summary["version"], summary["rows"]])
+                    elif step["change"] is not None:
+                        summary = self._change(con, step["change"], state, query_id, dry_run=dry_run,
+                                               confirm=confirm)
+                        run["change"] = summary
+                        result = con.execute(
+                            'SELECT ?::VARCHAR AS "table", ?::VARCHAR AS operation, ?::BIGINT AS version, '
+                            '?::BIGINT AS rows_inserted, ?::BIGINT AS rows_updated, ?::BIGINT AS rows_deleted',
+                            [summary["table"], summary["operation"], summary["version"], summary["rows_inserted"],
+                             summary["rows_updated"], summary["rows_deleted"]])
                     elif explain == "analyze":
                         result = _analyze(con, step["sql"])
                     elif explain == "plan":
@@ -581,13 +595,18 @@ class LocalEngine:
             for tree in trees:
                 found = delta.rewrite_tree(tree, n)
                 n += len(found)
+                change = self._own_change(delta_dml.parse_tree(tree))
+                if change is not None:
+                    steps.append({"sql": "", "write": None, "change": change, "as_of": found,
+                                  "kind": f"{change.kind} delta"})
+                    continue
                 write = delta.parse_tree(tree, self._is_own)
                 text = "" if write else tree.sql(dialect="duckdb")
                 if write is None and not text.strip():
                     continue
                 if write is None:
                     self._refuse_drop(text)
-                steps.append({"sql": text, "write": write, "as_of": found,
+                steps.append({"sql": text, "write": write, "change": None, "as_of": found,
                               "kind": "write delta" if write else _kind(text)})
             return steps
         if dialect == "tsql":
@@ -601,13 +620,21 @@ class LocalEngine:
             # DuckDB can't parse CREATE TABLE ... USING DELTA: split the script without it, and let it
             # report anything else that's wrong.
             texts = _split_script(sql)
-            if not any(delta.parse(t, self._is_own) for t in texts):
+            if not any(delta.parse(t, self._is_own) or delta_dml.looks_like(t) for t in texts):
                 raise ValueError(_short(exc)) from None
         return self._duckdb_steps(con, texts, n)
 
     def _duckdb_steps(self, con: duckdb.DuckDBPyConnection, texts: list[str], n: int) -> list[dict[str, Any]]:
         steps: list[dict[str, Any]] = []
         for text in texts:
+            if delta_dml.looks_like(text):
+                rewritten, found = delta.rewrite_as_of(text, n)
+                change = self._own_change(delta_dml.parse(rewritten, "duckdb"))
+                if change is not None:
+                    n += len(found)
+                    steps.append({"sql": "", "write": None, "change": change, "as_of": found,
+                                  "kind": f"{change.kind} delta"})
+                    continue
             write = delta.parse(text, self._is_own)
             if write is None and len(texts) > 1:
                 try:
@@ -620,9 +647,23 @@ class LocalEngine:
                 self._refuse_drop(text)
                 text, found = delta.rewrite_as_of(text, n)
             n += len(found)
-            steps.append({"sql": "" if write else text, "write": write, "as_of": found,
+            steps.append({"sql": "" if write else text, "write": write, "change": None, "as_of": found,
                           "kind": "write delta" if write else _kind(text)})
         return steps
+
+    def _own_change(self, change: "delta_dml.Change | None") -> "delta_dml.Change | None":
+        """``change`` when it changes one of the project's Delta tables; None when it is ordinary SQL
+        (a table people made in the database). A registered folder's Delta table is never changed."""
+        if change is None:
+            return None
+        if self._is_own(change.schema, change.table):
+            return change
+        entry = self.project.catalog.get(self._own_key(change.schema, change.table))
+        if entry is not None:
+            raise ValueError(f"{change.name} is read from {entry.get('source') or 'a registered folder'}, and "
+                             "registered folders are only read. Copy it into the project first: CREATE TABLE "
+                             f"{change.table}_copy USING DELTA AS SELECT * FROM {change.name}")
+        return None
 
     def _column_types(self, con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, dict[str, str]]]:
         """{schema: {table: {column: type}}} for the project's tables and views, temporary ones included,
@@ -641,10 +682,10 @@ class LocalEngine:
                              "and every version, so it's done as its own step (local_drop_delta), not in SQL.")
 
     def _as_write(self, steps: list[dict[str, Any]], write: "delta.Write", sql: str) -> dict[str, Any]:
-        if len(steps) != 1 or steps[0]["write"] is not None:
+        if len(steps) != 1 or steps[0]["write"] is not None or steps[0]["change"] is not None:
             raise ValueError(_one_query(sql))
         write.query = steps[0]["sql"]
-        return {"sql": "", "write": write, "as_of": steps[0]["as_of"], "kind": "write delta"}
+        return {"sql": "", "write": write, "change": None, "as_of": steps[0]["as_of"], "kind": "write delta"}
 
     @property
     def tables_dir(self) -> Path:
@@ -903,6 +944,128 @@ class LocalEngine:
         out["version"] = after.version()
         self._register_own(con, schema, w.table, folder)
         return out
+
+    def change_delta(self, sql: str, dialect: str = "duckdb", dry_run: bool = False, confirm: bool = False,
+                     timeout: float | None = None, query_id: str | None = None) -> dict[str, Any]:
+        """Run one MERGE INTO, UPDATE or DELETE on one of the project's Delta tables, in one commit.
+
+        ``dry_run`` runs it on a copy of the table (its log copied, its data files linked) and says
+        how many rows it would insert, update and delete, changing nothing. An UPDATE or DELETE
+        without WHERE changes every row, so it runs only with ``confirm``."""
+        with self._query(sql, dialect, timeout, query_id, dry_run=dry_run, change=True,
+                         confirm=confirm) as (_result, run):
+            summary = run["change"]
+        summary.update(seconds=round(time.monotonic() - run["started"], 3), **_about(run, self.project.id))
+        return summary
+
+    def _change(self, con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", state: dict[str, Any],
+                query_id: str, dry_run: bool = False, confirm: bool = False) -> dict[str, Any]:
+        """Run a MERGE, UPDATE or DELETE on one of the project's Delta tables. Holds the connection."""
+        from deltalake import CommitProperties, DeltaTable
+
+        entry = self.project.catalog[self._own_key(c.schema, c.table)]
+        name = f"{entry['schema']}.{entry['table']}"
+        folder = Path(entry["folder"])
+        if c.whole_table and not confirm:
+            if c.kind == "merge":
+                raise ValueError(f"MERGE with WHEN NOT MATCHED BY SOURCE and no condition changes every row of "
+                                 f"{name} that the source doesn't have (all of them, if the source is empty). Add "
+                                 "a condition (WHEN NOT MATCHED BY SOURCE AND ...), or run it on its own with "
+                                 "confirm (local_change_delta).")
+            raise ValueError(f"{c.kind.upper()} without a WHERE on its columns changes every row of {name}. Add a "
+                             "WHERE, or run it on its own with confirm (local_change_delta).")
+        current = DeltaTable(str(folder))
+        try:
+            delta_profile.check_table(current)
+        except delta_profile.ProfileViolation as exc:
+            raise ValueError(f"{name} isn't changed here: {exc}. Writing to it could make it unreadable in "
+                             "Fabric.") from None
+        before = current.version()
+        out: dict[str, Any] = {"table": name, "operation": c.kind, "folder": str(folder), "version": before,
+                               "dry_run": dry_run, "rows_inserted": 0, "rows_updated": 0, "rows_deleted": 0}
+        props = CommitProperties(custom_metadata={"fabric_desktop.project": self.project.id,
+                                                  "fabric_desktop.query": query_id})
+        source_table = f"__fd_merge_{uuid.uuid4().hex}"
+        source = names = None
+        try:
+            if c.kind == "merge":
+                source, names = self._merge_source(con, c, current, source_table, name)
+            if dry_run:
+                with self._shadow(folder) as copy:
+                    out.update(delta_dml.apply(c, DeltaTable(str(copy)), source, names, props))
+                    out["version"] = DeltaTable(str(copy)).version()  # what a real run would commit
+                return out
+            out.update(delta_dml.apply(c, current, source, names, props))
+        except BaseException as exc:
+            if state["cancelled"] or state["timed_out"]:
+                raise duckdb.InterruptException("cancelled") from None
+            if isinstance(exc, (ValueError, duckdb.Error, KeyboardInterrupt)):
+                raise
+            committed = not dry_run and _committed(folder, before, query_id)
+            raise ValueError(f"Changing {name} failed{'' if committed else ', and nothing was committed'}: "
+                             f"{_short(exc).split(' Detail: Python exception')[0]}") from None
+        finally:
+            if c.kind == "merge":
+                con.execute(f"DROP TABLE IF EXISTS temp.{q(source_table)}")
+        after = DeltaTable(str(folder))
+        delta_profile.check_table(after)
+        out["version"] = after.version()
+        self._register_own(con, entry["schema"], entry["table"], folder)
+        return out
+
+    def _merge_source(self, con: duckdb.DuckDBPyConnection, c: "delta_dml.Change", current: Any,
+                      source_table: str, name: str) -> tuple[Any, list[str]]:
+        """The MERGE's source rows, kept in a temporary table so the check below and the merge read
+        the same rows, as a stream of Fabric-safe types with column names in the table's case."""
+        query = c.source_sql("duckdb")
+        _only_reads(con, query)
+        con.execute(f"CREATE TEMP TABLE {q(source_table)} AS {query}")
+        keys = delta_dml.equi_keys(c)
+        if keys and any(w.match == "matched" for w in c.whens):
+            # Spark refuses a MERGE in which one row of the table matches two source rows: which
+            # one would update it is undefined. Checked here for ON t.a = s.a [AND ...].
+            group = ", ".join(f"{q(c.source_alias)}.{q(s_col)}" for _t, s_col in keys)
+            duplicate = con.execute(
+                f"SELECT {group} FROM temp.{q(source_table)} AS {q(c.source_alias)} WHERE EXISTS (SELECT 1 FROM "
+                f"{q(c.schema or 'dbo')}.{q(c.table)} AS {q(c.alias)} WHERE {c.on.sql(dialect='duckdb')}) "
+                f"GROUP BY {group} HAVING count(*) > 1 LIMIT 1").fetchone()
+            if duplicate is not None:
+                raise ValueError(f"More than one source row matches the same row of {name} (source key "
+                                 f"{', '.join(str(v) for v in duplicate)}), so which one updates it is undefined. "
+                                 "Keep one source row per key, for example with QUALIFY row_number() OVER "
+                                 "(PARTITION BY key ORDER BY ...) = 1.")
+        result = con.execute(f"SELECT * FROM temp.{q(source_table)}")
+        reader_of = getattr(result, "to_arrow_reader", None) or result.fetch_record_batch
+        reader = reader_of(_WRITE_BATCH)
+        cased = {f.name.lower(): f.name for f in current.schema().fields}
+        safe = delta.fabric_schema(reader.schema, names=False)
+        names = [cased.get(f.name.lower(), f.name) for f in safe]
+        schema = pa.schema([pa.field(n, f.type) for n, f in zip(names, safe)])
+        return delta.Conform(reader, schema, by_position=True).reader, names
+
+    @contextmanager
+    def _shadow(self, folder: Path):
+        """A copy of the Delta table at ``folder`` to try a change on: its log copied, its data files
+        hard-linked (copied where links aren't possible). delta-rs only adds files and log entries,
+        so nothing the copy does reaches the table."""
+        copy = self.project.temp_dir / "dry-run" / uuid.uuid4().hex
+        try:
+            for path in sorted(folder.rglob("*")):
+                target = copy / path.relative_to(folder)
+                if path.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if "_delta_log" in path.relative_to(folder).parts:
+                    shutil.copy2(path, target)
+                    continue
+                try:
+                    os.link(path, target)
+                except OSError:
+                    shutil.copy2(path, target)
+            yield copy
+        finally:
+            shutil.rmtree(copy, ignore_errors=True)
 
     def delta_history(self, table: str, limit: int = 50) -> dict[str, Any]:
         """The versions of a Delta table in the project (its own or a registered folder's), newest first."""
@@ -1243,6 +1406,18 @@ class ResultStream:
 
     def __exit__(self, *exc: Any) -> None:
         self.close()
+
+
+def _committed(folder: Path, before: int, query_id: str) -> bool:
+    """Whether this change committed a version, by its own commit metadata: another writer's commit in the
+    meantime doesn't count."""
+    from deltalake import DeltaTable
+    try:
+        table = DeltaTable(str(folder))
+        return any(v.get("fabric_desktop.query") == query_id
+                   for v in table.history(max(1, table.version() - before)))
+    except Exception:  # noqa: BLE001  # silent-ok: an unreadable log means it may have committed, and the error says so
+        return True
 
 
 def _about(run: dict[str, Any], project: str) -> dict[str, Any]:

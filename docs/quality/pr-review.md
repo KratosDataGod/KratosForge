@@ -1,6 +1,6 @@
 # PR quality gate
 
-How every pull request to Fabric Desktop by KratosBI gets an engineering quality decision. It sits beside the hardening release gates (`docs/hardening/readiness-checklist.md`, PR #137) and the usability gates (`docs/ux/release-review.md`, PR #166) and doesn't repeat them: those ask "is it safe" and "is it usable"; this asks "does this code deserve to exist in this form". Release management decides merges and promotes; this review recommends, and never merges or deploys.
+How every pull request to KratosForge gets an engineering quality decision. It sits beside the hardening release gates (`docs/hardening/readiness-checklist.md`, PR #137) and the usability gates (`docs/ux/release-review.md`, PR #166) and doesn't repeat them: those ask "is it safe" and "is it usable"; this asks "does this code deserve to exist in this form". Release management decides merges and promotes; this review recommends, and never merges or deploys.
 
 ## Scoring
 

@@ -50,7 +50,7 @@ Gaps: CPU and memory are measured only inside Prove; bytes processed is recorded
 
 ## 3. Proposed data model (PR-OPT-002)
 
-One Lakehouse, default `FabricDesktop_Central` (Chris, 2026-10-18: Optimize's lakehouse is Fabric Desktop's central lakehouse; other features add table families such as `fdacc_` and `fdset_`), separate from LH_Meta. Tables are named `fdopt_<name>` and sit in `dbo` (or directly under Tables in a lakehouse without schemas); no other table is ever touched.
+One Lakehouse, default `FabricDesktop_Central` (Chris, 2026-10-18: Optimize's lakehouse is KratosForge's central lakehouse; other features add table families such as `fdacc_` and `fdset_`), separate from LH_Meta. Tables are named `fdopt_<name>` and sit in `dbo` (or directly under Tables in a lakehouse without schemas); no other table is ever touched.
 
 Rules that make many installations safe:
 - **Append-only facts.** Every table is insert-only. State changes (a recommendation accepted, applied, dismissed) are new event rows; the current state is the latest event. No shared row is ever updated or deleted by a client.

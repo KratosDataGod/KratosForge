@@ -54,7 +54,7 @@ def get_status(svc: Any, ctx: CallContext) -> dict[str, Any]:
         user, tenant = svc.auth.signed_in_user(), svc.auth.signed_in_tenant()
     except Exception as exc:  # no sign-in yet, or no client ID: reported as not signed in
         _log.info("Not signed in: %s", describe(exc))
-    return {"product": "Fabric Desktop by KratosBI", "version": __version__, "python": platform.python_version(),
+    return {"product": "KratosForge", "version": __version__, "python": platform.python_version(),
             "signed_in": bool(user), "user": user, "tenant": tenant, "compute": "this PC",
             "caller": {"client_id": ctx.caller.client_id, "channel": ctx.caller.channel}}
 
@@ -78,7 +78,7 @@ def get_project(svc: Any, ctx: CallContext, id: str) -> dict[str, Any]:  # noqa:
     if id == "metadata":
         meta = svc.meta_project()
         if not meta.get("path"):
-            raise IntegrationError("not_found", "No metadata project is open in Fabric Desktop by KratosBI.",
+            raise IntegrationError("not_found", "No metadata project is open in KratosForge.",
                                    hint="Open or create one on the Data mesh page first.")
         return {"id": "metadata", "kind": "metadata", "path": meta["path"], "version": meta.get("version"),
                 "layers": meta.get("layers", []), "environments": _environments(meta.get("environments", {})),
@@ -102,7 +102,7 @@ def validate_project(svc: Any, ctx: CallContext) -> dict[str, Any]:
     """The open metadata project's own validation (the same list the Data mesh page shows)."""
     meta = svc.meta_project()
     if not meta.get("path"):
-        raise IntegrationError("not_found", "No metadata project is open in Fabric Desktop by KratosBI.")
+        raise IntegrationError("not_found", "No metadata project is open in KratosForge.")
     errors = meta.get("errors", [])
     return {"project": "metadata", "ok": not errors, "errors": errors, "entities": len(meta.get("entities", []))}
 
@@ -183,6 +183,9 @@ def validate_notebook(svc: Any, ctx: CallContext, name: str) -> dict[str, Any]:
         out["dependencies"] = svc.notebook_dependencies(cells)
     except Exception as exc:  # the dependency view is extra; the checks above still stand
         out["dependencies"] = {"error": redact_secrets(str(exc))}
+    # Validate notebook's code checks (validate.py): every finding with its severity, cell and fix.
+    checked = svc.notebook_validate_check(name, cells, lakehouse, nb.get("compute"))
+    out |= {"findings": checked["findings"], "counts": checked["counts"], "verdict": checked["verdict"]}
     out["ok"] = bool(runs["local"].get("ok"))
     return out
 

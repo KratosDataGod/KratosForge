@@ -2,7 +2,7 @@
 
 Every Stable promotion, newest first. Preview moves on every merge to `main`, so it isn't listed build by build; `git log --first-parent main` is its history. How a promotion is done is in [release management](README.md#promoting-to-stable).
 
-Release assets are replaced in place on each promotion, so only the newest build of each channel can be downloaded. The checksums below identify the files that were promoted.
+The `stable` release's files are replaced in place on each promotion. Each build is also kept as its own `build-<sha>` release, and every Stable build published after per-build releases began stays there, so it can be promoted again ([rollback](README.md#rollback)). Earlier builds can't be downloaded any more. The checksums below identify the files that were promoted.
 
 | Stable since | Commit | Last PR in it | Changes since previous Stable | Checks at promotion | Notes |
 | --- | --- | --- | --- | --- | --- |

@@ -1,6 +1,6 @@
 # Headless agent
 
-The Fabric Desktop by KratosBI agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with Fabric Desktop by KratosBI. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
+The KratosForge agent runs your metadata project on a server, unattended. It runs on Windows or Linux, signs in as a service principal or managed identity, and writes to OneLake exactly as the desktop app does. **Develop with KratosForge. Execute on your infrastructure. Store and consume in Microsoft Fabric.**
 
 The agent is the first milestone (M1) of the [enterprise local execution roadmap](enterprise-roadmap.md). It runs one machine's worth of work. Several agents sharing one queue comes in M3.
 
@@ -56,7 +56,7 @@ The full list, in alphabetical order, is in [permissions.md](permissions.md#the-
 
 ## Configure
 
-Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/agent.example.toml) to:
+Copy [deploy/agent.example.toml](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/agent.example.toml) to:
 
 | OS | Config | Home (queue, logs, caches) |
 | --- | --- | --- |
@@ -124,7 +124,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now fabric-desktop-agent
 journalctl -u fabric-desktop-agent -f
 ```
 
-Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/fabric-desktop-agent.service).
+Variables named by `*_env` settings go in `/etc/fabric-desktop/agent.env` (`NAME=value` lines, mode 600). The unit file is [deploy/linux/fabric-desktop-agent.service](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/fabric-desktop-agent.service).
 
 ### Linux (container)
 
@@ -138,7 +138,7 @@ docker run -d --name fd-agent --restart unless-stopped --stop-timeout 900 \
 docker exec fd-agent fabric-desktop agent status
 ```
 
-See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/linux/Dockerfile).
+See [deploy/linux/Dockerfile](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/linux/Dockerfile).
 
 ### Windows
 
@@ -151,7 +151,7 @@ notepad C:\ProgramData\FabricDesktop\agent.toml
 Start-ScheduledTask -TaskPath '\FabricDesktop\' -TaskName Agent
 ```
 
-[The script](https://github.com/KratosDataGod/fabric-desktop/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
+[The script](https://github.com/KratosDataGod/KratosForge/blob/main/deploy/windows/install-agent.ps1) installs the agent into a virtual environment and registers the Task Scheduler task `\FabricDesktop\Agent`. The task starts at boot with no one signed in and restarts every minute if it stops. A group managed service account (gMSA) is best, since there is no password to manage. Set `*_env` variables as machine environment variables.
 
 ## Operate
 
@@ -175,12 +175,12 @@ fabric-desktop agent enqueue prod silver.orders --cascade --backfill full   # re
 
 ### Status records
 
-Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. Fabric Desktop by KratosBI's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
+Every `agent.status_seconds`, the agent writes `agents/<name>.json` to each environment it runs, in `LH_Meta/Files/_fabric_desktop/` (a local environment keeps it in its `.local/<env>/_control` folder). Anyone who can read the environment's `LH_Meta` can see which agents serve it, whether they are alive and what they are doing, without access to the agent's machine. A record describes only that environment's jobs. KratosForge's workload views and Monitor > Operations > Agents ([user guide](user-guide.md#agents-preview)) read these files.
 
 | Field | Meaning |
 | --- | --- |
 | `contract`, `kind` | `1` and `agent_status` |
-| `agent`, `host`, `pid`, `version` | Which agent, where, and which Fabric Desktop by KratosBI version |
+| `agent`, `host`, `pid`, `version` | Which agent, where, and which KratosForge version |
 | `owner`, `identity` | `agent.owner` as written (`null` when not set), and `auth.type`: `service_principal`, `managed_identity` or `user`. No ids, certificate paths or secrets |
 | `credential` | Facts about the agent's credential, never the credential itself: `kind` (`certificate`, `secret`, `managed_identity` or `user`), `expires_at` (a certificate's end date, read from `auth.certificate_path`; `null` for a secret or managed identity, whose expiry the agent can't see), `last_token_at`, and `last_token_error` (`at` and the error, with secrets, ids, emails and user paths removed). The path, thumbprint, key and password are never published |
 | `state` | `running`, `stopping` (waiting for running jobs) or `stopped` (shut down cleanly) |
@@ -213,7 +213,7 @@ With `[incidents] enabled = true`, every `incidents.seconds` the agent reads eac
 
 A failed run's incident carries a **likely category** matched from the error text: Access, Throttled or capacity, Network, Table busy, Source missing, Code or schema, Data quality, Code, or Unrecognized, with whether a retry alone usually helps. It is a hint for where to look, never a diagnosis; the run's own error is the evidence. A new failure of a table with an open incident counts as another occurrence of it. Someone who resolves an incident by hand doesn't see it again for the same failed run, only for a new one.
 
-With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert is unchanged.
+With `alerts.teams_webhook_env` set, each change goes to Teams: one message when an incident opens or opens again, one when it recovers, and one digest when an evaluation changes more than `incidents.digest_over`. A message Teams doesn't take waits in `alerts.sqlite3` in the agent's home and goes with the next evaluation, marked **Delayed** with when it happened; after three days it is dropped. The agent's own "a job didn't finish" alert waits the same way, in `job_alerts.sqlite3`: it goes before the next such alert, or with the next status update (`status_seconds`), marked **Delayed**, and is dropped after three days.
 
 Routes send some incidents to their own channel. Each `[[incidents.route]]` has a `name`, `webhook_env` (the name of the environment variable holding the webhook; the address itself never goes in the file), and any of `teams`, `owners`, `criticality`, `kinds` and `envs`, each a list; an empty filter matches everything, and matching ignores case. A change goes to every route that matches it, and to `alerts.teams_webhook_env` when none does. A route whose variable isn't set is logged and skipped.
 
@@ -259,7 +259,7 @@ enabled = true
 entities = ["silver.*", "gold.*"]   # optional: what pipelines may run
 ```
 
-**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/fabric-desktop/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
+**Add the sample notebook.** Import [examples/pipeline/run_on_agent.ipynb](https://github.com/KratosDataGod/KratosForge/blob/main/examples/pipeline/run_on_agent.ipynb) into the environment's workspace as a Python notebook and set **LH_Meta** as its default lakehouse. In your pipeline, add a **Notebook** activity for it with these base parameters:
 
 | Parameter | Example | Meaning |
 | --- | --- | --- |

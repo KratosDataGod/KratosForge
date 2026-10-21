@@ -30,6 +30,8 @@ import re
 import sys
 from typing import Any
 
+from . import magics
+
 # Named as preinstalled in Microsoft's "Use Python experience on Notebook" page (checked
 # 2026-10-16): DuckDB, Polars, Scikit-learn and delta-rs (the ``deltalake`` package). No versions
 # are published. Kernels offered: Python 3.10, 3.11, 3.12 (3.12 is Fabric's default).
@@ -38,9 +40,9 @@ FABRIC_DOCS = "https://learn.microsoft.com/en-us/fabric/data-engineering/using-p
 # Fabric Desktop publishes Python notebooks with this kernel (fabric_run.PYTHON_NOTEBOOK_METADATA).
 FABRIC_PYTHON_KERNEL = "3.11"
 # Modules a notebook gets from Fabric Desktop on this PC and from Fabric itself in Fabric.
-PROVIDED = {"fabric_desktop": "Fabric Desktop by KratosBI's lakehouse module (added to the published notebook in Fabric)",
-            "notebookutils": "Fabric's notebook utilities (Fabric Desktop by KratosBI's version on this PC)",
-            "mssparkutils": "Fabric's notebook utilities (Fabric Desktop by KratosBI's version on this PC)"}
+PROVIDED = {"fabric_desktop": "KratosForge's lakehouse module (added to the published notebook in Fabric)",
+            "notebookutils": "Fabric's notebook utilities (KratosForge's version on this PC)",
+            "mssparkutils": "Fabric's notebook utilities (KratosForge's version on this PC)"}
 # Spark exists on both sides, as different engines: DuckDB's PySpark API here, Fabric's Spark there.
 SPARK = {"pyspark"}
 _DYNAMIC = re.compile(r"\b(importlib\.import_module|__import__)\s*\(|^\s*%(pip|conda)\b|^\s*!\s*pip\b|"
@@ -49,13 +51,12 @@ _DYNAMIC = re.compile(r"\b(importlib\.import_module|__import__)\s*\(|^\s*%(pip|c
 
 def _cell_python(source: str) -> str | None:
     """The Python in a cell, or None for a cell that isn't Python (SQL, HTML, Scala...)."""
-    head = source.lstrip()
-    if head.startswith(("%%sql", "%%html", "%%spark", "%%sparkr", "%%csharp", "%%configure")):
+    cell = magics.cell(source)
+    if cell.language != "python":
         return None
-    if re.match(r"%%(pyspark|python)\b", head):
-        head = head.split("\n", 1)[1] if "\n" in head else ""
+    head = cell.body
     # Line magics aren't Python; blank them out, keeping line numbers.
-    return "\n".join("" if re.match(r"^\s*[%!]", ln) else ln for ln in head.split("\n"))
+    return magics.blank("\n".join("" if re.match(r"^\s*%%", ln) else ln for ln in head.split("\n")))
 
 
 def imports(source: str) -> dict[str, Any]:

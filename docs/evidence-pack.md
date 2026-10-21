@@ -1,6 +1,6 @@
 # Security evidence pack
 
-Everything a security or IT team needs to review Fabric Desktop by KratosBI before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
+Everything a security or IT team needs to review KratosForge before approving it, in one place. Each row links to the page or file that holds the evidence. Where something is missing or unverified, the row says so.
 
 Last checked against `main` a346145 (2026-10-18). Nothing in this pack has been verified on a live Fabric tenant yet. That is gate 3 in the [readiness checklist](hardening/readiness-checklist.md).
 
@@ -60,7 +60,7 @@ These are the flows the app itself starts, from the hosts named in its source co
 | Evidence | Where | State |
 | --- | --- | --- |
 | SBOMs (CycloneDX) for the shell and the engine | `sbom-app.cdx.json` and `sbom-engine.cdx.json` on each Preview release (`latest`) | Made for every Preview build. The Stable release carries only the exe, engine and `version.json` |
-| Build provenance attestations | Checked with `gh attestation verify <file> -R KratosDataGod/fabric-desktop` | Made for every build. Nothing on the PC checks them yet |
+| Build provenance attestations | Checked with `gh attestation verify <file> -R KratosDataGod/KratosForge` | Made for every build. Nothing on the PC checks them yet |
 | SHA-256 checksums | `version.json` on each release | Enforced by the app for the exe and the engine |
 | Dependency scanning | `pip-audit` and `cargo audit` in CI on every pull request | In place |
 | Pinned dependencies | `sidecar/constraints.txt`, `Cargo.lock` with `--locked` | In place |

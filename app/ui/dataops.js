@@ -154,7 +154,7 @@ function lastRelease(env, onChange = null) {
         env !== "dev" ? preview("rollback", btn("Roll back...", "history", () => rollbackDialog(env, onChange), "tool link small")) : null),
       row("Metadata version", h("span", { class: "mono" }, r.version || "")),
       row("Code", releaseCommitText(r)),
-      r.engine_version ? row("Engine", `Fabric Desktop by KratosBI ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
+      r.engine_version ? row("Engine", `KratosForge ${r.engine_version}`, r.lock_hash ? h("span", { class: "muted-text" }, `, lock ${r.lock_hash.slice(0, 4)}…${r.lock_hash.slice(-4)}`) : null) : null,
       row("Promoted", `from ${ENV_LABEL[r.source_env] || r.source_env || "?"}${r.by ? ` by ${r.by}` : ""}, `,
         h("span", { title: r.at ? new Date(r.at).toLocaleString() : "" }, relTime(r.at))),
       row("Record", record)));
@@ -358,7 +358,7 @@ function quarantinePanel(e, q) {
   const edits = {};
   const editable = new Set(q.editable || []);
   const count = h("span", { class: "muted-text" });
-  const replayBtn = previewMarked("replay", btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true }));
+  const replayBtn = previewMarked("quarantineReplay", btn("Replay selected", "play", () => replay(), "tool primary small", { disabled: true }));
   const discardBtn = btn("Discard selected", "delete", () => discard(), "tool outline small", { disabled: true });
   const sync = () => {
     const edited = Object.keys(edits).filter((id) => Object.keys(edits[id]).length).length;
@@ -532,6 +532,7 @@ async function checkFreshness() {
         logActivity({ id, status: "failed", title: `${x.entity} is late · ${ENV_LABEL[x.env]}`, text: `${x.reasons.join("; ")}.` });
       }
     }
+    if (res.project_error) logActivity({ id: "fresh:project-error", status: "error", title: "Freshness not checked", text: "The metadata project couldn't be read, so late tables can't be found.", details: res.project_error });
     if (res.alert_error) logActivity({ id: "fresh:teams-error", status: "error", title: "Teams alert not sent", text: friendlyError(res.alert_error).text, details: res.alert_error });
   }
   for (const e of watch?.envs || []) {

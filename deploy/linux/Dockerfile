@@ -1,4 +1,4 @@
-# Fabric Desktop agent as a container. Build from the repository root:
+# KratosForge agent as a container. Build from the repository root:
 #   docker build -f deploy/linux/Dockerfile -t fabric-desktop-agent .
 # Run with the config, certificate and project mounted, and a volume for the queue:
 #   docker run -d --name fd-agent \

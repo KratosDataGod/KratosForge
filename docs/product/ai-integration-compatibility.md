@@ -1,6 +1,6 @@
 # AI integration compatibility
 
-Which external tools have been tried with Fabric Desktop by KratosBI, how, and what didn't work. Only rows marked **Tested** are claimed to work. Architecture: [ai-integration.md](../architecture/ai-integration.md).
+Which external tools have been tried with KratosForge, how, and what didn't work. Only rows marked **Tested** are claimed to work. Architecture: [ai-integration.md](../architecture/ai-integration.md).
 
 ## Protocol
 
@@ -33,6 +33,6 @@ Every build runs the same protocol checks through all three ways a tool can conn
 
 | Not supported | Why |
 | --- | --- |
-| Sampling and elicitation (the server asking the tool's model or user for something) | The server never asks an AI model for anything, and approvals happen in Fabric Desktop by KratosBI, not in the tool |
+| Sampling and elicitation (the server asking the tool's model or user for something) | The server never asks an AI model for anything, and approvals happen in KratosForge, not in the tool |
 | `logging/setLevel`, `completion/complete`, resource subscriptions | Not needed by any workflow yet; list-changed notifications cover capability changes |
 | Requests from web pages (any `Origin` header) | Only programs on this PC may call the local API |

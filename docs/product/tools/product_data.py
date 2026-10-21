@@ -192,7 +192,7 @@ def _link(path: str, here: Path) -> str:
 
 
 def _pr(n: int) -> str:
-    return f"[#{n}](https://github.com/KratosDataGod/fabric-desktop/pull/{n})"
+    return f"[#{n}](https://github.com/KratosDataGod/KratosForge/pull/{n})"
 
 
 def _replace(path: Path, name: str, body: str) -> None:
@@ -252,7 +252,7 @@ def render_inventory() -> None:
             out.append("- **Depends on:** " + ", ".join(f"[{d}](#{d.lower()})" for d in f["depends_on"]))
         if f.get("limitations"):
             out.append("- **Known limitations:** " + " ".join(l if l.endswith(".") else l + "." for l in f["limitations"]))
-        refs = [_pr(p) for p in f.get("prs", [])] + [f"issue [#{n}](https://github.com/KratosDataGod/fabric-desktop/issues/{n})" for n in f.get("issues", [])]
+        refs = [_pr(p) for p in f.get("prs", [])] + [f"issue [#{n}](https://github.com/KratosDataGod/KratosForge/issues/{n})" for n in f.get("issues", [])]
         if refs:
             out.append("- **Pull requests and issues:** " + ", ".join(refs))
         if f.get("workstream"):
